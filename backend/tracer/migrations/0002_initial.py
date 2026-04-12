@@ -50,11 +50,6 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employment_records', to='tracer.region'),
         ),
         migrations.AddField(
-            model_name='employmentrecord',
-            name='salary_band',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employment_records', to='tracer.salaryband'),
-        ),
-        migrations.AddField(
             model_name='alumniskill',
             name='skill',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='alumni_entries', to='tracer.skill'),

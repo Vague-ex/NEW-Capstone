@@ -79,20 +79,6 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name='SalaryBand',
-            fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('code', models.CharField(max_length=40, unique=True)),
-                ('label', models.CharField(max_length=120)),
-                ('min_amount', models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True)),
-                ('max_amount', models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True)),
-                ('is_active', models.BooleanField(default=True)),
-            ],
-            options={
-                'ordering': ['code'],
-            },
-        ),
-        migrations.CreateModel(
             name='Skill',
             fields=[
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
