@@ -11,7 +11,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 
-const PIE_COLORS = ['#10b981', '#0d9488', '#ef4444'];
+const PIE_COLORS = ['#166534', '#22c55e', '#ef4444'];
 
 export function EmployerDashboard() {
   const navigate = useNavigate();
@@ -59,18 +59,18 @@ export function EmployerDashboard() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <Building2 className="size-5 text-teal-200" />
+                <Building2 className="size-5 text-emerald-200" />
                 <h2 className="text-white" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{employer.company}</h2>
               </div>
-              <p className="text-teal-200 text-sm">
+              <p className="text-emerald-100 text-sm">
                 Showing data for <span style={{ fontWeight: 600 }}>{total} BSIS alumni</span> who listed your company.
               </p>
-              <p className="text-teal-300 text-xs mt-1">
+              <p className="text-emerald-200 text-xs mt-1">
                 Individual records available through the Employment Verification tool.
               </p>
             </div>
             <button onClick={() => navigate('/employer/verify')}
-              className="flex items-center gap-2 bg-white text-teal-700 px-5 py-2.5 rounded-xl text-sm hover:bg-teal-50 transition shrink-0"
+              className="flex items-center gap-2 bg-white text-[#166534] px-5 py-2.5 rounded-xl text-sm hover:bg-green-50 transition shrink-0"
               style={{ fontWeight: 600 }}>
               <Search className="size-4" /> Verify Employment
             </button>
@@ -80,7 +80,7 @@ export function EmployerDashboard() {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Your BSIS Alumni" value={total} sub="Listed your company"
-            icon={Users} iconBg="bg-teal-50" iconColor="text-teal-600" />
+            icon={Users} iconBg="bg-green-50" iconColor="text-green-700" />
           <StatCard label="Currently Employed" value={employed}
             sub={total > 0 ? `${Math.round(employed / total * 100)}% at your company` : 'No data'}
             icon={Briefcase} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
@@ -99,7 +99,7 @@ export function EmployerDashboard() {
               {/* Skills Distribution */}
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
-                  <BarChart2 className="size-4 text-teal-600" /> Skills Distribution
+                  <BarChart2 className="size-4 text-[#166534]" /> Skills Distribution
                 </h3>
                 <p className="text-gray-500 text-xs mb-4">Skills held by your company's BSIS alumni</p>
                 {skillData.length > 0 ? (
@@ -123,7 +123,7 @@ export function EmployerDashboard() {
               {/* Employment Breakdown */}
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
-                  <Users className="size-4 text-teal-600" /> Employment Status
+                  <Users className="size-4 text-[#166534]" /> Employment Status
                 </h3>
                 <p className="text-gray-500 text-xs mb-4">Current status of your BSIS alumni</p>
                 {pieData.length > 0 ? (
@@ -169,7 +169,7 @@ export function EmployerDashboard() {
                   Your BSIS Alumni ({total})
                 </h3>
                 <button onClick={() => navigate('/employer/verify')}
-                  className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs px-3 py-1.5 rounded-lg transition"
+                  className="flex items-center gap-1.5 bg-[#166534] hover:bg-[#14532d] text-white text-xs px-3 py-1.5 rounded-lg transition"
                   style={{ fontWeight: 600 }}>
                   <Search className="size-3.5" /> Verify
                 </button>
@@ -177,7 +177,7 @@ export function EmployerDashboard() {
               <div className="divide-y divide-gray-50">
                 {myAlumni.map(a => (
                   <div key={a.id} className="flex items-center gap-3 py-2.5 hover:bg-gray-50/60 rounded-xl px-2 transition">
-                    <div className="flex size-9 items-center justify-center rounded-full bg-teal-50 text-teal-700 text-xs shrink-0"
+                    <div className="flex size-9 items-center justify-center rounded-full bg-green-50 text-green-700 text-xs shrink-0"
                       style={{ fontWeight: 700 }}>
                       {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                     </div>
@@ -185,9 +185,8 @@ export function EmployerDashboard() {
                       <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 500 }}>{a.name}</p>
                       <p className="text-gray-400 text-xs truncate">{a.jobTitle ?? '—'} · Batch {a.graduationYear}</p>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
-                      a.verificationStatus === 'verified' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                    }`} style={{ fontWeight: 600 }}>
+                    <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${a.verificationStatus === 'verified' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`} style={{ fontWeight: 600 }}>
                       {a.verificationStatus === 'verified' ? 'Verified' : 'Pending'}
                     </span>
                   </div>
@@ -207,7 +206,7 @@ export function EmployerDashboard() {
               Alumni must update their Employment Details in their dashboard for data to appear here.
             </p>
             <button onClick={() => navigate('/employer/verify')}
-              className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-xl text-sm mx-auto transition"
+              className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm mx-auto transition"
               style={{ fontWeight: 600 }}>
               <Search className="size-4" /> Verify an Alumni <ArrowRight className="size-4" />
             </button>
@@ -215,18 +214,18 @@ export function EmployerDashboard() {
         )}
 
         {/* Verification CTA */}
-        <div className="bg-teal-50 border border-teal-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <CheckCircle2 className="size-5 text-teal-600 mt-0.5 shrink-0" />
+            <CheckCircle2 className="size-5 text-[#166534] mt-0.5 shrink-0" />
             <div>
-              <p className="text-teal-800 text-sm" style={{ fontWeight: 600 }}>Need to verify an applicant?</p>
-              <p className="text-teal-700 text-xs mt-0.5">
+              <p className="text-green-800 text-sm" style={{ fontWeight: 600 }}>Need to verify an applicant?</p>
+              <p className="text-green-700 text-xs mt-0.5">
                 Search by name or Student ID, confirm employment, and leave an endorsement.
               </p>
             </div>
           </div>
           <button onClick={() => navigate('/employer/verify')}
-            className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-xl text-sm transition shrink-0"
+            className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition shrink-0"
             style={{ fontWeight: 600 }}>
             Employment Verification <ArrowRight className="size-4" />
           </button>

@@ -6,7 +6,7 @@ import {
   ChevronRight, Bell, Shield, Star, Briefcase,
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
 } from 'lucide-react';
-const schoolLogo = '/favicon.ico';
+const schoolLogo = '/CHMSULogo.png';
 
 type PortalRole = 'alumni' | 'employer' | 'admin';
 
@@ -131,8 +131,8 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               key={item.path}
               onClick={() => { navigate(item.path); setSidebarOpen(false); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150 ${isActive
-                  ? 'bg-white/20 text-white shadow-sm'
-                  : 'text-white/60 hover:text-white hover:bg-white/10'
+                ? 'bg-white/20 text-white shadow-sm'
+                : 'text-white/60 hover:text-white hover:bg-white/10'
                 }`}
               style={{ fontWeight: isActive ? 600 : 400 }}
             >

@@ -24,3 +24,22 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Keep form text readable even when OS/browser applies dark color scheme. */
+input,
+textarea,
+select {
+  color: #111827;
+  caret-color: #111827;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+  opacity: 1;
+}
+
+select option {
+  color: #111827;
+  background-color: #ffffff;
+}
