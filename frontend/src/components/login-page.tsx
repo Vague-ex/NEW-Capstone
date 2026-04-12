@@ -6,7 +6,7 @@ import {
   CheckCircle2, Video, VideoOff,
 } from "lucide-react";
 import { VALID_ALUMNI } from "../data/app-data";
-const schoolLogo = "/favicon.ico";
+const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "credential" | "password" | "facescan";
 type DetectedRole = "admin" | "graduate" | null;

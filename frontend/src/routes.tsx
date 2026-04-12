@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router';
+import type { RouteObject } from 'react-router';
 
 // Auth / Public
 import { LoginPage } from './components/login-page';
@@ -28,7 +28,7 @@ import { AdminEmployerRequests } from './components/admin/admin-employer-request
 import { AdminMap } from './components/admin/admin-map';
 import { AdminAnalytics } from './components/admin/admin-analytics';
 
-export const router = createBrowserRouter([
+export const routes: RouteObject[] = [
   // ── Single Login Entry Point ──
   { path: '/', Component: LoginPage },
 
@@ -59,4 +59,4 @@ export const router = createBrowserRouter([
 
   // Legacy fallbacks
   { path: '/admin', Component: AdminNewDashboard },
-]);
+];
