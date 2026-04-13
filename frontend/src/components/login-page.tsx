@@ -3,13 +3,13 @@ import { useNavigate } from "react-router";
 import {
   GraduationCap, ArrowRight, ArrowLeft, Eye, EyeOff,
   AlertCircle, ShieldCheck, User, Mail, Camera,
-  CheckCircle2, Video, VideoOff,
+  CheckCircle2, Video,
 } from "lucide-react";
-import { VALID_ALUMNI } from "../data/app-data";
+import { adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
 const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "credential" | "password" | "facescan";
-type DetectedRole = "admin" | "graduate" | null;
+type DetectedRole = "admin" | null;
 
 function detectRole(cred: string): DetectedRole {
   const t = cred.trim();
@@ -17,27 +17,12 @@ function detectRole(cred: string): DetectedRole {
   if (t.toLowerCase() === "chmsuadmin@chmsu.edu.ph") return "admin";
   if (t.toLowerCase().endsWith("@chmsu.edu.ph") && t.toLowerCase().includes("admin"))
     return "admin";
-  if (t.includes("@")) return "graduate";
   return null;
 }
 
 function credentialIcon(cred: string) {
   if (cred.trim().includes("@")) return Mail;
   return User;
-}
-
-function findGraduate(cred: string) {
-  const t = cred.trim().toLowerCase();
-  const found = VALID_ALUMNI.find((a) => a.email?.toLowerCase() === t);
-  if (found) return found;
-  try {
-    const saved = sessionStorage.getItem("alumni_user");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.email?.toLowerCase() === t) return parsed;
-    }
-  } catch { }
-  return null;
 }
 
 export function LoginPage() {
@@ -54,15 +39,17 @@ export function LoginPage() {
   const [cameraOn, setCameraOn] = useState(false);
   const [scanStage, setScanStage] = useState<"idle" | "detecting" | "matched" | "failed">("idle");
   const [cameraError, setCameraError] = useState("");
+  const [faceAuthBusy, setFaceAuthBusy] = useState(false);
   const scanTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const detectedRole = detectRole(credential);
   const CredIcon = credentialIcon(credential);
 
   useEffect(() => {
+    const timers = scanTimers.current;
     return () => {
       stopCamera();
-      scanTimers.current.forEach((t) => clearTimeout(t));
+      timers.forEach((t) => clearTimeout(t));
     };
   }, []);
 
@@ -76,13 +63,6 @@ export function LoginPage() {
       setError("School ID login is no longer supported. Please enter your registered email address.");
       return;
     }
-    if (detectedRole === "graduate") {
-      const found = findGraduate(credential);
-      if (!found) {
-        setError("No account found with this email. Please register first.");
-        return;
-      }
-    }
     setPhase("password");
   };
 
@@ -94,20 +74,80 @@ export function LoginPage() {
       return;
     }
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 700));
-
-    if (detectedRole === "admin") {
-      if (password !== "chmsu2024") {
-        setError("Incorrect password. Please try again.");
-        setIsLoading(false);
-        return;
-      }
+    try {
+      const response = await adminLogin(credential.trim(), password);
       sessionStorage.setItem("admin_authenticated", "true");
+      sessionStorage.setItem("admin_user", JSON.stringify(response.user));
       setIsLoading(false);
       navigate("/admin/dashboard");
-    } else {
+      return;
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 403) {
+        // Password is valid but account is not admin. Continue to alumni face verification.
+        setIsLoading(false);
+        setCameraError("");
+        setScanStage("idle");
+        setPhase("facescan");
+        return;
+      }
+
+      const message = err instanceof Error ? err.message : "Login failed. Please try again.";
+      setError(message);
       setIsLoading(false);
-      setPhase("facescan");
+    }
+  };
+
+  const captureFaceScanBlob = async (): Promise<Blob> => {
+    const video = videoRef.current;
+    if (!video) {
+      throw new Error("Camera is not ready.");
+    }
+
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Unable to access camera frame.");
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("Failed to capture face scan image."));
+          return;
+        }
+        resolve(blob);
+      }, "image/jpeg", 0.9);
+    });
+  };
+
+  const runGraduateFaceAuthentication = async () => {
+    setFaceAuthBusy(true);
+    setCameraError("");
+    setScanStage("detecting");
+
+    try {
+      const faceBlob = await captureFaceScanBlob();
+      const response = await alumniLogin(credential.trim(), password, faceBlob);
+      sessionStorage.setItem("alumni_user", JSON.stringify(response.alumni));
+      setScanStage("matched");
+      stopCamera();
+      const redirectTimer = setTimeout(() => navigate("/alumni/dashboard"), 1100);
+      scanTimers.current.push(redirectTimer);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Face authentication failed. Please try again.";
+      setScanStage("failed");
+      setCameraError(message);
+      stopCamera();
+    } finally {
+      setFaceAuthBusy(false);
     }
   };
 
@@ -121,16 +161,10 @@ export function LoginPage() {
         videoRef.current.play();
       }
       setCameraOn(true);
-      const t1 = setTimeout(() => setScanStage("detecting"), 800);
-      const t2 = setTimeout(() => {
-        setScanStage("matched");
-        stopCamera();
-        const graduate = findGraduate(credential);
-        if (graduate) sessionStorage.setItem("alumni_user", JSON.stringify(graduate));
-        const t3 = setTimeout(() => navigate("/alumni/dashboard"), 1400);
-        scanTimers.current.push(t3);
-      }, 3200);
-      scanTimers.current.push(t1, t2);
+      const authTimer = setTimeout(() => {
+        void runGraduateFaceAuthentication();
+      }, 900);
+      scanTimers.current.push(authTimer);
     } catch {
       setCameraError("Camera access was denied. Please allow camera permission and try again.");
     }
@@ -149,15 +183,9 @@ export function LoginPage() {
 
   const RoleBadge = () => {
     if (!detectedRole) return null;
-    if (detectedRole === "admin")
-      return (
-        <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 text-xs px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
-          <ShieldCheck className="size-3.5" /> Admin Account Detected
-        </span>
-      );
     return (
-      <span className="inline-flex items-center gap-1.5 bg-[#166534]/10 text-[#166534] text-xs px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
-        <GraduationCap className="size-3.5" /> Graduate Account · Face scan required
+      <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 text-xs px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
+        <ShieldCheck className="size-3.5" /> Admin Account Hint
       </span>
     );
   };
@@ -345,30 +373,28 @@ export function LoginPage() {
                 </button>
 
                 <div className="flex items-center gap-2.5 bg-white border border-gray-100 shadow-sm rounded-xl px-4 py-3 mb-6">
-                  <div className={`flex size-8 items-center justify-center rounded-lg ${detectedRole === "admin" ? "bg-amber-100" : "bg-[#166534]/10"} shrink-0`}>
+                  <div className={`flex size-8 items-center justify-center rounded-lg ${detectedRole === "admin" ? "bg-amber-100" : "bg-gray-100"} shrink-0`}>
                     {detectedRole === "admin"
                       ? <ShieldCheck className="size-4 text-amber-600" />
-                      : <GraduationCap className="size-4 text-[#166534]" />
+                      : <User className="size-4 text-gray-500" />
                     }
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{credential}</p>
-                    <p className={`text-xs ${detectedRole === "admin" ? "text-amber-600" : "text-[#166534]"}`} style={{ fontWeight: 500 }}>
-                      {detectedRole === "admin" ? "Admin — password only" : "Graduate — password + face scan required"}
+                    <p className={`text-xs ${detectedRole === "admin" ? "text-amber-600" : "text-gray-500"}`} style={{ fontWeight: 500 }}>
+                      {detectedRole === "admin" ? "Admin account hint detected" : "Account type will be verified after password"}
                     </p>
                   </div>
-                  <RoleBadge />
                 </div>
 
                 <h2 className="text-gray-900 mb-1" style={{ fontWeight: 700, fontSize: "1.2rem" }}>
                   Enter your password
                 </h2>
-                {detectedRole === "graduate" && (
-                  <p className="text-gray-500 text-sm mb-5">After your password, a face scan will verify your identity.</p>
-                )}
-                {detectedRole === "admin" && (
-                  <p className="text-gray-500 text-sm mb-5">Enter your admin password to continue.</p>
-                )}
+                <p className="text-gray-500 text-sm mb-5">
+                  {detectedRole === "admin"
+                    ? "Enter your admin password to continue."
+                    : "If this is a graduate account, FaceID verification starts after password check."}
+                </p>
 
                 {error && (
                   <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-4">
@@ -394,9 +420,6 @@ export function LoginPage() {
                         {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                       </button>
                     </div>
-                    <p className="text-gray-400 text-xs mt-1.5">
-                      {detectedRole === "admin" ? "Demo password: chmsu2024" : "Demo: use any non-empty password"}
-                    </p>
                   </div>
 
                   <button
@@ -407,8 +430,6 @@ export function LoginPage() {
                   >
                     {isLoading ? (
                       <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying…</>
-                    ) : detectedRole === "graduate" ? (
-                      <>Continue to Face Scan <Camera className="size-4" /></>
                     ) : (
                       <>Sign In <ArrowRight className="size-4" /></>
                     )}
@@ -453,10 +474,10 @@ export function LoginPage() {
                 </div>
 
                 {/* Camera area */}
-                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4" style={{ aspectRatio: "4/3" }}>
+                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center" style={{ aspectRatio: "4/3" }}>
                   <video
                     ref={videoRef}
-                    className={`w-full h-full object-cover ${!cameraOn ? "hidden" : ""}`}
+                    className={`absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "hidden" : ""}`}
                     playsInline muted autoPlay
                   />
 
@@ -553,25 +574,14 @@ export function LoginPage() {
                   </div>
                 )}
 
-                {scanStage === "idle" && !cameraOn && (
+                {!cameraOn && scanStage !== "matched" && (
                   <div className="space-y-3">
                     <button
                       onClick={startCamera}
                       className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition"
                       style={{ fontWeight: 600 }}
                     >
-                      <Video className="size-4" /> Begin Face Scan
-                    </button>
-                    <button
-                      onClick={() => {
-                        const graduate = findGraduate(credential);
-                        if (graduate) sessionStorage.setItem("alumni_user", JSON.stringify(graduate));
-                        navigate("/alumni/dashboard");
-                      }}
-                      className="w-full flex items-center justify-center gap-2 border border-gray-200 hover:bg-gray-50 text-gray-600 py-2.5 rounded-xl text-sm transition"
-                      style={{ fontWeight: 500 }}
-                    >
-                      Skip for Demo →
+                      <Video className="size-4" /> {scanStage === "failed" ? "Retry Face Scan" : "Begin Face Scan"}
                     </button>
                     <button
                       onClick={() => { setPhase("password"); setScanStage("idle"); setCameraError(""); }}
@@ -585,7 +595,9 @@ export function LoginPage() {
                 {cameraOn && scanStage === "detecting" && (
                   <div className="flex items-center gap-2 justify-center py-2">
                     <span className="size-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
-                    <span className="text-gray-600 text-sm">Analyzing facial biometrics…</span>
+                    <span className="text-gray-600 text-sm">
+                      {faceAuthBusy ? "Verifying account and face scan..." : "Analyzing facial biometrics..."}
+                    </span>
                   </div>
                 )}
               </div>

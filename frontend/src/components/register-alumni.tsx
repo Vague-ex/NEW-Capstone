@@ -6,6 +6,7 @@ import {
   MapPin, RefreshCw, Video, ChevronRight, ChevronLeft,
   Briefcase, BookOpen, Award,
 } from 'lucide-react';
+import { registerAlumni } from '../app/api-client';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -22,8 +23,8 @@ const STEP_CONFIG = [
 
 const SHOT_INSTRUCTIONS = [
   { label: 'Face Forward', desc: 'Look directly at the camera' },
-  { label: 'Turn LEFT',    desc: 'Slowly turn your head to the left' },
-  { label: 'Turn RIGHT',   desc: 'Slowly turn your head to the right' },
+  { label: 'Turn LEFT', desc: 'Slowly turn your head to the left' },
+  { label: 'Turn RIGHT', desc: 'Slowly turn your head to the right' },
 ];
 
 const SKILLS_LIST = [
@@ -89,9 +90,8 @@ const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 
 function RadioOption({ label, value, current, onSelect }: { label: string; value: string; current: string; onSelect: (v: string) => void }) {
   const active = current === value;
   return (
-    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${
-      active ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-    }`}>
+    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${active ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+      }`}>
       <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-[#166534]' : 'border-gray-300'}`}>
         {active && <div className="size-2 rounded-full bg-[#166534]" />}
       </div>
@@ -103,9 +103,8 @@ function RadioOption({ label, value, current, onSelect }: { label: string; value
 
 function CheckOption({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
-    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs cursor-pointer transition select-none ${
-      checked ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-    }`}>
+    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs cursor-pointer transition select-none ${checked ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+      }`}>
       <div className={`size-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'}`}>
         {checked && (
           <svg className="size-2.5 text-white" viewBox="0 0 12 12" fill="none">
@@ -206,7 +205,7 @@ export function RegisterAlumni() {
     }
     if (step === 2) {
       if (!form.familyName.trim()) { setStepError('Family name is required.'); return false; }
-      if (!form.firstName.trim())  { setStepError('First name is required.');  return false; }
+      if (!form.firstName.trim()) { setStepError('First name is required.'); return false; }
     }
     if (step === 3) {
       if (!form.graduationDate.trim()) { setStepError('Date of graduation is required.'); return false; }
@@ -240,7 +239,7 @@ export function RegisterAlumni() {
   const captureShot = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const ctx = canvasRef.current.getContext('2d');
-    canvasRef.current.width  = videoRef.current.videoWidth;
+    canvasRef.current.width = videoRef.current.videoWidth;
     canvasRef.current.height = videoRef.current.videoHeight;
     ctx?.drawImage(videoRef.current, 0, 0);
     const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
@@ -254,7 +253,7 @@ export function RegisterAlumni() {
       setGpsLoading(true);
       navigator.geolocation.getCurrentPosition(
         pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
-        ()  => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
+        () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
         { timeout: 6000 }
       );
     }
@@ -274,33 +273,55 @@ export function RegisterAlumni() {
     startCamera();
   };
 
+  const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+    const response = await fetch(dataUrl);
+    return response.blob();
+  };
+
   // ── Final submit ─────────────────────────────────────────────────────────────
   const handleFinalSubmit = async () => {
+    if (!allShotsCaptured) {
+      setStepError('All 3 biometric captures are required before submitting.');
+      return;
+    }
+
+    const [faceFront, faceLeft, faceRight] = shots as [string, string, string];
+    setStepError('');
     setIsSaving(true);
-    await new Promise(r => setTimeout(r, 1400));
-    const fullName = [form.firstName, form.middleName, form.familyName].filter(Boolean).join(' ');
-    const gradYear = form.graduationDate
-      ? parseInt(form.graduationDate.replace(/.*\//, ''))
-      : new Date().getFullYear();
-    const newGraduate = {
-      id: `new-${Date.now()}`,
-      schoolId: '',
-      name: fullName,
-      email: form.email,
-      graduationYear: isNaN(gradYear) ? new Date().getFullYear() : gradYear,
-      verificationStatus: 'pending' as const,
-      employmentStatus: form.employmentStatus === 'Yes' ? 'employed' as const : 'unemployed' as const,
-      dateUpdated: new Date().toISOString().split('T')[0],
-      biometricCaptured: allShotsCaptured,
-      biometricDate: allShotsCaptured ? new Date().toISOString().split('T')[0] : undefined,
-      lat: gps?.lat,
-      lng: gps?.lng,
-      skills: form.skills,
-      surveyData: { ...form },
-    };
-    sessionStorage.setItem('alumni_user', JSON.stringify(newGraduate));
-    setIsSaving(false);
-    setDone(true);
+
+    try {
+      const [frontBlob, leftBlob, rightBlob] = await Promise.all([
+        dataUrlToBlob(faceFront),
+        dataUrlToBlob(faceLeft),
+        dataUrlToBlob(faceRight),
+      ]);
+
+      const payload = new FormData();
+      payload.append('email', form.email.trim().toLowerCase());
+      payload.append('password', form.password);
+      payload.append('confirm_password', form.confirmPassword);
+      payload.append('first_name', form.firstName.trim());
+      payload.append('middle_name', form.middleName.trim());
+      payload.append('family_name', form.familyName.trim());
+      payload.append('graduation_date', form.graduationDate);
+      payload.append('employment_status', form.employmentStatus);
+      payload.append('capture_time', captureTime || new Date().toISOString());
+      payload.append('gps_lat', gps?.lat?.toString() || '');
+      payload.append('gps_lng', gps?.lng?.toString() || '');
+      payload.append('survey_data', JSON.stringify(form));
+      payload.append('face_front', frontBlob, `face_front_${Date.now()}.jpg`);
+      payload.append('face_left', leftBlob, `face_left_${Date.now()}.jpg`);
+      payload.append('face_right', rightBlob, `face_right_${Date.now()}.jpg`);
+
+      const response = await registerAlumni(payload);
+      sessionStorage.setItem('alumni_user', JSON.stringify(response.alumni));
+      setDone(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Registration failed. Please try again.';
+      setStepError(message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ── Done screen ───────────────────────────────────────────────────────────────
@@ -367,10 +388,9 @@ export function RegisterAlumni() {
             {STEP_CONFIG.map((s, i) => (
               <div key={s.n} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center shrink-0">
-                  <div className={`flex size-7 items-center justify-center rounded-full text-xs transition-all ${
-                    step > s.n ? 'bg-emerald-500 text-white' :
+                  <div className={`flex size-7 items-center justify-center rounded-full text-xs transition-all ${step > s.n ? 'bg-emerald-500 text-white' :
                     step === s.n ? 'bg-[#166534] text-white' : 'bg-gray-200 text-gray-400'
-                  }`} style={{ fontWeight: 700 }}>
+                    }`} style={{ fontWeight: 700 }}>
                     {step > s.n ? <CheckCircle2 className="size-3.5" /> : s.n}
                   </div>
                   <p className={`mt-1 whitespace-nowrap ${step >= s.n ? 'text-gray-700' : 'text-gray-400'}`}
@@ -579,9 +599,9 @@ export function RegisterAlumni() {
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Highest Educational Attainment (Post-Graduate)</label>
                   <div className="space-y-2">
                     {[
-                      { val: 'Masters',   label: "Master's Degree" },
+                      { val: 'Masters', label: "Master's Degree" },
                       { val: 'Doctorate', label: 'Doctorate Degree' },
-                      { val: 'NA',        label: 'N/A (Not pursuing further studies)' },
+                      { val: 'NA', label: 'N/A (Not pursuing further studies)' },
                     ].map(opt => (
                       <RadioOption key={opt.val} label={opt.label} value={opt.val}
                         current={form.highestAttainment} onSelect={v => setF('highestAttainment', v)} />
@@ -642,7 +662,7 @@ export function RegisterAlumni() {
                         2. Job Acquisition Speed — How long did it take to land your first job after graduation?
                       </label>
                       <div className="space-y-1.5">
-                        {['Within 1 month','1-3 months','3-6 months','6 months to 1 year','Within 2 years','After 2 years'].map(opt => (
+                        {['Within 1 month', '1-3 months', '3-6 months', '6 months to 1 year', 'Within 2 years', 'After 2 years'].map(opt => (
                           <RadioOption key={opt} label={opt} value={opt}
                             current={form.timeToHire} onSelect={v => setF('timeToHire', v)} />
                         ))}
@@ -656,7 +676,7 @@ export function RegisterAlumni() {
                       <div>
                         <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>Employment Sector</label>
                         <div className="space-y-1.5">
-                          {['Government','Private','Entrepreneurial / Freelance / Self-Employed'].map(opt => (
+                          {['Government', 'Private', 'Entrepreneurial / Freelance / Self-Employed'].map(opt => (
                             <RadioOption key={opt} label={opt} value={opt}
                               current={form.firstJobSector} onSelect={v => setF('firstJobSector', v)} />
                           ))}
@@ -666,7 +686,7 @@ export function RegisterAlumni() {
                       <div>
                         <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>Employment Status (First Job)</label>
                         <div className="space-y-1.5">
-                          {['Regular/Permanent','Probationary','Contractual/Casual/Job Order'].map(opt => (
+                          {['Regular/Permanent', 'Probationary', 'Contractual/Casual/Job Order'].map(opt => (
                             <RadioOption key={opt} label={opt} value={opt}
                               current={form.firstJobStatus} onSelect={v => setF('firstJobStatus', v)} />
                           ))}
@@ -682,7 +702,7 @@ export function RegisterAlumni() {
                       <div>
                         <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>Is/Was this first job related to your BSIS degree?</label>
                         <div className="flex gap-2">
-                          {['Yes','No'].map(opt => (
+                          {['Yes', 'No'].map(opt => (
                             <RadioOption key={opt} label={opt} value={opt}
                               current={form.firstJobRelated} onSelect={v => setF('firstJobRelated', v)} />
                           ))}
@@ -695,7 +715,7 @@ export function RegisterAlumni() {
                             Primary reason for accepting unrelated job: <span className="text-gray-400" style={{ fontWeight: 400 }}>(Check most applicable)</span>
                           </label>
                           <div className="space-y-1.5">
-                            {['Salary & Benefits','Career Challenge/Advancement','Proximity to Residence','Lack of related job openings at the time','Others'].map(opt => (
+                            {['Salary & Benefits', 'Career Challenge/Advancement', 'Proximity to Residence', 'Lack of related job openings at the time', 'Others'].map(opt => (
                               <RadioOption key={opt} label={opt} value={opt}
                                 current={form.firstJobUnrelatedReason} onSelect={v => setF('firstJobUnrelatedReason', v)} />
                             ))}
@@ -718,7 +738,7 @@ export function RegisterAlumni() {
                     <div>
                       <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>Employment Sector</label>
                       <div className="space-y-1.5">
-                        {['Government','Private','Entrepreneurial / Freelance / Self-Employed'].map(opt => (
+                        {['Government', 'Private', 'Entrepreneurial / Freelance / Self-Employed'].map(opt => (
                           <RadioOption key={opt} label={opt} value={opt}
                             current={form.currentJobSector} onSelect={v => setF('currentJobSector', v)} />
                         ))}
@@ -740,7 +760,7 @@ export function RegisterAlumni() {
                     <div>
                       <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>Location of Employment</label>
                       <div className="space-y-1.5">
-                        {['Local (Philippines)','Abroad / Remote Foreign Employer'].map(opt => (
+                        {['Local (Philippines)', 'Abroad / Remote Foreign Employer'].map(opt => (
                           <RadioOption key={opt} label={opt} value={opt}
                             current={form.currentJobLocation} onSelect={v => setF('currentJobLocation', v)} />
                         ))}
@@ -750,7 +770,7 @@ export function RegisterAlumni() {
                     <div>
                       <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>Is your current job related to your BSIS degree?</label>
                       <div className="flex gap-2">
-                        {['Yes','No'].map(opt => (
+                        {['Yes', 'No'].map(opt => (
                           <RadioOption key={opt} label={opt} value={opt}
                             current={form.currentJobRelated} onSelect={v => setF('currentJobRelated', v)} />
                         ))}
@@ -767,7 +787,7 @@ export function RegisterAlumni() {
                         5. Job Retention — How long did you stay in your first job (or current role)?
                       </label>
                       <div className="space-y-1.5">
-                        {['Less than 6 months','6 months to 1 year','1 to 2 years','2 years and above'].map(opt => (
+                        {['Less than 6 months', '6 months to 1 year', '1 to 2 years', '2 years and above'].map(opt => (
                           <RadioOption key={opt} label={opt} value={opt}
                             current={form.jobRetention} onSelect={v => setF('jobRetention', v)} />
                         ))}
@@ -863,19 +883,24 @@ export function RegisterAlumni() {
                   </div>
                 </div>
 
+                {stepError && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+                    <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
+                    <p className="text-red-700 text-xs">{stepError}</p>
+                  </div>
+                )}
+
                 {/* Shot progress tiles */}
                 <div className="flex gap-2 mb-4">
                   {SHOT_INSTRUCTIONS.map((s, i) => (
-                    <div key={i} className={`flex-1 rounded-xl border p-2.5 text-center transition ${
-                      shots[i] ? 'border-emerald-200 bg-emerald-50' :
+                    <div key={i} className={`flex-1 rounded-xl border p-2.5 text-center transition ${shots[i] ? 'border-emerald-200 bg-emerald-50' :
                       currentShot === i && cameraOn ? 'border-[#166534] bg-[#166534]/5' :
-                      'border-gray-200 bg-gray-50'
-                    }`}>
-                      <div className={`flex size-6 items-center justify-center rounded-full mx-auto mb-1 ${
-                        shots[i] ? 'bg-emerald-500' :
-                        currentShot === i && cameraOn ? 'bg-[#166534]' :
-                        'bg-gray-200'
+                        'border-gray-200 bg-gray-50'
                       }`}>
+                      <div className={`flex size-6 items-center justify-center rounded-full mx-auto mb-1 ${shots[i] ? 'bg-emerald-500' :
+                        currentShot === i && cameraOn ? 'bg-[#166534]' :
+                          'bg-gray-200'
+                        }`}>
                         {shots[i]
                           ? <CheckCircle2 className="size-3.5 text-white" />
                           : <span className="text-white" style={{ fontWeight: 700, fontSize: '0.6rem' }}>{i + 1}</span>}
@@ -889,7 +914,7 @@ export function RegisterAlumni() {
                 </div>
 
                 {/* Camera viewport */}
-                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4" style={{ aspectRatio: '4/3', maxHeight: '300px' }}>
+                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center" style={{ aspectRatio: '4/3', maxHeight: '300px' }}>
                   {!cameraOn && !allShotsCaptured && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <Camera className="size-12 text-gray-600 mb-2" />
@@ -899,7 +924,7 @@ export function RegisterAlumni() {
                   )}
 
                   <video ref={videoRef}
-                    className={`w-full h-full object-cover ${(!cameraOn || allShotsCaptured) ? 'hidden' : ''}`}
+                    className={`absolute inset-0 w-full h-full object-cover object-center ${(!cameraOn || allShotsCaptured) ? 'hidden' : ''}`}
                     playsInline muted autoPlay />
 
                   {/* All shots captured — show 3-column thumbnail grid */}
@@ -907,7 +932,7 @@ export function RegisterAlumni() {
                     <div className="absolute inset-0 grid grid-cols-3 gap-0.5">
                       {shots.map((shot, i) => (
                         <div key={i} className="relative overflow-hidden">
-                          <img src={shot!} alt={`Shot ${i + 1}`} className="w-full h-full object-cover" />
+                          <img src={shot!} alt={`Shot ${i + 1}`} className="w-full h-full object-cover object-center" />
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1.5">
                             <p className="text-white text-center" style={{ fontWeight: 600, fontSize: '0.55rem' }}>
                               {SHOT_INSTRUCTIONS[i].label}
@@ -1015,11 +1040,10 @@ export function RegisterAlumni() {
                   <ChevronLeft className="size-4" /> Back
                 </button>
                 <button onClick={handleFinalSubmit} disabled={isSaving || !allShotsCaptured}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm transition ${
-                    allShotsCaptured && !isSaving
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm transition ${allShotsCaptured && !isSaving
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
                   style={{ fontWeight: 600 }}>
                   {isSaving
                     ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating account…</>

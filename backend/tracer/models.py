@@ -173,7 +173,8 @@ class EmploymentRecord(models.Model):
 		]
 
 	def __str__(self):
-		return f"{self.alumni.student_number} - {self.employer_name_input}"
+		identifier = self.alumni.master_record.student_number if self.alumni.master_record else self.alumni.user.email
+		return f"{identifier} - {self.employer_name_input}"
 
 
 class AlumniSkill(models.Model):
@@ -206,7 +207,8 @@ class AlumniSkill(models.Model):
 		]
 
 	def __str__(self):
-		return f"{self.alumni.student_number} - {self.skill.name}"
+		identifier = self.alumni.master_record.student_number if self.alumni.master_record else self.alumni.user.email
+		return f"{identifier} - {self.skill.name}"
 
 
 class VerificationToken(models.Model):

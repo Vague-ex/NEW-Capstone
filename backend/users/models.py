@@ -101,7 +101,6 @@ class AlumniAccount(models.Model):
 		on_delete=models.SET_NULL,
 		related_name="alumni_accounts",
 	)
-	student_number = models.CharField(max_length=50, unique=True)
 	face_photo_url = models.URLField(blank=True)
 	biometric_template = models.TextField(blank=True)
 	account_status = models.CharField(
@@ -113,7 +112,7 @@ class AlumniAccount(models.Model):
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
-		indexes = [models.Index(fields=["student_number", "account_status"])]
+		indexes = [models.Index(fields=["account_status"])]
 
 	def save(self, *args, **kwargs):
 		if self.user.role != User.Role.ALUMNI:

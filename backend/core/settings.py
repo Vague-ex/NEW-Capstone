@@ -109,6 +109,10 @@ CORS_ALLOWED_ORIGINS = _env_list(
 DATABASE_POOLER_URL = os.getenv("DATABASE_POOLER_URL") or os.getenv("SUPABASE_POOLER_URL")
 DATABASE_URL = DATABASE_POOLER_URL or os.getenv("DATABASE_URL")
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "faceid-verification")
+
 has_placeholder_db_url = (
     DATABASE_URL is not None
     and ("YOUR_PASSWORD" in DATABASE_URL or "YOUR_PROJECT_REF" in DATABASE_URL)

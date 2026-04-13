@@ -28,7 +28,6 @@ Core Auth and Accounts
 - users.AlumniAccount (DS2)
   - user (1:1 users.User)
   - master_record (FK users.GraduateMasterRecord)
-  - student_number (unique)
   - face_photo_url
   - biometric_template
   - account_status (pending, active, rejected, suspended)

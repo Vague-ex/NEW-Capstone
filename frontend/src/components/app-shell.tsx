@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 const App = dynamic(() => import('@/App'), { ssr: false });
 
 // Temporary preview mode: set to false once normal login-only flow is restored.
-const PREVIEW_ALL_PAGES = true;
+const PREVIEW_ALL_PAGES = false;
 let previewSessionSeeded = false;
 
 function ensurePreviewSession() {

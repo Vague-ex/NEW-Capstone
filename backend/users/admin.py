@@ -39,9 +39,9 @@ class GraduateMasterRecordAdmin(admin.ModelAdmin):
 
 @admin.register(AlumniAccount)
 class AlumniAccountAdmin(admin.ModelAdmin):
-	list_display = ("user", "student_number", "account_status", "created_at")
+	list_display = ("user", "master_record", "account_status", "created_at")
 	list_filter = ("account_status",)
-	search_fields = ("user__email", "student_number")
+	search_fields = ("user__email", "master_record__student_number", "master_record__full_name")
 
 
 @admin.register(EmployerAccount)
