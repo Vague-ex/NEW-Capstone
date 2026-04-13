@@ -73,6 +73,7 @@ export function LoginPage() {
       setError("Please enter your password.");
       return;
     }
+
     setIsLoading(true);
     try {
       const response = await adminLogin(credential.trim(), password);
@@ -83,7 +84,7 @@ export function LoginPage() {
       return;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 403) {
-        // Password is valid but account is not admin. Continue to alumni face verification.
+        // Credentials are valid, but the account is not admin. Continue with graduate FaceID.
         setIsLoading(false);
         setCameraError("");
         setScanStage("idle");

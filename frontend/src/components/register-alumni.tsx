@@ -7,6 +7,7 @@ import {
   Briefcase, BookOpen, Award,
 } from 'lucide-react';
 import { registerAlumni } from '../app/api-client';
+import isImageBlurry from 'is-image-blurry';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,8 @@ const SKILLS_LIST = [
   'Teamwork/Collaboration',
   'Problem-solving / Critical Thinking',
 ];
+
+const FACE_BLUR_THRESHOLD = 360;
 
 // ── Form state type ─────────────────────────────────────────────────────────────
 
@@ -173,6 +176,7 @@ export function RegisterAlumni() {
   const [captureTime, setCaptureTime] = useState<string | null>(null);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
+  const [checkingBlur, setCheckingBlur] = useState(false);
 
   const allShotsCaptured = shots.every(s => s !== null);
 
@@ -219,6 +223,7 @@ export function RegisterAlumni() {
   // ── Camera helpers ──────────────────────────────────────────────────────────
   const startCamera = async () => {
     setCameraError('');
+    setStepError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
@@ -236,31 +241,51 @@ export function RegisterAlumni() {
     setCameraOn(false);
   };
 
-  const captureShot = () => {
+  const captureShot = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    const ctx = canvasRef.current.getContext('2d');
-    canvasRef.current.width = videoRef.current.videoWidth;
-    canvasRef.current.height = videoRef.current.videoHeight;
-    ctx?.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+    setStepError('');
+    setCheckingBlur(true);
 
-    setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
+    try {
+      const ctx = canvasRef.current.getContext('2d');
+      if (!ctx) {
+        setStepError('Unable to capture image. Please try again.');
+        return;
+      }
 
-    if (!captureTime) {
-      setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
-    }
-    if (currentShot === 0 && !gps) {
-      setGpsLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
-        () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
-        { timeout: 6000 }
-      );
-    }
-    if (currentShot < 2) {
-      setCurrentShot(c => c + 1);
-    } else {
-      stopCamera();
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+
+      const blurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
+      if (blurry) {
+        setStepError(`Shot ${currentShot + 1} (${SHOT_INSTRUCTIONS[currentShot].label}) is blurry. Please keep your face steady and capture again.`);
+        return;
+      }
+
+      setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
+
+      if (!captureTime) {
+        setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+      }
+      if (currentShot === 0 && !gps) {
+        setGpsLoading(true);
+        navigator.geolocation.getCurrentPosition(
+          pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
+          () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
+          { timeout: 6000 }
+        );
+      }
+      if (currentShot < 2) {
+        setCurrentShot(c => c + 1);
+      } else {
+        stopCamera();
+      }
+    } catch {
+      setStepError('Unable to check image clarity right now. Please retake your capture.');
+    } finally {
+      setCheckingBlur(false);
     }
   };
 
@@ -270,6 +295,8 @@ export function RegisterAlumni() {
     setCaptureTime(null);
     setGps(null);
     setGpsLoading(false);
+    setStepError('');
+    setCheckingBlur(false);
     startCamera();
   };
 
@@ -290,6 +317,17 @@ export function RegisterAlumni() {
     setIsSaving(true);
 
     try {
+      const blurChecks = await Promise.all(
+        [faceFront, faceLeft, faceRight].map((shot) =>
+          isImageBlurry({ dataUrl: shot, threshold: FACE_BLUR_THRESHOLD }),
+        ),
+      );
+      const blurryShotIndex = blurChecks.findIndex(Boolean);
+      if (blurryShotIndex !== -1) {
+        setStepError(`${SHOT_INSTRUCTIONS[blurryShotIndex].label} capture is too blurry. Please retake all biometric shots before submitting.`);
+        return;
+      }
+
       const [frontBlob, leftBlob, rightBlob] = await Promise.all([
         dataUrlToBlob(faceFront),
         dataUrlToBlob(faceLeft),
@@ -1002,11 +1040,14 @@ export function RegisterAlumni() {
                         title="Stop camera">
                         <VideoOff className="size-4" />
                       </button>
-                      <button onClick={captureShot}
-                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm transition"
+                      <button onClick={() => { void captureShot(); }}
+                        disabled={checkingBlur}
+                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm transition"
                         style={{ fontWeight: 600 }}>
-                        <Camera className="size-4" />
-                        Capture {currentShot + 1}/3 — {SHOT_INSTRUCTIONS[currentShot]?.label}
+                        {checkingBlur
+                          ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity…</>
+                          : <><Camera className="size-4" /> Capture {currentShot + 1}/3 — {SHOT_INSTRUCTIONS[currentShot]?.label}</>
+                        }
                       </button>
                     </>
                   )}

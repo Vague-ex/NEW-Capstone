@@ -4,6 +4,7 @@ import {
   Building2, ArrowLeft, CheckCircle2, AlertCircle,
   Globe, Mail, Phone, User, Briefcase, Lock,
 } from 'lucide-react';
+import { ApiClientError, registerEmployer } from '../app/api-client';
 import { INDUSTRIES } from '../data/app-data';
 
 export function RegisterEmployer() {
@@ -31,19 +32,44 @@ export function RegisterEmployer() {
     }
     if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
+
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 1200));
-    const newEmployer = {
-      id: `new-${Date.now()}`,
-      company: form.companyName, industry: form.industry,
-      contact: form.contactName, email: form.email,
-      status: 'pending',
-      date: new Date().toISOString().split('T')[0],
-      username: form.email.split('@')[0], password: form.password,
-    };
-    sessionStorage.setItem('employer_user', JSON.stringify(newEmployer));
-    setSubmitted(true);
-    setIsLoading(false);
+
+    try {
+      const response = await registerEmployer({
+        company_name: form.companyName,
+        industry: form.industry,
+        website: form.website,
+        contact_name: form.contactName,
+        position: form.position,
+        credential_email: form.email,
+        phone: form.phone,
+        password: form.password,
+        confirm_password: form.confirmPassword,
+      });
+
+      const payload = (response.employer ?? {}) as Record<string, unknown>;
+      const employerForSession = {
+        id: String(payload.id ?? `new-${Date.now()}`),
+        company: String(payload.company ?? form.companyName),
+        industry: String(payload.industry ?? form.industry),
+        contact: String(payload.contact ?? form.contactName),
+        email: String(payload.email ?? form.email),
+        status: String(payload.status ?? 'pending'),
+        date: String(payload.date ?? new Date().toISOString().split('T')[0]),
+      };
+
+      sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
+      setSubmitted(true);
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        setError('Unable to submit employer registration right now. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (submitted) {
@@ -58,7 +84,7 @@ export function RegisterEmployer() {
             Your employer registration for <span className="text-gray-700" style={{ fontWeight: 600 }}>{form.companyName}</span> has been received.
           </p>
           <p className="text-gray-400 text-xs mb-7">
-            The CHMSU Program Chair will review and approve your request. You'll receive an email at <span className="text-gray-600">{form.email}</span>.
+            The CHMSU Program Chair will review and approve your request. Updates will be sent to your credential email <span className="text-gray-600">{form.email}</span>.
           </p>
           <div className="flex flex-col gap-2">
             <button onClick={() => navigate('/employer/pending')}
@@ -191,11 +217,11 @@ export function RegisterEmployer() {
                       placeholder="e.g. HR Manager" className={iconInputClass} />
                   </div>
                 </Field>
-                <Field label="Company Email" required>
+                <Field label="Account Credential Email" required>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <input name="email" type="email" value={form.email} onChange={handleChange}
-                      placeholder="email@company.com" className={iconInputClass} />
+                      placeholder="you@company.com" className={iconInputClass} />
                   </div>
                 </Field>
                 <Field label="Phone Number">

@@ -28,7 +28,39 @@ interface AlumniAuthResponse {
     faceScanUrl?: string;
 }
 
+interface AlumniStatusResponse {
+    alumni?: Record<string, unknown>;
+}
+
 interface PendingAlumniResponse {
+    count?: number;
+    results?: Array<Record<string, unknown>>;
+}
+
+interface AlumniReviewResponse {
+    message: string;
+    alumni?: Record<string, unknown>;
+}
+
+interface EmployerRegisterPayload {
+    company_name: string;
+    industry: string;
+    website?: string;
+    contact_name: string;
+    position?: string;
+    credential_email: string;
+    phone?: string;
+    password: string;
+    confirm_password: string;
+}
+
+interface EmployerAuthResponse {
+    message: string;
+    employer?: Record<string, unknown>;
+    user?: Record<string, unknown>;
+}
+
+interface EmployerRequestsResponse {
     count?: number;
     results?: Array<Record<string, unknown>>;
 }
@@ -98,6 +130,17 @@ export async function alumniLogin(
     return response.json();
 }
 
+export async function fetchAlumniAccountStatus(alumniId: string): Promise<Record<string, unknown>> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/alumni/account/${encodeURIComponent(alumniId)}/`, {
+        method: 'GET',
+    });
+
+    await throwIfNotOk(response);
+
+    const data: AlumniStatusResponse = await response.json();
+    return data.alumni ?? {};
+}
+
 export async function fetchPendingAlumni(): Promise<Array<Record<string, unknown>>> {
     const response = await fetch(`${API_BASE_URL}/api/admin/alumni/pending/`, {
         method: 'GET',
@@ -111,4 +154,94 @@ export async function fetchPendingAlumni(): Promise<Array<Record<string, unknown
     }
 
     return data.results;
+}
+
+export async function fetchVerifiedAlumni(): Promise<Array<Record<string, unknown>>> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/verified/`, {
+        method: 'GET',
+    });
+
+    await throwIfNotOk(response);
+
+    const data: PendingAlumniResponse = await response.json();
+    if (!Array.isArray(data.results)) {
+        return [];
+    }
+
+    return data.results;
+}
+
+export async function reviewAlumniRequest(
+    alumniId: string,
+    action: 'approve' | 'reject',
+): Promise<AlumniReviewResponse> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/alumni/requests/${encodeURIComponent(alumniId)}/${action}/`,
+        {
+            method: 'POST',
+        },
+    );
+
+    await throwIfNotOk(response);
+
+    return response.json();
+}
+
+export async function registerEmployer(payload: EmployerRegisterPayload): Promise<EmployerAuthResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/employer/register/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    await throwIfNotOk(response);
+
+    return response.json();
+}
+
+export async function employerLogin(credentialEmail: string, password: string): Promise<EmployerAuthResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/employer/login/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ credential_email: credentialEmail, password }),
+    });
+
+    await throwIfNotOk(response);
+
+    return response.json();
+}
+
+export async function fetchEmployerRequests(): Promise<Array<Record<string, unknown>>> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/employers/requests/`, {
+        method: 'GET',
+    });
+
+    await throwIfNotOk(response);
+
+    const data: EmployerRequestsResponse = await response.json();
+    if (!Array.isArray(data.results)) {
+        return [];
+    }
+
+    return data.results;
+}
+
+export async function reviewEmployerRequest(
+    employerId: string,
+    action: 'approve' | 'reject',
+): Promise<EmployerAuthResponse> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/employers/requests/${encodeURIComponent(employerId)}/${action}/`,
+        {
+            method: 'POST',
+        },
+    );
+
+    await throwIfNotOk(response);
+
+    return response.json();
 }

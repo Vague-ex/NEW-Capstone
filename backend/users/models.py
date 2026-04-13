@@ -132,6 +132,7 @@ class EmployerAccount(models.Model):
 	user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employer_account")
 	company_email = models.EmailField(unique=True)
 	company_name = models.CharField(max_length=255, db_index=True)
+	profile_json = models.TextField(blank=True)
 	account_status = models.CharField(
 		max_length=20,
 		choices=AccountStatus.choices,

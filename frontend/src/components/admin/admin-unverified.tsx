@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI } from '../../data/app-data';
-import { fetchPendingAlumni } from '../../app/api-client';
+import { fetchPendingAlumni, reviewAlumniRequest } from '../../app/api-client';
+import type { AlumniRecord } from '../../data/app-data';
 import {
   CheckCircle2, XCircle, Clock, Camera, User,
   Calendar, Briefcase, AlertTriangle, X, Search,
@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
-type AlumniRecord = typeof VALID_ALUMNI[0];
 type ModalTab = 'biometric' | 'employment' | 'skills';
 
 type FaceScans = {
@@ -89,16 +88,11 @@ export function AdminUnverified() {
   const [backendPending, setBackendPending] = useState<AlumniRecord[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
   const [fetchError, setFetchError] = useState('');
-  const [approvedIds, setApprovedIds] = useState<string[]>(() =>
-    JSON.parse(sessionStorage.getItem('admin_approved_ids') || '[]')
-  );
-  const [rejectedIds, setRejectedIds] = useState<string[]>(() =>
-    JSON.parse(sessionStorage.getItem('admin_rejected_ids') || '[]')
-  );
   const [reviewAlumni, setReviewAlumni] = useState<AlumniRecord | null>(null);
   const [modalTab, setModalTab] = useState<ModalTab>('biometric');
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -125,39 +119,41 @@ export function AdminUnverified() {
 
   const getRecordId = (a: AlumniRecord) => String(a.id ?? a.email ?? '');
 
-  const pendingSource = useMemo(() => {
-    if (fetchError) {
-      return VALID_ALUMNI.filter((a) => a.verificationStatus === 'pending');
-    }
-    return backendPending;
-  }, [backendPending, fetchError]);
-
-  const pendingAlumni = pendingSource.filter((a) => {
-    const id = getRecordId(a);
-    return id && !approvedIds.includes(id) && !rejectedIds.includes(id);
-  }).filter(a => {
+  const pendingAlumni = useMemo(() => backendPending.filter(a => {
     const q = search.toLowerCase();
     return !q || a.name?.toLowerCase().includes(q) || a.email?.toLowerCase().includes(q);
-  });
+  }), [backendPending, search]);
 
   const handleApprove = async (id: string) => {
+    if (!id) return;
+    setActionError('');
     setActionLoading(id + '-approve');
-    await new Promise(r => setTimeout(r, 900));
-    const updated = [...approvedIds, id];
-    setApprovedIds(updated);
-    sessionStorage.setItem('admin_approved_ids', JSON.stringify(updated));
-    setReviewAlumni(null);
-    setActionLoading(null);
+    try {
+      await reviewAlumniRequest(id, 'approve');
+      setBackendPending((prev) => prev.filter((a) => getRecordId(a) !== id));
+      setReviewAlumni(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to approve graduate right now.';
+      setActionError(message);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleReject = async (id: string) => {
+    if (!id) return;
+    setActionError('');
     setActionLoading(id + '-reject');
-    await new Promise(r => setTimeout(r, 900));
-    const updated = [...rejectedIds, id];
-    setRejectedIds(updated);
-    sessionStorage.setItem('admin_rejected_ids', JSON.stringify(updated));
-    setReviewAlumni(null);
-    setActionLoading(null);
+    try {
+      await reviewAlumniRequest(id, 'reject');
+      setBackendPending((prev) => prev.filter((a) => getRecordId(a) !== id));
+      setReviewAlumni(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to reject graduate right now.';
+      setActionError(message);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const openReview = (a: AlumniRecord) => {
@@ -189,6 +185,15 @@ export function AdminUnverified() {
             <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
             <p className="text-red-700 text-xs" style={{ fontWeight: 600 }}>
               {fetchError}
+            </p>
+          </div>
+        )}
+
+        {actionError && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+            <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-red-700 text-xs" style={{ fontWeight: 600 }}>
+              {actionError}
             </p>
           </div>
         )}
@@ -691,7 +696,7 @@ export function AdminUnverified() {
                 </button>
                 <div className="flex-1" />
                 <button
-                  onClick={() => handleReject(a.id)}
+                  onClick={() => handleReject(String(a.id ?? ''))}
                   disabled={!!actionLoading}
                   className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}
@@ -699,7 +704,7 @@ export function AdminUnverified() {
                   <XCircle className="size-4" /> Reject Account
                 </button>
                 <button
-                  onClick={() => handleApprove(a.id)}
+                  onClick={() => handleApprove(String(a.id ?? ''))}
                   disabled={!!actionLoading}
                   className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}

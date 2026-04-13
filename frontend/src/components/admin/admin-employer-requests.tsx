@@ -1,25 +1,120 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { EMPLOYER_ACCOUNTS, VALID_ALUMNI } from '../../data/app-data';
+import { ApiClientError, fetchEmployerRequests, reviewEmployerRequest } from '../../app/api-client';
+import { EMPLOYER_ACCOUNTS } from '../../data/app-data';
 import {
   Building2, CheckCircle2, XCircle, Clock, AlertTriangle,
   Mail, User, Globe, FileText, Phone,
 } from 'lucide-react';
 
-export function AdminEmployerRequests() {
-  const [employers, setEmployers] = useState(EMPLOYER_ACCOUNTS);
-  const [loading, setLoading] = useState<string | null>(null);
-  const [reviewModal, setReviewModal] = useState<typeof EMPLOYER_ACCOUNTS[0] | null>(null);
+type EmployerRequest = {
+  id: string;
+  company: string;
+  industry: string;
+  contact: string;
+  email: string;
+  phone: string;
+  website: string;
+  status: string;
+  date: string;
+};
 
-  const pending = EMPLOYER_ACCOUNTS.filter(e => e.status === 'pending');
-  const pendingCount = VALID_ALUMNI.filter(a => a.verificationStatus === 'pending').length;
+function normalizeEmployerRecord(input: Record<string, unknown>): EmployerRequest {
+  const rawStatus = String(input.status ?? input.accountStatus ?? 'pending').toLowerCase();
+  const status = rawStatus === 'active' || rawStatus === 'approved'
+    ? 'approved'
+    : rawStatus === 'rejected'
+      ? 'rejected'
+      : 'pending';
+
+  return {
+    id: String(input.id ?? `emp-${Date.now()}`),
+    company: String(input.company ?? input.companyName ?? input.company_name ?? 'Unknown Company'),
+    industry: String(input.industry ?? 'Not provided'),
+    contact: String(input.contact ?? input.contactName ?? input.contact_name ?? 'Not provided'),
+    email: String(input.credentialEmail ?? input.email ?? input.company_email ?? 'No email'),
+    phone: String(input.phone ?? 'Not provided'),
+    website: String(input.website ?? 'Not provided'),
+    status,
+    date: String(input.date ?? input.dateUpdated ?? new Date().toISOString().split('T')[0]),
+  };
+}
+
+function formatDate(value: string, options: Intl.DateTimeFormatOptions): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString('en-PH', options);
+}
+
+export function AdminEmployerRequests() {
+  const [employers, setEmployers] = useState<EmployerRequest[]>([]);
+  const [loadingList, setLoadingList] = useState(true);
+  const [fetchError, setFetchError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [loading, setLoading] = useState<string | null>(null);
+  const [reviewModal, setReviewModal] = useState<EmployerRequest | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadEmployerRequests = async () => {
+      setLoadingList(true);
+      setFetchError('');
+      try {
+        const records = await fetchEmployerRequests();
+        if (!active) return;
+        setEmployers(records.map((entry) => normalizeEmployerRecord(entry)));
+      } catch (err) {
+        if (!active) return;
+        const message = err instanceof Error ? err.message : 'Failed to load employer requests.';
+        setFetchError(message);
+
+        const fallback = EMPLOYER_ACCOUNTS.map((entry) => normalizeEmployerRecord(entry as Record<string, unknown>));
+        setEmployers(fallback);
+      } finally {
+        if (active) setLoadingList(false);
+      }
+    };
+
+    void loadEmployerRequests();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const pendingEmployers = useMemo(() => employers.filter((e) => e.status === 'pending'), [employers]);
+  const approvedCount = useMemo(() => employers.filter((e) => e.status === 'approved').length, [employers]);
+  const rejectedCount = useMemo(() => employers.filter((e) => e.status === 'rejected').length, [employers]);
 
   const handleAction = async (id: string, action: 'approved' | 'rejected') => {
+    setActionError('');
     setLoading(`${id}-${action}`);
-    await new Promise(r => setTimeout(r, 800));
-    setEmployers(prev => prev.map(e => e.id === id ? { ...e, status: action } : e));
-    setReviewModal(null);
-    setLoading(null);
+
+    try {
+      const endpointAction = action === 'approved' ? 'approve' : 'reject';
+      const response = await reviewEmployerRequest(id, endpointAction);
+      const payload = (response.employer ?? null) as Record<string, unknown> | null;
+
+      setEmployers(prev => prev.map((entry) => {
+        if (entry.id !== id) return entry;
+        if (payload) {
+          return normalizeEmployerRecord(payload);
+        }
+        return { ...entry, status: action };
+      }));
+
+      setReviewModal(null);
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setActionError(err.message);
+      } else {
+        setActionError('Unable to update employer request right now. Please try again.');
+      }
+    } finally {
+      setLoading(null);
+    }
   };
 
   const StatusBadge = ({ status }: { status: string }) => {
@@ -41,15 +136,33 @@ export function AdminEmployerRequests() {
       role="admin"
       pageTitle="Employer Access Requests"
       pageSubtitle="Review and manage company access applications"
-      notificationCount={pendingCount}
+      notificationCount={pendingEmployers.length}
     >
       <div className="space-y-5">
+        {fetchError && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+            <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-red-700 text-xs" style={{ fontWeight: 600 }}>
+              {fetchError}
+            </p>
+          </div>
+        )}
+
+        {actionError && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+            <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-red-700 text-xs" style={{ fontWeight: 600 }}>
+              {actionError}
+            </p>
+          </div>
+        )}
+
         {/* Summary */}
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: 'Approved', value: employers.filter(e => e.status === 'approved').length, icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600' },
-            { label: 'Pending', value: employers.filter(e => e.status === 'pending').length, icon: Clock, bg: 'bg-amber-50', color: 'text-amber-600' },
-            { label: 'Rejected', value: employers.filter(e => e.status === 'rejected').length, icon: XCircle, bg: 'bg-red-50', color: 'text-red-500' },
+            { label: 'Approved', value: approvedCount, icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600' },
+            { label: 'Pending', value: pendingEmployers.length, icon: Clock, bg: 'bg-amber-50', color: 'text-amber-600' },
+            { label: 'Rejected', value: rejectedCount, icon: XCircle, bg: 'bg-red-50', color: 'text-red-500' },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
               <div className={`flex size-10 items-center justify-center rounded-xl ${s.bg} shrink-0`}>
@@ -63,17 +176,24 @@ export function AdminEmployerRequests() {
           ))}
         </div>
 
+        {loadingList && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+            <span className="inline-flex size-8 border-2 border-gray-200 border-t-[#166534] rounded-full animate-spin" />
+            <p className="text-gray-500 text-sm mt-3">Loading employer requests…</p>
+          </div>
+        )}
+
         {/* Pending section */}
-        {employers.filter(e => e.status === 'pending').length > 0 && (
+        {!loadingList && pendingEmployers.length > 0 && (
           <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
             <div className="flex items-center gap-3 bg-amber-50 border-b border-amber-100 px-4 py-3">
               <AlertTriangle className="size-4 text-amber-500" />
               <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>
-                {employers.filter(e => e.status === 'pending').length} pending applications — action required
+                {pendingEmployers.length} pending applications — action required
               </p>
             </div>
             <div className="divide-y divide-gray-50">
-              {employers.filter(e => e.status === 'pending').map(emp => (
+              {pendingEmployers.map(emp => (
                 <div key={emp.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-5 hover:bg-gray-50/50 transition">
                   <div className="flex items-start gap-3 flex-1">
                     <div className="flex size-11 items-center justify-center rounded-xl bg-violet-100 shrink-0">
@@ -83,7 +203,7 @@ export function AdminEmployerRequests() {
                       <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>{emp.company}</p>
                       <p className="text-gray-500 text-xs mt-0.5">{emp.industry}</p>
                       <p className="text-gray-400 text-xs mt-0.5">{emp.contact} · {emp.email}</p>
-                      <p className="text-gray-300 text-xs">Applied: {new Date(emp.date).toLocaleDateString('en-PH', { dateStyle: 'medium' })}</p>
+                      <p className="text-gray-300 text-xs">Applied: {formatDate(emp.date, { dateStyle: 'medium' })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -119,23 +239,27 @@ export function AdminEmployerRequests() {
           <div className="px-4 py-3 border-b border-gray-50">
             <p className="text-gray-700 text-sm" style={{ fontWeight: 700 }}>All Employer Applications</p>
           </div>
-          <div className="divide-y divide-gray-50">
-            {employers.map(emp => (
-              <div key={emp.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50/50 transition">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-violet-50 shrink-0">
-                  <Building2 className="size-4 text-violet-500" />
+          {employers.length === 0 && !loadingList ? (
+            <div className="px-4 py-10 text-center text-gray-400 text-sm">No employer requests found.</div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {employers.map(emp => (
+                <div key={emp.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50/50 transition">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-violet-50 shrink-0">
+                    <Building2 className="size-4 text-violet-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{emp.company}</p>
+                    <p className="text-gray-400 text-xs">{emp.industry} · {emp.contact}</p>
+                  </div>
+                  <StatusBadge status={emp.status} />
+                  <p className="text-gray-400 text-xs whitespace-nowrap hidden sm:block">
+                    {formatDate(emp.date, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </p>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{emp.company}</p>
-                  <p className="text-gray-400 text-xs">{emp.industry} · {emp.contact}</p>
-                </div>
-                <StatusBadge status={emp.status} />
-                <p className="text-gray-400 text-xs whitespace-nowrap hidden sm:block">
-                  {new Date(emp.date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -159,9 +283,11 @@ export function AdminEmployerRequests() {
               </div>
               {[
                 { icon: User, label: 'Contact Person', value: reviewModal.contact },
-                { icon: Mail, label: 'Email', value: reviewModal.email },
+                { icon: Mail, label: 'Credential Email', value: reviewModal.email },
+                { icon: Phone, label: 'Phone', value: reviewModal.phone },
                 { icon: Globe, label: 'Industry', value: reviewModal.industry },
-                { icon: FileText, label: 'Applied', value: new Date(reviewModal.date).toLocaleDateString('en-PH', { dateStyle: 'long' }) },
+                { icon: FileText, label: 'Website', value: reviewModal.website },
+                { icon: FileText, label: 'Applied', value: formatDate(reviewModal.date, { dateStyle: 'long' }) },
               ].map(f => (
                 <div key={f.label} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-2.5">
                   <f.icon className="size-4 text-gray-400 shrink-0" />

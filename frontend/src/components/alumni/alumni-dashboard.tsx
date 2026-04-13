@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
@@ -7,11 +8,42 @@ import {
   Hash, ShieldCheck, Lock, UserCircle,
 } from 'lucide-react';
 import { VALID_ALUMNI } from '../../data/app-data';
+import { fetchAlumniAccountStatus } from '../../app/api-client';
 
 export function AlumniDashboard() {
   const navigate = useNavigate();
   const rawUser = sessionStorage.getItem('alumni_user');
-  const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+  const [alumni, setAlumni] = useState(() => rawUser ? JSON.parse(rawUser) : (VALID_ALUMNI[0] ?? {}));
+  const alumniId = String(alumni?.id ?? '');
+
+  useEffect(() => {
+    if (!alumniId) {
+      return;
+    }
+
+    let active = true;
+    const syncAlumniStatus = async () => {
+      try {
+        const latest = await fetchAlumniAccountStatus(alumniId);
+        if (!active || !latest || Object.keys(latest).length === 0) {
+          return;
+        }
+
+        setAlumni((current: Record<string, unknown>) => {
+          const merged = { ...current, ...latest };
+          sessionStorage.setItem('alumni_user', JSON.stringify(merged));
+          return merged;
+        });
+      } catch {
+        // Keep existing session data when status sync is temporarily unavailable.
+      }
+    };
+
+    void syncAlumniStatus();
+    return () => {
+      active = false;
+    };
+  }, [alumniId]);
 
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = (alumni.verificationStatus ?? 'pending') === 'pending';

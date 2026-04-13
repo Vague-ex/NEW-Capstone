@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import Image from 'next/image';
 import {
   Building2, Mail, Lock, Eye, EyeOff, AlertCircle, ArrowRight,
   CheckCircle2, Clock, GraduationCap, Globe, User, Phone,
   Briefcase, ArrowLeft,
 } from 'lucide-react';
-import { EMPLOYER_ACCOUNTS, INDUSTRIES } from '../../data/app-data';
+import { ApiClientError, employerLogin, registerEmployer } from '../../app/api-client';
 
 type View = 'landing' | 'login' | 'register' | 'pending';
+const schoolLogo = '/CHMSULogo.png';
 
 export function EmployerPortal() {
   const navigate = useNavigate();
@@ -25,7 +27,7 @@ export function EmployerPortal() {
 
         <div className="relative">
           <div className="flex size-12 items-center justify-center rounded-2xl bg-white/15 border border-white/20 mb-6">
-            <Building2 className="size-6 text-white" />
+            <Image src={schoolLogo} alt="CHMSU Logo" width={28} height={28} className="rounded-lg object-cover" priority />
           </div>
           <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1.2 }}>
             Employer Portal
@@ -68,8 +70,8 @@ export function EmployerPortal() {
 
           {/* Mobile header */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-[#166534]">
-              <Building2 className="size-5 text-white" />
+            <div className="flex size-10 items-center justify-center rounded-xl bg-[#166534] overflow-hidden">
+              <Image src={schoolLogo} alt="CHMSU Logo" width={30} height={30} className="rounded-md object-cover" priority />
             </div>
             <div>
               <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>CHMSU Employer Portal</p>
@@ -138,20 +140,44 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!email.trim() || !password.trim()) { setError('Please enter both email/username and password.'); return; }
+    if (!email.trim() || !password.trim()) { setError('Please enter your credential email and password.'); return; }
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 800));
 
-    const emp = EMPLOYER_ACCOUNTS.find(e =>
-      (e.username === email.trim() || e.email === email.trim()) && e.password === password
-    );
-    if (!emp) { setError('Incorrect credentials. Please try again.'); setIsLoading(false); return; }
-    if (emp.status === 'rejected') { setError('Your employer account has been rejected. Contact the Program Chair.'); setIsLoading(false); return; }
+    try {
+      const response = await employerLogin(email.trim(), password);
+      const payload = (response.employer ?? {}) as Record<string, unknown>;
+      const status = String(payload.status ?? payload.accountStatus ?? 'pending').toLowerCase();
 
-    sessionStorage.setItem('employer_user', JSON.stringify(emp));
-    setIsLoading(false);
-    if (emp.status === 'pending') { onPending(); return; }
-    navigate('/employer/dashboard');
+      const employerForSession = {
+        id: String(payload.id ?? ''),
+        company: String(payload.company ?? payload.companyName ?? 'Employer Account'),
+        industry: String(payload.industry ?? 'Not provided'),
+        email: String(payload.credentialEmail ?? payload.email ?? email.trim()),
+        status,
+        date: String(payload.date ?? new Date().toISOString().split('T')[0]),
+      };
+
+      sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
+      if (status === 'pending') {
+        onPending();
+        return;
+      }
+      navigate('/employer/dashboard');
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        if (err.status === 403) {
+          setError(err.message || 'Your employer account cannot access the portal at this time.');
+        } else if (err.status === 401) {
+          setError('Incorrect credentials. Please try again.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Unable to sign in right now. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
@@ -162,7 +188,7 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
         <ArrowLeft className="size-4" /> Back
       </button>
       <h2 className="text-gray-900 mb-1" style={{ fontWeight: 700, fontSize: '1.2rem' }}>Employer Sign In</h2>
-      <p className="text-gray-500 text-sm mb-6">Use your approved company credentials.</p>
+      <p className="text-gray-500 text-sm mb-6">Use your approved credential email and password.</p>
 
       {error && (
         <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
@@ -173,10 +199,10 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
 
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
-          <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Username or Company Email</label>
+          <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Credential Email</label>
           <div className="relative">
             <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-            <input type="text" placeholder="username or email@company.com" value={email}
+            <input type="email" placeholder="you@company.com" value={email}
               onChange={e => { setEmail(e.target.value); setError(''); }}
               className={`${inputCls} pl-10 pr-4`} autoFocus />
           </div>
@@ -225,22 +251,50 @@ function RegisterView({ onBack, onDone }: { onBack: () => void; onDone: () => vo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     if (!form.companyName || !form.contactName || !form.email || !form.industry) {
       setError('Please fill in all required fields.'); return;
     }
     if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
+
     setIsLoading(true);
-    await new Promise(r => setTimeout(r, 1200));
-    const newEmployer = {
-      id: `new-${Date.now()}`, company: form.companyName, industry: form.industry,
-      contact: form.contactName, email: form.email, status: 'pending',
-      date: new Date().toISOString().split('T')[0],
-      username: form.email.split('@')[0], password: form.password,
-    };
-    sessionStorage.setItem('employer_user', JSON.stringify(newEmployer));
-    setIsLoading(false);
-    onDone();
+
+    try {
+      const response = await registerEmployer({
+        company_name: form.companyName,
+        industry: form.industry,
+        website: form.website,
+        contact_name: form.contactName,
+        position: form.position,
+        credential_email: form.email,
+        phone: form.phone,
+        password: form.password,
+        confirm_password: form.confirmPassword,
+      });
+
+      const payload = (response.employer ?? {}) as Record<string, unknown>;
+      const employerForSession = {
+        id: String(payload.id ?? `new-${Date.now()}`),
+        company: String(payload.company ?? form.companyName),
+        industry: String(payload.industry ?? form.industry),
+        contact: String(payload.contact ?? form.contactName),
+        email: String(payload.email ?? form.email),
+        status: String(payload.status ?? 'pending'),
+        date: String(payload.date ?? new Date().toISOString().split('T')[0]),
+      };
+
+      sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
+      onDone();
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        setError('Unable to submit employer registration right now. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const inputCls = 'w-full rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
@@ -324,10 +378,10 @@ function RegisterView({ onBack, onDone }: { onBack: () => void; onDone: () => vo
               </div>
             </div>
             <div className="col-span-2">
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Company Email <span className="text-red-500">*</span></label>
+              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Account Credential Email <span className="text-red-500">*</span></label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="email@company.com" className={iCls} />
+                <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="you@company.com" className={iCls} />
               </div>
             </div>
           </div>
@@ -381,7 +435,7 @@ function PendingView({ navigate }: { navigate: (path: string) => void }) {
         Your request for <span className="text-gray-700" style={{ fontWeight: 600 }}>{employer.company}</span> has been submitted and is under review.
       </p>
       <p className="text-gray-400 text-xs mb-8 max-w-xs mx-auto">
-        The CHMSU BSIS Program Chair will review your request and notify you at <span className="text-gray-600">{employer.email}</span>.
+        The CHMSU BSIS Program Chair will review your request and notify you at your credential email <span className="text-gray-600">{employer.email}</span>.
       </p>
 
       {/* Status steps */}
@@ -394,10 +448,9 @@ function PendingView({ navigate }: { navigate: (path: string) => void }) {
           { label: 'Portal access granted', done: false },
         ].map((step, i) => (
           <div key={i} className="flex items-center gap-3 py-2">
-            <div className={`flex size-6 items-center justify-center rounded-full shrink-0 text-xs ${
-              step.done ? 'bg-emerald-500 text-white' :
+            <div className={`flex size-6 items-center justify-center rounded-full shrink-0 text-xs ${step.done ? 'bg-emerald-500 text-white' :
               step.active ? 'bg-[#166534] text-white' : 'bg-gray-100 text-gray-400'
-            }`} style={{ fontWeight: 700 }}>
+              }`} style={{ fontWeight: 700 }}>
               {step.done ? '✓' : i + 1}
             </div>
             <span className={`text-sm ${step.done ? 'text-emerald-700' : step.active ? 'text-[#166534]' : 'text-gray-400'}`}

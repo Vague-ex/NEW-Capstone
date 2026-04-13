@@ -1,13 +1,14 @@
-import { useState, Fragment } from 'react';
+import { useEffect, useMemo, useState, Fragment } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI, GRADUATION_YEARS } from '../../data/app-data';
+import { GRADUATION_YEARS } from '../../data/app-data';
+import type { AlumniRecord } from '../../data/app-data';
+import { fetchVerifiedAlumni } from '../../app/api-client';
 import {
   Search, CheckCircle2, Users, Briefcase, Star, MapPin,
   ChevronDown, ChevronUp, Camera, X,
-  Clock, Building2, Globe, AlertTriangle, Award,
+  Clock, Building2, Globe, Award,
 } from 'lucide-react';
 
-type AlumniRecord = typeof VALID_ALUMNI[0];
 type ModalTab = 'profile' | 'employment' | 'skills';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ function deriveLocationLabel(a: AlumniRecord): string {
   if (sd?.currentJobLocation) return sd.currentJobLocation;
   const loc = (a.workLocation || '').toLowerCase();
   if (loc.includes('abroad') || loc.includes('singapore') || loc.includes('dubai') ||
-      loc.includes('ofw') || loc.includes('foreign')) return 'Abroad / Remote Foreign Employer';
+    loc.includes('ofw') || loc.includes('foreign')) return 'Abroad / Remote Foreign Employer';
   return 'Local (Philippines)';
 }
 
@@ -63,13 +64,13 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
 
   const empStatusLabel =
     a.employmentStatus === 'employed' ? 'Employed'
-    : a.employmentStatus === 'self-employed' ? 'Self-Employed'
-    : 'Unemployed';
+      : a.employmentStatus === 'self-employed' ? 'Self-Employed'
+        : 'Unemployed';
 
   const empStatusColor =
     a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700'
-    : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
-    : 'bg-gray-100 text-gray-600';
+      : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
+        : 'bg-gray-100 text-gray-600';
 
   const tabs: { key: ModalTab; label: string; icon: any }[] = [
     { key: 'profile', label: 'Profile & Education', icon: Camera },
@@ -109,9 +110,8 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
         <div className="flex border-b border-gray-100 shrink-0 px-5">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${
-                tab === t.key ? 'border-[#166534] text-[#166534]' : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
+              className={`flex items-center gap-1.5 px-3 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${tab === t.key ? 'border-[#166534] text-[#166534]' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
               style={{ fontWeight: tab === t.key ? 700 : 400 }}>
               <t.icon className="size-3.5" />
               {t.label}
@@ -169,8 +169,8 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
                   <Row label="Q1 — Status" value={
                     a.employmentStatus === 'employed' ? 'Presently Employed'
-                    : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
-                    : sd.neverEmployed ? 'Never Been Employed' : 'Not Currently Employed'
+                      : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
+                        : sd.neverEmployed ? 'Never Been Employed' : 'Not Currently Employed'
                   } />
                   <Row label="Q2 — Time to Hire" value={deriveTimeToHire(a)} />
                 </div>
@@ -186,9 +186,9 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Row label="Job Title" value={sd.firstJobTitle || a.jobTitle || '—'} />
                   <Row label="BSIS-Related" value={
                     sd.firstJobRelated === 'Yes' ? 'Yes — Related to BSIS'
-                    : sd.firstJobRelated === 'No' ? 'No — Not related'
-                    : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                    : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                      : sd.firstJobRelated === 'No' ? 'No — Not related'
+                        : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
+                          : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
                   } />
                   {(sd.firstJobRelated === 'No' || a.jobAlignment === 'not-related') && (
                     <Row label="Reason (unrelated)" value={sd.firstJobUnrelatedReason || '—'} />
@@ -209,7 +209,7 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Row label="Location Type" value={deriveLocationLabel(a)} />
                   <Row label="BSIS-Related" value={
                     a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                    : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                      : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
                   } />
                 </div>
               </div>
@@ -249,9 +249,8 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   {BSIS_CORE.map(skill => {
                     const has = skills.includes(skill);
                     return (
-                      <div key={skill} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs border ${
-                        has ? 'bg-[#166534]/5 border-[#166534]/20 text-[#166534]' : 'bg-gray-50 border-gray-100 text-gray-400'
-                      }`} style={{ fontWeight: has ? 600 : 400 }}>
+                      <div key={skill} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs border ${has ? 'bg-[#166534]/5 border-[#166534]/20 text-[#166534]' : 'bg-gray-50 border-gray-100 text-gray-400'
+                        }`} style={{ fontWeight: has ? 600 : 400 }}>
                         {has
                           ? <CheckCircle2 className="size-3.5 shrink-0 text-[#166534]" />
                           : <div className="size-3.5 rounded-full border-2 border-gray-300 shrink-0" />}
@@ -313,9 +312,9 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function AdminVerified() {
-  const [approvedIds] = useState<string[]>(() =>
-    JSON.parse(sessionStorage.getItem('admin_approved_ids') || '[]')
-  );
+  const [backendVerified, setBackendVerified] = useState<AlumniRecord[]>([]);
+  const [loadingVerified, setLoadingVerified] = useState(true);
+  const [fetchError, setFetchError] = useState('');
   const [search, setSearch] = useState('');
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -323,11 +322,33 @@ export function AdminVerified() {
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  const verifiedAlumni = VALID_ALUMNI.filter(a =>
-    a.verificationStatus === 'verified' || approvedIds.includes(a.id)
-  ).filter(a => {
+  useEffect(() => {
+    let active = true;
+    const loadVerified = async () => {
+      setLoadingVerified(true);
+      setFetchError('');
+      try {
+        const results = await fetchVerifiedAlumni();
+        if (!active) return;
+        setBackendVerified(results as AlumniRecord[]);
+      } catch (err) {
+        if (!active) return;
+        const message = err instanceof Error ? err.message : 'Failed to load verified graduates.';
+        setFetchError(message);
+      } finally {
+        if (active) setLoadingVerified(false);
+      }
+    };
+
+    void loadVerified();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const verifiedAlumni = useMemo(() => backendVerified.filter(a => {
     const q = search.toLowerCase();
-    const matchQ = !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q) || (a.company ?? '').toLowerCase().includes(q);
+    const matchQ = !q || String(a.name ?? '').toLowerCase().includes(q) || String(a.email ?? '').toLowerCase().includes(q) || String(a.company ?? '').toLowerCase().includes(q);
     const matchYear = filterYear === 'all' || a.graduationYear === parseInt(filterYear);
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
     return matchQ && matchYear && matchStatus;
@@ -337,7 +358,7 @@ export function AdminVerified() {
     if (typeof va === 'string') va = va.toLowerCase();
     if (typeof vb === 'string') vb = vb.toLowerCase();
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-  });
+  }), [backendVerified, search, filterYear, filterStatus, sortField, sortDir]);
 
   const handleSort = (f: string) => {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -356,6 +377,14 @@ export function AdminVerified() {
   return (
     <PortalLayout role="admin" pageTitle="Verified Graduates" pageSubtitle="All approved graduates with full CHED survey data">
       <div className="space-y-5">
+
+        {fetchError && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+            <p className="text-red-700 text-xs" style={{ fontWeight: 600 }}>
+              {fetchError}
+            </p>
+          </div>
+        )}
 
         {/* Summary */}
         <div className="grid grid-cols-3 gap-4">
@@ -401,84 +430,92 @@ export function AdminVerified() {
 
         {/* Table */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/60">
-                  {[
-                    { label: 'Graduate', f: 'name' },
-                    { label: 'Batch', f: 'graduationYear' },
-                    { label: 'Status', f: 'employmentStatus' },
-                    { label: 'Company / Role', f: 'company' },
-                    { label: 'Skills', f: null },
-                    { label: 'Location', f: 'workCity' },
-                  ].map(col => (
-                    <th key={col.label}
-                      className={`text-left text-gray-500 text-xs px-4 py-3 whitespace-nowrap ${col.f ? 'cursor-pointer hover:text-gray-700' : ''}`}
-                      style={{ fontWeight: 600 }}
-                      onClick={() => col.f && handleSort(col.f)}>
-                      {col.label}{col.f && <SortIcon f={col.f} />}
-                    </th>
-                  ))}
-                  <th className="px-4 py-3 text-xs text-gray-500" style={{ fontWeight: 600 }}>Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {verifiedAlumni.map(a => (
-                  <Fragment key={a.id}>
-                    <tr className="hover:bg-gray-50/60 transition">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex size-8 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
-                            style={{ fontWeight: 700 }}>
-                            {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{a.name}</p>
-                            <p className="text-gray-400 text-xs truncate">{a.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{a.graduationYear}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
-                          a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
-                        }`} style={{ fontWeight: 600 }}>
-                          {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 max-w-[160px]">
-                        <p className="text-gray-700 text-xs truncate" style={{ fontWeight: 500 }}>{a.jobTitle ?? '—'}</p>
-                        <p className="text-gray-400 text-xs truncate">{a.company ?? ''}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {(a.skills ?? []).slice(0, 2).map((s: string) => (
-                            <span key={s} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" style={{ fontSize: '10px', fontWeight: 500 }}>{s}</span>
-                          ))}
-                          {(a.skills ?? []).length > 2 && (
-                            <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full" style={{ fontSize: '10px' }}>+{(a.skills ?? []).length - 2}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs max-w-[100px] truncate">{a.workCity ?? '—'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <button onClick={() => setModalAlumni(a)}
-                          className="text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-1.5 rounded-lg transition"
-                          style={{ fontWeight: 600 }}>
-                          View Details
-                        </button>
-                      </td>
+          {loadingVerified ? (
+            <div className="p-12 text-center">
+              <span className="inline-flex size-8 border-2 border-gray-200 border-t-[#166534] rounded-full animate-spin" />
+              <p className="text-gray-500 text-sm mt-3">Loading verified graduates…</p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[600px]">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60">
+                      {[
+                        { label: 'Graduate', f: 'name' },
+                        { label: 'Batch', f: 'graduationYear' },
+                        { label: 'Status', f: 'employmentStatus' },
+                        { label: 'Company / Role', f: 'company' },
+                        { label: 'Skills', f: null },
+                        { label: 'Location', f: 'workCity' },
+                      ].map(col => (
+                        <th key={col.label}
+                          className={`text-left text-gray-500 text-xs px-4 py-3 whitespace-nowrap ${col.f ? 'cursor-pointer hover:text-gray-700' : ''}`}
+                          style={{ fontWeight: 600 }}
+                          onClick={() => col.f && handleSort(col.f)}>
+                          {col.label}{col.f && <SortIcon f={col.f} />}
+                        </th>
+                      ))}
+                      <th className="px-4 py-3 text-xs text-gray-500" style={{ fontWeight: 600 }}>Details</th>
                     </tr>
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {verifiedAlumni.map(a => (
+                      <Fragment key={a.id}>
+                        <tr className="hover:bg-gray-50/60 transition">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex size-8 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
+                                style={{ fontWeight: 700 }}>
+                                {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{a.name}</p>
+                                <p className="text-gray-400 text-xs truncate">{a.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{a.graduationYear}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
+                                a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
+                              }`} style={{ fontWeight: 600 }}>
+                              {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 max-w-[160px]">
+                            <p className="text-gray-700 text-xs truncate" style={{ fontWeight: 500 }}>{a.jobTitle ?? '—'}</p>
+                            <p className="text-gray-400 text-xs truncate">{a.company ?? ''}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {(a.skills ?? []).slice(0, 2).map((s: string) => (
+                                <span key={s} className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full" style={{ fontSize: '10px', fontWeight: 500 }}>{s}</span>
+                              ))}
+                              {(a.skills ?? []).length > 2 && (
+                                <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full" style={{ fontSize: '10px' }}>+{(a.skills ?? []).length - 2}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs max-w-[100px] truncate">{a.workCity ?? '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <button onClick={() => setModalAlumni(a)}
+                              className="text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-1.5 rounded-lg transition"
+                              style={{ fontWeight: 600 }}>
+                              View Details
+                            </button>
+                          </td>
+                        </tr>
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-          {verifiedAlumni.length === 0 && (
-            <div className="text-center py-12 text-gray-400 text-sm">No verified graduates match the current filters.</div>
+              {verifiedAlumni.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-sm">No verified graduates match the current filters.</div>
+              )}
+            </>
           )}
         </div>
       </div>

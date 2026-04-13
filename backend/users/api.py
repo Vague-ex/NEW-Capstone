@@ -1,5 +1,7 @@
 import json
 from datetime import date
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 from django.db import transaction
 from django.utils import timezone
@@ -9,8 +11,23 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AccountStatus, AlumniAccount, GraduateMasterRecord, User
+from .models import AccountStatus, AlumniAccount, EmployerAccount, GraduateMasterRecord, User
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
+
+try:
+    import cv2
+except Exception:  # pragma: no cover - optional dependency guard
+    cv2 = None
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - optional dependency guard
+    np = None
+
+
+FACE_MATCH_THRESHOLD = 0.82
+MIN_FACE_SIZE_PX = 72
+MIN_FACE_AREA_RATIO = 0.045
 
 
 def _safe_json_loads(raw_value):
@@ -95,6 +112,124 @@ def _normalize_storage_key(raw_value: str) -> str:
     return f"alumni-{timezone.now().strftime('%Y%m%d%H%M%S')}"
 
 
+def _download_image_bytes(url: str) -> bytes | None:
+    if not url:
+        return None
+    try:
+        with urlopen(url, timeout=15) as response:
+            return response.read()
+    except (HTTPError, URLError, TimeoutError):
+        return None
+
+
+def _extract_registration_front_scan_url(account: AlumniAccount) -> str | None:
+    template = _safe_json_loads(account.biometric_template)
+    if isinstance(template, dict):
+        scans_raw = template.get("registration_face_scans", {})
+        if isinstance(scans_raw, dict):
+            for key in ("face_front", "front"):
+                value = scans_raw.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+    if account.face_photo_url:
+        return account.face_photo_url.strip()
+    return None
+
+
+def _decode_image_for_cv(image_bytes: bytes):
+    if cv2 is None or np is None or not image_bytes:
+        return None
+    buffer = np.frombuffer(image_bytes, dtype=np.uint8)
+    if buffer.size == 0:
+        return None
+    return cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+
+
+def _extract_primary_face(image):
+    if cv2 is None or image is None:
+        return None
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    cascade = cv2.CascadeClassifier(f"{cv2.data.haarcascades}haarcascade_frontalface_default.xml")
+    if cascade.empty():
+        return None
+
+    faces = cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=6,
+        minSize=(MIN_FACE_SIZE_PX, MIN_FACE_SIZE_PX),
+    )
+    if faces is None or len(faces) == 0:
+        return None
+
+    x, y, w, h = max(faces, key=lambda item: item[2] * item[3])
+    image_area = max(int(image.shape[0]) * int(image.shape[1]), 1)
+    if (w * h) / image_area < MIN_FACE_AREA_RATIO:
+        return None
+
+    face_gray = gray[y : y + h, x : x + w]
+    if face_gray.size == 0:
+        return None
+
+    normalized = cv2.resize(face_gray, (160, 160), interpolation=cv2.INTER_AREA)
+    normalized = cv2.equalizeHist(normalized)
+    return normalized
+
+
+def _face_similarity_score(reference_face, login_face) -> float:
+    if cv2 is None or np is None:
+        return 0.0
+
+    ref_vector = reference_face.astype("float32").reshape(-1)
+    login_vector = login_face.astype("float32").reshape(-1)
+
+    ref_norm = float(np.linalg.norm(ref_vector))
+    login_norm = float(np.linalg.norm(login_vector))
+    if ref_norm == 0 or login_norm == 0:
+        return 0.0
+
+    cosine_score = float(np.dot(ref_vector, login_vector) / (ref_norm * login_norm))
+
+    ref_hist = cv2.calcHist([reference_face], [0], None, [64], [0, 256])
+    login_hist = cv2.calcHist([login_face], [0], None, [64], [0, 256])
+    ref_hist = cv2.normalize(ref_hist, None)
+    login_hist = cv2.normalize(login_hist, None)
+    histogram_score = float(cv2.compareHist(ref_hist, login_hist, cv2.HISTCMP_CORREL))
+
+    combined_score = (cosine_score * 0.65) + (histogram_score * 0.35)
+    return max(0.0, min(combined_score, 1.0))
+
+
+def _verify_login_face(reference_url: str, login_scan_bytes: bytes) -> tuple[bool, str, float]:
+    if cv2 is None or np is None:
+        return False, "Face verification service is unavailable. Please contact support.", 0.0
+
+    reference_bytes = _download_image_bytes(reference_url)
+    if not reference_bytes:
+        return False, "Unable to load enrolled biometric reference. Please contact support.", 0.0
+
+    reference_image = _decode_image_for_cv(reference_bytes)
+    login_image = _decode_image_for_cv(login_scan_bytes)
+    if reference_image is None or login_image is None:
+        return False, "Face scan image could not be processed. Please try again.", 0.0
+
+    reference_face = _extract_primary_face(reference_image)
+    if reference_face is None:
+        return False, "Enrolled biometric photo is invalid. Please contact support.", 0.0
+
+    login_face = _extract_primary_face(login_image)
+    if login_face is None:
+        return False, "No face was detected in your scan. Keep your face centered and retry.", 0.0
+
+    score = _face_similarity_score(reference_face, login_face)
+    if score < FACE_MATCH_THRESHOLD:
+        return False, "Face verification failed. The captured face did not match your registered biometrics.", score
+
+    return True, "Face verification passed.", score
+
+
 def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
@@ -134,7 +269,7 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     }
 
 
-def _pending_alumni_payload(account: AlumniAccount) -> dict:
+def _admin_alumni_payload(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
     survey_data = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
@@ -193,12 +328,20 @@ def _pending_alumni_payload(account: AlumniAccount) -> dict:
     except (TypeError, ValueError):
         lng = None
 
+    if account.account_status == AccountStatus.ACTIVE:
+        verification_status = "verified"
+    elif account.account_status == AccountStatus.REJECTED:
+        verification_status = "rejected"
+    else:
+        verification_status = "pending"
+
     return {
         "id": str(account.id),
         "name": name,
         "email": account.user.email,
         "graduationYear": graduation_year,
-        "verificationStatus": "pending",
+        "verificationStatus": verification_status,
+        "accountStatus": account.account_status,
         "employmentStatus": employment_status,
         "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
         "company": survey_data.get("currentJobCompany") or "",
@@ -216,6 +359,40 @@ def _pending_alumni_payload(account: AlumniAccount) -> dict:
         "lat": lat,
         "lng": lng,
         "surveyData": survey_data,
+    }
+
+
+def _pending_alumni_payload(account: AlumniAccount) -> dict:
+    return _admin_alumni_payload(account)
+
+
+def _employer_request_payload(account: EmployerAccount) -> dict:
+    profile = _safe_json_loads(account.profile_json)
+    if not isinstance(profile, dict):
+        profile = {}
+
+    status_value = account.account_status
+    if status_value == AccountStatus.ACTIVE:
+        status_label = "approved"
+    elif status_value == AccountStatus.REJECTED:
+        status_label = "rejected"
+    else:
+        status_label = "pending"
+
+    return {
+        "id": str(account.id),
+        "company": account.company_name,
+        "industry": profile.get("industry") or "",
+        "contact": profile.get("contact_name") or "",
+        "position": profile.get("position") or "",
+        "email": account.company_email,
+        "credentialEmail": account.company_email,
+        "phone": profile.get("phone") or "",
+        "website": profile.get("website") or "",
+        "status": status_label,
+        "accountStatus": status_value,
+        "date": account.created_at.date().isoformat(),
+        "dateUpdated": account.updated_at.date().isoformat(),
     }
 
 
@@ -405,6 +582,162 @@ class AlumniRegisterView(APIView):
         )
 
 
+class EmployerRegisterView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        company_name = (request.data.get("company_name") or request.data.get("companyName") or "").strip()
+        industry = (request.data.get("industry") or "").strip()
+        website = (request.data.get("website") or "").strip()
+        contact_name = (request.data.get("contact_name") or request.data.get("contactName") or "").strip()
+        position = (request.data.get("position") or "").strip()
+        credential_email = (
+            request.data.get("credential_email")
+            or request.data.get("credentialEmail")
+            or request.data.get("email")
+            or ""
+        ).strip().lower()
+        phone = (request.data.get("phone") or "").strip()
+        password = request.data.get("password") or ""
+        confirm_password = request.data.get("confirm_password") or request.data.get("confirmPassword") or ""
+
+        missing = []
+        for field_name, value in {
+            "company_name": company_name,
+            "industry": industry,
+            "contact_name": contact_name,
+            "credential_email": credential_email,
+            "password": password,
+            "confirm_password": confirm_password,
+        }.items():
+            if not value:
+                missing.append(field_name)
+
+        if missing:
+            return Response(
+                {"detail": f"Missing required fields: {', '.join(missing)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if password != confirm_password:
+            return Response(
+                {"detail": "Passwords do not match."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(password) < 8:
+            return Response(
+                {"detail": "Password must be at least 8 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if User.objects.filter(email__iexact=credential_email).exists() or EmployerAccount.objects.filter(
+            company_email__iexact=credential_email
+        ).exists():
+            return Response(
+                {"detail": "This credential email is already registered."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        profile_data = {
+            "industry": industry,
+            "website": website,
+            "contact_name": contact_name,
+            "position": position,
+            "phone": phone,
+        }
+
+        with transaction.atomic():
+            user = User.objects.create_user(
+                email=credential_email,
+                password=password,
+                role=User.Role.EMPLOYER,
+            )
+            employer_account = EmployerAccount.objects.create(
+                user=user,
+                company_email=credential_email,
+                company_name=company_name,
+                profile_json=json.dumps(profile_data),
+                account_status=AccountStatus.PENDING,
+            )
+
+        return Response(
+            {
+                "message": "Employer registration submitted. Account is pending admin approval.",
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "role": user.role,
+                },
+                "employer": _employer_request_payload(employer_account),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class EmployerLoginView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        credential_email = (
+            request.data.get("credential_email")
+            or request.data.get("credentialEmail")
+            or request.data.get("email")
+            or ""
+        ).strip().lower()
+        password = request.data.get("password") or ""
+
+        if not credential_email or not password:
+            return Response(
+                {"detail": "Credential email and password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = _authenticate_by_email(email=credential_email, password=password)
+        if not user:
+            return Response(
+                {"detail": "Invalid credential email or password."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if user.role != User.Role.EMPLOYER:
+            return Response(
+                {"detail": "This account is not an employer account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            employer_account = user.employer_account
+        except EmployerAccount.DoesNotExist:
+            return Response(
+                {"detail": "Employer profile was not found for this account."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if employer_account.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
+            return Response(
+                {"detail": f"Account access blocked ({employer_account.account_status}). Contact the administrator."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return Response(
+            {
+                "message": "Employer login successful.",
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "role": user.role,
+                },
+                "employer": _employer_request_payload(employer_account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class AlumniLoginView(APIView):
     parser_classes = [MultiPartParser, FormParser]
     authentication_classes = []
@@ -453,13 +786,40 @@ class AlumniLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        reference_scan_url = _extract_registration_front_scan_url(alumni_account)
+        if not reference_scan_url:
+            return Response(
+                {"detail": "No enrolled biometric reference is available for this account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        login_scan_bytes = face_scan.read()
+        if not login_scan_bytes:
+            return Response(
+                {"detail": "Face scan image is empty. Please retry."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        is_match, verification_message, similarity_score = _verify_login_face(
+            reference_url=reference_scan_url,
+            login_scan_bytes=login_scan_bytes,
+        )
+        if not is_match:
+            return Response(
+                {
+                    "detail": verification_message,
+                    "similarityScore": round(similarity_score, 4),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         scan_timestamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
         storage_key_basis = alumni_account.master_record.full_name if alumni_account.master_record else alumni_account.user.email
         object_path = f"face-login/{_normalize_storage_key(storage_key_basis)}/{scan_timestamp}.jpg"
 
         try:
             login_scan_url = upload_image_bytes(
-                file_bytes=face_scan.read(),
+                file_bytes=login_scan_bytes,
                 object_path=object_path,
                 content_type=face_scan.content_type or "image/jpeg",
             )
@@ -478,6 +838,7 @@ class AlumniLoginView(APIView):
             {
                 "timestamp": timezone.now().isoformat(),
                 "scan_url": login_scan_url,
+                "similarity_score": round(similarity_score, 4),
             }
         )
         login_audit = login_audit[-5:]
@@ -500,6 +861,27 @@ class AlumniLoginView(APIView):
         )
 
 
+class AlumniAccountStatusView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, alumni_id):
+        alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
+        if not alumni_account:
+            return Response(
+                {"detail": "Graduate account was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                "alumni": _session_payload_from_alumni(alumni_account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class PendingAlumniListView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -514,6 +896,142 @@ class PendingAlumniListView(APIView):
             {
                 "count": pending_accounts.count(),
                 "results": [_pending_alumni_payload(account) for account in pending_accounts],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class VerifiedAlumniListView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        verified_accounts = AlumniAccount.objects.select_related("user", "master_record").filter(
+            account_status=AccountStatus.ACTIVE
+        ).order_by("-updated_at")
+
+        return Response(
+            {
+                "count": verified_accounts.count(),
+                "results": [_admin_alumni_payload(account) for account in verified_accounts],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AlumniRequestApproveView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, alumni_id):
+        alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
+        if not alumni_account:
+            return Response(
+                {"detail": "Graduate request was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        alumni_account.account_status = AccountStatus.ACTIVE
+        alumni_account.save(update_fields=["account_status", "updated_at"])
+
+        return Response(
+            {
+                "message": "Graduate request approved.",
+                "alumni": _admin_alumni_payload(alumni_account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AlumniRequestRejectView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, alumni_id):
+        alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
+        if not alumni_account:
+            return Response(
+                {"detail": "Graduate request was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        alumni_account.account_status = AccountStatus.REJECTED
+        alumni_account.save(update_fields=["account_status", "updated_at"])
+
+        return Response(
+            {
+                "message": "Graduate request rejected.",
+                "alumni": _admin_alumni_payload(alumni_account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmployerRequestsListView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        employer_accounts = EmployerAccount.objects.select_related("user").order_by("-created_at")
+
+        return Response(
+            {
+                "count": employer_accounts.count(),
+                "results": [_employer_request_payload(account) for account in employer_accounts],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmployerRequestApproveView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, employer_id):
+        employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
+        if not employer_account:
+            return Response(
+                {"detail": "Employer request was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        employer_account.account_status = AccountStatus.ACTIVE
+        employer_account.save(update_fields=["account_status", "updated_at"])
+
+        return Response(
+            {
+                "message": "Employer request approved.",
+                "employer": _employer_request_payload(employer_account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class EmployerRequestRejectView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, employer_id):
+        employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
+        if not employer_account:
+            return Response(
+                {"detail": "Employer request was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        employer_account.account_status = AccountStatus.REJECTED
+        employer_account.save(update_fields=["account_status", "updated_at"])
+
+        return Response(
+            {
+                "message": "Employer request rejected.",
+                "employer": _employer_request_payload(employer_account),
             },
             status=status.HTTP_200_OK,
         )

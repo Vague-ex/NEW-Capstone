@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
+import Image from 'next/image';
 import {
   GraduationCap, LayoutDashboard, LogOut,
   Building2, Search, BarChart2, Map, Upload,
   ChevronRight, Bell, Shield, Star, Briefcase,
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
 } from 'lucide-react';
+import { fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 
 type PortalRole = 'alumni' | 'employer' | 'admin';
@@ -76,10 +78,20 @@ interface PortalLayoutProps {
   notificationCount?: number;
 }
 
+function countPendingEmployerRequests(records: Array<Record<string, unknown>>): number {
+  return records.filter((record) => {
+    const statusValue = String(record.status ?? record.accountStatus ?? '').toLowerCase();
+    return statusValue === 'pending';
+  }).length;
+}
+
 export function PortalLayout({ role, children, pageTitle, pageSubtitle, notificationCount = 0 }: PortalLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [liveAdminNotificationCount, setLiveAdminNotificationCount] = useState<number | null>(null);
+  const lastKnownAdminPendingRef = useRef<number | null>(null);
+  const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const nav = NAV_CONFIG[role];
   const config = ROLE_CONFIG[role];
@@ -99,10 +111,76 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     }
   } catch { /* noop */ }
 
+  useEffect(() => {
+    if (role !== 'admin') return;
+
+    const audio = new Audio('/notification.mp3');
+    audio.preload = 'auto';
+    notificationAudioRef.current = audio;
+
+    return () => {
+      notificationAudioRef.current = null;
+    };
+  }, [role]);
+
+  useEffect(() => {
+    if (role !== 'admin') return;
+
+    const sessionKey = 'admin_last_pending_total';
+    const storedTotal = Number(sessionStorage.getItem(sessionKey));
+    if (!Number.isNaN(storedTotal)) {
+      lastKnownAdminPendingRef.current = storedTotal;
+    }
+
+    let active = true;
+    const updateAdminNotificationCount = async () => {
+      try {
+        const [pendingAlumni, employerRequests] = await Promise.all([
+          fetchPendingAlumni(),
+          fetchEmployerRequests(),
+        ]);
+        if (!active) return;
+
+        const pendingEmployers = countPendingEmployerRequests(
+          employerRequests as Array<Record<string, unknown>>,
+        );
+        const totalPending = pendingAlumni.length + pendingEmployers;
+        setLiveAdminNotificationCount(totalPending);
+
+        const previousTotal = lastKnownAdminPendingRef.current;
+        if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
+          notificationAudioRef.current.currentTime = 0;
+          void notificationAudioRef.current.play().catch(() => {
+            // Browsers may block autoplay until first user interaction.
+          });
+        }
+
+        lastKnownAdminPendingRef.current = totalPending;
+        sessionStorage.setItem(sessionKey, String(totalPending));
+      } catch {
+        if (!active) return;
+      }
+    };
+
+    void updateAdminNotificationCount();
+    const intervalId = window.setInterval(() => {
+      void updateAdminNotificationCount();
+    }, 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, [role]);
+
   const handleLogout = () => {
     sessionStorage.removeItem(config.sessionKey);
     navigate(config.logoutPath);
   };
+
+  const bellNotificationCount = role === 'admin' && liveAdminNotificationCount !== null
+    ? liveAdminNotificationCount
+    : notificationCount;
 
   const RoleIcon = role === 'admin' ? Shield : role === 'employer' ? Building2 : GraduationCap;
 
@@ -111,7 +189,13 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       {/* Logo */}
       <div className={`p-5 bg-gradient-to-b ${config.color} border-b border-white/10`}>
         <div className="flex items-center gap-3">
-          <img src={schoolLogo} alt="CHMSU Logo" className="size-9 rounded-full object-cover shrink-0 bg-white p-0.5" />
+          <Image
+            src={schoolLogo}
+            alt="CHMSU Logo"
+            width={36}
+            height={36}
+            className="size-9 rounded-full object-cover shrink-0 bg-white p-0.5"
+          />
           <div className="min-w-0">
             <p className="text-white text-sm truncate" style={{ fontWeight: 700 }}>CHMSU Talisay</p>
             <p className="text-white/50 text-xs truncate">BSIS Graduate Tracer</p>
@@ -213,9 +297,9 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               className="relative p-2 rounded-lg hover:bg-gray-100 transition"
             >
               <Bell className="size-4 text-gray-500" />
-              {notificationCount > 0 && (
+              {bellNotificationCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-white" style={{ fontSize: '9px', fontWeight: 700 }}>
-                  {notificationCount}
+                  {bellNotificationCount}
                 </span>
               )}
             </button>

@@ -51,6 +51,7 @@
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
     "input-otp": "1.4.2",
+    "is-image-blurry": "^1.0.0",
     "leaflet": "^1.9.4",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
