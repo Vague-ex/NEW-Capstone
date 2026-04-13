@@ -18,7 +18,6 @@ Core Auth and Accounts
   - is_active, is_staff, date_joined
 
 - users.GraduateMasterRecord (DS1)
-  - student_number (unique)
   - full_name
   - last_name
   - birth_date

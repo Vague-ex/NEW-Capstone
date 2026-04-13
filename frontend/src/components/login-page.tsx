@@ -474,7 +474,7 @@ export function LoginPage() {
                 </div>
 
                 {/* Camera area */}
-                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center" style={{ aspectRatio: "4/3" }}>
+                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center w-full max-w-[400px] mx-auto" style={{ aspectRatio: "4/3" }}>
                   <video
                     ref={videoRef}
                     className={`absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "hidden" : ""}`}

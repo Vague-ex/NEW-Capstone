@@ -65,7 +65,6 @@ class GraduateMasterRecord(models.Model):
 	"""
 
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-	student_number = models.CharField(max_length=50, unique=True)
 	full_name = models.CharField(max_length=255)
 	last_name = models.CharField(max_length=120)
 	birth_date = models.DateField()
@@ -76,14 +75,13 @@ class GraduateMasterRecord(models.Model):
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
-		ordering = ["student_number"]
+		ordering = ["full_name"]
 		indexes = [
-			models.Index(fields=["student_number", "last_name", "birth_date"]),
 			models.Index(fields=["batch_year"]),
 		]
 
 	def __str__(self):
-		return f"{self.student_number} - {self.full_name}"
+		return self.full_name
 
 
 class AlumniAccount(models.Model):

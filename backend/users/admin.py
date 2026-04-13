@@ -32,9 +32,9 @@ class UserAdmin(BaseUserAdmin):
 
 @admin.register(GraduateMasterRecord)
 class GraduateMasterRecordAdmin(admin.ModelAdmin):
-	list_display = ("student_number", "full_name", "batch_year", "is_active")
+	list_display = ("full_name", "last_name", "batch_year", "is_active")
 	list_filter = ("batch_year", "is_active")
-	search_fields = ("student_number", "full_name", "last_name", "email")
+	search_fields = ("full_name", "last_name", "email")
 
 
 @admin.register(AlumniAccount)

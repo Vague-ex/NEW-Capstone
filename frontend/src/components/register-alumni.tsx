@@ -914,7 +914,7 @@ export function RegisterAlumni() {
                 </div>
 
                 {/* Camera viewport */}
-                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center" style={{ aspectRatio: '4/3', maxHeight: '300px' }}>
+                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center w-full max-w-[400px] mx-auto" style={{ aspectRatio: '4/3', maxHeight: '300px' }}>
                   {!cameraOn && !allShotsCaptured && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <Camera className="size-12 text-gray-600 mb-2" />

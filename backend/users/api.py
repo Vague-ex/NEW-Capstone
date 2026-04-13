@@ -67,16 +67,9 @@ def _authenticate_by_email(email: str, password: str) -> User | None:
 
 def _find_master_record(
     email: str,
-    student_number: str,
     family_name: str,
     first_name: str,
 ) -> GraduateMasterRecord | None:
-    if student_number:
-        return GraduateMasterRecord.objects.filter(
-            student_number=student_number,
-            is_active=True,
-        ).first()
-
     by_email = GraduateMasterRecord.objects.filter(
         email__iexact=email,
         is_active=True,
@@ -117,7 +110,11 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
 
     verification_status = "verified" if account.account_status == AccountStatus.ACTIVE else "pending"
     employment_status = profile.get("employment_status", "unemployed")
-    student_identifier = account.master_record.student_number if account.master_record else None
+    student_identifier = profile.get("student_number")
+    if not student_identifier and account.master_record_id:
+        student_identifier = f"GMR-{str(account.master_record_id)[:8].upper()}"
+    if not student_identifier:
+        student_identifier = f"ALUM-{str(account.id)[:8].upper()}"
 
     return {
         "id": str(account.id),
@@ -187,7 +184,6 @@ class AlumniRegisterView(APIView):
         email = (request.data.get("email") or "").strip().lower()
         password = request.data.get("password") or ""
         confirm_password = request.data.get("confirm_password") or ""
-        provided_student_number = (request.data.get("student_number") or "").strip()
         first_name = (request.data.get("first_name") or "").strip()
         middle_name = (request.data.get("middle_name") or "").strip()
         family_name = (request.data.get("family_name") or "").strip()
@@ -239,7 +235,6 @@ class AlumniRegisterView(APIView):
 
         master_record = _find_master_record(
             email=email,
-            student_number=provided_student_number,
             family_name=family_name,
             first_name=first_name,
         )
@@ -249,7 +244,9 @@ class AlumniRegisterView(APIView):
                 {"detail": "Family name does not match the graduate master record."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        storage_key_basis = provided_student_number or (master_record.student_number if master_record else email.split("@")[0])
+        storage_key_basis = email.split("@")[0]
+        if master_record:
+            storage_key_basis = master_record.full_name
         storage_key = _normalize_storage_key(storage_key_basis)
 
         face_scan_urls: dict[str, str] = {}
@@ -372,7 +369,7 @@ class AlumniLoginView(APIView):
             )
 
         scan_timestamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
-        storage_key_basis = alumni_account.master_record.student_number if alumni_account.master_record else alumni_account.user.email
+        storage_key_basis = alumni_account.master_record.full_name if alumni_account.master_record else alumni_account.user.email
         object_path = f"face-login/{_normalize_storage_key(storage_key_basis)}/{scan_timestamp}.jpg"
 
         try:

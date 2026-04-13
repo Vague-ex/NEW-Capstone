@@ -173,7 +173,7 @@ class EmploymentRecord(models.Model):
 		]
 
 	def __str__(self):
-		identifier = self.alumni.master_record.student_number if self.alumni.master_record else self.alumni.user.email
+		identifier = self.alumni.master_record.full_name if self.alumni.master_record else self.alumni.user.email
 		return f"{identifier} - {self.employer_name_input}"
 
 
@@ -207,7 +207,7 @@ class AlumniSkill(models.Model):
 		]
 
 	def __str__(self):
-		identifier = self.alumni.master_record.student_number if self.alumni.master_record else self.alumni.user.email
+		identifier = self.alumni.master_record.full_name if self.alumni.master_record else self.alumni.user.email
 		return f"{identifier} - {self.skill.name}"
 
 
