@@ -28,6 +28,11 @@ interface AlumniAuthResponse {
     faceScanUrl?: string;
 }
 
+interface PendingAlumniResponse {
+    count?: number;
+    results?: Array<Record<string, unknown>>;
+}
+
 async function parseError(response: Response): Promise<{ message: string; payload?: unknown }> {
     try {
         const data = await response.json();
@@ -91,4 +96,19 @@ export async function alumniLogin(
     await throwIfNotOk(response);
 
     return response.json();
+}
+
+export async function fetchPendingAlumni(): Promise<Array<Record<string, unknown>>> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/pending/`, {
+        method: 'GET',
+    });
+
+    await throwIfNotOk(response);
+
+    const data: PendingAlumniResponse = await response.json();
+    if (!Array.isArray(data.results)) {
+        return [];
+    }
+
+    return data.results;
 }

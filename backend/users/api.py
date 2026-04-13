@@ -134,6 +134,91 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     }
 
 
+def _pending_alumni_payload(account: AlumniAccount) -> dict:
+    template = _safe_json_loads(account.biometric_template)
+    profile = template.get("profile", {}) if isinstance(template, dict) else {}
+    survey_data = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
+    capture_meta = template.get("capture_meta", {}) if isinstance(template, dict) else {}
+    gps = capture_meta.get("gps", {}) if isinstance(capture_meta, dict) else {}
+    registration_scans_raw = template.get("registration_face_scans", {}) if isinstance(template, dict) else {}
+    registration_scans = registration_scans_raw if isinstance(registration_scans_raw, dict) else {}
+    registration_face_scans = {
+        "front": registration_scans.get("face_front") or registration_scans.get("front") or account.face_photo_url,
+        "left": registration_scans.get("face_left") or registration_scans.get("left"),
+        "right": registration_scans.get("face_right") or registration_scans.get("right"),
+    }
+    primary_face_url = account.face_photo_url or registration_face_scans.get("front")
+    has_biometric_capture = bool(
+        primary_face_url or registration_face_scans.get("left") or registration_face_scans.get("right")
+    )
+
+    graduation_year = profile.get("graduation_year")
+    if not graduation_year and account.master_record:
+        graduation_year = account.master_record.batch_year
+    if not graduation_year:
+        graduation_year = date.today().year
+
+    name = profile.get("name")
+    if not name and account.master_record:
+        name = account.master_record.full_name
+    if not name:
+        name = account.user.email.split("@")[0]
+
+    employment_status = profile.get("employment_status", "unemployed")
+    job_related = survey_data.get("currentJobRelated") or survey_data.get("firstJobRelated")
+    if isinstance(job_related, str):
+        job_related = job_related.strip().lower()
+    job_alignment = None
+    if job_related == "yes":
+        job_alignment = "related"
+    elif job_related == "no":
+        job_alignment = "not-related"
+
+    skills = survey_data.get("skills") if isinstance(survey_data, dict) else []
+    if not isinstance(skills, list):
+        skills = []
+
+    lat_raw = gps.get("lat") if isinstance(gps, dict) else None
+    lng_raw = gps.get("lng") if isinstance(gps, dict) else None
+    lat = None
+    lng = None
+    try:
+        if lat_raw not in (None, ""):
+            lat = float(lat_raw)
+    except (TypeError, ValueError):
+        lat = None
+    try:
+        if lng_raw not in (None, ""):
+            lng = float(lng_raw)
+    except (TypeError, ValueError):
+        lng = None
+
+    return {
+        "id": str(account.id),
+        "name": name,
+        "email": account.user.email,
+        "graduationYear": graduation_year,
+        "verificationStatus": "pending",
+        "employmentStatus": employment_status,
+        "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
+        "company": survey_data.get("currentJobCompany") or "",
+        "industry": survey_data.get("currentJobSector") or survey_data.get("firstJobSector") or "",
+        "jobAlignment": job_alignment,
+        "workLocation": survey_data.get("currentJobLocation") or "",
+        "unemploymentReason": survey_data.get("unemploymentReason") or "",
+        "dateUpdated": timezone.localdate().isoformat(),
+        "biometricCaptured": has_biometric_capture,
+        "biometricDate": timezone.localdate().isoformat() if has_biometric_capture else None,
+        "facePhotoUrl": primary_face_url,
+        "registrationFaceScans": registration_face_scans,
+        "captureTime": capture_meta.get("captured_at") if isinstance(capture_meta, dict) else None,
+        "skills": skills,
+        "lat": lat,
+        "lng": lng,
+        "surveyData": survey_data,
+    }
+
+
 class AdminLoginView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -410,6 +495,25 @@ class AlumniLoginView(APIView):
                 "message": "Graduate login successful.",
                 "alumni": _session_payload_from_alumni(alumni_account),
                 "faceScanUrl": login_scan_url,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PendingAlumniListView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        pending_accounts = AlumniAccount.objects.select_related("user", "master_record").filter(
+            account_status=AccountStatus.PENDING
+        ).order_by("-created_at")
+
+        return Response(
+            {
+                "count": pending_accounts.count(),
+                "results": [_pending_alumni_payload(account) for account in pending_accounts],
             },
             status=status.HTTP_200_OK,
         )

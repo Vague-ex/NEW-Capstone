@@ -1,15 +1,30 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
+import { fetchPendingAlumni } from '../../app/api-client';
 import {
   CheckCircle2, XCircle, Clock, Camera, User,
   Calendar, Briefcase, AlertTriangle, X, Search,
-  Mail, MapPin, Star, Building2, Globe, Award,
+  Mail, MapPin, Star, Building2,
   BarChart2,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 type AlumniRecord = typeof VALID_ALUMNI[0];
 type ModalTab = 'biometric' | 'employment' | 'skills';
+
+type FaceScans = {
+  front?: string;
+  left?: string;
+  right?: string;
+};
+
+type SurveyData = {
+  scholarship?: string;
+  highestAttainment?: string;
+  profEligibility?: string[];
+  neverEmployed?: boolean;
+};
 
 function SectionRow({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -32,7 +47,48 @@ function deriveTimeToHire(a: AlumniRecord): string {
   return 'After 1 year';
 }
 
+function getFaceScans(a: AlumniRecord): FaceScans {
+  const record = a as Record<string, unknown>;
+  const scansRaw = record.registrationFaceScans;
+  const scans = (scansRaw && typeof scansRaw === 'object' ? scansRaw : {}) as Record<string, unknown>;
+
+  const front = (scans.front ?? scans.face_front ?? record.facePhotoUrl) as string | undefined;
+  const left = (scans.left ?? scans.face_left) as string | undefined;
+  const right = (scans.right ?? scans.face_right) as string | undefined;
+
+  return { front, left, right };
+}
+
+function getPrimaryFaceScan(scans: FaceScans): string | undefined {
+  return scans.front ?? scans.left ?? scans.right;
+}
+
+function hasBiometricCapture(a: AlumniRecord, scans?: FaceScans): boolean {
+  const resolvedScans = scans ?? getFaceScans(a);
+  return Boolean(a.biometricCaptured || resolvedScans.front || resolvedScans.left || resolvedScans.right);
+}
+
+function getSurveyData(a: AlumniRecord): SurveyData {
+  const raw = (a as Record<string, unknown>).surveyData;
+  if (!raw || typeof raw !== 'object') return {};
+
+  const source = raw as Record<string, unknown>;
+  const profEligibilityRaw = source.profEligibility;
+
+  return {
+    scholarship: typeof source.scholarship === 'string' ? source.scholarship : undefined,
+    highestAttainment: typeof source.highestAttainment === 'string' ? source.highestAttainment : undefined,
+    profEligibility: Array.isArray(profEligibilityRaw)
+      ? profEligibilityRaw.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    neverEmployed: typeof source.neverEmployed === 'boolean' ? source.neverEmployed : undefined,
+  };
+}
+
 export function AdminUnverified() {
+  const [backendPending, setBackendPending] = useState<AlumniRecord[]>([]);
+  const [loadingPending, setLoadingPending] = useState(true);
+  const [fetchError, setFetchError] = useState('');
   const [approvedIds, setApprovedIds] = useState<string[]>(() =>
     JSON.parse(sessionStorage.getItem('admin_approved_ids') || '[]')
   );
@@ -44,11 +100,44 @@ export function AdminUnverified() {
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const pendingAlumni = VALID_ALUMNI.filter(
-    a => a.verificationStatus === 'pending' && !approvedIds.includes(a.id) && !rejectedIds.includes(a.id)
-  ).filter(a => {
+  useEffect(() => {
+    let active = true;
+    const loadPending = async () => {
+      setLoadingPending(true);
+      setFetchError('');
+      try {
+        const results = await fetchPendingAlumni();
+        if (!active) return;
+        setBackendPending(results as AlumniRecord[]);
+      } catch (err) {
+        if (!active) return;
+        const message = err instanceof Error ? err.message : 'Failed to load pending graduates.';
+        setFetchError(message);
+      } finally {
+        if (active) setLoadingPending(false);
+      }
+    };
+    void loadPending();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const getRecordId = (a: AlumniRecord) => String(a.id ?? a.email ?? '');
+
+  const pendingSource = useMemo(() => {
+    if (fetchError) {
+      return VALID_ALUMNI.filter((a) => a.verificationStatus === 'pending');
+    }
+    return backendPending;
+  }, [backendPending, fetchError]);
+
+  const pendingAlumni = pendingSource.filter((a) => {
+    const id = getRecordId(a);
+    return id && !approvedIds.includes(id) && !rejectedIds.includes(id);
+  }).filter(a => {
     const q = search.toLowerCase();
-    return !q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q);
+    return !q || a.name?.toLowerCase().includes(q) || a.email?.toLowerCase().includes(q);
   });
 
   const handleApprove = async (id: string) => {
@@ -78,13 +167,13 @@ export function AdminUnverified() {
 
   const empStatusLabel = (a: AlumniRecord) =>
     a.employmentStatus === 'employed' ? 'Employed'
-    : a.employmentStatus === 'self-employed' ? 'Self-Employed'
-    : 'Unemployed';
+      : a.employmentStatus === 'self-employed' ? 'Self-Employed'
+        : 'Unemployed';
 
   const empStatusColor = (a: AlumniRecord) =>
     a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700'
-    : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
-    : 'bg-gray-100 text-gray-500';
+      : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
+        : 'bg-gray-100 text-gray-500';
 
   return (
     <PortalLayout
@@ -94,6 +183,15 @@ export function AdminUnverified() {
       notificationCount={pendingAlumni.length}
     >
       <div className="space-y-5">
+
+        {fetchError && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+            <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-red-700 text-xs" style={{ fontWeight: 600 }}>
+              {fetchError}
+            </p>
+          </div>
+        )}
 
         {/* Info banner */}
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -129,7 +227,12 @@ export function AdminUnverified() {
         </div>
 
         {/* List */}
-        {pendingAlumni.length === 0 ? (
+        {loadingPending ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+            <span className="inline-flex size-8 border-2 border-gray-200 border-t-[#166534] rounded-full animate-spin" />
+            <p className="text-gray-500 text-sm mt-3">Loading pending graduate accounts…</p>
+          </div>
+        ) : pendingAlumni.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
             <CheckCircle2 className="size-12 text-emerald-400 mx-auto mb-4" />
             <h3 className="text-gray-700" style={{ fontWeight: 700 }}>All Verified!</h3>
@@ -138,137 +241,141 @@ export function AdminUnverified() {
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="divide-y divide-gray-100">
-              {pendingAlumni.map(a => (
-                <div key={a.id} className="p-4 hover:bg-gray-50/50 transition">
-                  <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+              {pendingAlumni.map(a => {
+                const rowId = getRecordId(a);
+                const faceScans = getFaceScans(a);
+                const primaryFaceScan = getPrimaryFaceScan(faceScans);
+                const hasBiometric = hasBiometricCapture(a, faceScans);
+                return (
+                  <div key={rowId} className="p-4 hover:bg-gray-50/50 transition">
+                    <div className="flex flex-col sm:flex-row sm:items-start gap-4">
 
-                    {/* Biometric photo */}
-                    <div className="relative flex size-14 shrink-0 items-center justify-center rounded-xl bg-gray-900 overflow-hidden border-2 border-amber-300">
-                      {a.biometricCaptured ? (
-                        <>
-                          <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-                            <User className="size-7 text-gray-400" />
-                          </div>
-                          <div className="absolute bottom-0 left-0 right-0 bg-emerald-500/80 text-white text-center py-0.5">
-                            <p style={{ fontWeight: 700, fontSize: '9px' }}>CAPTURED</p>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center">
-                          <Camera className="size-5 text-gray-500" />
-                          <p className="text-gray-600 mt-0.5" style={{ fontSize: '8px' }}>None</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Info block */}
-                    <div className="flex-1 min-w-0">
-                      {/* Row 1: Name + badges */}
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>{a.name}</p>
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${empStatusColor(a)}`} style={{ fontWeight: 600 }}>
-                          {empStatusLabel(a)}
-                        </span>
-                        {a.biometricCaptured ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
-                            <CheckCircle2 className="size-3" /> Biometric
-                          </span>
+                      {/* Biometric photo */}
+                      <div className="relative flex size-14 shrink-0 items-center justify-center rounded-xl bg-gray-900 overflow-hidden border-2 border-amber-300">
+                        {hasBiometric && primaryFaceScan ? (
+                          <>
+                            <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} biometric capture`} className="absolute inset-0 w-full h-full object-cover object-center" />
+                            <div className="absolute bottom-0 left-0 right-0 bg-emerald-500/80 text-white text-center py-0.5">
+                              <p style={{ fontWeight: 700, fontSize: '9px' }}>CAPTURED</p>
+                            </div>
+                          </>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
-                            <XCircle className="size-3" /> No biometric
-                          </span>
+                          <div className="flex flex-col items-center justify-center">
+                            <Camera className="size-5 text-gray-500" />
+                            <p className="text-gray-600 mt-0.5" style={{ fontSize: '8px' }}>None</p>
+                          </div>
                         )}
-                        <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
-                          <BarChart2 className="size-3" /> Excl. Analytics
-                        </span>
                       </div>
 
-                      {/* Row 2: Contact + batch */}
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-gray-500 text-xs mb-1.5">
-                        <span className="flex items-center gap-1"><Mail className="size-3" /> {a.email}</span>
-                        <span className="flex items-center gap-1"><Calendar className="size-3" /> Batch {a.graduationYear}</span>
+                      {/* Info block */}
+                      <div className="flex-1 min-w-0">
+                        {/* Row 1: Name + badges */}
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>{a.name || 'Unnamed Graduate'}</p>
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${empStatusColor(a)}`} style={{ fontWeight: 600 }}>
+                            {empStatusLabel(a)}
+                          </span>
+                          {hasBiometric ? (
+                            <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
+                              <CheckCircle2 className="size-3" /> Biometric
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
+                              <XCircle className="size-3" /> No biometric
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
+                            <BarChart2 className="size-3" /> Excl. Analytics
+                          </span>
+                        </div>
+
+                        {/* Row 2: Contact + batch */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-gray-500 text-xs mb-1.5">
+                          <span className="flex items-center gap-1"><Mail className="size-3" /> {a.email || 'No email'}</span>
+                          <span className="flex items-center gap-1"><Calendar className="size-3" /> Batch {a.graduationYear || 'N/A'}</span>
+                        </div>
+
+                        {/* Row 3: Employment details */}
+                        {a.employmentStatus !== 'unemployed' && (
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs">
+                            {a.jobTitle && (
+                              <span className="flex items-center gap-1 text-gray-700" style={{ fontWeight: 500 }}>
+                                <Briefcase className="size-3 text-gray-400" /> {a.jobTitle}
+                              </span>
+                            )}
+                            {a.company && (
+                              <span className="flex items-center gap-1 text-gray-600">
+                                <Building2 className="size-3 text-gray-400" /> {a.company}
+                              </span>
+                            )}
+                            {a.workLocation && (
+                              <span className="flex items-center gap-1 text-gray-500">
+                                <MapPin className="size-3 text-gray-400" /> {a.workLocation}
+                              </span>
+                            )}
+                            {a.industry && (
+                              <span className="text-gray-400">· {a.industry}</span>
+                            )}
+                            {a.jobAlignment && (
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${a.jobAlignment === 'related' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500'}`} style={{ fontWeight: 500, fontSize: '10px' }}>
+                                {a.jobAlignment === 'related' ? 'BSIS-related' : 'Not BSIS-related'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {a.employmentStatus === 'unemployed' && a.unemploymentReason && (
+                          <p className="text-gray-400 text-xs italic">{a.unemploymentReason}</p>
+                        )}
+
+                        {/* Row 4: Skills preview */}
+                        {a.skills && a.skills.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {a.skills.slice(0, 4).map((s: string) => (
+                              <span key={s} className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full" style={{ fontSize: '10px', fontWeight: 500 }}>{s}</span>
+                            ))}
+                            {a.skills.length > 4 && (
+                              <span className="text-gray-400 px-2 py-0.5 rounded-full bg-gray-50" style={{ fontSize: '10px' }}>+{a.skills.length - 4} more</span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
-                      {/* Row 3: Employment details */}
-                      {a.employmentStatus !== 'unemployed' && (
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs">
-                          {a.jobTitle && (
-                            <span className="flex items-center gap-1 text-gray-700" style={{ fontWeight: 500 }}>
-                              <Briefcase className="size-3 text-gray-400" /> {a.jobTitle}
-                            </span>
-                          )}
-                          {a.company && (
-                            <span className="flex items-center gap-1 text-gray-600">
-                              <Building2 className="size-3 text-gray-400" /> {a.company}
-                            </span>
-                          )}
-                          {a.workLocation && (
-                            <span className="flex items-center gap-1 text-gray-500">
-                              <MapPin className="size-3 text-gray-400" /> {a.workLocation}
-                            </span>
-                          )}
-                          {a.industry && (
-                            <span className="text-gray-400">· {a.industry}</span>
-                          )}
-                          {a.jobAlignment && (
-                            <span className={`px-1.5 py-0.5 rounded text-xs ${a.jobAlignment === 'related' ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500'}`} style={{ fontWeight: 500, fontSize: '10px' }}>
-                              {a.jobAlignment === 'related' ? 'BSIS-related' : 'Not BSIS-related'}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {a.employmentStatus === 'unemployed' && a.unemploymentReason && (
-                        <p className="text-gray-400 text-xs italic">{a.unemploymentReason}</p>
-                      )}
-
-                      {/* Row 4: Skills preview */}
-                      {a.skills && a.skills.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {a.skills.slice(0, 4).map((s: string) => (
-                            <span key={s} className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full" style={{ fontSize: '10px', fontWeight: 500 }}>{s}</span>
-                          ))}
-                          {a.skills.length > 4 && (
-                            <span className="text-gray-400 px-2 py-0.5 rounded-full bg-gray-50" style={{ fontSize: '10px' }}>+{a.skills.length - 4} more</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 shrink-0 self-center">
-                      <button
-                        onClick={() => openReview(a)}
-                        className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-xs transition"
-                        style={{ fontWeight: 600 }}
-                      >
-                        Full Review
-                      </button>
-                      <button
-                        onClick={() => handleApprove(a.id)}
-                        disabled={actionLoading === a.id + '-approve'}
-                        className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
-                        style={{ fontWeight: 600 }}
-                      >
-                        {actionLoading === a.id + '-approve'
-                          ? <span className="size-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
-                          : <CheckCircle2 className="size-3.5" />}
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(a.id)}
-                        disabled={actionLoading === a.id + '-reject'}
-                        className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
-                        style={{ fontWeight: 600 }}
-                      >
-                        {actionLoading === a.id + '-reject'
-                          ? <span className="size-3.5 border border-red-300 border-t-red-600 rounded-full animate-spin" />
-                          : <XCircle className="size-3.5" />}
-                        Reject
-                      </button>
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 shrink-0 self-center">
+                        <button
+                          onClick={() => openReview(a)}
+                          className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-xs transition"
+                          style={{ fontWeight: 600 }}
+                        >
+                          Full Review
+                        </button>
+                        <button
+                          onClick={() => handleApprove(rowId)}
+                          disabled={!rowId || actionLoading === rowId + '-approve'}
+                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
+                          style={{ fontWeight: 600 }}
+                        >
+                          {actionLoading === rowId + '-approve'
+                            ? <span className="size-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                            : <CheckCircle2 className="size-3.5" />}
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleReject(rowId)}
+                          disabled={!rowId || actionLoading === rowId + '-reject'}
+                          className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
+                          style={{ fontWeight: 600 }}
+                        >
+                          {actionLoading === rowId + '-reject'
+                            ? <span className="size-3.5 border border-red-300 border-t-red-600 rounded-full animate-spin" />
+                            : <XCircle className="size-3.5" />}
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -277,7 +384,10 @@ export function AdminUnverified() {
       {/* ── Full Review Modal ── */}
       {reviewAlumni && (() => {
         const a = reviewAlumni;
-        const sd = (a as any).surveyData ?? {};
+        const faceScans = getFaceScans(a);
+        const primaryFaceScan = getPrimaryFaceScan(faceScans);
+        const hasBiometric = hasBiometricCapture(a, faceScans);
+        const sd = getSurveyData(a);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden max-h-[92vh] flex flex-col">
@@ -313,15 +423,14 @@ export function AdminUnverified() {
                   { key: 'biometric', label: 'Biometric & ID', icon: Camera },
                   { key: 'employment', label: 'Employment Data', icon: Briefcase },
                   { key: 'skills', label: 'Skills', icon: Star },
-                ] as { key: ModalTab; label: string; icon: any }[]).map(tab => (
+                ] as { key: ModalTab; label: string; icon: LucideIcon }[]).map(tab => (
                   <button
                     key={tab.key}
                     onClick={() => setModalTab(tab.key)}
-                    className={`flex items-center gap-1.5 px-4 py-3 text-xs border-b-2 transition -mb-px ${
-                      modalTab === tab.key
-                        ? 'border-[#166534] text-[#166534]'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
+                    className={`flex items-center gap-1.5 px-4 py-3 text-xs border-b-2 transition -mb-px ${modalTab === tab.key
+                      ? 'border-[#166534] text-[#166534]'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                      }`}
                     style={{ fontWeight: modalTab === tab.key ? 700 : 400 }}
                   >
                     <tab.icon className="size-3.5" />
@@ -340,34 +449,54 @@ export function AdminUnverified() {
                     <div>
                       <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>BIOMETRIC CAPTURE (3-SHOT)</p>
                       <div className="bg-gray-900 rounded-2xl overflow-hidden" style={{ aspectRatio: '3/4' }}>
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                          <div className="flex size-20 items-center justify-center rounded-full bg-gray-700">
-                            <User className="size-10 text-gray-500" />
-                          </div>
-                          {a.biometricCaptured ? (
-                            <>
-                              <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ fontWeight: 600 }}>
-                                <CheckCircle2 className="size-3.5" /> Biometric Submitted
-                              </span>
-                              <p className="text-gray-400 text-xs">{a.biometricDate || a.dateUpdated}</p>
-                              {a.lat && a.lng && (
-                                <p className="text-gray-500 text-xs flex items-center gap-1">
-                                  <MapPin className="size-3 text-emerald-400" />
-                                  {a.lat.toFixed(4)}, {a.lng.toFixed(4)}
-                                </p>
-                              )}
-                              <div className="flex gap-2 text-xs text-gray-500 mt-1">
-                                <span className="bg-gray-700 rounded px-2 py-0.5">Front</span>
-                                <span className="bg-gray-700 rounded px-2 py-0.5">Left</span>
-                                <span className="bg-gray-700 rounded px-2 py-0.5">Right</span>
-                              </div>
-                            </>
-                          ) : (
+                        {hasBiometric && primaryFaceScan ? (
+                          <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} biometric`} className="w-full h-full object-cover object-center" />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                            <div className="flex size-20 items-center justify-center rounded-full bg-gray-700">
+                              <User className="size-10 text-gray-500" />
+                            </div>
                             <span className="bg-red-500/20 text-red-400 border border-red-500/30 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ fontWeight: 600 }}>
                               <XCircle className="size-3.5" /> No Biometric Submitted
                             </span>
-                          )}
+                          </div>
+                        )}
+                      </div>
+
+                      {hasBiometric && (faceScans.left || faceScans.right) && (
+                        <div className="grid grid-cols-3 gap-2 mt-2">
+                          {([
+                            { key: 'front', label: 'Front', url: faceScans.front },
+                            { key: 'left', label: 'Left', url: faceScans.left },
+                            { key: 'right', label: 'Right', url: faceScans.right },
+                          ] as const).map((scan) => (
+                            <div key={scan.key} className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                              <div className="h-16">
+                                {scan.url ? (
+                                  <img src={scan.url} alt={`${a.name || 'Graduate'} ${scan.label} biometric`} className="w-full h-full object-cover object-center" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-gray-500 text-[10px]">
+                                    Missing
+                                  </div>
+                                )}
+                              </div>
+                              <p className="text-center text-[10px] text-gray-300 py-1">{scan.label}</p>
+                            </div>
+                          ))}
                         </div>
+                      )}
+
+                      <div className="mt-3 space-y-1">
+                        <span className="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-3 py-1.5 rounded-full" style={{ fontWeight: 600 }}>
+                          <CheckCircle2 className="size-3.5" /> {hasBiometric ? 'Biometric Submitted' : 'Pending Biometric'}
+                        </span>
+                        <p className="text-gray-400 text-xs">{a.biometricDate || a.dateUpdated}</p>
+                        {a.lat && a.lng && (
+                          <p className="text-gray-500 text-xs flex items-center gap-1">
+                            <MapPin className="size-3 text-emerald-400" />
+                            {a.lat.toFixed(4)}, {a.lng.toFixed(4)}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -392,7 +521,7 @@ export function AdminUnverified() {
                           <SectionRow label="Prof. Eligibility" value={sd.profEligibility?.length ? sd.profEligibility.join(', ') : '—'} />
                         </div>
                       </div>
-                      {!a.biometricCaptured && (
+                      {!hasBiometric && (
                         <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2">
                           <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
                           <p className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>No biometric on file — verify identity manually before approving.</p>
@@ -419,9 +548,9 @@ export function AdminUnverified() {
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
                           <SectionRow label="Q1 — Current Status" value={
                             a.employmentStatus === 'employed' ? 'Presently Employed'
-                            : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
-                            : sd.neverEmployed ? 'Never Been Employed'
-                            : 'Not Currently Employed'
+                              : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
+                                : sd.neverEmployed ? 'Never Been Employed'
+                                  : 'Not Currently Employed'
                           } />
                           <SectionRow label="Q2 — Time to Hire" value={deriveTimeToHire(a)} />
                         </div>
@@ -436,9 +565,9 @@ export function AdminUnverified() {
                           <SectionRow label="Job Title" value={sd.firstJobTitle || a.jobTitle || '—'} />
                           <SectionRow label="BSIS-Related?" value={
                             sd.firstJobRelated === 'Yes' ? 'Yes — Related to BSIS'
-                            : sd.firstJobRelated === 'No' ? 'No — Not related'
-                            : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                            : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                              : sd.firstJobRelated === 'No' ? 'No — Not related'
+                                : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
+                                  : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
                           } />
                           {(sd.firstJobRelated === 'No' || a.jobAlignment === 'not-related') && (
                             <SectionRow label="Reason (not related)" value={sd.firstJobUnrelatedReason || '—'} />
@@ -458,7 +587,7 @@ export function AdminUnverified() {
                           <SectionRow label="City" value={a.workCity || '—'} />
                           <SectionRow label="BSIS-Related?" value={
                             a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                            : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                              : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
                           } />
                         </div>
                       </div>
