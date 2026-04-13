@@ -86,7 +86,11 @@ def ensure_bucket_exists() -> None:
         _request("GET", get_url, api_key)
         return
     except SupabaseStorageError as exc:
-        if exc.status_code != 404:
+        # Supabase can sometimes return HTTP 400 with a "Bucket not found" payload.
+        missing_bucket = exc.status_code == 404 or (
+            exc.status_code == 400 and "bucket not found" in str(exc).lower()
+        )
+        if not missing_bucket:
             raise
 
     create_url = f"{base_url}/storage/v1/bucket"
