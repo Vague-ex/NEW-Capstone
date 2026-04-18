@@ -34,14 +34,14 @@ class UserAdmin(BaseUserAdmin):
 class GraduateMasterRecordAdmin(admin.ModelAdmin):
 	list_display = ("full_name", "last_name", "batch_year", "is_active")
 	list_filter = ("batch_year", "is_active")
-	search_fields = ("full_name", "last_name", "email")
+	search_fields = ("full_name", "last_name")
 
 
 @admin.register(AlumniAccount)
 class AlumniAccountAdmin(admin.ModelAdmin):
-	list_display = ("user", "master_record", "account_status", "created_at")
-	list_filter = ("account_status",)
-	search_fields = ("user__email", "master_record__student_number", "master_record__full_name")
+	list_display = ("user", "master_record", "match_status", "matched_at", "account_status", "created_at")
+	list_filter = ("match_status", "account_status")
+	search_fields = ("user__email", "master_record__full_name")
 
 
 @admin.register(EmployerAccount)

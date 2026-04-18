@@ -324,8 +324,10 @@ export function AdminVerified() {
 
   useEffect(() => {
     let active = true;
-    const loadVerified = async () => {
-      setLoadingVerified(true);
+    const loadVerified = async (initialLoad = false) => {
+      if (initialLoad) {
+        setLoadingVerified(true);
+      }
       setFetchError('');
       try {
         const results = await fetchVerifiedAlumni();
@@ -336,13 +338,18 @@ export function AdminVerified() {
         const message = err instanceof Error ? err.message : 'Failed to load verified graduates.';
         setFetchError(message);
       } finally {
-        if (active) setLoadingVerified(false);
+        if (active && initialLoad) setLoadingVerified(false);
       }
     };
 
-    void loadVerified();
+    void loadVerified(true);
+    const intervalId = window.setInterval(() => {
+      void loadVerified(false);
+    }, 30000);
+
     return () => {
       active = false;
+      window.clearInterval(intervalId);
     };
   }, []);
 

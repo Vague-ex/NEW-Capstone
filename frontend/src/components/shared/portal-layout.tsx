@@ -165,7 +165,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     void updateAdminNotificationCount();
     const intervalId = window.setInterval(() => {
       void updateAdminNotificationCount();
-    }, 15000);
+    }, 30000);
 
     return () => {
       active = false;

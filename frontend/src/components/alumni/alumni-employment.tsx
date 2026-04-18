@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
+import { updateAlumniEmployment } from '../../app/api-client';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
   MapPin, AlertTriangle, ChevronDown, ChevronUp,
@@ -40,6 +41,7 @@ const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 
 export function AlumniEmployment() {
   const rawUser = sessionStorage.getItem('alumni_user');
   const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+  const alumniId = String(alumni?.id ?? '');
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = !isVerified;
 
@@ -47,7 +49,7 @@ export function AlumniEmployment() {
 
   const [form, setForm] = useState({
     employmentStatus: sd.employmentStatus
-      || (alumni.employmentStatus === 'employed' ? 'Yes' : alumni.employmentStatus === 'unemployed' ? 'No' : ''),
+      || ((alumni.employmentStatus === 'employed' || alumni.employmentStatus === 'self-employed') ? 'Yes' : alumni.employmentStatus === 'unemployed' ? 'No' : ''),
     timeToHire: sd.timeToHire || (alumni.monthsToHire
       ? alumni.monthsToHire <= 1 ? 'Within 1 month'
         : alumni.monthsToHire <= 3 ? '1-3 months'
@@ -68,35 +70,81 @@ export function AlumniEmployment() {
     jobRetention: sd.jobRetention || '',
     jobSource: sd.jobSource || '',
     jobSourceOther: sd.jobSourceOther || '',
+    unemploymentReason: sd.unemploymentReason || '',
+    unemploymentReasonOther: sd.unemploymentReasonOther || '',
   });
 
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [showFirstJob, setShowFirstJob] = useState(true);
 
   const setF = (key: string, value: string) => {
     setSaved(false);
+    setSaveError('');
     setForm(f => ({ ...f, [key]: value }));
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    await new Promise(r => setTimeout(r, 1000));
-    const updated = {
-      ...alumni,
-      employmentStatus: form.employmentStatus === 'Yes' ? 'employed'
-        : form.employmentStatus === 'Never Employed' ? 'unemployed' : 'unemployed',
-      jobTitle: form.currentJobPosition || form.firstJobTitle || alumni.jobTitle,
-      company: form.currentJobCompany || alumni.company,
-      jobAlignment: form.currentJobRelated === 'Yes' ? 'related' : form.currentJobRelated === 'No' ? 'not-related' : alumni.jobAlignment,
-      workLocation: form.currentJobLocation === 'Abroad / Remote Foreign Employer' ? 'Abroad' : alumni.workLocation,
-      surveyData: { ...(alumni.surveyData ?? {}), ...form },
-      dateUpdated: new Date().toISOString().split('T')[0],
+    setSaveError('');
+
+    const sectorText = `${form.currentJobSector} ${form.firstJobSector}`.toLowerCase();
+    const selfEmploymentDetected = form.employmentStatus === 'Yes' && (
+      sectorText.includes('self-employed') ||
+      sectorText.includes('self employed') ||
+      sectorText.includes('freelance') ||
+      sectorText.includes('entrepreneurial')
+    );
+
+    const normalizedEmploymentStatus = form.employmentStatus === 'Yes'
+      ? (selfEmploymentDetected ? 'self-employed' : 'employed')
+      : 'unemployed';
+
+    const resolvedUnemploymentReason = form.unemploymentReason === 'Others'
+      ? (form.unemploymentReasonOther || 'Others')
+      : form.unemploymentReason;
+
+    const surveyDataPayload = {
+      ...(alumni.surveyData ?? {}),
+      ...form,
+      unemploymentReason: resolvedUnemploymentReason,
     };
-    sessionStorage.setItem('alumni_user', JSON.stringify(updated));
-    setSaved(true);
-    setIsSaving(false);
+
+    try {
+      let serverAlumni: Record<string, unknown> = {};
+      if (alumniId) {
+        const response = await updateAlumniEmployment(alumniId, {
+          employment_status: normalizedEmploymentStatus,
+          survey_data: surveyDataPayload,
+        });
+        if (response.alumni && typeof response.alumni === 'object') {
+          serverAlumni = response.alumni;
+        }
+      }
+
+      const updated = {
+        ...alumni,
+        ...serverAlumni,
+        employmentStatus: normalizedEmploymentStatus,
+        jobTitle: form.currentJobPosition || form.firstJobTitle || alumni.jobTitle,
+        company: form.currentJobCompany || alumni.company,
+        jobAlignment: form.currentJobRelated === 'Yes' ? 'related' : form.currentJobRelated === 'No' ? 'not-related' : alumni.jobAlignment,
+        workLocation: form.currentJobLocation === 'Abroad / Remote Foreign Employer' ? 'Abroad' : 'Local (Philippines)',
+        unemploymentReason: resolvedUnemploymentReason,
+        surveyData: surveyDataPayload,
+        dateUpdated: new Date().toISOString().split('T')[0],
+      };
+
+      sessionStorage.setItem('alumni_user', JSON.stringify(updated));
+      setSaved(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to save employment data right now.';
+      setSaveError(message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ── CHED Employment Form — open to ALL graduates (pending + verified) ───────
@@ -343,13 +391,25 @@ export function AlumniEmployment() {
                   'Others',
                 ].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt}
-                    current={form.jobSourceOther} onSelect={v => setF('jobSourceOther', v)} />
+                    current={form.unemploymentReason} onSelect={v => setF('unemploymentReason', v)} />
                 ))}
               </div>
+              {form.unemploymentReason === 'Others' && (
+                <input type="text" placeholder="Please specify…"
+                  value={form.unemploymentReasonOther} onChange={e => setF('unemploymentReasonOther', e.target.value)}
+                  className={`${inputCls} mt-3`} />
+              )}
             </div>
           )}
 
           {/* Save */}
+          {saveError && (
+            <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5">
+              <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-red-700 text-xs">{saveError}</p>
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <button type="submit" disabled={isSaving}
               className="flex-1 flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-70"

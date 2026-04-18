@@ -37,16 +37,6 @@ def _get_config() -> tuple[str, str, str]:
     supabase_url = getattr(settings, "SUPABASE_URL", "") or _derive_supabase_url_from_database_url()
     service_role_key = getattr(settings, "SUPABASE_SERVICE_ROLE_KEY", "")
     bucket_name = getattr(settings, "SUPABASE_STORAGE_BUCKET", "faceid-verification")
-
-    if not supabase_url:
-        raise SupabaseStorageError(
-            "SUPABASE_URL is required for Storage uploads. Set it in backend/.env."
-        )
-    if not service_role_key:
-        raise SupabaseStorageError(
-            "SUPABASE_SERVICE_ROLE_KEY is required for Storage uploads. Set it in backend/.env."
-        )
-
     return supabase_url.rstrip("/"), service_role_key, bucket_name
 
 

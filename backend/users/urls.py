@@ -2,6 +2,7 @@ from django.urls import path
 
 from .api import (
     AdminLoginView,
+    AlumniEmploymentUpdateView,
     AlumniAccountStatusView,
     AlumniRequestApproveView,
     AlumniRequestRejectView,
@@ -21,6 +22,11 @@ urlpatterns = [
     path("auth/alumni/register/", AlumniRegisterView.as_view(), name="alumni-register"),
     path("auth/alumni/login/", AlumniLoginView.as_view(), name="alumni-login"),
     path("auth/alumni/account/<uuid:alumni_id>/", AlumniAccountStatusView.as_view(), name="alumni-account-status"),
+    path(
+        "auth/alumni/account/<uuid:alumni_id>/employment/",
+        AlumniEmploymentUpdateView.as_view(),
+        name="alumni-account-employment-update",
+    ),
     path("auth/employer/register/", EmployerRegisterView.as_view(), name="employer-register"),
     path("auth/employer/login/", EmployerLoginView.as_view(), name="employer-login"),
     path("admin/alumni/pending/", PendingAlumniListView.as_view(), name="admin-pending-alumni"),

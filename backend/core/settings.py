@@ -1,6 +1,7 @@
 """Django settings for core project."""
 
 import os
+import socket
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -28,9 +29,47 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value.strip())
+    except (TypeError, ValueError):
+        return default
+
+
 def _env_list(name: str, default: str = "") -> list[str]:
     value = os.getenv(name, default)
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _can_resolve_database_host(database_url: str) -> bool:
+    if not database_url:
+        return False
+
+    parsed = urlparse(database_url)
+    host = parsed.hostname
+    if not host:
+        return False
+
+    try:
+        socket.getaddrinfo(host, parsed.port or 5432, proto=socket.IPPROTO_TCP)
+        return True
+    except OSError:
+        return False
+
+
+def _select_database_url(direct_database_url: str, pooler_database_url: str) -> str:
+    prefer_pooler = _env_bool("DB_PREFER_POOLER", True)
+    primary = pooler_database_url if prefer_pooler else direct_database_url
+    fallback = direct_database_url if prefer_pooler else pooler_database_url
+
+    if _can_resolve_database_host(primary):
+        return primary
+    if _can_resolve_database_host(fallback):
+        return fallback
+    return primary or fallback or ""
 
 
 _load_local_env(BASE_DIR / ".env")
@@ -45,7 +84,10 @@ SECRET_KEY = os.getenv("SECRET_KEY", "replace-me")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", "127.0.0.1,localhost")
+ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", "127.0.0.1,localhost,0.0.0.0,[::1]")
+if DEBUG:
+    # Dev convenience: allow accessing API from localhost, loopback, or LAN hosts.
+    ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -99,15 +141,20 @@ AUTH_USER_MODEL = 'users.User'
 
 CORS_ALLOWED_ORIGINS = _env_list(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:3001",
+    "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
 )
+CORS_ALLOW_ALL_ORIGINS = _env_bool("CORS_ALLOW_ALL_ORIGINS", DEBUG)
 
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASE_POOLER_URL = os.getenv("DATABASE_POOLER_URL") or os.getenv("SUPABASE_POOLER_URL")
-DATABASE_URL = DATABASE_POOLER_URL or os.getenv("DATABASE_URL")
+DATABASE_POOLER_URL = os.getenv("DATABASE_POOLER_URL") or os.getenv("SUPABASE_POOLER_URL") or ""
+DATABASE_DIRECT_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = _select_database_url(
+    direct_database_url=DATABASE_DIRECT_URL,
+    pooler_database_url=DATABASE_POOLER_URL,
+)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -124,6 +171,8 @@ if DATABASE_URL and not has_placeholder_db_url:
     db_options = {}
     if "sslmode" in query_params:
         db_options["sslmode"] = query_params["sslmode"][0]
+    default_conn_max_age = 0 if DEBUG else 600
+    conn_max_age = _env_int("DB_CONN_MAX_AGE", default_conn_max_age)
 
     DATABASES = {
         "default": {
@@ -134,7 +183,9 @@ if DATABASE_URL and not has_placeholder_db_url:
             "HOST": parsed.hostname,
             "PORT": parsed.port or 5432,
             "OPTIONS": db_options,
-            "CONN_MAX_AGE": 600,
+            "CONN_MAX_AGE": conn_max_age,
+            "CONN_HEALTH_CHECKS": True,
+            "DISABLE_SERVER_SIDE_CURSORS": True,
         }
     }
 else:

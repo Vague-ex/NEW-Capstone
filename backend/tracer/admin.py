@@ -59,25 +59,25 @@ class EmploymentRecordAdmin(admin.ModelAdmin):
 		"created_at",
 	)
 	list_filter = ("employment_status", "verification_status", "is_current")
-	search_fields = ("alumni__student_number", "employer_name_input", "job_title_input")
+	search_fields = ("alumni__user__email", "alumni__master_record__full_name", "employer_name_input", "job_title_input")
 
 
 @admin.register(AlumniSkill)
 class AlumniSkillAdmin(admin.ModelAdmin):
 	list_display = ("alumni", "skill", "proficiency_level", "updated_at")
 	list_filter = ("proficiency_level",)
-	search_fields = ("alumni__student_number", "skill__name")
+	search_fields = ("alumni__user__email", "alumni__master_record__full_name", "skill__name")
 
 
 @admin.register(VerificationToken)
 class VerificationTokenAdmin(admin.ModelAdmin):
-	list_display = ("token_id", "graduate", "status", "expires_at", "used_at")
+	list_display = ("token_id", "alumni", "status", "expires_at", "used_at")
 	list_filter = ("status",)
-	search_fields = ("graduate__student_number",)
+	search_fields = ("alumni__user__email", "alumni__master_record__full_name")
 
 
 @admin.register(VerificationDecision)
 class VerificationDecisionAdmin(admin.ModelAdmin):
-	list_display = ("employment_record", "employer_account", "decision", "decided_at")
+	list_display = ("token", "employer_account", "verified_employer_name", "decision", "decided_at")
 	list_filter = ("decision",)
-	search_fields = ("employment_record__alumni__student_number", "employer_account__company_name")
+	search_fields = ("token__employment_record__alumni__user__email", "employer_account__company_name", "verified_employer_name")

@@ -3,6 +3,39 @@
 from django.db import migrations
 
 
+def _drop_student_number_column(apps, schema_editor):
+    """Drop legacy student_number column in a database-safe way."""
+    table_name = "users_graduatemasterrecord"
+    vendor = schema_editor.connection.vendor
+
+    if vendor == "postgresql":
+        schema_editor.execute(
+            "ALTER TABLE users_graduatemasterrecord DROP COLUMN IF EXISTS student_number CASCADE;"
+        )
+        return
+
+    if vendor == "sqlite":
+        # SQLite cannot safely drop this legacy UNIQUE column in place.
+        # Keep DB migration as a no-op; state migration still removes the field from Django.
+        return
+
+
+def _restore_student_number_column(apps, schema_editor):
+    """Reverse operation for legacy compatibility on rollback."""
+    table_name = "users_graduatemasterrecord"
+    vendor = schema_editor.connection.vendor
+
+    if vendor == "postgresql":
+        schema_editor.execute(
+            "ALTER TABLE users_graduatemasterrecord ADD COLUMN IF NOT EXISTS student_number varchar(50);"
+        )
+        return
+
+    if vendor == "sqlite":
+        # Reverse is also a no-op for SQLite for compatibility with existing local DBs.
+        return
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -16,9 +49,9 @@ class Migration(migrations.Migration):
         ),
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunSQL(
-                    sql='ALTER TABLE users_graduatemasterrecord DROP COLUMN IF EXISTS student_number CASCADE;',
-                    reverse_sql='ALTER TABLE users_graduatemasterrecord ADD COLUMN IF NOT EXISTS student_number varchar(50);',
+                migrations.RunPython(
+                    code=_drop_student_number_column,
+                    reverse_code=_restore_student_number_column,
                 ),
             ],
             state_operations=[

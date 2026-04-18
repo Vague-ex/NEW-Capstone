@@ -13,6 +13,7 @@ class Industry(models.Model):
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
+		db_table = "tracer_industries"
 		ordering = ["name"]
 
 	def __str__(self):
@@ -34,6 +35,7 @@ class JobTitle(models.Model):
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
+		db_table = "tracer_job_titles"
 		ordering = ["name"]
 
 	def __str__(self):
@@ -48,6 +50,7 @@ class SkillCategory(models.Model):
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
+		db_table = "tracer_skill_categories"
 		ordering = ["name"]
 
 	def __str__(self):
@@ -69,6 +72,7 @@ class Skill(models.Model):
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
+		db_table = "tracer_skills"
 		ordering = ["name"]
 
 	def __str__(self):
@@ -84,6 +88,7 @@ class Region(models.Model):
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
+		db_table = "tracer_regions"
 		ordering = ["name"]
 
 	def __str__(self):
@@ -120,17 +125,9 @@ class EmploymentRecord(models.Model):
 		related_name="employment_records",
 	)
 	employer_name_input = models.CharField(max_length=255)
-	employer_name_verified = models.CharField(max_length=255, blank=True)
 	job_title_input = models.CharField(max_length=255)
 	job_title = models.ForeignKey(
 		JobTitle,
-		null=True,
-		blank=True,
-		on_delete=models.SET_NULL,
-		related_name="employment_records",
-	)
-	industry = models.ForeignKey(
-		Industry,
 		null=True,
 		blank=True,
 		on_delete=models.SET_NULL,
@@ -150,19 +147,18 @@ class EmploymentRecord(models.Model):
 		choices=VerificationStatus.choices,
 		default=VerificationStatus.PENDING,
 	)
-	employer_comment = models.TextField(blank=True)
-	verified_at = models.DateTimeField(null=True, blank=True)
 	is_current = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
+		db_table = "tracer_employment_records"
 		ordering = ["-created_at"]
 		indexes = [
 			models.Index(fields=["verification_status"]),
 			models.Index(fields=["employment_status"]),
 			models.Index(fields=["alumni", "is_current"]),
-			models.Index(fields=["industry", "region"]),
+			models.Index(fields=["job_title", "region"]),
 		]
 		constraints = [
 			models.UniqueConstraint(
@@ -198,6 +194,7 @@ class AlumniSkill(models.Model):
 	updated_at = models.DateTimeField(auto_now=True)
 
 	class Meta:
+		db_table = "tracer_alumni_skills"
 		ordering = ["-updated_at"]
 		constraints = [
 			models.UniqueConstraint(fields=["alumni", "skill"], name="uniq_alumni_skill")
@@ -224,7 +221,7 @@ class VerificationToken(models.Model):
 		REVOKED = "revoked", "Revoked"
 
 	token_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-	graduate = models.ForeignKey(
+	alumni = models.ForeignKey(
 		"users.AlumniAccount",
 		on_delete=models.CASCADE,
 		related_name="verification_tokens",
@@ -242,8 +239,9 @@ class VerificationToken(models.Model):
 	used_at = models.DateTimeField(null=True, blank=True)
 
 	class Meta:
+		db_table = "tracer_verification_tokens"
 		indexes = [
-			models.Index(fields=["graduate", "status"]),
+			models.Index(fields=["alumni", "status"]),
 			models.Index(fields=["expires_at", "status"]),
 		]
 
@@ -267,11 +265,6 @@ class VerificationDecision(models.Model):
 		DENY = "deny", "Deny"
 
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-	employment_record = models.ForeignKey(
-		EmploymentRecord,
-		on_delete=models.CASCADE,
-		related_name="decisions",
-	)
 	employer_account = models.ForeignKey(
 		"users.EmployerAccount",
 		on_delete=models.CASCADE,
@@ -284,11 +277,20 @@ class VerificationDecision(models.Model):
 		on_delete=models.SET_NULL,
 		related_name="decisions",
 	)
+	verified_employer_name = models.CharField(max_length=255, blank=True)
+	verified_job_title = models.ForeignKey(
+		JobTitle,
+		null=True,
+		blank=True,
+		on_delete=models.SET_NULL,
+		related_name="verification_decisions",
+	)
 	decision = models.CharField(max_length=20, choices=Decision.choices)
 	comment = models.TextField(blank=True)
 	decided_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
+		db_table = "tracer_verification_decisions"
 		ordering = ["-decided_at"]
 		indexes = [
 			models.Index(fields=["decision", "decided_at"]),

@@ -8,6 +8,10 @@ import {
 } from 'lucide-react';
 import { registerAlumni } from '../app/api-client';
 import isImageBlurry from 'is-image-blurry';
+import {
+  averageFaceDescriptors,
+  extractFaceDescriptorFromDataUrl,
+} from '../app/modern-face-descriptor';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -328,6 +332,18 @@ export function RegisterAlumni() {
         return;
       }
 
+      const descriptorCandidates = await Promise.all(
+        [faceFront, faceLeft, faceRight].map((shot) => extractFaceDescriptorFromDataUrl(shot)),
+      );
+      const descriptorSamples = descriptorCandidates.filter(
+        (descriptor): descriptor is number[] => Array.isArray(descriptor) && descriptor.length === 128,
+      );
+      const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
+      if (!averagedDescriptor) {
+        setStepError('No valid face was detected in your captures. Please retake all shots with your face centered and clearly visible.');
+        return;
+      }
+
       const [frontBlob, leftBlob, rightBlob] = await Promise.all([
         dataUrlToBlob(faceFront),
         dataUrlToBlob(faceLeft),
@@ -347,6 +363,8 @@ export function RegisterAlumni() {
       payload.append('gps_lat', gps?.lat?.toString() || '');
       payload.append('gps_lng', gps?.lng?.toString() || '');
       payload.append('survey_data', JSON.stringify(form));
+      payload.append('face_descriptor', JSON.stringify(averagedDescriptor));
+      payload.append('face_descriptor_samples', JSON.stringify(descriptorSamples));
       payload.append('face_front', frontBlob, `face_front_${Date.now()}.jpg`);
       payload.append('face_left', leftBlob, `face_left_${Date.now()}.jpg`);
       payload.append('face_right', rightBlob, `face_right_${Date.now()}.jpg`);

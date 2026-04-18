@@ -6,6 +6,10 @@ import {
   CheckCircle2, Video,
 } from "lucide-react";
 import { adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
+import {
+  ensureModernFaceModelsLoaded,
+  extractFaceDescriptorFromDataUrl,
+} from "../app/modern-face-descriptor";
 const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "credential" | "password" | "facescan";
@@ -53,6 +57,12 @@ export function LoginPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (phase === "facescan") {
+      void ensureModernFaceModelsLoaded();
+    }
+  }, [phase]);
+
   const handleCredentialNext = () => {
     setError("");
     if (!credential.trim()) {
@@ -98,7 +108,7 @@ export function LoginPage() {
     }
   };
 
-  const captureFaceScanBlob = async (): Promise<Blob> => {
+  const captureFaceScanBlob = async (): Promise<{ blob: Blob; descriptor: number[] }> => {
     const video = videoRef.current;
     if (!video) {
       throw new Error("Camera is not ready.");
@@ -117,14 +127,19 @@ export function LoginPage() {
     }
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
+    if (!descriptor) {
+      throw new Error("No face detected. Keep your face centered in the guide and try again.");
+    }
 
-    return new Promise<Blob>((resolve, reject) => {
+    return new Promise<{ blob: Blob; descriptor: number[] }>((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (!blob) {
           reject(new Error("Failed to capture face scan image."));
           return;
         }
-        resolve(blob);
+        resolve({ blob, descriptor });
       }, "image/jpeg", 0.9);
     });
   };
@@ -135,8 +150,8 @@ export function LoginPage() {
     setScanStage("detecting");
 
     try {
-      const faceBlob = await captureFaceScanBlob();
-      const response = await alumniLogin(credential.trim(), password, faceBlob);
+      const { blob: faceBlob, descriptor } = await captureFaceScanBlob();
+      const response = await alumniLogin(credential.trim(), password, faceBlob, descriptor);
       sessionStorage.setItem("alumni_user", JSON.stringify(response.alumni));
       setScanStage("matched");
       stopCamera();
@@ -162,10 +177,6 @@ export function LoginPage() {
         videoRef.current.play();
       }
       setCameraOn(true);
-      const authTimer = setTimeout(() => {
-        void runGraduateFaceAuthentication();
-      }, 900);
-      scanTimers.current.push(authTimer);
     } catch {
       setCameraError("Camera access was denied. Please allow camera permission and try again.");
     }
@@ -589,6 +600,24 @@ export function LoginPage() {
                       className="w-full flex items-center justify-center gap-1.5 text-gray-500 hover:text-gray-700 text-xs transition"
                     >
                       <ArrowLeft className="size-3.5" /> Back
+                    </button>
+                  </div>
+                )}
+
+                {cameraOn && scanStage !== "matched" && !faceAuthBusy && (
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => { void runGraduateFaceAuthentication(); }}
+                      className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition"
+                      style={{ fontWeight: 600 }}
+                    >
+                      <Camera className="size-4" /> Capture & Verify Face
+                    </button>
+                    <button
+                      onClick={stopCamera}
+                      className="w-full flex items-center justify-center gap-1.5 text-gray-500 hover:text-gray-700 text-xs transition"
+                    >
+                      <ArrowLeft className="size-3.5" /> Stop Camera
                     </button>
                   </div>
                 )}

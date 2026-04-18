@@ -54,3 +54,6 @@ pnpm-debug.log*
 
 # figma
 Figmanuts/
+
+# modern-face-api model assets copied at runtime/setup
+frontend/public/modern-face-models/
