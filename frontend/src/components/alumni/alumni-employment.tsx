@@ -14,9 +14,8 @@ function RadioOption({ label, value, current, onSelect }: {
 }) {
   const active = current === value;
   return (
-    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${
-      active ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-    }`}>
+    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${active ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+      }`}>
       <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-[#166534]' : 'border-gray-300'}`}>
         {active && <div className="size-2 rounded-full bg-[#166534]" />}
       </div>
@@ -53,8 +52,8 @@ export function AlumniEmployment() {
     timeToHire: sd.timeToHire || (alumni.monthsToHire
       ? alumni.monthsToHire <= 1 ? 'Within 1 month'
         : alumni.monthsToHire <= 3 ? '1-3 months'
-        : alumni.monthsToHire <= 6 ? '3-6 months'
-        : '6 months to 1 year'
+          : alumni.monthsToHire <= 6 ? '3-6 months'
+            : '6 months to 1 year'
       : ''),
     firstJobSector: sd.firstJobSector || '',
     firstJobStatus: sd.firstJobStatus || '',
@@ -77,12 +76,26 @@ export function AlumniEmployment() {
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [employerLinkStatus, setEmployerLinkStatus] = useState('');
   const [showFirstJob, setShowFirstJob] = useState(true);
+
+  const employerPortalLink = typeof window === 'undefined'
+    ? '/employer'
+    : `${window.location.origin}/employer`;
 
   const setF = (key: string, value: string) => {
     setSaved(false);
     setSaveError('');
     setForm(f => ({ ...f, [key]: value }));
+  };
+
+  const handleShareEmployerPortalLink = async () => {
+    try {
+      await navigator.clipboard.writeText(employerPortalLink);
+      setEmployerLinkStatus('Employer Portal link copied. You may now share it with your employer.');
+    } catch {
+      setEmployerLinkStatus('Copy not available in this browser. Please share the link shown below manually.');
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -258,9 +271,9 @@ export function AlumniEmployment() {
                       <div className="space-y-2">
                         {['Salary & Benefits', 'Career Challenge/Advancement', 'Proximity to Residence',
                           'Lack of related job openings at the time', 'Others'].map(opt => (
-                          <RadioOption key={opt} label={opt} value={opt}
-                            current={form.firstJobUnrelatedReason} onSelect={v => setF('firstJobUnrelatedReason', v)} />
-                        ))}
+                            <RadioOption key={opt} label={opt} value={opt}
+                              current={form.firstJobUnrelatedReason} onSelect={v => setF('firstJobUnrelatedReason', v)} />
+                          ))}
                       </div>
                       {form.firstJobUnrelatedReason === 'Others' && (
                         <input type="text" placeholder="Please specify…"
@@ -326,6 +339,26 @@ export function AlumniEmployment() {
                         current={form.currentJobRelated} onSelect={v => setF('currentJobRelated', v)} />
                     ))}
                   </div>
+                </div>
+
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-emerald-900 text-xs leading-relaxed" style={{ fontWeight: 600 }}>
+                    To verify your workplace and employment details, please share this Employer Portal link with your supervisor or authorized HR representative.
+                  </p>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <button
+                      type="button"
+                      onClick={handleShareEmployerPortalLink}
+                      className="inline-flex items-center justify-center rounded-lg bg-[#166534] px-3.5 py-2 text-xs text-white transition hover:bg-[#14532d]"
+                      style={{ fontWeight: 600 }}
+                    >
+                      Give Employer Portal Link
+                    </button>
+                    {employerLinkStatus && (
+                      <p className="text-[11px] text-emerald-700">{employerLinkStatus}</p>
+                    )}
+                  </div>
+                  <p className="mt-2 break-all text-[11px] text-emerald-700">{employerPortalLink}</p>
                 </div>
               </div>
             </div>

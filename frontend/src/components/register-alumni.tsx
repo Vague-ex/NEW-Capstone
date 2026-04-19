@@ -169,6 +169,7 @@ export function RegisterAlumni() {
   const [showPass, setShowPass] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [employerLinkStatus, setEmployerLinkStatus] = useState('');
 
   // Biometrics state
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -183,12 +184,24 @@ export function RegisterAlumni() {
   const [checkingBlur, setCheckingBlur] = useState(false);
 
   const allShotsCaptured = shots.every(s => s !== null);
+  const employerPortalLink = typeof window === 'undefined'
+    ? '/employer'
+    : `${window.location.origin}/employer`;
 
   useEffect(() => { return () => stopCamera(); }, []);
 
   // Helper: set single string field
   const setF = (field: keyof GraduateForm, value: string) =>
     setForm(f => ({ ...f, [field]: value }));
+
+  const handleShareEmployerPortalLink = async () => {
+    try {
+      await navigator.clipboard.writeText(employerPortalLink);
+      setEmployerLinkStatus('Employer Portal link copied. You may now share it with your employer.');
+    } catch {
+      setEmployerLinkStatus('Copy not available in this browser. Please share the link shown below manually.');
+    }
+  };
 
   // Helper: toggle string in array field
   const toggleArr = (field: 'profEligibility' | 'skills', value: string) =>
@@ -831,6 +844,26 @@ export function RegisterAlumni() {
                             current={form.currentJobRelated} onSelect={v => setF('currentJobRelated', v)} />
                         ))}
                       </div>
+                    </div>
+
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-emerald-900 text-xs leading-relaxed" style={{ fontWeight: 600 }}>
+                        To verify your workplace and employment details, please share this Employer Portal link with your supervisor or authorized HR representative.
+                      </p>
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <button
+                          type="button"
+                          onClick={handleShareEmployerPortalLink}
+                          className="inline-flex items-center justify-center rounded-lg bg-[#166534] px-3.5 py-2 text-xs text-white transition hover:bg-[#14532d]"
+                          style={{ fontWeight: 600 }}
+                        >
+                          Give Employer Portal Link
+                        </button>
+                        {employerLinkStatus && (
+                          <p className="text-[11px] text-emerald-700">{employerLinkStatus}</p>
+                        )}
+                      </div>
+                      <p className="mt-2 break-all text-[11px] text-emerald-700">{employerPortalLink}</p>
                     </div>
                   </div>
                 )}
