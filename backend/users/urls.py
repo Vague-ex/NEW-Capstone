@@ -8,6 +8,7 @@ from .api import (
     AlumniRequestRejectView,
     AlumniLoginView,
     AlumniRegisterView,
+    EmployerAccountStatusView,
     EmployerRequestApproveView,
     EmployerRequestRejectView,
     EmployerLoginView,
@@ -29,6 +30,11 @@ urlpatterns = [
     ),
     path("auth/employer/register/", EmployerRegisterView.as_view(), name="employer-register"),
     path("auth/employer/login/", EmployerLoginView.as_view(), name="employer-login"),
+    path(
+        "auth/employer/account/<uuid:employer_id>/",
+        EmployerAccountStatusView.as_view(),
+        name="employer-account-status",
+    ),
     path("admin/alumni/pending/", PendingAlumniListView.as_view(), name="admin-pending-alumni"),
     path("admin/alumni/verified/", VerifiedAlumniListView.as_view(), name="admin-verified-alumni"),
     path(

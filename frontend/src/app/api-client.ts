@@ -82,6 +82,23 @@ export interface VerificationDecisionResponse {
     heldActivatedAt?: string | null;
 }
 
+export interface EmployerAccountResponse {
+    id?: string;
+    company?: string;
+    companyName?: string;
+    industry?: string;
+    contact?: string;
+    contactName?: string;
+    position?: string;
+    email?: string;
+    credentialEmail?: string;
+    phone?: string;
+    website?: string;
+    status?: string;
+    accountStatus?: string;
+    date?: string;
+}
+
 export interface EmployerVerifiableGraduateResponse {
     id?: string;
     employmentRecordId?: string;
@@ -91,9 +108,12 @@ export interface EmployerVerifiableGraduateResponse {
     verificationStatus?: string;
     employmentStatus?: string;
     jobTitle?: string;
+    jobTitleId?: string | null;
     company?: string;
     industry?: string;
     workLocation?: string;
+    regionId?: string | null;
+    jobAlignment?: string;
     dateUpdated?: string;
     skills?: string[];
     biometricCaptured?: boolean;
@@ -214,7 +234,7 @@ export async function alumniLogin(
 export async function employerLogin(
     email: string,
     password: string,
-): Promise<{ employer?: unknown; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
+): Promise<{ employer?: EmployerAccountResponse; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
     const response = await fetch(`${API_BASE_URL}/api/auth/employer/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -226,7 +246,7 @@ export async function employerLogin(
 
 export async function registerEmployer(
     payload: Record<string, string>,
-): Promise<{ employer?: unknown; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
+): Promise<{ employer?: EmployerAccountResponse; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
     const response = await fetch(`${API_BASE_URL}/api/auth/employer/register/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -245,6 +265,17 @@ export async function fetchAlumniAccountStatus(alumniId: string): Promise<unknow
     await throwIfNotOk(response);
     const data = await response.json();
     return data?.alumni ?? data;
+}
+
+export async function fetchEmployerAccountStatus(
+    employerId: string,
+): Promise<EmployerAccountResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/employer/account/${employerId}/`, {
+        headers: withEmployerAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return (data?.employer ?? data ?? {}) as EmployerAccountResponse;
 }
 
 export async function updateAlumniEmployment(

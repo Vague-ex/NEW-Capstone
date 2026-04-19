@@ -149,6 +149,13 @@ def _extract_bearer_token(request) -> str:
     return header[7:].strip()
 
 
+def _touch_last_login(user: User, timestamp=None) -> None:
+    if not hasattr(user, "save"):
+        return
+    user.last_login = timestamp or timezone.now()
+    user.save(update_fields=["last_login"])
+
+
 def _require_admin(request) -> tuple[User | None, Response | None]:
     token = _extract_bearer_token(request)
     if not token:
@@ -199,6 +206,82 @@ def _require_admin(request) -> tuple[User | None, Response | None]:
         )
 
     return user, None
+
+
+def _require_employer_account(
+    request,
+    *,
+    allow_pending: bool = False,
+) -> tuple[EmployerAccount | None, Response | None]:
+    token = _extract_bearer_token(request)
+    if not token:
+        return None, Response(
+            {"detail": "Authentication credentials were not provided."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+        payload = signing.loads(
+            token,
+            salt=_EMPLOYER_TOKEN_SALT,
+            max_age=_EMPLOYER_TOKEN_TTL_SECONDS,
+        )
+    except SignatureExpired:
+        return None, Response(
+            {"detail": "Employer access token has expired."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    except BadSignature:
+        return None, Response(
+            {"detail": "Invalid employer access token."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    user_id = payload.get("uid")
+    if not user_id:
+        return None, Response(
+            {"detail": "Invalid employer access token."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+        user = User.objects.filter(
+            id=user_id,
+            role=User.Role.EMPLOYER,
+            is_active=True,
+        ).first()
+        account = EmployerAccount.objects.select_related("user").filter(user=user).first()
+    except (OperationalError, DatabaseError):
+        return None, _database_unavailable_response()
+
+    if not user or not account:
+        return None, Response(
+            {"detail": "Employer account was not found."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    if account.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
+        return None, Response(
+            {
+                "detail": (
+                    f"Employer account access blocked ({account.account_status}). "
+                    "Contact the administrator."
+                ),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if account.account_status != AccountStatus.ACTIVE and not (
+        allow_pending and account.account_status == AccountStatus.PENDING
+    ):
+        return None, Response(
+            {
+                "detail": "Employer account is not active. Approval is required before access.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    return account, None
 
 
 def _serialize_profile_to_survey_data(profile: AlumniProfile | None) -> dict:
@@ -619,6 +702,11 @@ class AdminLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        try:
+            _touch_last_login(user)
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
         access_token = _issue_admin_token(user)
 
         return Response(
@@ -998,6 +1086,7 @@ class AlumniLoginView(APIView):
                 url=login_scan_url,
                 captured_at=now,
             )
+            _touch_last_login(user, now)
         except (OperationalError, DatabaseError):
             return _database_unavailable_response()
 
@@ -1157,6 +1246,11 @@ class EmployerLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        try:
+            _touch_last_login(user)
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
         access_token = _issue_employer_token(user)
 
         return Response(
@@ -1197,6 +1291,24 @@ class AlumniAccountStatusView(APIView):
             )
 
         return Response({"alumni": _serialize_alumni_record(account)})
+
+
+class EmployerAccountStatusView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, employer_id):
+        account, error_response = _require_employer_account(request, allow_pending=True)
+        if error_response:
+            return error_response
+
+        if str(account.id) != str(employer_id):
+            return Response(
+                {"detail": "You are not allowed to access this employer account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return Response({"employer": _serialize_employer_account(account)})
 
 
 class AlumniEmploymentUpdateView(APIView):
@@ -1297,24 +1409,34 @@ class AlumniEmploymentUpdateView(APIView):
                     or survey_data.get("currentJobTitleId")
                     or survey_data.get("firstJobTitleId")
                 )
+                if job_title_id is not None:
+                    job_title_id = str(job_title_id).strip() or None
                 job_title_ref = _resolve_job_title(job_value, job_title_id)
                 if job_title_id and not job_title_ref:
                     return Response(
                         {"detail": "job_title_id does not match an active job title."},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+                if not job_title_ref and current_record and current_record.job_title_id:
+                    # Keep the last valid reference when free-text title doesn't map.
+                    job_title_ref = current_record.job_title
 
                 region_id = (
                     request.data.get("region_id")
                     or survey_data.get("currentJobRegionId")
                     or survey_data.get("region_id")
                 )
+                if region_id is not None:
+                    region_id = str(region_id).strip() or None
                 region = _resolve_region(region_id, location_value)
                 if region_id and not region:
                     return Response(
                         {"detail": "region_id does not match an active region."},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+                if not region and current_record and current_record.region_id:
+                    # Preserve the existing region mapping when no new mapping is resolved.
+                    region = current_record.region
 
                 if current_record:
                     current_record.employment_status = normalized_status

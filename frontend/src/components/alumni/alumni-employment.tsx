@@ -129,14 +129,25 @@ export function AlumniEmployment() {
     const matchedJobTitleByName = referenceData.job_titles.find(
       jt => jt.name.toLowerCase() === form.currentJobPosition.trim().toLowerCase(),
     );
-    const resolvedJobTitleId = matchedJobTitleById?.id || matchedJobTitleByName?.id;
+    const resolvedJobTitleId = (
+      matchedJobTitleById?.id
+      || matchedJobTitleByName?.id
+      || String(form.currentJobTitleId || '').trim()
+      || String(alumni.jobTitleId || '').trim()
+      || undefined
+    );
+    const resolvedRegionId = (
+      String(form.currentJobRegionId || '').trim()
+      || String(alumni.regionId || '').trim()
+      || undefined
+    );
 
     const surveyDataPayload = {
       ...(alumni.surveyData ?? {}),
       ...form,
       unemploymentReason: resolvedUnemploymentReason,
       currentJobTitleId: resolvedJobTitleId || '',
-      currentJobRegionId: form.currentJobRegionId || '',
+      currentJobRegionId: resolvedRegionId || '',
     };
 
     try {
@@ -146,7 +157,7 @@ export function AlumniEmployment() {
           employment_status: normalizedEmploymentStatus,
           survey_data: surveyDataPayload,
           job_title_id: resolvedJobTitleId,
-          region_id: form.currentJobRegionId || undefined,
+          region_id: resolvedRegionId,
         });
         if (response.alumni && typeof response.alumni === 'object') {
           serverAlumni = response.alumni as Record<string, unknown>;
@@ -161,6 +172,8 @@ export function AlumniEmployment() {
         company: form.currentJobCompany || alumni.company,
         jobAlignment: form.currentJobRelated === 'Yes' ? 'related' : form.currentJobRelated === 'No' ? 'not-related' : alumni.jobAlignment,
         workLocation: form.currentJobLocation === 'Abroad / Remote Foreign Employer' ? 'Abroad' : 'Local (Philippines)',
+        jobTitleId: resolvedJobTitleId || alumni.jobTitleId,
+        regionId: resolvedRegionId || alumni.regionId,
         unemploymentReason: resolvedUnemploymentReason,
         surveyData: surveyDataPayload,
         dateUpdated: new Date().toISOString().split('T')[0],

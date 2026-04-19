@@ -3,11 +3,13 @@ import { PortalLayout } from '../shared/portal-layout';
 import { GRADUATION_YEARS } from '../../data/app-data';
 import {
   ApiClientError,
+  fetchEmployerAccountStatus,
   fetchEmployerVerifiableGraduates,
   type EmployerVerifiableGraduateResponse,
   issueVerificationToken,
   submitVerificationDecision,
 } from '../../app/api-client';
+import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Search, User, Calendar, CheckCircle2, XCircle, AlertTriangle,
   Briefcase, MapPin, Building2, Shield, Clock, Star,
@@ -108,9 +110,85 @@ function GraduateCard({ graduate, onSelect, isSelected }: { graduate: Graduate; 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function GraduateVerify() {
-  const rawUser = sessionStorage.getItem('employer_user');
-  const employer = rawUser ? JSON.parse(rawUser) : { company: 'Accenture Philippines' };
+  const [employer, setEmployer] = useState<Record<string, unknown>>(() => {
+    const rawUser = sessionStorage.getItem('employer_user');
+    return rawUser ? JSON.parse(rawUser) : { company: 'Accenture Philippines' };
+  });
+  const { data: referenceData } = useReferenceData();
+
+  const employerId = String(employer?.id ?? '').trim();
+  const employerCompany = String(employer?.company ?? employer?.companyName ?? 'Accenture Philippines');
   const isPendingEmployer = String(employer?.status ?? '').toLowerCase() === 'pending';
+
+  useEffect(() => {
+    if (!employerId) {
+      return;
+    }
+
+    let active = true;
+
+    const syncEmployerStatus = async () => {
+      try {
+        const latest = await fetchEmployerAccountStatus(employerId);
+        if (!active || !latest || Object.keys(latest).length === 0) {
+          return;
+        }
+
+        setEmployer((current) => {
+          const normalizedStatus = String(
+            latest.status
+            ?? latest.accountStatus
+            ?? current.status
+            ?? '',
+          ).toLowerCase();
+
+          const normalizedCompany = String(
+            latest.company
+            ?? latest.companyName
+            ?? current.company
+            ?? current.companyName
+            ?? 'Accenture Philippines',
+          );
+
+          const merged = {
+            ...current,
+            ...latest,
+            company: normalizedCompany,
+            status: normalizedStatus,
+          };
+
+          sessionStorage.setItem('employer_user', JSON.stringify(merged));
+          return merged;
+        });
+      } catch {
+        // Keep session state when live account-status sync is temporarily unavailable.
+      }
+    };
+
+    const handleFocus = () => {
+      void syncEmployerStatus();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void syncEmployerStatus();
+      }
+    };
+
+    void syncEmployerStatus();
+    const intervalId = window.setInterval(() => {
+      void syncEmployerStatus();
+    }, 30000);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [employerId]);
 
   const [companyGraduates, setCompanyGraduates] = useState<Graduate[]>([]);
   const [loadingCandidates, setLoadingCandidates] = useState(true);
@@ -141,7 +219,7 @@ export function GraduateVerify() {
         setCompanyGraduates(
           records.filter((graduate) =>
             companiesMatch(
-              String(employer?.company ?? ''),
+              employerCompany,
               String(graduate.company ?? ''),
             ),
           ),
@@ -173,7 +251,7 @@ export function GraduateVerify() {
     return () => {
       active = false;
     };
-  }, [employer?.company]);
+  }, [employerCompany]);
 
   // Name search
   const [searchName, setSearchName] = useState('');
@@ -193,6 +271,7 @@ export function GraduateVerify() {
   const [saveError, setSaveError] = useState('');
   const [lastSubmitWasHeld, setLastSubmitWasHeld] = useState(false);
   const [lastSubmitMessage, setLastSubmitMessage] = useState('');
+  const [verifiedJobTitleId, setVerifiedJobTitleId] = useState('');
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,7 +293,9 @@ export function GraduateVerify() {
   };
 
   const handleSelectGraduate = (grad: Graduate) => {
-    setSelectedGraduate(prev => prev?.id === grad.id ? null : grad);
+    const nextGraduate = selectedGraduate?.id === grad.id ? null : grad;
+    setSelectedGraduate(nextGraduate);
+    setVerifiedJobTitleId(nextGraduate ? String(nextGraduate.jobTitleId ?? '') : '');
     setEndorsement('');
     setConfirmEmployment(false);
     setEndorsementSent(false);
@@ -250,7 +331,8 @@ export function GraduateVerify() {
       const decisionResult = await submitVerificationDecision(tokenId, {
         decision: 'confirm',
         comment: endorsement.trim() || undefined,
-        verified_employer_name: String(employer.company ?? '').trim() || undefined,
+        verified_employer_name: employerCompany.trim() || undefined,
+        verified_job_title_id: verifiedJobTitleId.trim() || undefined,
       });
 
       const held = Boolean(decisionResult.decision?.isHeld);
@@ -291,7 +373,7 @@ export function GraduateVerify() {
               <p className="text-white text-sm" style={{ fontWeight: 700 }}>Secure Graduate Verification</p>
               <p className="text-green-200 text-xs mt-0.5 leading-relaxed">
                 Search by name to verify a CHMSU Talisay BSIS graduate. Graduates who listed
-                <span className="text-white" style={{ fontWeight: 600 }}> {employer.company} </span>
+                <span className="text-white" style={{ fontWeight: 600 }}> {employerCompany} </span>
                 in their employment survey are shown automatically below.
               </p>
             </div>
@@ -329,7 +411,7 @@ export function GraduateVerify() {
           <div className="flex items-center gap-2 mb-1">
             <Building2 className="size-4 text-[#166534]" />
             <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
-              Graduates at {employer.company}
+              Graduates at {employerCompany}
             </h3>
           </div>
           <p className="text-gray-500 text-xs mb-4">
@@ -463,7 +545,7 @@ export function GraduateVerify() {
                       )}
                     </div>
                   </div>
-                  <button onClick={() => setSelectedGraduate(null)}
+                  <button onClick={() => { setSelectedGraduate(null); setVerifiedJobTitleId(''); }}
                     className="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-400">
                     <X className="size-4" />
                   </button>
@@ -543,7 +625,7 @@ export function GraduateVerify() {
                 <MessageSquare className="size-4 text-[#166534]" /> Employment Confirmation & Endorsement
               </h3>
               <p className="text-gray-500 text-xs mb-5">
-                As <span style={{ fontWeight: 600 }}>{employer.company}</span>, confirm this graduate's employment and leave an endorsement visible on their profile.
+                As <span style={{ fontWeight: 600 }}>{employerCompany}</span>, confirm this graduate's employment and leave an endorsement visible on their profile.
               </p>
 
               {endorsementSent ? (
@@ -582,7 +664,7 @@ export function GraduateVerify() {
                     <div>
                       <p className="text-gray-800 text-sm" style={{ fontWeight: 600 }}>
                         <ThumbsUp className="size-3.5 inline mr-1 text-[#166534]" />
-                        Confirm {selectedGraduate.name} is / was employed at {employer.company}
+                        Confirm {selectedGraduate.name} is / was employed at {employerCompany}
                       </p>
                       <p className="text-gray-500 text-xs mt-0.5">
                         This officially confirms their employment record on the CHMSU Graduate Tracer system.
@@ -592,13 +674,32 @@ export function GraduateVerify() {
 
                   <div>
                     <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
+                      Verified Job Title <span className="text-gray-400" style={{ fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <select
+                      value={verifiedJobTitleId}
+                      onChange={(e) => setVerifiedJobTitleId(e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
+                    >
+                      <option value="">Use current record title ({selectedGraduate.jobTitle || 'Not specified'})</option>
+                      {referenceData.job_titles.map((jobTitle) => (
+                        <option key={jobTitle.id} value={jobTitle.id}>{jobTitle.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-gray-400 text-xs mt-1">
+                      Choose a standardized title to store on the verified employment record.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                       Employer Endorsement <span className="text-gray-400" style={{ fontWeight: 400 }}>(optional)</span>
                     </label>
                     <textarea
                       value={endorsement}
                       onChange={e => setEndorsement(e.target.value)}
                       rows={3}
-                      placeholder={`e.g. "${selectedGraduate.name.split(' ')[0]} demonstrated excellent technical skills and professionalism during their time at ${employer.company}. Highly recommended."`}
+                      placeholder={`e.g. "${selectedGraduate.name.split(' ')[0]} demonstrated excellent technical skills and professionalism during their time at ${employerCompany}. Highly recommended."`}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white resize-none"
                     />
                     <p className="text-gray-400 text-xs mt-1">This will be visible on the graduate's profile as an employer endorsement.</p>

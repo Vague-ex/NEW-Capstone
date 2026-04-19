@@ -17,7 +17,7 @@ from .api import (
 	EmployerLoginView,
 	PendingAlumniListView,
 )
-from .models import AccountStatus, AlumniAccount, FaceScan, EmployerAccount, User
+from .models import AccountStatus, AlumniAccount, FaceScan, EmployerAccount, LoginAudit, User
 from tracer.models import EmploymentRecord, VerificationDecision, VerificationToken
 
 
@@ -236,3 +236,116 @@ class EmployerApprovalHoldActivationTests(TestCase):
 		self.assertEqual(len(results), 1)
 		self.assertAlmostEqual(results[0].get("lat"), 10.7202, places=4)
 		self.assertAlmostEqual(results[0].get("lng"), 122.5621, places=4)
+
+
+class EmployerStatusAndLoginMetadataTests(TestCase):
+	def setUp(self):
+		self.client = APIClient()
+
+		self.admin_user = User.objects.create_user(
+			email="admin-meta@example.com",
+			password="AdminPass123!",
+			role=User.Role.ADMIN,
+			is_staff=True,
+		)
+
+		self.employer_user = User.objects.create_user(
+			email="employer-meta@example.com",
+			password="EmployerPass123!",
+			role=User.Role.EMPLOYER,
+		)
+		self.employer_account = EmployerAccount.objects.create(
+			user=self.employer_user,
+			company_email="employer-meta@example.com",
+			company_name="Status Sync Corp",
+			account_status=AccountStatus.PENDING,
+		)
+
+		self.alumni_user = User.objects.create_user(
+			email="alumni-meta@example.com",
+			password="AlumniPass123!",
+			role=User.Role.ALUMNI,
+		)
+		self.alumni_account = AlumniAccount.objects.create(
+			user=self.alumni_user,
+			account_status=AccountStatus.ACTIVE,
+		)
+
+	def test_admin_login_updates_last_login(self):
+		self.assertIsNone(self.admin_user.last_login)
+
+		response = self.client.post(
+			"/api/auth/admin/login/",
+			{"email": "admin-meta@example.com", "password": "AdminPass123!"},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.admin_user.refresh_from_db()
+		self.assertIsNotNone(self.admin_user.last_login)
+
+	def test_employer_login_updates_last_login(self):
+		self.assertIsNone(self.employer_user.last_login)
+
+		response = self.client.post(
+			"/api/auth/employer/login/",
+			{"email": "employer-meta@example.com", "password": "EmployerPass123!"},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.employer_user.refresh_from_db()
+		self.assertIsNotNone(self.employer_user.last_login)
+
+	@patch("users.api.upload_image_bytes", return_value="https://example.com/login-scan.jpg")
+	def test_alumni_login_updates_last_login_and_creates_audit(self, _mock_upload):
+		self.assertIsNone(self.alumni_user.last_login)
+
+		response = self.client.post(
+			"/api/auth/alumni/login/",
+			{
+				"email": "alumni-meta@example.com",
+				"password": "AlumniPass123!",
+				"face_scan": SimpleUploadedFile(
+					"face.jpg",
+					b"image-bytes",
+					content_type="image/jpeg",
+				),
+			},
+			format="multipart",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.alumni_user.refresh_from_db()
+		self.assertIsNotNone(self.alumni_user.last_login)
+		self.assertEqual(LoginAudit.objects.filter(alumni=self.alumni_account).count(), 1)
+
+	def test_employer_account_status_endpoint_reflects_admin_approval(self):
+		token = signing.dumps(
+			{"uid": str(self.employer_user.id), "role": User.Role.EMPLOYER},
+			salt="users.employer.access",
+		)
+		headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+		pending_response = self.client.get(
+			f"/api/auth/employer/account/{self.employer_account.id}/",
+			**headers,
+		)
+		self.assertEqual(pending_response.status_code, 200)
+		self.assertEqual(
+			str(pending_response.data.get("employer", {}).get("status", "")).lower(),
+			"pending",
+		)
+
+		self.employer_account.account_status = AccountStatus.ACTIVE
+		self.employer_account.save(update_fields=["account_status", "updated_at"])
+
+		approved_response = self.client.get(
+			f"/api/auth/employer/account/{self.employer_account.id}/",
+			**headers,
+		)
+		self.assertEqual(approved_response.status_code, 200)
+		self.assertEqual(
+			str(approved_response.data.get("employer", {}).get("status", "")).lower(),
+			"approved",
+		)
