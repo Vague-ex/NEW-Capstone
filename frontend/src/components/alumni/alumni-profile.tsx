@@ -11,9 +11,20 @@ export function AlumniProfile() {
   const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
 
+  const surveyData =
+    typeof alumni.surveyData === 'object' && alumni.surveyData !== null
+      ? (alumni.surveyData as Record<string, unknown>)
+      : {};
+  const registeredPhone = typeof surveyData.mobile === 'string' ? surveyData.mobile : '';
+  const initialPhone =
+    (typeof alumni.phone === 'string' && alumni.phone.trim())
+    || (typeof alumni.mobile === 'string' && alumni.mobile.trim())
+    || registeredPhone.trim()
+    || '';
+
   const [form, setForm] = useState({
     email: alumni.email ?? '',
-    phone: alumni.phone ?? '',
+    phone: initialPhone,
     linkedin: alumni.linkedin ?? '',
     github: alumni.github ?? '',
     otherSocial: alumni.otherSocial ?? '',
@@ -35,7 +46,16 @@ export function AlumniProfile() {
     if (!form.email.includes('@')) { setError('Please enter a valid email address.'); return; }
     setIsSaving(true);
     await new Promise(r => setTimeout(r, 900));
-    const updated = { ...alumni, ...form, dateUpdated: new Date().toISOString().split('T')[0] };
+    const mergedSurveyData = {
+      ...surveyData,
+      mobile: form.phone,
+    };
+    const updated = {
+      ...alumni,
+      ...form,
+      surveyData: mergedSurveyData,
+      dateUpdated: new Date().toISOString().split('T')[0],
+    };
     sessionStorage.setItem('alumni_user', JSON.stringify(updated));
     setSaved(true);
     setIsSaving(false);
