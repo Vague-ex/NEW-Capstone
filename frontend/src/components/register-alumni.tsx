@@ -7,11 +7,7 @@ import {
   Briefcase, BookOpen, Award,
 } from 'lucide-react';
 import { registerAlumni } from '../app/api-client';
-import isImageBlurry from 'is-image-blurry';
-import {
-  averageFaceDescriptors,
-  extractFaceDescriptorFromDataUrl,
-} from '../app/modern-face-descriptor';
+import { useReferenceData } from '../hooks/useReferenceData';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -31,23 +27,6 @@ const SHOT_INSTRUCTIONS = [
   { label: 'Turn LEFT', desc: 'Slowly turn your head to the left' },
   { label: 'Turn RIGHT', desc: 'Slowly turn your head to the right' },
 ];
-
-const SKILLS_LIST = [
-  'Programming/Software Development',
-  'Database Management',
-  'Network Administration',
-  'Business Process Analysis',
-  'Project Management',
-  'Technical Support / Troubleshooting',
-  'Data Analytics',
-  'Web Development',
-  'System Analysis and Design',
-  'Communication Skills (Oral/Written)',
-  'Teamwork/Collaboration',
-  'Problem-solving / Critical Thinking',
-];
-
-const FACE_BLUR_THRESHOLD = 360;
 
 // ── Form state type ─────────────────────────────────────────────────────────────
 
@@ -163,13 +142,27 @@ function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = fal
 export function RegisterAlumni() {
   const navigate = useNavigate();
 
+  // ── Reference data from backend ──────────────────────────────────────────────
+  const { data: refData } = useReferenceData();
+
+  // Derive flat skill name list from backend skills, grouped by category
+  const skillsByCategory = refData.skill_categories.map(cat => ({
+    categoryId: cat.id,
+    categoryName: cat.name,
+    skills: refData.skills.filter(s => s.category === cat.id).map(s => s.name),
+  }));
+  const uncategorizedSkills = refData.skills.filter(s => !s.category).map(s => s.name);
+  // Flat list for CheckOption rendering (all skill names)
+  const allSkillNames = refData.skills.map(s => s.name);
+  // Industry names for select/radio
+  const industryNames = refData.industries.map(i => i.name);
+
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<GraduateForm>(INITIAL_FORM);
   const [stepError, setStepError] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [done, setDone] = useState(false);
-  const [employerLinkStatus, setEmployerLinkStatus] = useState('');
 
   // Biometrics state
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -181,27 +174,14 @@ export function RegisterAlumni() {
   const [captureTime, setCaptureTime] = useState<string | null>(null);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
-  const [checkingBlur, setCheckingBlur] = useState(false);
 
   const allShotsCaptured = shots.every(s => s !== null);
-  const employerPortalLink = typeof window === 'undefined'
-    ? '/employer'
-    : `${window.location.origin}/employer`;
 
   useEffect(() => { return () => stopCamera(); }, []);
 
   // Helper: set single string field
   const setF = (field: keyof GraduateForm, value: string) =>
     setForm(f => ({ ...f, [field]: value }));
-
-  const handleShareEmployerPortalLink = async () => {
-    try {
-      await navigator.clipboard.writeText(employerPortalLink);
-      setEmployerLinkStatus('Employer Portal link copied. You may now share it with your employer.');
-    } catch {
-      setEmployerLinkStatus('Copy not available in this browser. Please share the link shown below manually.');
-    }
-  };
 
   // Helper: toggle string in array field
   const toggleArr = (field: 'profEligibility' | 'skills', value: string) =>
@@ -240,7 +220,6 @@ export function RegisterAlumni() {
   // ── Camera helpers ──────────────────────────────────────────────────────────
   const startCamera = async () => {
     setCameraError('');
-    setStepError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
@@ -258,51 +237,31 @@ export function RegisterAlumni() {
     setCameraOn(false);
   };
 
-  const captureShot = async () => {
+  const captureShot = () => {
     if (!videoRef.current || !canvasRef.current) return;
-    setStepError('');
-    setCheckingBlur(true);
+    const ctx = canvasRef.current.getContext('2d');
+    canvasRef.current.width = videoRef.current.videoWidth;
+    canvasRef.current.height = videoRef.current.videoHeight;
+    ctx?.drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
 
-    try {
-      const ctx = canvasRef.current.getContext('2d');
-      if (!ctx) {
-        setStepError('Unable to capture image. Please try again.');
-        return;
-      }
+    setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
 
-      canvasRef.current.width = videoRef.current.videoWidth;
-      canvasRef.current.height = videoRef.current.videoHeight;
-      ctx.drawImage(videoRef.current, 0, 0);
-      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
-
-      const blurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
-      if (blurry) {
-        setStepError(`Shot ${currentShot + 1} (${SHOT_INSTRUCTIONS[currentShot].label}) is blurry. Please keep your face steady and capture again.`);
-        return;
-      }
-
-      setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
-
-      if (!captureTime) {
-        setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
-      }
-      if (currentShot === 0 && !gps) {
-        setGpsLoading(true);
-        navigator.geolocation.getCurrentPosition(
-          pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
-          () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
-          { timeout: 6000 }
-        );
-      }
-      if (currentShot < 2) {
-        setCurrentShot(c => c + 1);
-      } else {
-        stopCamera();
-      }
-    } catch {
-      setStepError('Unable to check image clarity right now. Please retake your capture.');
-    } finally {
-      setCheckingBlur(false);
+    if (!captureTime) {
+      setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+    }
+    if (currentShot === 0 && !gps) {
+      setGpsLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
+        () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
+        { timeout: 6000 }
+      );
+    }
+    if (currentShot < 2) {
+      setCurrentShot(c => c + 1);
+    } else {
+      stopCamera();
     }
   };
 
@@ -312,8 +271,6 @@ export function RegisterAlumni() {
     setCaptureTime(null);
     setGps(null);
     setGpsLoading(false);
-    setStepError('');
-    setCheckingBlur(false);
     startCamera();
   };
 
@@ -322,7 +279,7 @@ export function RegisterAlumni() {
     return response.blob();
   };
 
-  // ── Final submit ─────────────────────────────────────────────────────────────
+  // ── Final submit (with face_descriptor patch applied) ────────────────────────
   const handleFinalSubmit = async () => {
     if (!allShotsCaptured) {
       setStepError('All 3 biometric captures are required before submitting.');
@@ -334,29 +291,6 @@ export function RegisterAlumni() {
     setIsSaving(true);
 
     try {
-      const blurChecks = await Promise.all(
-        [faceFront, faceLeft, faceRight].map((shot) =>
-          isImageBlurry({ dataUrl: shot, threshold: FACE_BLUR_THRESHOLD }),
-        ),
-      );
-      const blurryShotIndex = blurChecks.findIndex(Boolean);
-      if (blurryShotIndex !== -1) {
-        setStepError(`${SHOT_INSTRUCTIONS[blurryShotIndex].label} capture is too blurry. Please retake all biometric shots before submitting.`);
-        return;
-      }
-
-      const descriptorCandidates = await Promise.all(
-        [faceFront, faceLeft, faceRight].map((shot) => extractFaceDescriptorFromDataUrl(shot)),
-      );
-      const descriptorSamples = descriptorCandidates.filter(
-        (descriptor): descriptor is number[] => Array.isArray(descriptor) && descriptor.length === 128,
-      );
-      const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
-      if (!averagedDescriptor) {
-        setStepError('No valid face was detected in your captures. Please retake all shots with your face centered and clearly visible.');
-        return;
-      }
-
       const [frontBlob, leftBlob, rightBlob] = await Promise.all([
         dataUrlToBlob(faceFront),
         dataUrlToBlob(faceLeft),
@@ -364,6 +298,8 @@ export function RegisterAlumni() {
       ]);
 
       const payload = new FormData();
+
+      // Existing fields
       payload.append('email', form.email.trim().toLowerCase());
       payload.append('password', form.password);
       payload.append('confirm_password', form.confirmPassword);
@@ -376,8 +312,14 @@ export function RegisterAlumni() {
       payload.append('gps_lat', gps?.lat?.toString() || '');
       payload.append('gps_lng', gps?.lng?.toString() || '');
       payload.append('survey_data', JSON.stringify(form));
-      payload.append('face_descriptor', JSON.stringify(averagedDescriptor));
-      payload.append('face_descriptor_samples', JSON.stringify(descriptorSamples));
+
+      // NEW: face_descriptor vector ([] if face-api.js not yet integrated)
+      // To add real descriptors later: extract Float32Array from face-api.js
+      // and pass Array.from(descriptor) here.
+      const faceDescriptor: number[] = [];
+      payload.append('face_descriptor', JSON.stringify(faceDescriptor));
+
+      // Face image blobs
       payload.append('face_front', frontBlob, `face_front_${Date.now()}.jpg`);
       payload.append('face_left', leftBlob, `face_left_${Date.now()}.jpg`);
       payload.append('face_right', rightBlob, `face_right_${Date.now()}.jpg`);
@@ -781,7 +723,7 @@ export function RegisterAlumni() {
                       {form.firstJobRelated === 'No' && (
                         <div>
                           <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>
-                            Primary reason for accepting unrelated job: <span className="text-gray-400" style={{ fontWeight: 400 }}>(Check most applicable)</span>
+                            Primary reason for accepting unrelated job:
                           </label>
                           <div className="space-y-1.5">
                             {['Salary & Benefits', 'Career Challenge/Advancement', 'Proximity to Residence', 'Lack of related job openings at the time', 'Others'].map(opt => (
@@ -799,7 +741,7 @@ export function RegisterAlumni() {
                   </>
                 )}
 
-                {/* Q4: Current job (only if currently employed) */}
+                {/* Q4: Current job */}
                 {form.employmentStatus === 'Yes' && (
                   <div className="bg-gray-50 rounded-xl p-4 space-y-4">
                     <p className="text-gray-700 text-xs" style={{ fontWeight: 700 }}>4. Current Job Details</p>
@@ -845,26 +787,6 @@ export function RegisterAlumni() {
                         ))}
                       </div>
                     </div>
-
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                      <p className="text-emerald-900 text-xs leading-relaxed" style={{ fontWeight: 600 }}>
-                        To verify your workplace and employment details, please share this Employer Portal link with your supervisor or authorized HR representative.
-                      </p>
-                      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <button
-                          type="button"
-                          onClick={handleShareEmployerPortalLink}
-                          className="inline-flex items-center justify-center rounded-lg bg-[#166534] px-3.5 py-2 text-xs text-white transition hover:bg-[#14532d]"
-                          style={{ fontWeight: 600 }}
-                        >
-                          Give Employer Portal Link
-                        </button>
-                        {employerLinkStatus && (
-                          <p className="text-[11px] text-emerald-700">{employerLinkStatus}</p>
-                        )}
-                      </div>
-                      <p className="mt-2 break-all text-[11px] text-emerald-700">{employerPortalLink}</p>
-                    </div>
                   </div>
                 )}
 
@@ -886,7 +808,7 @@ export function RegisterAlumni() {
                     {/* Q6: Source of job */}
                     <div>
                       <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                        6. Source of Job Opportunity — Where did you find your first job opening?
+                        6. Source of Job Opportunity
                       </label>
                       <div className="space-y-1.5">
                         {[
@@ -916,7 +838,7 @@ export function RegisterAlumni() {
           {/* ── STEP 5: Skills Assessment (Part IV) ──────────────────── */}
           {step === 5 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
-              <SectionHeader icon={Award} title="Competency & Skills Assessment" subtitle="Part IV — Validates curriculum effectiveness and identifies skills gaps" />
+              <SectionHeader icon={Award} title="Competency & Skills Assessment" subtitle="Part IV — Check all skills from the BSIS program that you actively use" />
 
               <div className="space-y-6">
                 <div>
@@ -924,15 +846,45 @@ export function RegisterAlumni() {
                     1. Skills Utilized in the Workplace
                   </label>
                   <p className="text-gray-400 text-xs mb-3">
-                    Check <span style={{ fontWeight: 600 }}>ALL</span> skills from the BSIS program that you actively use in your current employment:
+                    Select <span style={{ fontWeight: 600 }}>ALL</span> skills you actively use in your current employment:
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {SKILLS_LIST.map(skill => (
-                      <CheckOption key={skill} label={skill}
-                        checked={form.skills.includes(skill)}
-                        onChange={() => toggleArr('skills', skill)} />
-                    ))}
-                  </div>
+
+                  {/* Grouped by category from backend */}
+                  {skillsByCategory.map(group => (
+                    group.skills.length > 0 && (
+                      <div key={group.categoryId} className="mb-4">
+                        <p className="text-[#166534] text-xs mb-2 px-1" style={{ fontWeight: 700 }}>{group.categoryName}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {group.skills.map(skillName => (
+                            <CheckOption key={skillName} label={skillName}
+                              checked={form.skills.includes(skillName)}
+                              onChange={() => toggleArr('skills', skillName)} />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  ))}
+
+                  {/* Uncategorized */}
+                  {uncategorizedSkills.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-gray-400 text-xs mb-2 px-1" style={{ fontWeight: 600 }}>Other Skills</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {uncategorizedSkills.map(skillName => (
+                          <CheckOption key={skillName} label={skillName}
+                            checked={form.skills.includes(skillName)}
+                            onChange={() => toggleArr('skills', skillName)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fallback if no skills loaded yet */}
+                  {allSkillNames.length === 0 && (
+                    <p className="text-gray-400 text-sm text-center py-6 border border-dashed border-gray-200 rounded-xl">
+                      Skills are loading… If this persists, check your connection.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -967,7 +919,7 @@ export function RegisterAlumni() {
                   <div>
                     <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Face Capture</h2>
                     <p className="text-gray-500 text-xs mt-0.5">
-                      Three photos are required — facing forward, turning left, and turning right — to prevent identity spoofing with static images.
+                      Three photos are required — facing forward, turning left, and turning right — to prevent identity spoofing.
                     </p>
                   </div>
                 </div>
@@ -1016,7 +968,6 @@ export function RegisterAlumni() {
                     className={`absolute inset-0 w-full h-full object-cover object-center ${(!cameraOn || allShotsCaptured) ? 'hidden' : ''}`}
                     playsInline muted autoPlay />
 
-                  {/* All shots captured — show 3-column thumbnail grid */}
                   {allShotsCaptured && (
                     <div className="absolute inset-0 grid grid-cols-3 gap-0.5">
                       {shots.map((shot, i) => (
@@ -1032,7 +983,6 @@ export function RegisterAlumni() {
                     </div>
                   )}
 
-                  {/* Face-guide overlay when camera is live */}
                   {cameraOn && !allShotsCaptured && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                       <div className="size-32 rounded-full border-2 border-dashed border-white/50" />
@@ -1046,7 +996,6 @@ export function RegisterAlumni() {
                     </div>
                   )}
 
-                  {/* GPS badge */}
                   {gpsLoading && (
                     <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 rounded-lg px-3 py-1.5">
                       <span className="size-3 border border-white/30 border-t-white rounded-full animate-spin" />
@@ -1091,14 +1040,11 @@ export function RegisterAlumni() {
                         title="Stop camera">
                         <VideoOff className="size-4" />
                       </button>
-                      <button onClick={() => { void captureShot(); }}
-                        disabled={checkingBlur}
-                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm transition"
+                      <button onClick={captureShot}
+                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm transition"
                         style={{ fontWeight: 600 }}>
-                        {checkingBlur
-                          ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity…</>
-                          : <><Camera className="size-4" /> Capture {currentShot + 1}/3 — {SHOT_INSTRUCTIONS[currentShot]?.label}</>
-                        }
+                        <Camera className="size-4" />
+                        Capture {currentShot + 1}/3 — {SHOT_INSTRUCTIONS[currentShot]?.label}
                       </button>
                     </>
                   )}

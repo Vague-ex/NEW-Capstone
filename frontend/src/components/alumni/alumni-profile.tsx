@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
 import {
   Mail, Phone, Linkedin, Github, Globe, Save, CheckCircle2,
-  Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck,
+  Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck, BookOpen,
 } from 'lucide-react';
 
 export function AlumniProfile() {
+  const navigate = useNavigate();
   const rawUser = sessionStorage.getItem('alumni_user');
   const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
@@ -110,6 +112,24 @@ export function AlumniProfile() {
             <Camera className="size-3.5" />
             Profile photo is captured via camera only. Contact admin to update biometric.
           </p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Need to update Personal Information or Education?</p>
+              <p className="text-gray-500 text-xs mt-0.5">Open the registration-form details editor to update your personal and educational records.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/alumni/profile/personal-education')}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#166534] px-4 py-2.5 text-xs text-white transition hover:bg-[#14532d]"
+              style={{ fontWeight: 600 }}
+            >
+              <BookOpen className="size-3.5" />
+              Edit Personal and Education
+            </button>
+          </div>
         </div>
 
         {/* Form */}

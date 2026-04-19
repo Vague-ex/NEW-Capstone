@@ -6,6 +6,7 @@ import {
   Building2, Search, BarChart2, Map, Upload,
   ChevronRight, Bell, Shield, Star, Briefcase,
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
+  Settings,
 } from 'lucide-react';
 import { fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
@@ -37,6 +38,7 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
     { label: 'Employer Requests', path: '/admin/employers', icon: Building2 },
     { label: 'Geomapping', path: '/admin/map', icon: Map },
     { label: 'Analytics & Reports', path: '/admin/analytics', icon: BarChart2 },
+    { label: 'Settings', path: '/admin/settings', icon: Settings }, // import Settings from lucide-react
   ],
 };
 

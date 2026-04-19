@@ -13,6 +13,7 @@ import { AlumniDashboard } from './components/alumni/alumni-dashboard';
 import { AlumniProfile } from './components/alumni/alumni-profile';
 import { AlumniSkills } from './components/alumni/alumni-skills';
 import { AlumniEmployment } from './components/alumni/alumni-employment';
+import { AlumniPersonalEducation } from './components/alumni/alumni-personal-education';
 
 // Employer Portal
 import { EmployerDashboard } from './components/employer/employer-dashboard';
@@ -27,6 +28,7 @@ import { AdminBatchUpload } from './components/admin/admin-batch-upload';
 import { AdminEmployerRequests } from './components/admin/admin-employer-requests';
 import { AdminMap } from './components/admin/admin-map';
 import { AdminAnalytics } from './components/admin/admin-analytics';
+import { AdminSettings } from './components/admin/admin-settings';
 
 export const routes: RouteObject[] = [
   // ── Single Login Entry Point ──
@@ -41,6 +43,7 @@ export const routes: RouteObject[] = [
   { path: '/alumni/skills', Component: AlumniSkills },
   { path: '/alumni/employment', Component: AlumniEmployment },
   { path: '/alumni/profile', Component: AlumniProfile },
+  { path: '/alumni/profile/personal-education', Component: AlumniPersonalEducation },
 
   // ── Employer Portal ──
   { path: '/employer', Component: EmployerPortal },
@@ -56,6 +59,8 @@ export const routes: RouteObject[] = [
   { path: '/admin/employers', Component: AdminEmployerRequests },
   { path: '/admin/map', Component: AdminMap },
   { path: '/admin/analytics', Component: AdminAnalytics },
+  { path: '/admin/settings', Component: AdminSettings },
+
 
   // Legacy fallbacks
   { path: '/admin', Component: AdminNewDashboard },

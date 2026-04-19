@@ -152,7 +152,7 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Row label="Graduation Year" value={String(a.graduationYear)} />
                   <Row label="Scholarship" value={sd.scholarship || '—'} />
                   <Row label="Highest Attainment" value={sd.highestAttainment || '—'} />
-                  <Row label="Graduate School" value={sd.graduateSchool || '—'} />
+                  <Row label="Graduate School" value="Carlos Hilado Memorial State University" />
                   <Row label="Prof. Eligibility" value={sd.profEligibility?.length ? sd.profEligibility.join(', ') : '—'} />
                 </div>
               </div>
@@ -485,7 +485,7 @@ export function AdminVerified() {
                           <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{a.graduationYear}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`text-xs px-2 py-0.5 rounded-full ${a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
-                                a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
+                              a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
                               }`} style={{ fontWeight: 600 }}>
                               {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
                             </span>
