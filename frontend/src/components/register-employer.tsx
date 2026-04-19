@@ -4,13 +4,16 @@ import {
   Building2, ArrowLeft, CheckCircle2, AlertCircle,
   Globe, Mail, Phone, User, Briefcase, Lock,
 } from 'lucide-react';
-import { ApiClientError, registerEmployer } from '../app/api-client';
+import {
+  ApiClientError,
+  EMPLOYER_ACCESS_TOKEN_KEY,
+  registerEmployer,
+} from '../app/api-client';
 import { useReferenceData } from '../hooks/useReferenceData';
 
 export function RegisterEmployer() {
   const navigate = useNavigate();
   const { data: referenceData, loading: loadingReferenceData } = useReferenceData();
-  const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -50,6 +53,12 @@ export function RegisterEmployer() {
       });
 
       const payload = (response.employer ?? {}) as Record<string, unknown>;
+      if (response.accessToken) {
+        sessionStorage.setItem(EMPLOYER_ACCESS_TOKEN_KEY, response.accessToken);
+      } else {
+        sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY);
+      }
+
       const employerForSession = {
         id: String(payload.id ?? `new-${Date.now()}`),
         company: String(payload.company ?? form.companyName),
@@ -61,7 +70,7 @@ export function RegisterEmployer() {
       };
 
       sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
-      setSubmitted(true);
+      navigate('/employer/dashboard');
     } catch (err) {
       if (err instanceof ApiClientError) {
         setError(err.message);
@@ -72,35 +81,6 @@ export function RegisterEmployer() {
       setIsLoading(false);
     }
   };
-
-  if (submitted) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
-          <div className="flex size-16 items-center justify-center rounded-full bg-green-100 mx-auto mb-5">
-            <CheckCircle2 className="size-9 text-[#166534]" />
-          </div>
-          <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Application Submitted!</h2>
-          <p className="text-gray-500 text-sm mb-2 max-w-xs mx-auto">
-            Your employer registration for <span className="text-gray-700" style={{ fontWeight: 600 }}>{form.companyName}</span> has been received.
-          </p>
-          <p className="text-gray-400 text-xs mb-7">
-            The CHMSU Program Chair will review and approve your request. Updates will be sent to your credential email <span className="text-gray-600">{form.email}</span>.
-          </p>
-          <div className="flex flex-col gap-2">
-            <button onClick={() => navigate('/employer/pending')}
-              className="bg-[#166534] hover:bg-[#14532d] text-white px-6 py-2.5 rounded-xl text-sm transition"
-              style={{ fontWeight: 600 }}>
-              View Application Status
-            </button>
-            <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700 text-sm transition">
-              Return to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const inputClass = 'w-full rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
   const iconInputClass = 'w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';

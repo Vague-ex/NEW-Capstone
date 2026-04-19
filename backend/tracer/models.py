@@ -287,6 +287,8 @@ class VerificationDecision(models.Model):
 	)
 	decision = models.CharField(max_length=20, choices=Decision.choices)
 	comment = models.TextField(blank=True)
+	is_held = models.BooleanField(default=False)
+	held_activated_at = models.DateTimeField(null=True, blank=True)
 	decided_at = models.DateTimeField(auto_now_add=True)
 
 	class Meta:
@@ -294,6 +296,7 @@ class VerificationDecision(models.Model):
 		ordering = ["-decided_at"]
 		indexes = [
 			models.Index(fields=["decision", "decided_at"]),
+			models.Index(fields=["is_held", "employer_account"]),
 		]
 
 	def __str__(self):

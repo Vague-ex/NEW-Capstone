@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .api import (
+    EmployerVerifiableGraduateListView,
     IndustryDetailView,
     IndustryListView,
     JobTitleDetailView,
@@ -43,6 +44,11 @@ urlpatterns = [
 
     # Employer verification tokens / decisions (DS7)
     path("verification/tokens/issue/", VerificationTokenIssueView.as_view(), name="verification-token-issue"),
+    path(
+        "verification/employer/graduates/",
+        EmployerVerifiableGraduateListView.as_view(),
+        name="verification-employer-graduates",
+    ),
     path("verification/tokens/<uuid:token_id>/", VerificationTokenDetailView.as_view(), name="verification-token-detail"),
     path(
         "verification/tokens/<uuid:token_id>/decision/",

@@ -59,6 +59,49 @@ export interface AlumniAuthResponse {
     faceScanUrl?: string;
 }
 
+export interface VerificationTokenResponse {
+    id?: string;
+    status?: string;
+    expiresAt?: string;
+    usedAt?: string | null;
+    alumniId?: string;
+    employmentRecordId?: string | null;
+    createdAt?: string;
+}
+
+export interface VerificationDecisionResponse {
+    id?: string;
+    decision?: string;
+    comment?: string;
+    verifiedEmployerName?: string;
+    verifiedJobTitleId?: string | null;
+    verifiedJobTitleName?: string | null;
+    decidedAt?: string;
+    employerId?: string;
+    isHeld?: boolean;
+    heldActivatedAt?: string | null;
+}
+
+export interface EmployerVerifiableGraduateResponse {
+    id?: string;
+    employmentRecordId?: string;
+    name?: string;
+    email?: string;
+    graduationYear?: number | null;
+    verificationStatus?: string;
+    employmentStatus?: string;
+    jobTitle?: string;
+    company?: string;
+    industry?: string;
+    workLocation?: string;
+    dateUpdated?: string;
+    skills?: string[];
+    biometricCaptured?: boolean;
+    biometricDate?: string | null;
+    lat?: number;
+    lng?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -183,7 +226,7 @@ export async function employerLogin(
 
 export async function registerEmployer(
     payload: Record<string, string>,
-): Promise<{ employer?: unknown }> {
+): Promise<{ employer?: unknown; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
     const response = await fetch(`${API_BASE_URL}/api/auth/employer/register/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -233,7 +276,7 @@ export async function updateAlumniEmployment(
 
 export async function issueVerificationToken(
     payload: { alumni_id?: string; employment_record_id?: string; expires_in_days?: number },
-): Promise<{ token?: unknown; employmentRecord?: unknown }> {
+): Promise<{ message?: string; token?: VerificationTokenResponse; employmentRecord?: unknown }> {
     const response = await fetch(`${API_BASE_URL}/api/verification/tokens/issue/`, {
         method: 'POST',
         headers: withEmployerAuthHeaders({ 'Content-Type': 'application/json' }),
@@ -242,6 +285,7 @@ export async function issueVerificationToken(
     await throwIfNotOk(response);
     const data = await response.json();
     return {
+        message: typeof data?.message === 'string' ? data.message : undefined,
         token: data?.token,
         employmentRecord: data?.employmentRecord,
     };
@@ -261,7 +305,7 @@ export async function submitVerificationDecision(
         verified_employer_name?: string;
         verified_job_title_id?: string;
     },
-): Promise<{ decision?: unknown; employmentRecord?: unknown }> {
+): Promise<{ message?: string; decision?: VerificationDecisionResponse; employmentRecord?: unknown }> {
     const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/decision/`, {
         method: 'POST',
         headers: withEmployerAuthHeaders({ 'Content-Type': 'application/json' }),
@@ -270,9 +314,35 @@ export async function submitVerificationDecision(
     await throwIfNotOk(response);
     const data = await response.json();
     return {
+        message: typeof data?.message === 'string' ? data.message : undefined,
         decision: data?.decision,
         employmentRecord: data?.employmentRecord,
     };
+}
+
+export async function fetchEmployerVerifiableGraduates(
+    params?: { q?: string; year?: number | string },
+): Promise<EmployerVerifiableGraduateResponse[]> {
+    const query = new URLSearchParams();
+    if (params?.q && params.q.trim()) {
+        query.set('q', params.q.trim());
+    }
+    if (params?.year !== undefined && params.year !== null && String(params.year).trim() !== '') {
+        query.set('year', String(params.year).trim());
+    }
+
+    const qs = query.toString();
+    const response = await fetch(
+        `${API_BASE_URL}/api/verification/employer/graduates/${qs ? `?${qs}` : ''}`,
+        {
+            headers: withEmployerAuthHeaders(),
+        },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.results) ? data.results : []);
 }
 
 // ---------------------------------------------------------------------------

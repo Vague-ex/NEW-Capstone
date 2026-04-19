@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI, GRADUATION_YEARS } from '../../data/app-data';
+import { GRADUATION_YEARS, type AlumniRecord } from '../../data/app-data';
+import { fetchVerifiedAlumni } from '../../app/api-client';
 import { MapPin, Filter, Users, CheckCircle2, AlertTriangle, Globe, Home } from 'lucide-react';
-
-type AlumniRecord = typeof VALID_ALUMNI[0];
 
 const STATUS_COLORS: Record<string, string> = {
   employed: '#10b981',
@@ -38,20 +37,65 @@ function isAbroad(a: AlumniRecord): boolean {
   );
 }
 
-const pendingCount = VALID_ALUMNI.filter(a => a.verificationStatus === 'pending').length;
+function toNumberOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 export function AdminMap() {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
 
+  const [alumniRecords, setAlumniRecords] = useState<AlumniRecord[]>([]);
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterLocation, setFilterLocation] = useState<'all' | 'local' | 'abroad'>('all');
+  const [loadingData, setLoadingData] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
+  const [dataError, setDataError] = useState('');
 
-  const filteredAlumni = VALID_ALUMNI.filter(a => {
+  const pendingCount = alumniRecords.filter(a => a.verificationStatus === 'pending').length;
+
+  useEffect(() => {
+    let active = true;
+
+    const loadVerifiedAlumni = async () => {
+      setLoadingData(true);
+      setDataError('');
+      try {
+        const records = await fetchVerifiedAlumni();
+        if (!active) return;
+        const normalized = records.map((record) => {
+          const item = (record ?? {}) as Record<string, unknown>;
+          return {
+            ...item,
+            graduationYear: Number(item.graduationYear ?? 0),
+            employmentStatus: String(item.employmentStatus ?? ''),
+            lat: toNumberOrNull(item.lat),
+            lng: toNumberOrNull(item.lng),
+          } as AlumniRecord;
+        });
+        setAlumniRecords(normalized);
+      } catch {
+        if (!active) return;
+        setAlumniRecords([]);
+        setDataError('Could not load alumni GPS data. Please refresh.');
+      } finally {
+        if (active) {
+          setLoadingData(false);
+        }
+      }
+    };
+
+    void loadVerifiedAlumni();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const filteredAlumni = alumniRecords.filter(a => {
     if (!a.lat || !a.lng) return false;
     if (filterYear !== 'all' && a.graduationYear !== parseInt(filterYear)) return false;
     if (filterStatus !== 'all' && a.employmentStatus !== filterStatus) return false;
@@ -61,9 +105,10 @@ export function AdminMap() {
   });
 
   // All employed/self-employed graduates with location
-  const withLocation = VALID_ALUMNI.filter(a => a.lat && a.lng && a.employmentStatus !== 'unemployed');
+  const withLocation = alumniRecords.filter(a => a.lat && a.lng && a.employmentStatus !== 'unemployed');
   const localCount = withLocation.filter(a => !isAbroad(a)).length;
   const abroadCount = withLocation.filter(a => isAbroad(a)).length;
+  const effectiveError = mapError || dataError;
 
   // Initialize map once
   useEffect(() => {
@@ -123,7 +168,14 @@ export function AdminMap() {
 
       filteredAlumni.forEach(alumni => {
         if (!alumni.lat || !alumni.lng) return;
-        const color = STATUS_COLORS[alumni.employmentStatus];
+        const statusKey = (
+          alumni.employmentStatus === 'employed' ||
+            alumni.employmentStatus === 'self-employed' ||
+            alumni.employmentStatus === 'unemployed'
+            ? alumni.employmentStatus
+            : 'unemployed'
+        );
+        const color = STATUS_COLORS[statusKey];
         const abroad = isAbroad(alumni);
 
         const icon = L.divIcon({
@@ -144,7 +196,7 @@ export function AdminMap() {
               <p style="margin:0 0 2px;font-weight:700;font-size:13px;color:#111">${alumni.name}</p>
               <p style="margin:0 0 4px;font-size:11px;color:#6b7280">Batch ${alumni.graduationYear}</p>
               <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">
-                <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:${color}20;color:${color};">${STATUS_LABELS[alumni.employmentStatus]}</span>
+                <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:${color}20;color:${color};">${STATUS_LABELS[statusKey]}</span>
                 ${locationBadge}
               </div>
               ${alumni.company ? `<p style="margin:4px 0 0;font-size:12px;color:#374151">${alumni.jobTitle ?? ''} @ ${alumni.company}</p>` : ''}
@@ -262,16 +314,16 @@ export function AdminMap() {
           {/* Map */}
           <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative h-72 sm:h-96 lg:h-[540px]">
             <div ref={mapRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
-            {!mapReady && !mapError && (
+            {(loadingData || (!mapReady && !mapError)) && !effectiveError && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
                 <span className="size-8 border-4 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin mb-3" />
-                <p className="text-gray-500 text-sm">Loading map…</p>
+                <p className="text-gray-500 text-sm">{loadingData ? 'Loading alumni GPS data…' : 'Loading map…'}</p>
               </div>
             )}
-            {mapError && (
+            {effectiveError && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
                 <AlertTriangle className="size-8 text-amber-400 mb-3" />
-                <p className="text-gray-600 text-sm">{mapError}</p>
+                <p className="text-gray-600 text-sm">{effectiveError}</p>
               </div>
             )}
           </div>

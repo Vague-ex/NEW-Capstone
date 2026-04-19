@@ -1,13 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI, GRADUATION_YEARS } from '../../data/app-data';
+import { GRADUATION_YEARS } from '../../data/app-data';
+import {
+  ApiClientError,
+  fetchEmployerVerifiableGraduates,
+  type EmployerVerifiableGraduateResponse,
+  issueVerificationToken,
+  submitVerificationDecision,
+} from '../../app/api-client';
 import {
   Search, User, Calendar, CheckCircle2, XCircle, AlertTriangle,
   Briefcase, MapPin, Building2, Shield, Clock, Star,
   MessageSquare, ThumbsUp, Send, ChevronRight, X,
 } from 'lucide-react';
 
-type Graduate = typeof VALID_ALUMNI[0];
+type Graduate = EmployerVerifiableGraduateResponse;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -47,9 +54,9 @@ function GraduateAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md
 
 function StatusBadge({ status }: { status: Graduate['employmentStatus'] }) {
   const cfg = {
-    employed:      { cls: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', label: 'Employed' },
-    'self-employed': { cls: 'bg-green-100 text-green-700',   dot: 'bg-green-500',   label: 'Self-Employed' },
-    unemployed:    { cls: 'bg-amber-100 text-amber-700',     dot: 'bg-amber-500',   label: 'Not Employed' },
+    employed: { cls: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', label: 'Employed' },
+    'self-employed': { cls: 'bg-green-100 text-green-700', dot: 'bg-green-500', label: 'Self-Employed' },
+    unemployed: { cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500', label: 'Not Employed' },
   }[status];
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${cfg.cls}`} style={{ fontWeight: 600 }}>
@@ -63,11 +70,10 @@ function GraduateCard({ graduate, onSelect, isSelected }: { graduate: Graduate; 
   return (
     <div
       onClick={() => onSelect(graduate)}
-      className={`group cursor-pointer rounded-2xl border transition p-4 ${
-        isSelected
-          ? 'border-[#166534] bg-[#166534]/5 shadow-md'
-          : 'border-gray-200 bg-white hover:border-[#166534]/40 hover:shadow-sm'
-      }`}
+      className={`group cursor-pointer rounded-2xl border transition p-4 ${isSelected
+        ? 'border-[#166534] bg-[#166534]/5 shadow-md'
+        : 'border-gray-200 bg-white hover:border-[#166534]/40 hover:shadow-sm'
+        }`}
     >
       <div className="flex items-start gap-3">
         <GraduateAvatar name={graduate.name} />
@@ -104,11 +110,70 @@ function GraduateCard({ graduate, onSelect, isSelected }: { graduate: Graduate; 
 export function GraduateVerify() {
   const rawUser = sessionStorage.getItem('employer_user');
   const employer = rawUser ? JSON.parse(rawUser) : { company: 'Accenture Philippines' };
+  const isPendingEmployer = String(employer?.status ?? '').toLowerCase() === 'pending';
 
-  // Company-matched graduates (auto-loaded)
-  const companyGraduates = VALID_ALUMNI.filter(a =>
-    a.company && companiesMatch(employer.company, a.company)
-  );
+  const [companyGraduates, setCompanyGraduates] = useState<Graduate[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  const yearOptions = useMemo(() => {
+    const years = Array.from(
+      new Set(
+        companyGraduates
+          .map((graduate) => Number(graduate.graduationYear))
+          .filter((year) => Number.isInteger(year) && year > 0),
+      ),
+    )
+      .sort((a, b) => b - a);
+
+    return years.length > 0 ? years : GRADUATION_YEARS;
+  }, [companyGraduates]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadCandidates = async () => {
+      setLoadingCandidates(true);
+      setLoadError('');
+      try {
+        const records = await fetchEmployerVerifiableGraduates();
+        if (!active) return;
+        setCompanyGraduates(
+          records.filter((graduate) =>
+            companiesMatch(
+              String(employer?.company ?? ''),
+              String(graduate.company ?? ''),
+            ),
+          ),
+        );
+      } catch (err) {
+        if (!active) return;
+
+        if (err instanceof ApiClientError) {
+          if (err.status === 401) {
+            setLoadError('Your employer session expired. Please sign in again.');
+          } else if (err.status === 403) {
+            setLoadError(err.message || 'Your account cannot access graduate verification at this time.');
+          } else {
+            setLoadError(err.message || 'Unable to load graduates right now.');
+          }
+        } else {
+          setLoadError('Unable to load graduates right now.');
+        }
+
+        setCompanyGraduates([]);
+      } finally {
+        if (active) {
+          setLoadingCandidates(false);
+        }
+      }
+    };
+
+    void loadCandidates();
+    return () => {
+      active = false;
+    };
+  }, [employer?.company]);
 
   // Name search
   const [searchName, setSearchName] = useState('');
@@ -125,6 +190,9 @@ export function GraduateVerify() {
   const [confirmEmployment, setConfirmEmployment] = useState(false);
   const [endorsementSent, setEndorsementSent] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [lastSubmitWasHeld, setLastSubmitWasHeld] = useState(false);
+  const [lastSubmitMessage, setLastSubmitMessage] = useState('');
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,12 +200,14 @@ export function GraduateVerify() {
     setIsSearching(true);
     setSearched(false);
     setSearchResults([]);
-    await new Promise(r => setTimeout(r, 900));
 
-    const results = VALID_ALUMNI.filter(a =>
-      a.name.toLowerCase().includes(searchName.toLowerCase().trim()) &&
-      (searchYear ? a.graduationYear === parseInt(searchYear) : true)
+    const normalizedQuery = searchName.toLowerCase().trim();
+    const selectedYear = searchYear ? Number(searchYear) : null;
+    const results = companyGraduates.filter((graduate) =>
+      String(graduate.name ?? '').toLowerCase().includes(normalizedQuery) &&
+      (selectedYear ? Number(graduate.graduationYear) === selectedYear : true)
     );
+
     setSearchResults(results);
     setSearched(true);
     setIsSearching(false);
@@ -148,14 +218,63 @@ export function GraduateVerify() {
     setEndorsement('');
     setConfirmEmployment(false);
     setEndorsementSent(false);
+    setSaveError('');
+    setLastSubmitWasHeld(false);
+    setLastSubmitMessage('');
   };
 
   const handleSendEndorsement = async () => {
-    if (!endorsement.trim() && !confirmEmployment) return;
+    if (!selectedGraduate) return;
+    if (!confirmEmployment) {
+      setSaveError('Please confirm employment before submitting verification.');
+      return;
+    }
+
+    const alumniId = String(selectedGraduate.id ?? '').trim();
+    if (!alumniId) {
+      setSaveError('This graduate record is missing an ID required for verification.');
+      return;
+    }
+
+    setSaveError('');
     setIsSending(true);
-    await new Promise(r => setTimeout(r, 900));
-    setEndorsementSent(true);
-    setIsSending(false);
+
+    try {
+      const issued = await issueVerificationToken({ alumni_id: alumniId });
+      const tokenId = String(issued.token?.id ?? '').trim();
+
+      if (!tokenId) {
+        throw new Error('Verification token was not returned by the server.');
+      }
+
+      const decisionResult = await submitVerificationDecision(tokenId, {
+        decision: 'confirm',
+        comment: endorsement.trim() || undefined,
+        verified_employer_name: String(employer.company ?? '').trim() || undefined,
+      });
+
+      const held = Boolean(decisionResult.decision?.isHeld);
+      setLastSubmitWasHeld(held);
+      setLastSubmitMessage(String(decisionResult.message ?? '').trim());
+      setEndorsementSent(true);
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        if (err.status === 401) {
+          setSaveError('Your employer session expired. Please sign in again.');
+        } else if (err.status === 403) {
+          setSaveError(err.message || 'Your account cannot submit verification at this time.');
+        } else if (err.status === 404) {
+          setSaveError('Graduate employment record was not found for verification.');
+        } else {
+          setSaveError(err.message || 'Unable to submit verification right now.');
+        }
+      } else {
+        setSaveError(err instanceof Error ? err.message : 'Unable to submit verification right now.');
+      }
+      setEndorsementSent(false);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const inputCls = 'w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
@@ -179,6 +298,32 @@ export function GraduateVerify() {
           </div>
         </div>
 
+        {isPendingEmployer && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-amber-800 text-sm" style={{ fontWeight: 700 }}>
+                  Pending account hold mode
+                </p>
+                <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
+                  Verification submissions made from this account are saved on hold and will only take effect
+                  after the admin verifies your employer account.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {saveError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="size-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-red-700 text-xs leading-relaxed">{saveError}</p>
+            </div>
+          </div>
+        )}
+
         {/* ── Graduates at Your Company ─────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-center gap-2 mb-1">
@@ -191,7 +336,17 @@ export function GraduateVerify() {
             These graduates listed your company in their employment survey responses.
           </p>
 
-          {companyGraduates.length === 0 ? (
+          {loadingCandidates ? (
+            <div className="text-center py-8 rounded-xl border border-dashed border-gray-200">
+              <span className="inline-block size-6 border-2 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin mb-2" />
+              <p className="text-gray-500 text-sm">Loading graduates…</p>
+            </div>
+          ) : loadError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+              <p className="text-red-700 text-sm" style={{ fontWeight: 600 }}>Unable to load company-matched graduates.</p>
+              <p className="text-red-600 text-xs mt-1">{loadError}</p>
+            </div>
+          ) : companyGraduates.length === 0 ? (
             <div className="text-center py-8 rounded-xl border border-dashed border-gray-200">
               <Building2 className="size-8 text-gray-300 mx-auto mb-2" />
               <p className="text-gray-400 text-sm">No graduates have listed your company yet.</p>
@@ -240,7 +395,7 @@ export function GraduateVerify() {
                 <select value={searchYear} onChange={e => setSearchYear(e.target.value)}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white appearance-none">
                   <option value="">Any graduation year</option>
-                  {GRADUATION_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                  {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
             </div>
@@ -395,10 +550,24 @@ export function GraduateVerify() {
                 <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                   <CheckCircle2 className="size-5 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-emerald-700 text-sm" style={{ fontWeight: 600 }}>Endorsement submitted!</p>
-                    <p className="text-emerald-600 text-xs mt-0.5">
-                      Your confirmation and endorsement for <span style={{ fontWeight: 600 }}>{selectedGraduate.name}</span> has been recorded on their profile.
+                    <p className="text-emerald-700 text-sm" style={{ fontWeight: 600 }}>
+                      {lastSubmitWasHeld ? 'Submission saved on hold!' : 'Endorsement submitted!'}
                     </p>
+                    <p className="text-emerald-600 text-xs mt-0.5">
+                      {lastSubmitWasHeld ? (
+                        <>
+                          Your verification for <span style={{ fontWeight: 600 }}>{selectedGraduate.name}</span> is recorded and
+                          will be applied once the admin approves your employer account.
+                        </>
+                      ) : (
+                        <>
+                          Your confirmation and endorsement for <span style={{ fontWeight: 600 }}>{selectedGraduate.name}</span> has been recorded on their profile.
+                        </>
+                      )}
+                    </p>
+                    {lastSubmitMessage && (
+                      <p className="text-emerald-700 text-xs mt-1" style={{ fontWeight: 600 }}>{lastSubmitMessage}</p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -437,7 +606,7 @@ export function GraduateVerify() {
 
                   <button
                     onClick={handleSendEndorsement}
-                    disabled={isSending || (!confirmEmployment && !endorsement.trim())}
+                    disabled={isSending || !confirmEmployment}
                     className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
                     style={{ fontWeight: 600 }}>
                     {isSending

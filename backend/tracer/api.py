@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import timedelta
 
 from django.core import signing
@@ -31,6 +32,19 @@ from .models import (
 _EMPLOYER_TOKEN_SALT = "users.employer.access"
 _EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8
 _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS = 7
+_COMPANY_STOP_WORDS = {
+    "philippines",
+    "corp",
+    "corporation",
+    "inc",
+    "ltd",
+    "co",
+    "company",
+    "ph",
+    "the",
+    "and",
+    "of",
+}
 
 
 def _database_unavailable_response() -> Response:
@@ -50,7 +64,7 @@ def _extract_bearer_token(request) -> str:
     return header[7:].strip()
 
 
-def _require_employer(request) -> tuple[EmployerAccount | None, Response | None]:
+def _require_employer(request, *, allow_pending: bool = False) -> tuple[EmployerAccount | None, Response | None]:
     token = _extract_bearer_token(request)
     if not token:
         return None, Response(
@@ -98,7 +112,23 @@ def _require_employer(request) -> tuple[EmployerAccount | None, Response | None]
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    if employer_account.account_status != AccountStatus.ACTIVE:
+    if employer_account.account_status in {
+        AccountStatus.REJECTED,
+        AccountStatus.SUSPENDED,
+    }:
+        return None, Response(
+            {
+                "detail": (
+                    f"Employer account access blocked ({employer_account.account_status}). "
+                    "Contact the administrator."
+                ),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if employer_account.account_status != AccountStatus.ACTIVE and not (
+        allow_pending and employer_account.account_status == AccountStatus.PENDING
+    ):
         return None, Response(
             {
                 "detail": "Employer account is not active. Approval is required before verification actions.",
@@ -195,7 +225,125 @@ def _serialize_verification_decision(decision: VerificationDecision) -> dict:
         "verifiedJobTitleName": decision.verified_job_title.name if decision.verified_job_title else None,
         "decidedAt": decision.decided_at.isoformat(),
         "employerId": str(decision.employer_account_id),
+        "isHeld": decision.is_held,
+        "heldActivatedAt": decision.held_activated_at.isoformat() if decision.held_activated_at else None,
     }
+
+
+def _split_company_keywords(value: str) -> list[str]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (value or "").strip().lower()).strip()
+    if not normalized:
+        return []
+    return [
+        word
+        for word in normalized.split()
+        if len(word) >= 4 and word not in _COMPANY_STOP_WORDS
+    ]
+
+
+def _companies_match(employer_company: str, graduate_company: str) -> bool:
+    employer_value = (employer_company or "").strip().lower()
+    graduate_value = (graduate_company or "").strip().lower()
+
+    if not employer_value or not graduate_value:
+        return False
+
+    if employer_value in graduate_value or graduate_value in employer_value:
+        return True
+
+    employer_words = _split_company_keywords(employer_value)
+    graduate_words = _split_company_keywords(graduate_value)
+    if not employer_words or not graduate_words:
+        return False
+
+    return any(
+        employer_word in graduate_word or graduate_word in employer_word
+        for employer_word in employer_words
+        for graduate_word in graduate_words
+    )
+
+
+def _build_alumni_name(record: EmploymentRecord) -> str:
+    alumni = record.alumni
+    profile = getattr(alumni, "profile", None)
+    if profile:
+        full_name = " ".join(
+            part.strip()
+            for part in [profile.first_name, profile.middle_name, profile.last_name]
+            if part and part.strip()
+        ).strip()
+        if full_name:
+            return full_name
+
+    if alumni.master_record_id and alumni.master_record:
+        return alumni.master_record.full_name
+
+    return alumni.user.email
+
+
+def _resolve_graduation_year(record: EmploymentRecord) -> int | None:
+    alumni = record.alumni
+    profile = getattr(alumni, "profile", None)
+    if profile and profile.graduation_year:
+        return int(profile.graduation_year)
+    if alumni.master_record_id and alumni.master_record:
+        return int(alumni.master_record.batch_year)
+    return None
+
+
+def _serialize_employer_verifiable_graduate(record: EmploymentRecord) -> dict:
+    alumni = record.alumni
+    face_scans = [
+        scan
+        for scan in alumni.face_scans.all()
+        if scan.scan_type in {"face_front", "face_left", "face_right"}
+    ]
+    face_scans.sort(key=lambda scan: scan.created_at, reverse=True)
+
+    latest_scan = face_scans[0] if face_scans else None
+    gps_lat = None
+    gps_lng = None
+    for scan in face_scans:
+        if scan.gps_lat is not None and scan.gps_lng is not None:
+            gps_lat = float(scan.gps_lat)
+            gps_lng = float(scan.gps_lng)
+            break
+
+    skill_names = sorted(
+        {
+            skill_entry.skill.name
+            for skill_entry in alumni.skills.all()
+            if skill_entry.skill_id and skill_entry.skill
+        }
+    )
+
+    payload = {
+        "id": str(alumni.id),
+        "employmentRecordId": str(record.id),
+        "name": _build_alumni_name(record),
+        "email": alumni.user.email,
+        "graduationYear": _resolve_graduation_year(record),
+        "verificationStatus": record.verification_status,
+        "employmentStatus": record.employment_status.replace("_", "-"),
+        "jobTitle": record.job_title_input,
+        "company": record.employer_name_input,
+        "industry": record.job_title.industry.name if record.job_title and record.job_title.industry else "",
+        "workLocation": record.work_location,
+        "dateUpdated": record.updated_at.date().isoformat(),
+        "skills": skill_names,
+        "biometricCaptured": bool(face_scans),
+        "biometricDate": (
+            (latest_scan.captured_at or latest_scan.created_at).date().isoformat()
+            if latest_scan
+            else None
+        ),
+    }
+
+    if gps_lat is not None and gps_lng is not None:
+        payload["lat"] = gps_lat
+        payload["lng"] = gps_lng
+
+    return payload
 
 
 # ── Skills ─────────────────────────────────────────────────────────────────────
@@ -523,7 +671,7 @@ class VerificationTokenIssueView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        employer_account, error_response = _require_employer(request)
+        employer_account, error_response = _require_employer(request, allow_pending=True)
         if error_response:
             return error_response
 
@@ -585,6 +733,78 @@ class VerificationTokenIssueView(APIView):
         )
 
 
+class EmployerVerifiableGraduateListView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        employer_account, error_response = _require_employer(request, allow_pending=True)
+        if error_response:
+            return error_response
+
+        employer_company = (
+            request.query_params.get("company")
+            or employer_account.company_name
+            or ""
+        ).strip()
+        query_text = (request.query_params.get("q") or "").strip().lower()
+        year_param = request.query_params.get("year")
+
+        filter_year = None
+        if year_param not in (None, ""):
+            try:
+                filter_year = int(str(year_param))
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "year must be a valid number."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            records = list(
+                EmploymentRecord.objects.select_related(
+                    "alumni__user",
+                    "alumni__profile",
+                    "alumni__master_record",
+                    "job_title__industry",
+                )
+                .prefetch_related("alumni__face_scans", "alumni__skills__skill")
+                .filter(
+                    is_current=True,
+                    alumni__account_status=AccountStatus.ACTIVE,
+                )
+                .order_by("-updated_at")
+            )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        results: list[dict] = []
+        for record in records:
+            if employer_company and not _companies_match(employer_company, record.employer_name_input):
+                continue
+
+            graduate_payload = _serialize_employer_verifiable_graduate(record)
+
+            if filter_year is not None and graduate_payload.get("graduationYear") != filter_year:
+                continue
+
+            graduate_name = str(graduate_payload.get("name") or "").lower()
+            if query_text and query_text not in graduate_name:
+                continue
+
+            results.append(graduate_payload)
+
+        results.sort(key=lambda item: str(item.get("name") or "").lower())
+
+        return Response(
+            {
+                "results": results,
+                "count": len(results),
+                "company": employer_company,
+            }
+        )
+
+
 class VerificationTokenDetailView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -639,7 +859,7 @@ class VerificationTokenDecisionView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, token_id):
-        employer_account, error_response = _require_employer(request)
+        employer_account, error_response = _require_employer(request, allow_pending=True)
         if error_response:
             return error_response
 
@@ -713,6 +933,7 @@ class VerificationTokenDecisionView(APIView):
             or ""
         ).strip()
         comment = str(request.data.get("comment") or "").strip()
+        is_held_decision = employer_account.account_status == AccountStatus.PENDING
 
         try:
             with transaction.atomic():
@@ -723,29 +944,33 @@ class VerificationTokenDecisionView(APIView):
                     verified_job_title=verified_job_title,
                     decision=raw_decision,
                     comment=comment,
+                    is_held=is_held_decision,
                 )
 
-                employment_record.employer_account = employer_account
-                employment_record.employer_name_input = verified_employer_name or employment_record.employer_name_input
-                if verified_job_title:
-                    employment_record.job_title = verified_job_title
-                    if not employment_record.job_title_input:
-                        employment_record.job_title_input = verified_job_title.name
-                employment_record.verification_status = (
-                    EmploymentRecord.VerificationStatus.VERIFIED
-                    if raw_decision == VerificationDecision.Decision.CONFIRM
-                    else EmploymentRecord.VerificationStatus.DENIED
-                )
-                employment_record.save(
-                    update_fields=[
-                        "employer_account",
-                        "employer_name_input",
-                        "job_title",
-                        "job_title_input",
-                        "verification_status",
-                        "updated_at",
-                    ]
-                )
+                if not is_held_decision:
+                    employment_record.employer_account = employer_account
+                    employment_record.employer_name_input = (
+                        verified_employer_name or employment_record.employer_name_input
+                    )
+                    if verified_job_title:
+                        employment_record.job_title = verified_job_title
+                        if not employment_record.job_title_input:
+                            employment_record.job_title_input = verified_job_title.name
+                    employment_record.verification_status = (
+                        EmploymentRecord.VerificationStatus.VERIFIED
+                        if raw_decision == VerificationDecision.Decision.CONFIRM
+                        else EmploymentRecord.VerificationStatus.DENIED
+                    )
+                    employment_record.save(
+                        update_fields=[
+                            "employer_account",
+                            "employer_name_input",
+                            "job_title",
+                            "job_title_input",
+                            "verification_status",
+                            "updated_at",
+                        ]
+                    )
 
                 token.employment_record = employment_record
                 token.mark_used()
@@ -757,9 +982,15 @@ class VerificationTokenDecisionView(APIView):
         except (OperationalError, DatabaseError):
             return _database_unavailable_response()
 
+        message = (
+            "Verification decision submitted and placed on hold until employer approval."
+            if is_held_decision
+            else "Verification decision submitted."
+        )
+
         return Response(
             {
-                "message": "Verification decision submitted.",
+                "message": message,
                 "token": _serialize_verification_token(token),
                 "decision": _serialize_verification_decision(decision),
                 "employmentRecord": _serialize_employment_record(employment_record),

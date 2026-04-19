@@ -21,7 +21,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from tracer.models import AlumniSkill, EmploymentRecord, JobTitle, Region, Skill
+from tracer.models import (
+    AlumniSkill,
+    EmploymentRecord,
+    JobTitle,
+    Region,
+    Skill,
+    VerificationDecision,
+)
 
 from .face_verification import compare_descriptors, validate_descriptor
 from .models import (
@@ -459,11 +466,20 @@ def _serialize_alumni_record(account: AlumniAccount) -> dict:
     )
 
     scan_urls: dict[str, str] = {}
+    gps_lat = None
+    gps_lng = None
     for scan in account.face_scans.filter(
         scan_type__in=["face_front", "face_left", "face_right"]
     ).order_by("-created_at"):
         if scan.scan_type not in scan_urls:
             scan_urls[scan.scan_type] = scan.url
+        if gps_lat is None and gps_lng is None and scan.gps_lat is not None and scan.gps_lng is not None:
+            gps_lat = float(scan.gps_lat)
+            gps_lng = float(scan.gps_lng)
+
+    if gps_lat is not None and gps_lng is not None:
+        payload["lat"] = gps_lat
+        payload["lng"] = gps_lng
 
     if scan_urls:
         payload["registrationFaceScans"] = {
@@ -1080,6 +1096,9 @@ class EmployerRegisterView(APIView):
                     "role": user.role,
                 },
                 "employer": _serialize_employer_account(employer_account),
+                "accessToken": _issue_employer_token(user),
+                "tokenType": "Bearer",
+                "expiresIn": _EMPLOYER_TOKEN_TTL_SECONDS,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -1502,15 +1521,72 @@ class EmployerRequestApproveView(APIView):
             return error_response
 
         try:
-            account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
-            if not account:
-                return Response(
-                    {"detail": "Employer account was not found."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
+            with transaction.atomic():
+                account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
+                if not account:
+                    return Response(
+                        {"detail": "Employer account was not found."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
 
-            account.account_status = AccountStatus.ACTIVE
-            account.save(update_fields=["account_status", "updated_at"])
+                account.account_status = AccountStatus.ACTIVE
+                account.save(update_fields=["account_status", "updated_at"])
+
+                held_decisions = VerificationDecision.objects.select_related(
+                    "token__employment_record",
+                    "token__alumni",
+                    "verified_job_title",
+                ).filter(
+                    employer_account=account,
+                    is_held=True,
+                ).order_by("decided_at")
+
+                activated_at = timezone.now()
+                for decision in held_decisions:
+                    token = decision.token
+                    employment_record = token.employment_record if token else None
+
+                    if not employment_record and token:
+                        employment_record = EmploymentRecord.objects.select_related(
+                            "job_title",
+                            "region",
+                        ).filter(
+                            alumni=token.alumni,
+                            is_current=True,
+                        ).first()
+
+                    if employment_record:
+                        employment_record.employer_account = account
+                        if decision.verified_employer_name:
+                            employment_record.employer_name_input = decision.verified_employer_name
+                        if decision.verified_job_title:
+                            employment_record.job_title = decision.verified_job_title
+                            if not employment_record.job_title_input:
+                                employment_record.job_title_input = decision.verified_job_title.name
+
+                        employment_record.verification_status = (
+                            EmploymentRecord.VerificationStatus.VERIFIED
+                            if decision.decision == VerificationDecision.Decision.CONFIRM
+                            else EmploymentRecord.VerificationStatus.DENIED
+                        )
+                        employment_record.save(
+                            update_fields=[
+                                "employer_account",
+                                "employer_name_input",
+                                "job_title",
+                                "job_title_input",
+                                "verification_status",
+                                "updated_at",
+                            ]
+                        )
+
+                        if token and token.employment_record_id != employment_record.id:
+                            token.employment_record = employment_record
+                            token.save(update_fields=["employment_record"])
+
+                    decision.is_held = False
+                    decision.held_activated_at = activated_at
+                    decision.save(update_fields=["is_held", "held_activated_at"])
         except (OperationalError, DatabaseError):
             return _database_unavailable_response()
 

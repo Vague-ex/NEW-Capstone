@@ -4,7 +4,7 @@ import { StatCard } from '../shared/stat-card';
 import { VALID_ALUMNI, TOP_SKILLS } from '../../data/app-data';
 import {
   Users, CheckCircle2, TrendingUp, Search, Briefcase,
-  ArrowRight, BarChart2, Building2, UserX,
+  ArrowRight, BarChart2, Building2, UserX, AlertTriangle,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -17,6 +17,8 @@ export function EmployerDashboard() {
   const navigate = useNavigate();
   const rawUser = sessionStorage.getItem('employer_user');
   const employer = rawUser ? JSON.parse(rawUser) : { company: 'Accenture Philippines' };
+  const employerStatus = String(employer?.status ?? '').toLowerCase();
+  const isPendingEmployer = employerStatus === 'pending';
 
   // ── Spec Rule: Only alumni who listed this company ──
   const myAlumni = VALID_ALUMNI.filter(a =>
@@ -52,6 +54,21 @@ export function EmployerDashboard() {
   return (
     <PortalLayout role="employer" pageTitle="Employer Dashboard" pageSubtitle={`Welcome, ${employer.company}`}>
       <div className="space-y-6">
+        {isPendingEmployer && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <AlertTriangle className="size-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-amber-800 text-sm" style={{ fontWeight: 700 }}>
+                Employer account pending admin verification
+              </p>
+              <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
+                You can continue the graduate verification workflow, but all submitted verification data is placed on hold.
+                Held submissions are excluded from analytics and only applied after admin approval.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Welcome Banner */}
         <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-6 text-white relative overflow-hidden">
           <div className="absolute right-0 top-0 bottom-0 w-40 opacity-10"
@@ -66,7 +83,9 @@ export function EmployerDashboard() {
                 Showing data for <span style={{ fontWeight: 600 }}>{total} BSIS alumni</span> who listed your company.
               </p>
               <p className="text-emerald-200 text-xs mt-1">
-                Individual records available through the Employment Verification tool.
+                {isPendingEmployer
+                  ? 'Verification submissions are accepted and held until admin approval.'
+                  : 'Individual records available through the Employment Verification tool.'}
               </p>
             </div>
             <button onClick={() => navigate('/employer/verify')}

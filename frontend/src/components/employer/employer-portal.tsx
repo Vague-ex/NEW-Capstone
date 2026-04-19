@@ -89,11 +89,11 @@ export function EmployerPortal() {
           </div>
 
           {view === 'landing' && <LandingView onLogin={() => setView('login')} onRegister={() => setView('register')} />}
-          {view === 'login' && <LoginView onBack={() => setView('landing')} onPending={() => setView('pending')} navigate={navigate} />}
+          {view === 'login' && <LoginView onBack={() => setView('landing')} navigate={navigate} />}
           {view === 'register' && (
             <RegisterView
               onBack={() => setView('landing')}
-              onDone={() => setView('pending')}
+              navigate={navigate}
               industryOptions={industryOptions}
             />
           )}
@@ -145,7 +145,7 @@ function LandingView({ onLogin, onRegister }: { onLogin: () => void; onRegister:
 }
 
 // ── Login ──
-function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPending: () => void; navigate: (path: string) => void }) {
+function LoginView({ onBack, navigate }: { onBack: () => void; navigate: (path: string) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -179,10 +179,6 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
       };
 
       sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
-      if (status === 'pending') {
-        onPending();
-        return;
-      }
       navigate('/employer/dashboard');
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -257,11 +253,11 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
 // ── Register ──
 function RegisterView({
   onBack,
-  onDone,
+  navigate,
   industryOptions,
 }: {
   onBack: () => void;
-  onDone: () => void;
+  navigate: (path: string) => void;
   industryOptions: string[];
 }) {
   const [form, setForm] = useState({
@@ -303,6 +299,12 @@ function RegisterView({
       });
 
       const payload = (response.employer ?? {}) as Record<string, unknown>;
+      if (response.accessToken) {
+        sessionStorage.setItem(EMPLOYER_ACCESS_TOKEN_KEY, response.accessToken);
+      } else {
+        sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY);
+      }
+
       const employerForSession = {
         id: String(payload.id ?? `new-${Date.now()}`),
         company: String(payload.company ?? form.companyName),
@@ -314,7 +316,7 @@ function RegisterView({
       };
 
       sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
-      onDone();
+      navigate('/employer/dashboard');
     } catch (err) {
       if (err instanceof ApiClientError) {
         setError(err.message);
