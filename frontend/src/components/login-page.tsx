@@ -5,7 +5,7 @@ import {
   AlertCircle, ShieldCheck, User, Mail, Camera,
   CheckCircle2, Video,
 } from "lucide-react";
-import { adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
+import { ADMIN_ACCESS_TOKEN_KEY, API_BASE_URL, adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
 import {
   ensureModernFaceModelsLoaded,
   extractFaceDescriptorFromDataUrl,
@@ -89,6 +89,9 @@ export function LoginPage() {
       const response = await adminLogin(credential.trim(), password);
       sessionStorage.setItem("admin_authenticated", "true");
       sessionStorage.setItem("admin_user", JSON.stringify(response.user));
+      if (response.accessToken) {
+        sessionStorage.setItem(ADMIN_ACCESS_TOKEN_KEY, response.accessToken);
+      }
       setIsLoading(false);
       navigate("/admin/dashboard");
       return;
@@ -99,6 +102,14 @@ export function LoginPage() {
         setCameraError("");
         setScanStage("idle");
         setPhase("facescan");
+        return;
+      }
+
+      if (err instanceof TypeError || (err instanceof Error && /fetch|network/i.test(err.message))) {
+        setError(
+          `Cannot reach backend API (${API_BASE_URL}). Start Django server from backend: ${"..\\venv\\Scripts\\python.exe manage.py runserver 8000"}`,
+        );
+        setIsLoading(false);
         return;
       }
 

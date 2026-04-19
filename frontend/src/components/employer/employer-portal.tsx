@@ -6,7 +6,13 @@ import {
   CheckCircle2, Clock, GraduationCap, Globe, User, Phone,
   Briefcase, ArrowLeft,
 } from 'lucide-react';
-import { ApiClientError, employerLogin, registerEmployer } from '../../app/api-client';
+import {
+  ApiClientError,
+  EMPLOYER_ACCESS_TOKEN_KEY,
+  employerLogin,
+  registerEmployer,
+} from '../../app/api-client';
+import { useReferenceData } from '../../hooks/useReferenceData';
 
 type View = 'landing' | 'login' | 'register' | 'pending';
 const schoolLogo = '/CHMSULogo.png';
@@ -14,6 +20,9 @@ const schoolLogo = '/CHMSULogo.png';
 export function EmployerPortal() {
   const navigate = useNavigate();
   const [view, setView] = useState<View>('landing');
+  const { data: referenceData } = useReferenceData();
+
+  const industryOptions = referenceData.industries.map((industry) => industry.name);
 
   return (
     <div className="min-h-screen flex">
@@ -81,7 +90,13 @@ export function EmployerPortal() {
 
           {view === 'landing' && <LandingView onLogin={() => setView('login')} onRegister={() => setView('register')} />}
           {view === 'login' && <LoginView onBack={() => setView('landing')} onPending={() => setView('pending')} navigate={navigate} />}
-          {view === 'register' && <RegisterView onBack={() => setView('landing')} onDone={() => setView('pending')} />}
+          {view === 'register' && (
+            <RegisterView
+              onBack={() => setView('landing')}
+              onDone={() => setView('pending')}
+              industryOptions={industryOptions}
+            />
+          )}
           {view === 'pending' && <PendingView navigate={navigate} />}
         </div>
       </div>
@@ -147,6 +162,12 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
       const response = await employerLogin(email.trim(), password);
       const payload = (response.employer ?? {}) as Record<string, unknown>;
       const status = String(payload.status ?? payload.accountStatus ?? 'pending').toLowerCase();
+
+      if (response.accessToken) {
+        sessionStorage.setItem(EMPLOYER_ACCESS_TOKEN_KEY, response.accessToken);
+      } else {
+        sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY);
+      }
 
       const employerForSession = {
         id: String(payload.id ?? ''),
@@ -234,7 +255,15 @@ function LoginView({ onBack, onPending, navigate }: { onBack: () => void; onPend
 }
 
 // ── Register ──
-function RegisterView({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
+function RegisterView({
+  onBack,
+  onDone,
+  industryOptions,
+}: {
+  onBack: () => void;
+  onDone: () => void;
+  industryOptions: string[];
+}) {
   const [form, setForm] = useState({
     companyName: '', industry: '', website: '',
     contactName: '', position: '', email: '', phone: '',
@@ -337,7 +366,10 @@ function RegisterView({ onBack, onDone }: { onBack: () => void; onDone: () => vo
               <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Industry <span className="text-red-500">*</span></label>
               <select name="industry" value={form.industry} onChange={handleChange} className={inputCls}>
                 <option value="">Select industry…</option>
-                {(['IT & BPO', 'Banking & Finance', 'Healthcare', 'Telecommunications', 'Government', 'Manufacturing', 'Retail & E-commerce', 'Education', 'Media & Entertainment', 'Others']).map(i => <option key={i} value={i}>{i}</option>)}
+                {(industryOptions.length > 0
+                  ? industryOptions
+                  : ['IT and BPO', 'Banking and Finance', 'Government', 'Education']
+                ).map(i => <option key={i} value={i}>{i}</option>)}
               </select>
             </div>
             <div>

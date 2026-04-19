@@ -1,6 +1,9 @@
-const API_BASE_URL = (
+export const API_BASE_URL = (
     process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 ).replace(/\/$/, '');
+
+export const ADMIN_ACCESS_TOKEN_KEY = 'admin_access_token';
+export const EMPLOYER_ACCESS_TOKEN_KEY = 'employer_access_token';
 
 export class ApiClientError extends Error {
     status: number;
@@ -44,6 +47,9 @@ export interface AlumniSession {
 export interface AdminLoginResponse {
     message: string;
     user: AdminUser;
+    accessToken?: string;
+    tokenType?: 'Bearer';
+    expiresIn?: number;
 }
 
 export interface AlumniAuthResponse {
@@ -76,6 +82,38 @@ async function throwIfNotOk(response: Response): Promise<void> {
     throw new ApiClientError(message, response.status, payload);
 }
 
+function readAdminAccessToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return sessionStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
+}
+
+function readEmployerAccessToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return sessionStorage.getItem(EMPLOYER_ACCESS_TOKEN_KEY);
+}
+
+function withAdminAuthHeaders(
+    headers: Record<string, string> = {},
+): Record<string, string> {
+    const token = readAdminAccessToken();
+    if (!token) return headers;
+    return {
+        ...headers,
+        Authorization: `Bearer ${token}`,
+    };
+}
+
+function withEmployerAuthHeaders(
+    headers: Record<string, string> = {},
+): Record<string, string> {
+    const token = readEmployerAccessToken();
+    if (!token) return headers;
+    return {
+        ...headers,
+        Authorization: `Bearer ${token}`,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Auth endpoints
 // ---------------------------------------------------------------------------
@@ -93,18 +131,6 @@ export async function adminLogin(
     return response.json();
 }
 
-/**
- * Register a new alumni account.
- *
- * The payload FormData must include:
- *   - email, password, confirm_password
- *   - first_name, middle_name, family_name
- *   - graduation_date, employment_status
- *   - capture_time, gps_lat, gps_lng
- *   - survey_data (JSON string of the full form)
- *   - face_descriptor (JSON string of Float32Array[128] — the face-api.js descriptor)
- *   - face_front, face_left, face_right (Blob files)
- */
 export async function registerAlumni(
     payload: FormData,
 ): Promise<AlumniAuthResponse> {
@@ -116,21 +142,20 @@ export async function registerAlumni(
     return response.json();
 }
 
-/**
- * Login as alumni.
- * Sends email, password, the login face scan blob, and optionally the
- * similarity score computed client-side by face-api.js.
- */
 export async function alumniLogin(
     email: string,
     password: string,
     faceScan: Blob,
+    faceDescriptor?: number[],
     similarityScore?: number,
 ): Promise<AlumniAuthResponse> {
     const payload = new FormData();
     payload.append('email', email);
     payload.append('password', password);
     payload.append('face_scan', faceScan, `face_scan_${Date.now()}.jpg`);
+    if (faceDescriptor && faceDescriptor.length > 0) {
+        payload.append('face_descriptor', JSON.stringify(faceDescriptor));
+    }
     if (similarityScore !== undefined) {
         payload.append('similarity_score', String(similarityScore));
     }
@@ -141,4 +166,178 @@ export async function alumniLogin(
     });
     await throwIfNotOk(response);
     return response.json();
+}
+
+export async function employerLogin(
+    email: string,
+    password: string,
+): Promise<{ employer?: unknown; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/employer/login/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+export async function registerEmployer(
+    payload: Record<string, string>,
+): Promise<{ employer?: unknown }> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/employer/register/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Alumni endpoints
+// ---------------------------------------------------------------------------
+
+export async function fetchAlumniAccountStatus(alumniId: string): Promise<unknown> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/alumni/account/${alumniId}/`);
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return data?.alumni ?? data;
+}
+
+export async function updateAlumniEmployment(
+    alumniId: string,
+    payload: {
+        employment_status?: string;
+        survey_data?: unknown;
+        job_title_id?: string;
+        region_id?: string;
+        skill_entries?: Array<{ skillId?: string; name?: string; proficiency?: string }>;
+    },
+): Promise<{ alumni?: unknown }> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/auth/alumni/account/${alumniId}/employment/`,
+        {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return { alumni: data?.alumni ?? data };
+}
+
+// ---------------------------------------------------------------------------
+// Employer verification endpoints (DS7)
+// ---------------------------------------------------------------------------
+
+export async function issueVerificationToken(
+    payload: { alumni_id?: string; employment_record_id?: string; expires_in_days?: number },
+): Promise<{ token?: unknown; employmentRecord?: unknown }> {
+    const response = await fetch(`${API_BASE_URL}/api/verification/tokens/issue/`, {
+        method: 'POST',
+        headers: withEmployerAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(payload),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return {
+        token: data?.token,
+        employmentRecord: data?.employmentRecord,
+    };
+}
+
+export async function fetchVerificationToken(tokenId: string): Promise<unknown> {
+    const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/`);
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+export async function submitVerificationDecision(
+    tokenId: string,
+    payload: {
+        decision: 'confirm' | 'deny';
+        comment?: string;
+        verified_employer_name?: string;
+        verified_job_title_id?: string;
+    },
+): Promise<{ decision?: unknown; employmentRecord?: unknown }> {
+    const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/decision/`, {
+        method: 'POST',
+        headers: withEmployerAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(payload),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return {
+        decision: data?.decision,
+        employmentRecord: data?.employmentRecord,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Admin — Alumni endpoints
+// ---------------------------------------------------------------------------
+
+export async function fetchPendingAlumni(): Promise<unknown[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/pending/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.results ?? []);
+}
+
+export async function fetchVerifiedAlumni(): Promise<unknown[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/verified/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.results ?? []);
+}
+
+export async function reviewAlumniRequest(
+    alumniId: string,
+    action: 'approve' | 'reject',
+): Promise<{ alumni?: unknown }> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/alumni/requests/${alumniId}/${action}/`,
+        {
+            method: 'POST',
+            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return { alumni: data?.alumni ?? data };
+}
+
+// ---------------------------------------------------------------------------
+// Admin — Employer endpoints
+// ---------------------------------------------------------------------------
+
+export async function fetchEmployerRequests(): Promise<unknown[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/employers/requests/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.results ?? []);
+}
+
+export async function reviewEmployerRequest(
+    employerId: string,
+    action: 'approve' | 'reject',
+): Promise<{ employer?: unknown }> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/employers/requests/${employerId}/${action}/`,
+        {
+            method: 'POST',
+            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return { employer: data?.employer ?? data };
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
+import { updateAlumniEmployment } from '../../app/api-client';
 import { Award, Plus, X, CheckCircle2, Save, Info } from 'lucide-react';
 
 // ── CHED BSIS Core Skills (Part IV — Skills Utilized) ────────────────────────
@@ -23,16 +24,16 @@ const BSIS_CORE_SKILLS = [
 // ── Additional Technical Skills (Category Browser) ───────────────────────────
 
 const ADDITIONAL_CATEGORIES: Record<string, string[]> = {
-  'Web Development':    ['HTML/CSS', 'React', 'Vue.js', 'Angular', 'Next.js', 'Tailwind CSS', 'Bootstrap', 'JavaScript', 'TypeScript'],
-  'Backend':            ['Node.js', 'Laravel', 'Django', 'Spring Boot', '.NET / C#', 'PHP', 'Python', 'Java', 'Express.js'],
-  'Mobile':             ['Flutter / Dart', 'React Native', 'Android (Java)', 'iOS / Swift', 'Kotlin'],
-  'Database':           ['MySQL', 'PostgreSQL', 'MongoDB', 'Oracle DB', 'SQL Server', 'Redis', 'Firebase'],
-  'Cloud & DevOps':     ['AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'CI/CD', 'Git / GitHub'],
-  'Data & AI':          ['Python (Data)', 'Machine Learning', 'Data Analysis', 'Tableau', 'Power BI', 'TensorFlow', 'SQL'],
-  'Cybersecurity':      ['Network Security', 'Penetration Testing', 'SOC', 'SIEM', 'Ethical Hacking', 'Firewall'],
+  'Web Development': ['HTML/CSS', 'React', 'Vue.js', 'Angular', 'Next.js', 'Tailwind CSS', 'Bootstrap', 'JavaScript', 'TypeScript'],
+  'Backend': ['Node.js', 'Laravel', 'Django', 'Spring Boot', '.NET / C#', 'PHP', 'Python', 'Java', 'Express.js'],
+  'Mobile': ['Flutter / Dart', 'React Native', 'Android (Java)', 'iOS / Swift', 'Kotlin'],
+  'Database': ['MySQL', 'PostgreSQL', 'MongoDB', 'Oracle DB', 'SQL Server', 'Redis', 'Firebase'],
+  'Cloud & DevOps': ['AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'CI/CD', 'Git / GitHub'],
+  'Data & AI': ['Python (Data)', 'Machine Learning', 'Data Analysis', 'Tableau', 'Power BI', 'TensorFlow', 'SQL'],
+  'Cybersecurity': ['Network Security', 'Penetration Testing', 'SOC', 'SIEM', 'Ethical Hacking', 'Firewall'],
   'Project Mgmt Tools': ['Agile / Scrum', 'JIRA', 'Trello', 'PMP', 'Risk Management', 'Confluence'],
-  'Design':             ['UI/UX Design', 'Figma', 'Adobe XD', 'Photoshop', 'Canva'],
-  'Networking':         ['Cisco Networking', 'CCNA', 'Network Admin', 'Linux', 'VPN', 'OSPF'],
+  'Design': ['UI/UX Design', 'Figma', 'Adobe XD', 'Photoshop', 'Canva'],
+  'Networking': ['Cisco Networking', 'CCNA', 'Network Admin', 'Linux', 'VPN', 'OSPF'],
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -40,8 +41,10 @@ const ADDITIONAL_CATEGORIES: Record<string, string[]> = {
 export function AlumniSkills() {
   const rawUser = sessionStorage.getItem('alumni_user');
   const graduate = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+  const alumniId = String(graduate?.id ?? '');
+  const surveyData = graduate?.surveyData ?? {};
 
-  const [selectedSkills, setSelectedSkills] = useState<string[]>(graduate.skills ?? []);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(graduate.skills ?? surveyData.skills ?? []);
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -60,11 +63,37 @@ export function AlumniSkills() {
 
   const handleSave = async () => {
     setIsSaving(true);
-    await new Promise(r => setTimeout(r, 900));
-    const updated = { ...graduate, skills: selectedSkills, dateUpdated: new Date().toISOString().split('T')[0] };
-    sessionStorage.setItem('alumni_user', JSON.stringify(updated));
-    setSaved(true);
-    setIsSaving(false);
+    try {
+      const payloadSurveyData = {
+        ...surveyData,
+        skills: selectedSkills,
+      };
+
+      let serverAlumni: Record<string, unknown> = {};
+      if (alumniId) {
+        const response = await updateAlumniEmployment(alumniId, {
+          survey_data: payloadSurveyData,
+        });
+        if (response.alumni && typeof response.alumni === 'object') {
+          serverAlumni = response.alumni as Record<string, unknown>;
+        }
+      }
+
+      const updated = {
+        ...graduate,
+        ...serverAlumni,
+        skills: selectedSkills,
+        surveyData: payloadSurveyData,
+        dateUpdated: new Date().toISOString().split('T')[0],
+      };
+
+      sessionStorage.setItem('alumni_user', JSON.stringify(updated));
+      setSaved(true);
+    } catch {
+      setSaved(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const coreSelected = selectedSkills.filter(s => BSIS_CORE_SKILLS.includes(s));
@@ -113,15 +142,13 @@ export function AlumniSkills() {
                 <button
                   key={skill}
                   onClick={() => toggleSkill(skill)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition ${
-                    checked
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition ${checked
                       ? 'border-[#166534] bg-[#166534]/5 text-[#166534]'
                       : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534]/30 hover:bg-green-50/50'
-                  }`}
+                    }`}
                 >
-                  <div className={`size-5 rounded border-2 flex items-center justify-center shrink-0 transition ${
-                    checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'
-                  }`}>
+                  <div className={`size-5 rounded border-2 flex items-center justify-center shrink-0 transition ${checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'
+                    }`}>
                     {checked && (
                       <svg className="size-3 text-white" viewBox="0 0 12 12" fill="none">
                         <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -153,11 +180,10 @@ export function AlumniSkills() {
               <button
                 key={cat}
                 onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                className={`px-3 py-1.5 rounded-full text-xs border transition ${
-                  activeCategory === cat
+                className={`px-3 py-1.5 rounded-full text-xs border transition ${activeCategory === cat
                     ? 'bg-[#166534] border-[#166534] text-white'
                     : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-                }`}
+                  }`}
                 style={{ fontWeight: activeCategory === cat ? 600 : 400 }}
               >
                 {cat}
@@ -176,11 +202,10 @@ export function AlumniSkills() {
                     <button
                       key={skill}
                       onClick={() => toggleSkill(skill)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${
-                        isSelected
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${isSelected
                           ? 'bg-[#166534] border-[#166534] text-white'
                           : 'border-gray-200 text-gray-700 hover:border-[#166534]/30 hover:bg-green-50'
-                      }`}
+                        }`}
                       style={{ fontWeight: isSelected ? 600 : 400 }}
                     >
                       {isSelected ? <X className="size-3" /> : <Plus className="size-3" />}

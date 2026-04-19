@@ -182,3 +182,13 @@ export const jobTitlesApi = {
         apiRequest(`/api/reference/job-titles/${id}/`, 'PATCH', patch) as Promise<{ job_title: JobTitleItem }>,
     remove: (id: string) => apiRequest(`/api/reference/job-titles/${id}/`, 'DELETE'),
 };
+
+// Regions
+export const regionsApi = {
+    list: () => apiRequest('/api/reference/regions/', 'GET') as Promise<{ regions: RegionItem[] }>,
+    create: (name: string, code: string) =>
+        apiRequest('/api/reference/regions/', 'POST', { name, code }) as Promise<{ region: RegionItem }>,
+    update: (id: string, patch: Partial<RegionItem>) =>
+        apiRequest(`/api/reference/regions/${id}/`, 'PATCH', patch) as Promise<{ region: RegionItem }>,
+    remove: (id: string) => apiRequest(`/api/reference/regions/${id}/`, 'DELETE'),
+};

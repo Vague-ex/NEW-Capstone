@@ -5,10 +5,11 @@ import {
   Globe, Mail, Phone, User, Briefcase, Lock,
 } from 'lucide-react';
 import { ApiClientError, registerEmployer } from '../app/api-client';
-import { INDUSTRIES } from '../data/app-data';
+import { useReferenceData } from '../hooks/useReferenceData';
 
 export function RegisterEmployer() {
   const navigate = useNavigate();
+  const { data: referenceData, loading: loadingReferenceData } = useReferenceData();
   const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -103,6 +104,7 @@ export function RegisterEmployer() {
 
   const inputClass = 'w-full rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
   const iconInputClass = 'w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
+  const industryOptions = referenceData.industries.map(ind => ind.name);
 
   const Field = ({ label, required = false, children }: { label: string; required?: boolean; children: React.ReactNode }) => (
     <div>
@@ -183,8 +185,10 @@ export function RegisterEmployer() {
                 </Field>
                 <Field label="Industry" required>
                   <select name="industry" value={form.industry} onChange={handleChange} className={inputClass}>
-                    <option value="">Select industry…</option>
-                    {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                    <option value="">
+                      {loadingReferenceData ? 'Loading industries...' : 'Select industry...'}
+                    </option>
+                    {industryOptions.map(ind => <option key={ind} value={ind}>{ind}</option>)}
                   </select>
                 </Field>
                 <Field label="Company Website">

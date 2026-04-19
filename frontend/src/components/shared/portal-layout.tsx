@@ -8,7 +8,7 @@ import {
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
   Settings,
 } from 'lucide-react';
-import { fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
+import { ADMIN_ACCESS_TOKEN_KEY, fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 
 type PortalRole = 'alumni' | 'employer' | 'admin';
@@ -177,6 +177,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
 
   const handleLogout = () => {
     sessionStorage.removeItem(config.sessionKey);
+    sessionStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
     navigate(config.logoutPath);
   };
 

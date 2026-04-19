@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
+import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
   MapPin, AlertTriangle, ChevronDown, ChevronUp,
@@ -38,6 +39,7 @@ const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AlumniEmployment() {
+  const { data: referenceData } = useReferenceData();
   const rawUser = sessionStorage.getItem('alumni_user');
   const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
   const alumniId = String(alumni?.id ?? '');
@@ -62,9 +64,11 @@ export function AlumniEmployment() {
     firstJobUnrelatedReason: sd.firstJobUnrelatedReason || '',
     firstJobUnrelatedOther: sd.firstJobUnrelatedOther || '',
     currentJobSector: sd.currentJobSector || '',
+    currentJobTitleId: sd.currentJobTitleId || alumni.jobTitleId || '',
     currentJobPosition: sd.currentJobPosition || alumni.jobTitle || '',
     currentJobCompany: sd.currentJobCompany || alumni.company || '',
     currentJobLocation: sd.currentJobLocation || (alumni.workLocation?.toLowerCase().includes('abroad') ? 'Abroad / Remote Foreign Employer' : 'Local (Philippines)'),
+    currentJobRegionId: sd.currentJobRegionId || alumni.regionId || '',
     currentJobRelated: sd.currentJobRelated || (alumni.jobAlignment === 'related' ? 'Yes' : alumni.jobAlignment === 'not-related' ? 'No' : ''),
     jobRetention: sd.jobRetention || '',
     jobSource: sd.jobSource || '',
@@ -119,10 +123,20 @@ export function AlumniEmployment() {
       ? (form.unemploymentReasonOther || 'Others')
       : form.unemploymentReason;
 
+    const matchedJobTitleById = referenceData.job_titles.find(
+      jt => jt.id === form.currentJobTitleId,
+    );
+    const matchedJobTitleByName = referenceData.job_titles.find(
+      jt => jt.name.toLowerCase() === form.currentJobPosition.trim().toLowerCase(),
+    );
+    const resolvedJobTitleId = matchedJobTitleById?.id || matchedJobTitleByName?.id;
+
     const surveyDataPayload = {
       ...(alumni.surveyData ?? {}),
       ...form,
       unemploymentReason: resolvedUnemploymentReason,
+      currentJobTitleId: resolvedJobTitleId || '',
+      currentJobRegionId: form.currentJobRegionId || '',
     };
 
     try {
@@ -131,9 +145,11 @@ export function AlumniEmployment() {
         const response = await updateAlumniEmployment(alumniId, {
           employment_status: normalizedEmploymentStatus,
           survey_data: surveyDataPayload,
+          job_title_id: resolvedJobTitleId,
+          region_id: form.currentJobRegionId || undefined,
         });
         if (response.alumni && typeof response.alumni === 'object') {
-          serverAlumni = response.alumni;
+          serverAlumni = response.alumni as Record<string, unknown>;
         }
       }
 
@@ -306,6 +322,26 @@ export function AlumniEmployment() {
 
                 <div>
                   <FieldLabel>Current Occupation / Position</FieldLabel>
+                  <select
+                    value={form.currentJobTitleId}
+                    onChange={e => {
+                      const selectedId = e.target.value;
+                      const selectedTitle = referenceData.job_titles.find(jt => jt.id === selectedId);
+                      setForm(f => ({
+                        ...f,
+                        currentJobTitleId: selectedId,
+                        currentJobPosition: selectedTitle ? selectedTitle.name : f.currentJobPosition,
+                      }));
+                      setSaved(false);
+                      setSaveError('');
+                    }}
+                    className={`${inputCls} mb-2`}
+                  >
+                    <option value="">Select suggested job title (optional)</option>
+                    {referenceData.job_titles.map(jt => (
+                      <option key={jt.id} value={jt.id}>{jt.name}</option>
+                    ))}
+                  </select>
                   <input type="text" placeholder="e.g. Systems Analyst"
                     value={form.currentJobPosition} onChange={e => setF('currentJobPosition', e.target.value)}
                     className={inputCls} />
@@ -329,6 +365,22 @@ export function AlumniEmployment() {
                         current={form.currentJobLocation} onSelect={v => setF('currentJobLocation', v)} />
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <FieldLabel>Region (Optional, for local employment mapping)</FieldLabel>
+                  <select
+                    value={form.currentJobRegionId}
+                    onChange={e => setF('currentJobRegionId', e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">Select region...</option>
+                    {referenceData.regions.map(region => (
+                      <option key={region.id} value={region.id}>
+                        {region.code} - {region.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

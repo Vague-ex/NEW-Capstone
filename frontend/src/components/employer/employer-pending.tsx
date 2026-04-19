@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router';
 import { Clock, Building2, CheckCircle2, Mail, ArrowLeft } from 'lucide-react';
+import { EMPLOYER_ACCESS_TOKEN_KEY } from '../../app/api-client';
 
 export function EmployerPending() {
   const navigate = useNavigate();
@@ -45,9 +46,8 @@ export function EmployerPending() {
               ].map((step, i) => (
                 <div key={i} className="flex gap-3">
                   <div className="flex flex-col items-center">
-                    <div className={`flex size-7 items-center justify-center rounded-full shrink-0 ${
-                      step.done ? 'bg-emerald-500' : step.active ? 'bg-[#166534]' : 'bg-gray-200'
-                    }`}>
+                    <div className={`flex size-7 items-center justify-center rounded-full shrink-0 ${step.done ? 'bg-emerald-500' : step.active ? 'bg-[#166534]' : 'bg-gray-200'
+                      }`}>
                       {step.done
                         ? <CheckCircle2 className="size-4 text-white" />
                         : <span className={`size-2 rounded-full ${step.active ? 'bg-white animate-pulse' : 'bg-gray-400'}`} />}
@@ -81,7 +81,7 @@ export function EmployerPending() {
           </div>
 
           <div className="px-8 pb-8">
-            <button onClick={() => { sessionStorage.removeItem('employer_user'); navigate('/employer'); }}
+            <button onClick={() => { sessionStorage.removeItem('employer_user'); sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY); navigate('/employer'); }}
               className="w-full flex items-center justify-center gap-2 border border-gray-200 hover:bg-gray-50 text-gray-600 py-3 rounded-xl text-sm transition"
               style={{ fontWeight: 500 }}>
               <ArrowLeft className="size-4" /> Return to Employer Portal

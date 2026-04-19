@@ -1,16 +1,112 @@
 import json
+from datetime import timedelta
 
+from django.core import signing
+from django.core.signing import BadSignature, SignatureExpired
 from django.db import transaction
+from django.db import DatabaseError, OperationalError
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Industry, JobTitle, Skill, SkillCategory, Region
+from users.models import AccountStatus, EmployerAccount, User
+
+from .models import (
+    EmploymentRecord,
+    Industry,
+    JobTitle,
+    Region,
+    Skill,
+    SkillCategory,
+    VerificationDecision,
+    VerificationToken,
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+_EMPLOYER_TOKEN_SALT = "users.employer.access"
+_EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8
+_VERIFICATION_TOKEN_DEFAULT_TTL_DAYS = 7
+
+
+def _database_unavailable_response() -> Response:
+    return Response(
+        {
+            "detail": "Database is temporarily unavailable. Please try again.",
+            "retryable": True,
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
+
+
+def _extract_bearer_token(request) -> str:
+    header = request.headers.get("Authorization") or ""
+    if not header.lower().startswith("bearer "):
+        return ""
+    return header[7:].strip()
+
+
+def _require_employer(request) -> tuple[EmployerAccount | None, Response | None]:
+    token = _extract_bearer_token(request)
+    if not token:
+        return None, Response(
+            {"detail": "Authentication credentials were not provided."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+        payload = signing.loads(
+            token,
+            salt=_EMPLOYER_TOKEN_SALT,
+            max_age=_EMPLOYER_TOKEN_TTL_SECONDS,
+        )
+    except SignatureExpired:
+        return None, Response(
+            {"detail": "Employer access token has expired."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+    except BadSignature:
+        return None, Response(
+            {"detail": "Invalid employer access token."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    user_id = payload.get("uid")
+    if not user_id:
+        return None, Response(
+            {"detail": "Invalid employer access token."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+        user = User.objects.filter(id=user_id, role=User.Role.EMPLOYER, is_active=True).first()
+        employer_account = (
+            EmployerAccount.objects.select_related("user")
+            .filter(user=user)
+            .first()
+        )
+    except (OperationalError, DatabaseError):
+        return None, _database_unavailable_response()
+
+    if not user or not employer_account:
+        return None, Response(
+            {"detail": "Employer account was not found."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    if employer_account.account_status != AccountStatus.ACTIVE:
+        return None, Response(
+            {
+                "detail": "Employer account is not active. Approval is required before verification actions.",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    return employer_account, None
 
 def _serialize_skill(s) -> dict:
     return {
@@ -54,6 +150,51 @@ def _serialize_region(r) -> dict:
         "code": r.code,
         "name": r.name,
         "is_active": r.is_active,
+    }
+
+
+def _serialize_employment_record(record: EmploymentRecord | None) -> dict:
+    if not record:
+        return {}
+
+    return {
+        "id": str(record.id),
+        "employmentStatus": record.employment_status,
+        "verificationStatus": record.verification_status,
+        "employerName": record.employer_name_input,
+        "jobTitle": record.job_title_input,
+        "jobTitleId": str(record.job_title_id) if record.job_title_id else None,
+        "jobTitleName": record.job_title.name if record.job_title else None,
+        "workLocation": record.work_location,
+        "regionId": str(record.region_id) if record.region_id else None,
+        "regionName": record.region.name if record.region else None,
+        "isCurrent": record.is_current,
+        "updatedAt": record.updated_at.isoformat(),
+    }
+
+
+def _serialize_verification_token(token: VerificationToken) -> dict:
+    return {
+        "id": str(token.token_id),
+        "status": token.status,
+        "expiresAt": token.expires_at.isoformat(),
+        "usedAt": token.used_at.isoformat() if token.used_at else None,
+        "alumniId": str(token.alumni_id),
+        "employmentRecordId": str(token.employment_record_id) if token.employment_record_id else None,
+        "createdAt": token.created_at.isoformat(),
+    }
+
+
+def _serialize_verification_decision(decision: VerificationDecision) -> dict:
+    return {
+        "id": str(decision.id),
+        "decision": decision.decision,
+        "comment": decision.comment,
+        "verifiedEmployerName": decision.verified_employer_name,
+        "verifiedJobTitleId": str(decision.verified_job_title_id) if decision.verified_job_title_id else None,
+        "verifiedJobTitleName": decision.verified_job_title.name if decision.verified_job_title else None,
+        "decidedAt": decision.decided_at.isoformat(),
+        "employerId": str(decision.employer_account_id),
     }
 
 
@@ -302,8 +443,328 @@ class RegionListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = Region.objects.filter(is_active=True).order_by("name")
+        active_only = request.query_params.get("active", "true").lower() != "false"
+        qs = Region.objects.order_by("name")
+        if active_only:
+            qs = qs.filter(is_active=True)
         return Response({"regions": [_serialize_region(r) for r in qs]})
+
+    def post(self, request):
+        code = (request.data.get("code") or "").strip()
+        name = (request.data.get("name") or "").strip()
+        if not code or not name:
+            return Response(
+                {"detail": "code and name are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Region.objects.filter(code__iexact=code).exists():
+            return Response(
+                {"detail": "Region code already exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if Region.objects.filter(name__iexact=name).exists():
+            return Response(
+                {"detail": "Region name already exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        region = Region.objects.create(code=code, name=name)
+        return Response({"region": _serialize_region(region)}, status=status.HTTP_201_CREATED)
+
+
+class RegionDetailView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, pk):
+        try:
+            region = Region.objects.get(pk=pk)
+        except Region.DoesNotExist:
+            return Response({"detail": "Region not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if "code" in request.data:
+            code = str(request.data.get("code") or "").strip()
+            if not code:
+                return Response({"detail": "code cannot be blank."}, status=status.HTTP_400_BAD_REQUEST)
+            duplicate_code = Region.objects.filter(code__iexact=code).exclude(pk=region.pk).exists()
+            if duplicate_code:
+                return Response({"detail": "Region code already exists."}, status=status.HTTP_409_CONFLICT)
+            region.code = code
+
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()
+            if not name:
+                return Response({"detail": "name cannot be blank."}, status=status.HTTP_400_BAD_REQUEST)
+            duplicate_name = Region.objects.filter(name__iexact=name).exclude(pk=region.pk).exists()
+            if duplicate_name:
+                return Response({"detail": "Region name already exists."}, status=status.HTTP_409_CONFLICT)
+            region.name = name
+
+        if "is_active" in request.data:
+            region.is_active = bool(request.data.get("is_active"))
+
+        region.save()
+        return Response({"region": _serialize_region(region)})
+
+    def delete(self, request, pk):
+        try:
+            region = Region.objects.get(pk=pk)
+        except Region.DoesNotExist:
+            return Response({"detail": "Region not found."}, status=status.HTTP_404_NOT_FOUND)
+        region.is_active = False
+        region.save(update_fields=["is_active"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class VerificationTokenIssueView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        employer_account, error_response = _require_employer(request)
+        if error_response:
+            return error_response
+
+        alumni_id = request.data.get("alumni_id")
+        employment_record_id = request.data.get("employment_record_id")
+
+        if not alumni_id and not employment_record_id:
+            return Response(
+                {"detail": "alumni_id or employment_record_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            record_query = EmploymentRecord.objects.select_related("job_title", "region", "alumni")
+            if employment_record_id:
+                record = record_query.filter(id=employment_record_id).first()
+            else:
+                record = record_query.filter(alumni_id=alumni_id, is_current=True).first()
+
+            if not record:
+                return Response(
+                    {"detail": "Employment record was not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            raw_ttl = request.data.get("expires_in_days")
+            ttl_days = _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS
+            if raw_ttl is not None:
+                try:
+                    ttl_days = max(1, min(int(raw_ttl), 30))
+                except (TypeError, ValueError):
+                    return Response(
+                        {"detail": "expires_in_days must be a valid number from 1 to 30."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            with transaction.atomic():
+                VerificationToken.objects.filter(
+                    employment_record=record,
+                    status=VerificationToken.Status.PENDING,
+                ).update(status=VerificationToken.Status.REVOKED)
+
+                token = VerificationToken.objects.create(
+                    alumni=record.alumni,
+                    employment_record=record,
+                    expires_at=timezone.now() + timedelta(days=ttl_days),
+                )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        return Response(
+            {
+                "message": "Verification token issued.",
+                "token": _serialize_verification_token(token),
+                "employmentRecord": _serialize_employment_record(record),
+                "issuedByEmployerId": str(employer_account.id),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class VerificationTokenDetailView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, token_id):
+        try:
+            token = (
+                VerificationToken.objects.select_related(
+                    "alumni__user",
+                    "alumni__profile",
+                    "employment_record__job_title",
+                    "employment_record__region",
+                )
+                .filter(token_id=token_id)
+                .first()
+            )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        if not token:
+            return Response({"detail": "Verification token not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if token.status == VerificationToken.Status.PENDING and token.expires_at <= timezone.now():
+            token.status = VerificationToken.Status.EXPIRED
+            token.save(update_fields=["status"])
+
+        profile = getattr(token.alumni, "profile", None)
+        alumni_name = ""
+        if profile:
+            alumni_name = " ".join(
+                p.strip() for p in [profile.first_name, profile.middle_name, profile.last_name] if p and p.strip()
+            )
+        if not alumni_name:
+            alumni_name = token.alumni.user.email
+
+        return Response(
+            {
+                "token": _serialize_verification_token(token),
+                "alumni": {
+                    "id": str(token.alumni_id),
+                    "name": alumni_name,
+                    "email": token.alumni.user.email,
+                },
+                "employmentRecord": _serialize_employment_record(token.employment_record),
+            }
+        )
+
+
+class VerificationTokenDecisionView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, token_id):
+        employer_account, error_response = _require_employer(request)
+        if error_response:
+            return error_response
+
+        raw_decision = str(request.data.get("decision") or "").strip().lower()
+        valid_decisions = {
+            VerificationDecision.Decision.CONFIRM,
+            VerificationDecision.Decision.DENY,
+        }
+        if raw_decision not in valid_decisions:
+            return Response(
+                {"detail": "decision must be either 'confirm' or 'deny'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verified_job_title = None
+        verified_job_title_id = request.data.get("verified_job_title_id")
+        if verified_job_title_id:
+            verified_job_title = JobTitle.objects.filter(id=verified_job_title_id, is_active=True).first()
+            if not verified_job_title:
+                return Response(
+                    {"detail": "verified_job_title_id does not match an active job title."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            token = (
+                VerificationToken.objects.select_related(
+                    "alumni",
+                    "employment_record__job_title",
+                    "employment_record__region",
+                )
+                .filter(token_id=token_id)
+                .first()
+            )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        if not token:
+            return Response({"detail": "Verification token not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if token.status != VerificationToken.Status.PENDING:
+            return Response(
+                {"detail": f"Token is already {token.status}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if token.expires_at <= timezone.now():
+            token.status = VerificationToken.Status.EXPIRED
+            token.save(update_fields=["status"])
+            return Response(
+                {"detail": "Verification token has expired."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        employment_record = token.employment_record
+        if not employment_record:
+            employment_record = EmploymentRecord.objects.select_related("job_title", "region").filter(
+                alumni=token.alumni,
+                is_current=True,
+            ).first()
+            if not employment_record:
+                return Response(
+                    {"detail": "Current employment record was not found for this token."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        verified_employer_name = str(
+            request.data.get("verified_employer_name")
+            or employer_account.company_name
+            or employment_record.employer_name_input
+            or ""
+        ).strip()
+        comment = str(request.data.get("comment") or "").strip()
+
+        try:
+            with transaction.atomic():
+                decision = VerificationDecision.objects.create(
+                    employer_account=employer_account,
+                    token=token,
+                    verified_employer_name=verified_employer_name,
+                    verified_job_title=verified_job_title,
+                    decision=raw_decision,
+                    comment=comment,
+                )
+
+                employment_record.employer_account = employer_account
+                employment_record.employer_name_input = verified_employer_name or employment_record.employer_name_input
+                if verified_job_title:
+                    employment_record.job_title = verified_job_title
+                    if not employment_record.job_title_input:
+                        employment_record.job_title_input = verified_job_title.name
+                employment_record.verification_status = (
+                    EmploymentRecord.VerificationStatus.VERIFIED
+                    if raw_decision == VerificationDecision.Decision.CONFIRM
+                    else EmploymentRecord.VerificationStatus.DENIED
+                )
+                employment_record.save(
+                    update_fields=[
+                        "employer_account",
+                        "employer_name_input",
+                        "job_title",
+                        "job_title_input",
+                        "verification_status",
+                        "updated_at",
+                    ]
+                )
+
+                token.employment_record = employment_record
+                token.mark_used()
+
+                VerificationToken.objects.filter(
+                    employment_record=employment_record,
+                    status=VerificationToken.Status.PENDING,
+                ).exclude(token_id=token.token_id).update(status=VerificationToken.Status.REVOKED)
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        return Response(
+            {
+                "message": "Verification decision submitted.",
+                "token": _serialize_verification_token(token),
+                "decision": _serialize_verification_decision(decision),
+                "employmentRecord": _serialize_employment_record(employment_record),
+            }
+        )
 
 
 # ── All Reference Data (single call) ──────────────────────────────────────────

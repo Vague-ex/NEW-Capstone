@@ -14,8 +14,8 @@ type ModalTab = 'profile' | 'employment' | 'skills';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function deriveTimeToHire(a: AlumniRecord): string {
-  const sd = (a as any).surveyData;
-  if (sd?.timeToHire) return sd.timeToHire;
+  const sd = (a as Record<string, unknown>).surveyData as Record<string, unknown> | undefined;
+  if (sd?.timeToHire) return String(sd.timeToHire);
   if (!a.monthsToHire) return '—';
   const m = a.monthsToHire;
   if (m <= 1) return 'Within 1 month';
@@ -26,12 +26,24 @@ function deriveTimeToHire(a: AlumniRecord): string {
 }
 
 function deriveLocationLabel(a: AlumniRecord): string {
-  const sd = (a as any).surveyData;
-  if (sd?.currentJobLocation) return sd.currentJobLocation;
+  const sd = (a as Record<string, unknown>).surveyData as Record<string, unknown> | undefined;
+  if (sd?.currentJobLocation) return String(sd.currentJobLocation);
   const loc = (a.workLocation || '').toLowerCase();
   if (loc.includes('abroad') || loc.includes('singapore') || loc.includes('dubai') ||
     loc.includes('ofw') || loc.includes('foreign')) return 'Abroad / Remote Foreign Employer';
   return 'Local (Philippines)';
+}
+
+function safeName(a: AlumniRecord): string {
+  return a.name ?? 'Unnamed Graduate';
+}
+
+function safeInitials(a: AlumniRecord): string {
+  return safeName(a)
+    .split(' ')
+    .map((n) => n[0] ?? '')
+    .join('')
+    .slice(0, 2);
 }
 
 function Row({ label, value }: { label: string; value?: string | null }) {
@@ -50,7 +62,7 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => void }) {
   const [tab, setTab] = useState<ModalTab>('profile');
-  const sd = (a as any).surveyData ?? {};
+  const sd = ((a as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
 
   const BSIS_CORE = [
     'Programming/Software Development', 'Database Management', 'Network Administration',
@@ -72,7 +84,7 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
       : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
         : 'bg-gray-100 text-gray-600';
 
-  const tabs: { key: ModalTab; label: string; icon: any }[] = [
+  const tabs: { key: ModalTab; label: string; icon: React.ElementType }[] = [
     { key: 'profile', label: 'Profile & Education', icon: Camera },
     { key: 'employment', label: 'Employment (CHED)', icon: Briefcase },
     { key: 'skills', label: 'Skills', icon: Star },
@@ -86,10 +98,10 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
           <div className="flex size-10 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] shrink-0"
             style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-            {a.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+            {safeInitials(a)}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-gray-900 truncate" style={{ fontWeight: 700 }}>{a.name}</p>
+            <p className="text-gray-900 truncate" style={{ fontWeight: 700 }}>{safeName(a)}</p>
             <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
               <span className="text-gray-400 text-xs">Batch {a.graduationYear}</span>
               <span className="text-gray-300">·</span>
@@ -130,7 +142,7 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Camera className="size-3.5" /> ACCOUNT & BIOMETRIC
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Full Name" value={a.name} />
+                  <Row label="Full Name" value={safeName(a)} />
                   <Row label="Email Address" value={a.email} />
                   <Row label="Graduation Batch" value={`Batch ${a.graduationYear}`} />
                   <Row label="Last Updated" value={a.dateUpdated} />
@@ -150,10 +162,14 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Row label="Degree" value="BS Information Systems" />
                   <Row label="Campus" value="CHMSU – Talisay" />
                   <Row label="Graduation Year" value={String(a.graduationYear)} />
-                  <Row label="Scholarship" value={sd.scholarship || '—'} />
-                  <Row label="Highest Attainment" value={sd.highestAttainment || '—'} />
+                  <Row label="Scholarship" value={sd.scholarship ? String(sd.scholarship) : '—'} />
+                  <Row label="Highest Attainment" value={sd.highestAttainment ? String(sd.highestAttainment) : '—'} />
                   <Row label="Graduate School" value="Carlos Hilado Memorial State University" />
-                  <Row label="Prof. Eligibility" value={sd.profEligibility?.length ? sd.profEligibility.join(', ') : '—'} />
+                  <Row label="Prof. Eligibility" value={
+                    Array.isArray(sd.profEligibility) && sd.profEligibility.length
+                      ? (sd.profEligibility as string[]).join(', ')
+                      : '—'
+                  } />
                 </div>
               </div>
             </div>
@@ -181,9 +197,9 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Building2 className="size-3.5" /> Q3 · FIRST JOB
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Sector" value={sd.firstJobSector || '—'} />
-                  <Row label="Employment Status" value={sd.firstJobStatus || '—'} />
-                  <Row label="Job Title" value={sd.firstJobTitle || a.jobTitle || '—'} />
+                  <Row label="Sector" value={sd.firstJobSector ? String(sd.firstJobSector) : '—'} />
+                  <Row label="Employment Status" value={sd.firstJobStatus ? String(sd.firstJobStatus) : '—'} />
+                  <Row label="Job Title" value={sd.firstJobTitle ? String(sd.firstJobTitle) : (a.jobTitle ?? '—')} />
                   <Row label="BSIS-Related" value={
                     sd.firstJobRelated === 'Yes' ? 'Yes — Related to BSIS'
                       : sd.firstJobRelated === 'No' ? 'No — Not related'
@@ -191,7 +207,7 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                           : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
                   } />
                   {(sd.firstJobRelated === 'No' || a.jobAlignment === 'not-related') && (
-                    <Row label="Reason (unrelated)" value={sd.firstJobUnrelatedReason || '—'} />
+                    <Row label="Reason (unrelated)" value={sd.firstJobUnrelatedReason ? String(sd.firstJobUnrelatedReason) : '—'} />
                   )}
                 </div>
               </div>
@@ -201,11 +217,11 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <MapPin className="size-3.5" /> Q4 · CURRENT JOB
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Sector" value={sd.currentJobSector || '—'} />
-                  <Row label="Position" value={sd.currentJobPosition || a.jobTitle || '—'} />
-                  <Row label="Company" value={sd.currentJobCompany || a.company || '—'} />
-                  <Row label="Industry" value={a.industry || '—'} />
-                  <Row label="Work Location" value={a.workLocation || '—'} />
+                  <Row label="Sector" value={sd.currentJobSector ? String(sd.currentJobSector) : '—'} />
+                  <Row label="Position" value={sd.currentJobPosition ? String(sd.currentJobPosition) : (a.jobTitle ?? '—')} />
+                  <Row label="Company" value={sd.currentJobCompany ? String(sd.currentJobCompany) : (a.company ?? '—')} />
+                  <Row label="Industry" value={a.industry ?? '—'} />
+                  <Row label="Work Location" value={a.workLocation ?? '—'} />
                   <Row label="Location Type" value={deriveLocationLabel(a)} />
                   <Row label="BSIS-Related" value={
                     a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
@@ -219,8 +235,8 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   <Clock className="size-3.5" /> Q5–Q6 · RETENTION & JOB SOURCE
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Q5 — Job Retention" value={sd.jobRetention || '—'} />
-                  <Row label="Q6 — Job Source" value={sd.jobSource || '—'} />
+                  <Row label="Q5 — Job Retention" value={sd.jobRetention ? String(sd.jobRetention) : '—'} />
+                  <Row label="Q6 — Job Source" value={sd.jobSource ? String(sd.jobSource) : '—'} />
                   {a.unemploymentReason && (
                     <Row label="Unemployment Reason" value={a.unemploymentReason} />
                   )}
@@ -232,65 +248,75 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
           {/* ── Skills (CHED Part IV) ── */}
           {tab === 'skills' && (
             <div className="space-y-5">
-              {/* Core competency checklist */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[#166534] text-xs flex items-center gap-1.5" style={{ fontWeight: 700 }}>
-                    <Star className="size-3.5" /> BSIS CORE COMPETENCIES
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>{coreCount}/12</span>
-                    <div className="w-20 bg-gray-100 rounded-full h-2">
-                      <div className="h-2 rounded-full bg-[#166534]" style={{ width: `${(coreCount / 12) * 100}%` }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {BSIS_CORE.map(skill => {
-                    const has = skills.includes(skill);
-                    return (
-                      <div key={skill} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs border ${has ? 'bg-[#166534]/5 border-[#166534]/20 text-[#166534]' : 'bg-gray-50 border-gray-100 text-gray-400'
-                        }`} style={{ fontWeight: has ? 600 : 400 }}>
-                        {has
-                          ? <CheckCircle2 className="size-3.5 shrink-0 text-[#166534]" />
-                          : <div className="size-3.5 rounded-full border-2 border-gray-300 shrink-0" />}
-                        <span className="leading-tight">{skill}</span>
+              {(() => {
+                const BSIS_CORE_LIST = [
+                  'Programming/Software Development', 'Database Management', 'Network Administration',
+                  'Business Process Analysis', 'Project Management', 'Technical Support / Troubleshooting',
+                  'Data Analytics', 'Web Development', 'System Analysis and Design',
+                  'Communication Skills (Oral/Written)', 'Teamwork/Collaboration', 'Problem-solving / Critical Thinking',
+                ];
+
+                return (
+                  <>
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-[#166534] text-xs flex items-center gap-1.5" style={{ fontWeight: 700 }}>
+                          <Star className="size-3.5" /> BSIS CORE COMPETENCIES
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>{coreCount}/12</span>
+                          <div className="w-20 bg-gray-100 rounded-full h-2">
+                            <div className="h-2 rounded-full bg-[#166534]" style={{ width: `${(coreCount / 12) * 100}%` }} />
+                          </div>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {BSIS_CORE_LIST.map(skill => {
+                          const has = skills.includes(skill);
+                          return (
+                            <div key={skill} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs border ${has ? 'bg-[#166534]/5 border-[#166534]/20 text-[#166534]' : 'bg-gray-50 border-gray-100 text-gray-400'}`}
+                              style={{ fontWeight: has ? 600 : 400 }}>
+                              {has
+                                ? <CheckCircle2 className="size-3.5 shrink-0 text-[#166534]" />
+                                : <div className="size-3.5 rounded-full border-2 border-gray-300 shrink-0" />}
+                              <span className="leading-tight">{skill}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-              {/* Additional skills */}
-              {additional.length > 0 && (
-                <div>
-                  <p className="text-[#166534] text-xs mb-3 flex items-center gap-1.5" style={{ fontWeight: 700 }}>
-                    <Globe className="size-3.5" /> ADDITIONAL SKILLS ({additional.length})
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {additional.map((s: string) => (
-                      <span key={s} className="bg-gray-100 text-gray-600 text-xs px-3 py-1.5 rounded-full border border-gray-200" style={{ fontWeight: 500 }}>{s}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    {additional.length > 0 && (
+                      <div>
+                        <p className="text-[#166534] text-xs mb-3 flex items-center gap-1.5" style={{ fontWeight: 700 }}>
+                          <Globe className="size-3.5" /> ADDITIONAL SKILLS ({additional.length})
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {additional.map((s: string) => (
+                            <span key={s} className="bg-gray-100 text-gray-600 text-xs px-3 py-1.5 rounded-full border border-gray-200" style={{ fontWeight: 500 }}>{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-              {skills.length === 0 && (
-                <div className="text-center py-10 text-gray-400">
-                  <Star className="size-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No skills recorded.</p>
-                </div>
-              )}
+                    {skills.length === 0 && (
+                      <div className="text-center py-10 text-gray-400">
+                        <Star className="size-10 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm">No skills recorded.</p>
+                      </div>
+                    )}
 
-              {/* Awards */}
-              {sd.awards && (
-                <div>
-                  <p className="text-[#166534] text-xs mb-2 flex items-center gap-1.5" style={{ fontWeight: 700 }}>
-                    <Award className="size-3.5" /> AWARDS & RECOGNITION
-                  </p>
-                  <p className="text-gray-700 text-sm bg-gray-50 border border-gray-100 rounded-xl p-3">{sd.awards}</p>
-                </div>
-              )}
+                    {sd.awards && (
+                      <div>
+                        <p className="text-[#166534] text-xs mb-2 flex items-center gap-1.5" style={{ fontWeight: 700 }}>
+                          <Award className="size-3.5" /> AWARDS & RECOGNITION
+                        </p>
+                        <p className="text-gray-700 text-sm bg-gray-50 border border-gray-100 rounded-xl p-3">{String(sd.awards)}</p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -355,15 +381,16 @@ export function AdminVerified() {
 
   const verifiedAlumni = useMemo(() => backendVerified.filter(a => {
     const q = search.toLowerCase();
-    const matchQ = !q || String(a.name ?? '').toLowerCase().includes(q) || String(a.email ?? '').toLowerCase().includes(q) || String(a.company ?? '').toLowerCase().includes(q);
+    const matchQ = !q
+      || (a.name ?? '').toLowerCase().includes(q)
+      || (a.email ?? '').toLowerCase().includes(q)
+      || (a.company ?? '').toLowerCase().includes(q);
     const matchYear = filterYear === 'all' || a.graduationYear === parseInt(filterYear);
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
     return matchQ && matchYear && matchStatus;
   }).sort((a, b) => {
-    let va = (a as any)[sortField] ?? '';
-    let vb = (b as any)[sortField] ?? '';
-    if (typeof va === 'string') va = va.toLowerCase();
-    if (typeof vb === 'string') vb = vb.toLowerCase();
+    const va = String((a as Record<string, unknown>)[sortField] ?? '').toLowerCase();
+    const vb = String((b as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
   }), [backendVerified, search, filterYear, filterStatus, sortField, sortDir]);
 
@@ -468,16 +495,16 @@ export function AdminVerified() {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {verifiedAlumni.map(a => (
-                      <Fragment key={a.id}>
+                      <Fragment key={String(a.id ?? a.email ?? safeName(a))}>
                         <tr className="hover:bg-gray-50/60 transition">
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2.5">
                               <div className="flex size-8 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
                                 style={{ fontWeight: 700 }}>
-                                {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                {safeInitials(a)}
                               </div>
                               <div className="min-w-0">
-                                <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{a.name}</p>
+                                <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{safeName(a)}</p>
                                 <p className="text-gray-400 text-xs truncate">{a.email}</p>
                               </div>
                             </div>

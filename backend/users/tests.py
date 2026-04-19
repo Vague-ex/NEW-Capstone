@@ -7,7 +7,12 @@ from django.db import OperationalError
 from django.test import SimpleTestCase
 from rest_framework.test import APIRequestFactory
 
-from .api import AdminLoginView, AlumniLoginView, EmployerLoginView
+from .api import (
+	AdminLoginView,
+	AlumniLoginView,
+	EmployerLoginView,
+	PendingAlumniListView,
+)
 from .models import User
 
 
@@ -77,3 +82,12 @@ class AuthDatabaseErrorHandlingTests(SimpleTestCase):
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.data["user"]["email"], "admin@example.com")
+		self.assertIn("accessToken", response.data)
+
+	def test_pending_alumni_requires_admin_token(self):
+		request = self.factory.get("/api/admin/alumni/pending/")
+
+		response = PendingAlumniListView.as_view()(request)
+
+		self.assertEqual(response.status_code, 401)
+		self.assertIn("detail", response.data)

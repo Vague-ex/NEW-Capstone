@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle,
@@ -7,9 +7,14 @@ import {
   Briefcase, BookOpen, Award,
 } from 'lucide-react';
 import { registerAlumni } from '../app/api-client';
+import isImageBlurry from 'is-image-blurry';
+import {
+  averageFaceDescriptors,
+  extractFaceDescriptorFromDataUrl,
+} from '../app/modern-face-descriptor';
 import { useReferenceData } from '../hooks/useReferenceData';
 
-// ── Constants ──────────────────────────────────────────────────────────────────
+//  Constants 
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -28,7 +33,30 @@ const SHOT_INSTRUCTIONS = [
   { label: 'Turn RIGHT', desc: 'Slowly turn your head to the right' },
 ];
 
-// ── Form state type ─────────────────────────────────────────────────────────────
+const SKILLS_LIST = [
+  'Programming/Software Development',
+  'Database Management',
+  'Network Administration',
+  'Business Process Analysis',
+  'Project Management',
+  'Technical Support / Troubleshooting',
+  'Data Analytics',
+  'Web Development',
+  'System Analysis and Design',
+  'Communication Skills (Oral/Written)',
+  'Teamwork/Collaboration',
+  'Problem-solving / Critical Thinking',
+];
+
+const FACE_BLUR_THRESHOLD = 360;
+
+function normalizeEmploymentStatusForBackend(rawStatus: string): 'employed' | 'self_employed' | 'unemployed' {
+  if (rawStatus === 'Yes') return 'employed';
+  if (rawStatus === 'No' || rawStatus === 'Never Employed') return 'unemployed';
+  return 'unemployed';
+}
+
+//  Form state type 
 
 interface GraduateForm {
   // Step 1: Account
@@ -69,7 +97,7 @@ const INITIAL_FORM: GraduateForm = {
   skills: [], awards: '',
 };
 
-// ── Sub-components ──────────────────────────────────────────────────────────────
+//  Sub-components 
 
 const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
 
@@ -137,25 +165,11 @@ function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = fal
   );
 }
 
-// ── Main Component ──────────────────────────────────────────────────────────────
+//  Main Component 
 
 export function RegisterAlumni() {
   const navigate = useNavigate();
-
-  // ── Reference data from backend ──────────────────────────────────────────────
-  const { data: refData } = useReferenceData();
-
-  // Derive flat skill name list from backend skills, grouped by category
-  const skillsByCategory = refData.skill_categories.map(cat => ({
-    categoryId: cat.id,
-    categoryName: cat.name,
-    skills: refData.skills.filter(s => s.category === cat.id).map(s => s.name),
-  }));
-  const uncategorizedSkills = refData.skills.filter(s => !s.category).map(s => s.name);
-  // Flat list for CheckOption rendering (all skill names)
-  const allSkillNames = refData.skills.map(s => s.name);
-  // Industry names for select/radio
-  const industryNames = refData.industries.map(i => i.name);
+  const { data: referenceData } = useReferenceData();
 
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<GraduateForm>(INITIAL_FORM);
@@ -163,6 +177,7 @@ export function RegisterAlumni() {
   const [showPass, setShowPass] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [employerLinkStatus, setEmployerLinkStatus] = useState('');
 
   // Biometrics state
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -174,14 +189,30 @@ export function RegisterAlumni() {
   const [captureTime, setCaptureTime] = useState<string | null>(null);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsLoading, setGpsLoading] = useState(false);
+  const [checkingBlur, setCheckingBlur] = useState(false);
 
   const allShotsCaptured = shots.every(s => s !== null);
+  const availableSkills = referenceData.skills.length > 0
+    ? referenceData.skills.map((skill) => skill.name)
+    : SKILLS_LIST;
+  const employerPortalLink = typeof window === 'undefined'
+    ? '/employer'
+    : `${window.location.origin}/employer`;
 
   useEffect(() => { return () => stopCamera(); }, []);
 
   // Helper: set single string field
   const setF = (field: keyof GraduateForm, value: string) =>
     setForm(f => ({ ...f, [field]: value }));
+
+  const handleShareEmployerPortalLink = async () => {
+    try {
+      await navigator.clipboard.writeText(employerPortalLink);
+      setEmployerLinkStatus('Employer Portal link copied. You may now share it with your employer.');
+    } catch {
+      setEmployerLinkStatus('Copy not available in this browser. Please share the link shown below manually.');
+    }
+  };
 
   // Helper: toggle string in array field
   const toggleArr = (field: 'profEligibility' | 'skills', value: string) =>
@@ -190,7 +221,7 @@ export function RegisterAlumni() {
       return { ...f, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
     });
 
-  // ── Validation ──────────────────────────────────────────────────────────────
+  //  Validation 
   const validateStep = (): boolean => {
     setStepError('');
     if (step === 1) {
@@ -217,9 +248,10 @@ export function RegisterAlumni() {
   const nextStep = () => { if (validateStep()) setStep(s => (s + 1) as Step); };
   const prevStep = () => { setStepError(''); setStep(s => (s - 1) as Step); };
 
-  // ── Camera helpers ──────────────────────────────────────────────────────────
+  //  Camera helpers 
   const startCamera = async () => {
     setCameraError('');
+    setStepError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
@@ -237,31 +269,51 @@ export function RegisterAlumni() {
     setCameraOn(false);
   };
 
-  const captureShot = () => {
+  const captureShot = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    const ctx = canvasRef.current.getContext('2d');
-    canvasRef.current.width = videoRef.current.videoWidth;
-    canvasRef.current.height = videoRef.current.videoHeight;
-    ctx?.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+    setStepError('');
+    setCheckingBlur(true);
 
-    setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
+    try {
+      const ctx = canvasRef.current.getContext('2d');
+      if (!ctx) {
+        setStepError('Unable to capture image. Please try again.');
+        return;
+      }
 
-    if (!captureTime) {
-      setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
-    }
-    if (currentShot === 0 && !gps) {
-      setGpsLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
-        () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
-        { timeout: 6000 }
-      );
-    }
-    if (currentShot < 2) {
-      setCurrentShot(c => c + 1);
-    } else {
-      stopCamera();
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+
+      const blurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
+      if (blurry) {
+        setStepError(`Shot ${currentShot + 1} (${SHOT_INSTRUCTIONS[currentShot].label}) is blurry. Please keep your face steady and capture again.`);
+        return;
+      }
+
+      setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
+
+      if (!captureTime) {
+        setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+      }
+      if (currentShot === 0 && !gps) {
+        setGpsLoading(true);
+        navigator.geolocation.getCurrentPosition(
+          pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
+          () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
+          { timeout: 6000 }
+        );
+      }
+      if (currentShot < 2) {
+        setCurrentShot(c => c + 1);
+      } else {
+        stopCamera();
+      }
+    } catch {
+      setStepError('Unable to check image clarity right now. Please retake your capture.');
+    } finally {
+      setCheckingBlur(false);
     }
   };
 
@@ -271,6 +323,8 @@ export function RegisterAlumni() {
     setCaptureTime(null);
     setGps(null);
     setGpsLoading(false);
+    setStepError('');
+    setCheckingBlur(false);
     startCamera();
   };
 
@@ -279,7 +333,7 @@ export function RegisterAlumni() {
     return response.blob();
   };
 
-  // ── Final submit (with face_descriptor patch applied) ────────────────────────
+  //  Final submit 
   const handleFinalSubmit = async () => {
     if (!allShotsCaptured) {
       setStepError('All 3 biometric captures are required before submitting.');
@@ -291,15 +345,52 @@ export function RegisterAlumni() {
     setIsSaving(true);
 
     try {
+      const blurChecks = await Promise.all(
+        [faceFront, faceLeft, faceRight].map((shot) =>
+          isImageBlurry({ dataUrl: shot, threshold: FACE_BLUR_THRESHOLD }),
+        ),
+      );
+      const blurryShotIndex = blurChecks.findIndex(Boolean);
+      if (blurryShotIndex !== -1) {
+        setStepError(`${SHOT_INSTRUCTIONS[blurryShotIndex].label} capture is too blurry. Please retake all biometric shots before submitting.`);
+        return;
+      }
+
+      const descriptorCandidates = await Promise.all(
+        [faceFront, faceLeft, faceRight].map((shot) => extractFaceDescriptorFromDataUrl(shot)),
+      );
+      const descriptorSamples = descriptorCandidates.filter(
+        (descriptor): descriptor is number[] => Array.isArray(descriptor) && descriptor.length === 128,
+      );
+      const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
+      if (!averagedDescriptor) {
+        setStepError('No valid face was detected in your captures. Please retake all shots with your face centered and clearly visible.');
+        return;
+      }
+
       const [frontBlob, leftBlob, rightBlob] = await Promise.all([
         dataUrlToBlob(faceFront),
         dataUrlToBlob(faceLeft),
         dataUrlToBlob(faceRight),
       ]);
 
-      const payload = new FormData();
+      const employmentStatus = normalizeEmploymentStatusForBackend(form.employmentStatus);
+      const selectedSkillEntries = referenceData.skills
+        .filter((skill) => form.skills.includes(skill.name))
+        .map((skill) => ({
+          skillId: skill.id,
+          name: skill.name,
+          proficiency: 'intermediate',
+        }));
+      const surveyData = {
+        ...form,
+        employmentStatus: form.employmentStatus,
+        employmentStatusNormalized: employmentStatus,
+        skillIds: selectedSkillEntries.map((entry) => entry.skillId),
+        skillEntries: selectedSkillEntries,
+      };
 
-      // Existing fields
+      const payload = new FormData();
       payload.append('email', form.email.trim().toLowerCase());
       payload.append('password', form.password);
       payload.append('confirm_password', form.confirmPassword);
@@ -307,19 +398,13 @@ export function RegisterAlumni() {
       payload.append('middle_name', form.middleName.trim());
       payload.append('family_name', form.familyName.trim());
       payload.append('graduation_date', form.graduationDate);
-      payload.append('employment_status', form.employmentStatus);
-      payload.append('capture_time', captureTime || new Date().toISOString());
+      payload.append('employment_status', employmentStatus);
+      payload.append('capture_time', new Date().toISOString());
       payload.append('gps_lat', gps?.lat?.toString() || '');
       payload.append('gps_lng', gps?.lng?.toString() || '');
-      payload.append('survey_data', JSON.stringify(form));
-
-      // NEW: face_descriptor vector ([] if face-api.js not yet integrated)
-      // To add real descriptors later: extract Float32Array from face-api.js
-      // and pass Array.from(descriptor) here.
-      const faceDescriptor: number[] = [];
-      payload.append('face_descriptor', JSON.stringify(faceDescriptor));
-
-      // Face image blobs
+      payload.append('survey_data', JSON.stringify(surveyData));
+      payload.append('face_descriptor', JSON.stringify(averagedDescriptor));
+      payload.append('face_descriptor_samples', JSON.stringify(descriptorSamples));
       payload.append('face_front', frontBlob, `face_front_${Date.now()}.jpg`);
       payload.append('face_left', leftBlob, `face_left_${Date.now()}.jpg`);
       payload.append('face_right', rightBlob, `face_right_${Date.now()}.jpg`);
@@ -335,7 +420,7 @@ export function RegisterAlumni() {
     }
   };
 
-  // ── Done screen ───────────────────────────────────────────────────────────────
+  //  Done screen 
   if (done) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -362,7 +447,7 @@ export function RegisterAlumni() {
             <button onClick={() => navigate('/alumni/dashboard')}
               className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition mx-auto"
               style={{ fontWeight: 600 }}>
-              Go to My Dashboard →
+              Go to My Dashboard
             </button>
           </div>
         </div>
@@ -370,7 +455,7 @@ export function RegisterAlumni() {
     );
   }
 
-  // ── Main render ───────────────────────────────────────────────────────────────
+  //  Main render 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Top bar */}
@@ -386,7 +471,7 @@ export function RegisterAlumni() {
           </div>
           <div>
             <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
-            <p className="text-gray-400 text-xs">CHMSU Talisay · BSIS Graduate Tracer System</p>
+            <p className="text-gray-400 text-xs">CHMSU Talisay  BSIS Graduate Tracer System</p>
           </div>
         </div>
       </div>
@@ -414,7 +499,7 @@ export function RegisterAlumni() {
             ))}
           </div>
 
-          {/* ── STEP 1: Account Setup ─────────────────────────────────── */}
+          {/*  STEP 1: Account Setup  */}
           {step === 1 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
               <SectionHeader icon={Lock} title="Create Your Account" subtitle="Set up your login credentials for the Graduate Portal." />
@@ -468,7 +553,7 @@ export function RegisterAlumni() {
             </div>
           )}
 
-          {/* ── STEP 2: Personal Information (Part I) ────────────────── */}
+          {/*  STEP 2: Personal Information (Part I)  */}
           {step === 2 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
               <SectionHeader icon={User} title="Personal Information" subtitle="Part I of the CHED Graduate Tracer Survey" />
@@ -517,7 +602,7 @@ export function RegisterAlumni() {
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Civil Status</label>
                     <select value={form.civilStatus} onChange={e => setF('civilStatus', e.target.value)} className={inputCls}>
-                      <option value="">Select…</option>
+                      <option value="">Select</option>
                       <option>Single</option>
                       <option>Married</option>
                       <option>Widowed</option>
@@ -565,10 +650,10 @@ export function RegisterAlumni() {
             </div>
           )}
 
-          {/* ── STEP 3: Educational Background (Part II) ─────────────── */}
+          {/*  STEP 3: Educational Background (Part II)  */}
           {step === 3 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
-              <SectionHeader icon={BookOpen} title="Educational Background" subtitle="Part II — Identifies cohort groups for trend analysis" />
+              <SectionHeader icon={BookOpen} title="Educational Background" subtitle="Part II  Identifies cohort groups for trend analysis" />
 
               {stepError && (
                 <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
@@ -637,7 +722,7 @@ export function RegisterAlumni() {
                         onChange={() => toggleArr('profEligibility', opt)} />
                     ))}
                     {form.profEligibility.includes('Others') && (
-                      <input type="text" placeholder="Please specify certification…" value={form.profEligibilityOther}
+                      <input type="text" placeholder="Please specify certification" value={form.profEligibilityOther}
                         onChange={e => setF('profEligibilityOther', e.target.value)} className={`${inputCls} mt-1`} />
                     )}
                   </div>
@@ -648,10 +733,10 @@ export function RegisterAlumni() {
             </div>
           )}
 
-          {/* ── STEP 4: Employment Data (Part III) ───────────────────── */}
+          {/*  STEP 4: Employment Data (Part III)  */}
           {step === 4 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
-              <SectionHeader icon={Briefcase} title="Employment Data" subtitle="Part III — Core data for Predictive Employability Trend Analysis" />
+              <SectionHeader icon={Briefcase} title="Employment Data" subtitle="Part III  Core data for Predictive Employability Trend Analysis" />
 
               <div className="space-y-6">
                 {/* Q1: Employment status */}
@@ -670,7 +755,7 @@ export function RegisterAlumni() {
                     {/* Q2: Time to hire */}
                     <div>
                       <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                        2. Job Acquisition Speed — How long did it take to land your first job after graduation?
+                        2. Job Acquisition Speed  How long did it take to land your first job after graduation?
                       </label>
                       <div className="space-y-1.5">
                         {['Within 1 month', '1-3 months', '3-6 months', '6 months to 1 year', 'Within 2 years', 'After 2 years'].map(opt => (
@@ -723,7 +808,7 @@ export function RegisterAlumni() {
                       {form.firstJobRelated === 'No' && (
                         <div>
                           <label className="block text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>
-                            Primary reason for accepting unrelated job:
+                            Primary reason for accepting unrelated job: <span className="text-gray-400" style={{ fontWeight: 400 }}>(Check most applicable)</span>
                           </label>
                           <div className="space-y-1.5">
                             {['Salary & Benefits', 'Career Challenge/Advancement', 'Proximity to Residence', 'Lack of related job openings at the time', 'Others'].map(opt => (
@@ -732,7 +817,7 @@ export function RegisterAlumni() {
                             ))}
                           </div>
                           {form.firstJobUnrelatedReason === 'Others' && (
-                            <input type="text" placeholder="Please specify…" value={form.firstJobUnrelatedOther}
+                            <input type="text" placeholder="Please specify" value={form.firstJobUnrelatedOther}
                               onChange={e => setF('firstJobUnrelatedOther', e.target.value)} className={`${inputCls} mt-2`} />
                           )}
                         </div>
@@ -741,7 +826,7 @@ export function RegisterAlumni() {
                   </>
                 )}
 
-                {/* Q4: Current job */}
+                {/* Q4: Current job (only if currently employed) */}
                 {form.employmentStatus === 'Yes' && (
                   <div className="bg-gray-50 rounded-xl p-4 space-y-4">
                     <p className="text-gray-700 text-xs" style={{ fontWeight: 700 }}>4. Current Job Details</p>
@@ -787,6 +872,26 @@ export function RegisterAlumni() {
                         ))}
                       </div>
                     </div>
+
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-emerald-900 text-xs leading-relaxed" style={{ fontWeight: 600 }}>
+                        To verify your workplace and employment details, please share this Employer Portal link with your supervisor or authorized HR representative.
+                      </p>
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <button
+                          type="button"
+                          onClick={handleShareEmployerPortalLink}
+                          className="inline-flex items-center justify-center rounded-lg bg-[#166534] px-3.5 py-2 text-xs text-white transition hover:bg-[#14532d]"
+                          style={{ fontWeight: 600 }}
+                        >
+                          Give Employer Portal Link
+                        </button>
+                        {employerLinkStatus && (
+                          <p className="text-[11px] text-emerald-700">{employerLinkStatus}</p>
+                        )}
+                      </div>
+                      <p className="mt-2 break-all text-[11px] text-emerald-700">{employerPortalLink}</p>
+                    </div>
                   </div>
                 )}
 
@@ -795,7 +900,7 @@ export function RegisterAlumni() {
                     {/* Q5: Job retention */}
                     <div>
                       <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                        5. Job Retention — How long did you stay in your first job (or current role)?
+                        5. Job Retention  How long did you stay in your first job (or current role)?
                       </label>
                       <div className="space-y-1.5">
                         {['Less than 6 months', '6 months to 1 year', '1 to 2 years', '2 years and above'].map(opt => (
@@ -808,7 +913,7 @@ export function RegisterAlumni() {
                     {/* Q6: Source of job */}
                     <div>
                       <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                        6. Source of Job Opportunity
+                        6. Source of Job Opportunity  Where did you find your first job opening?
                       </label>
                       <div className="space-y-1.5">
                         {[
@@ -823,7 +928,7 @@ export function RegisterAlumni() {
                         ))}
                       </div>
                       {form.jobSource === 'Others' && (
-                        <input type="text" placeholder="Please specify…" value={form.jobSourceOther}
+                        <input type="text" placeholder="Please specify" value={form.jobSourceOther}
                           onChange={e => setF('jobSourceOther', e.target.value)} className={`${inputCls} mt-2`} />
                       )}
                     </div>
@@ -835,10 +940,10 @@ export function RegisterAlumni() {
             </div>
           )}
 
-          {/* ── STEP 5: Skills Assessment (Part IV) ──────────────────── */}
+          {/*  STEP 5: Skills Assessment (Part IV)  */}
           {step === 5 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
-              <SectionHeader icon={Award} title="Competency & Skills Assessment" subtitle="Part IV — Check all skills from the BSIS program that you actively use" />
+              <SectionHeader icon={Award} title="Competency & Skills Assessment" subtitle="Part IV  Validates curriculum effectiveness and identifies skills gaps" />
 
               <div className="space-y-6">
                 <div>
@@ -846,45 +951,15 @@ export function RegisterAlumni() {
                     1. Skills Utilized in the Workplace
                   </label>
                   <p className="text-gray-400 text-xs mb-3">
-                    Select <span style={{ fontWeight: 600 }}>ALL</span> skills you actively use in your current employment:
+                    Check <span style={{ fontWeight: 600 }}>ALL</span> skills from the BSIS program that you actively use in your current employment:
                   </p>
-
-                  {/* Grouped by category from backend */}
-                  {skillsByCategory.map(group => (
-                    group.skills.length > 0 && (
-                      <div key={group.categoryId} className="mb-4">
-                        <p className="text-[#166534] text-xs mb-2 px-1" style={{ fontWeight: 700 }}>{group.categoryName}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {group.skills.map(skillName => (
-                            <CheckOption key={skillName} label={skillName}
-                              checked={form.skills.includes(skillName)}
-                              onChange={() => toggleArr('skills', skillName)} />
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  ))}
-
-                  {/* Uncategorized */}
-                  {uncategorizedSkills.length > 0 && (
-                    <div className="mb-4">
-                      <p className="text-gray-400 text-xs mb-2 px-1" style={{ fontWeight: 600 }}>Other Skills</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {uncategorizedSkills.map(skillName => (
-                          <CheckOption key={skillName} label={skillName}
-                            checked={form.skills.includes(skillName)}
-                            onChange={() => toggleArr('skills', skillName)} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Fallback if no skills loaded yet */}
-                  {allSkillNames.length === 0 && (
-                    <p className="text-gray-400 text-sm text-center py-6 border border-dashed border-gray-200 rounded-xl">
-                      Skills are loading… If this persists, check your connection.
-                    </p>
-                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {availableSkills.map(skill => (
+                      <CheckOption key={skill} label={skill}
+                        checked={form.skills.includes(skill)}
+                        onChange={() => toggleArr('skills', skill)} />
+                    ))}
+                  </div>
                 </div>
 
                 <div>
@@ -896,7 +971,7 @@ export function RegisterAlumni() {
                   </p>
                   <textarea
                     rows={4}
-                    placeholder="e.g. AWS Certified Developer (2024), Best Employee Q1 2024, Cisco CCNA…"
+                    placeholder="e.g. AWS Certified Developer (2024), Best Employee Q1 2024, Cisco CCNA"
                     value={form.awards}
                     onChange={e => setF('awards', e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white resize-none"
@@ -908,7 +983,7 @@ export function RegisterAlumni() {
             </div>
           )}
 
-          {/* ── STEP 6: Biometric Face Capture ───────────────────────── */}
+          {/*  STEP 6: Biometric Face Capture  */}
           {step === 6 && (
             <div className="space-y-4">
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -919,7 +994,7 @@ export function RegisterAlumni() {
                   <div>
                     <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Face Capture</h2>
                     <p className="text-gray-500 text-xs mt-0.5">
-                      Three photos are required — facing forward, turning left, and turning right — to prevent identity spoofing.
+                      Three photos are required  facing forward, turning left, and turning right  to prevent identity spoofing with static images.
                     </p>
                   </div>
                 </div>
@@ -968,6 +1043,7 @@ export function RegisterAlumni() {
                     className={`absolute inset-0 w-full h-full object-cover object-center ${(!cameraOn || allShotsCaptured) ? 'hidden' : ''}`}
                     playsInline muted autoPlay />
 
+                  {/* All shots captured  show 3-column thumbnail grid */}
                   {allShotsCaptured && (
                     <div className="absolute inset-0 grid grid-cols-3 gap-0.5">
                       {shots.map((shot, i) => (
@@ -983,23 +1059,25 @@ export function RegisterAlumni() {
                     </div>
                   )}
 
+                  {/* Face-guide overlay when camera is live */}
                   {cameraOn && !allShotsCaptured && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                       <div className="size-32 rounded-full border-2 border-dashed border-white/50" />
                       <div className="absolute bottom-3 left-0 right-0 flex justify-center">
                         <div className="bg-black/65 rounded-full px-4 py-1.5">
                           <p className="text-white text-xs" style={{ fontWeight: 600 }}>
-                            Shot {currentShot + 1}/3 — {SHOT_INSTRUCTIONS[currentShot]?.label}: {SHOT_INSTRUCTIONS[currentShot]?.desc}
+                            Shot {currentShot + 1}/3  {SHOT_INSTRUCTIONS[currentShot]?.label}: {SHOT_INSTRUCTIONS[currentShot]?.desc}
                           </p>
                         </div>
                       </div>
                     </div>
                   )}
 
+                  {/* GPS badge */}
                   {gpsLoading && (
                     <div className="absolute bottom-3 left-3 flex items-center gap-2 bg-black/60 rounded-lg px-3 py-1.5">
                       <span className="size-3 border border-white/30 border-t-white rounded-full animate-spin" />
-                      <span className="text-white text-xs">Getting GPS…</span>
+                      <span className="text-white text-xs">Getting GPS</span>
                     </div>
                   )}
                   {gps && !gpsLoading && !allShotsCaptured && (
@@ -1040,11 +1118,14 @@ export function RegisterAlumni() {
                         title="Stop camera">
                         <VideoOff className="size-4" />
                       </button>
-                      <button onClick={captureShot}
-                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm transition"
+                      <button onClick={() => { void captureShot(); }}
+                        disabled={checkingBlur}
+                        className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm transition"
                         style={{ fontWeight: 600 }}>
-                        <Camera className="size-4" />
-                        Capture {currentShot + 1}/3 — {SHOT_INSTRUCTIONS[currentShot]?.label}
+                        {checkingBlur
+                          ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity</>
+                          : <><Camera className="size-4" /> Capture {currentShot + 1}/3  {SHOT_INSTRUCTIONS[currentShot]?.label}</>
+                        }
                       </button>
                     </>
                   )}
@@ -1064,7 +1145,7 @@ export function RegisterAlumni() {
                       <p className="text-emerald-700 text-sm" style={{ fontWeight: 600 }}>All 3 biometric shots captured!</p>
                       <p className="text-emerald-600 text-xs">
                         {captureTime}
-                        {gps ? ` · GPS ${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)}` : ''}
+                        {gps ? `  GPS ${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)}` : ''}
                       </p>
                     </div>
                   </div>
@@ -1084,8 +1165,8 @@ export function RegisterAlumni() {
                     }`}
                   style={{ fontWeight: 600 }}>
                   {isSaving
-                    ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating account…</>
-                    : 'Submit Registration →'}
+                    ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating account</>
+                    : 'Submit Registration '}
                 </button>
               </div>
               {!allShotsCaptured && (
@@ -1101,3 +1182,4 @@ export function RegisterAlumni() {
     </div>
   );
 }
+

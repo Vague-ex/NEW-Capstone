@@ -61,7 +61,6 @@ export const routes: RouteObject[] = [
   { path: '/admin/analytics', Component: AdminAnalytics },
   { path: '/admin/settings', Component: AdminSettings },
 
-
   // Legacy fallbacks
   { path: '/admin', Component: AdminNewDashboard },
 ];

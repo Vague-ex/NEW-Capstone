@@ -6,11 +6,15 @@ from .api import (
     JobTitleDetailView,
     JobTitleListView,
     ReferenceDataView,
+    RegionDetailView,
     RegionListView,
     SkillCategoryDetailView,
     SkillCategoryListView,
     SkillDetailView,
     SkillListView,
+    VerificationTokenDecisionView,
+    VerificationTokenDetailView,
+    VerificationTokenIssueView,
 )
 
 urlpatterns = [
@@ -35,4 +39,14 @@ urlpatterns = [
 
     # Regions
     path("reference/regions/", RegionListView.as_view(), name="region-list"),
+    path("reference/regions/<uuid:pk>/", RegionDetailView.as_view(), name="region-detail"),
+
+    # Employer verification tokens / decisions (DS7)
+    path("verification/tokens/issue/", VerificationTokenIssueView.as_view(), name="verification-token-issue"),
+    path("verification/tokens/<uuid:token_id>/", VerificationTokenDetailView.as_view(), name="verification-token-detail"),
+    path(
+        "verification/tokens/<uuid:token_id>/decision/",
+        VerificationTokenDecisionView.as_view(),
+        name="verification-token-decision",
+    ),
 ]

@@ -1,7 +1,7 @@
 import uuid
 
 from django.contrib.auth.base_user import BaseUserManager
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.contrib.auth.models import AbstractBaseUser, Group, Permission, PermissionsMixin
 from django.db import models
 from django.utils import timezone
 
@@ -41,11 +41,35 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
+    groups = models.ManyToManyField(
+        Group,
+        blank=True,
+        db_table="users_account_groups",
+        help_text=(
+            "The groups this user belongs to. A user will get all permissions "
+            "granted to each of their groups."
+        ),
+        related_name="user_set",
+        related_query_name="user",
+        verbose_name="groups",
+    )
+    user_permissions = models.ManyToManyField(
+        Permission,
+        blank=True,
+        db_table="users_account_permissions",
+        help_text="Specific permissions for this user.",
+        related_name="user_set",
+        related_query_name="user",
+        verbose_name="user permissions",
+    )
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
     objects = UserManager()
+
+    class Meta:
+        db_table = "users_accounts"
 
     def __str__(self):
         return f"{self.email} ({self.role})"
@@ -68,16 +92,16 @@ class GraduateMasterRecord(models.Model):
     full_name = models.CharField(max_length=255)
     last_name = models.CharField(max_length=120)
     birth_date = models.DateField()
-    email = models.EmailField(blank=True)
     batch_year = models.PositiveSmallIntegerField(db_index=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "users_graduate_master_records"
         ordering = ["full_name"]
         indexes = [
-            models.Index(fields=["batch_year"]),
+            models.Index(fields=["batch_year"], name="users_gradu_batch_y_7f0cc1_idx"),
         ]
 
     def __str__(self):
@@ -91,6 +115,12 @@ class AlumniAccount(models.Model):
     biometric_template stays as JSONField ONLY for the 128-float face descriptor vector.
     All other data (profile, face scans, login history) now lives in separate tables.
     """
+
+    class MatchStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        MATCHED = "matched", "Matched"
+        UNMATCHED = "unmatched", "Unmatched"
+        BROKEN = "broken", "Broken"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="alumni_account")
@@ -111,11 +141,21 @@ class AlumniAccount(models.Model):
         choices=AccountStatus.choices,
         default=AccountStatus.ACTIVE,
     )
+    match_status = models.CharField(
+        max_length=20,
+        choices=MatchStatus.choices,
+        default=MatchStatus.PENDING,
+    )
+    matched_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["account_status"])]
+        db_table = "users_alumni_accounts"
+        indexes = [
+            models.Index(fields=["account_status"], name="users_alumn_account_e0bd8c_idx"),
+            models.Index(fields=["match_status"], name="users_alumn_match_s_a183c4_idx"),
+        ]
 
     def save(self, *args, **kwargs):
         if self.user.role != User.Role.ALUMNI:
@@ -269,6 +309,12 @@ class EmployerAccount(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employer_account")
     company_email = models.EmailField(unique=True)
     company_name = models.CharField(max_length=255, db_index=True)
+    industry = models.CharField(max_length=120, blank=True)
+    contact_name = models.CharField(max_length=255, blank=True)
+    contact_position = models.CharField(max_length=120, blank=True)
+    company_website = models.URLField(blank=True)
+    company_phone = models.CharField(max_length=50, blank=True)
+    company_address = models.CharField(max_length=255, blank=True)
     account_status = models.CharField(
         max_length=20,
         choices=AccountStatus.choices,
@@ -278,7 +324,13 @@ class EmployerAccount(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=["company_name", "account_status"])]
+        db_table = "users_employer_accounts"
+        indexes = [
+            models.Index(
+                fields=["company_name", "account_status"],
+                name="users_emplo_company_5e7d75_idx",
+            )
+        ]
 
     def save(self, *args, **kwargs):
         if self.user.role != User.Role.EMPLOYER:
@@ -302,6 +354,9 @@ class AdminCredential(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "users_admin_credentials"
 
     def save(self, *args, **kwargs):
         changed_fields = []

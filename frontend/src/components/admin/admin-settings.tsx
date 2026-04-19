@@ -3,12 +3,20 @@ import { PortalLayout } from '../shared/portal-layout';
 import {
     Plus, Trash2, Pencil, Check, X, AlertCircle,
     ChevronDown, ChevronUp, RefreshCw, Tag, Briefcase,
-    Building2, Layers, Search,
+    Building2, Layers, MapPin, Search,
 } from 'lucide-react';
 import {
+    industriesApi,
+    jobTitlesApi,
+    regionsApi,
+    skillCategoriesApi,
+    skillsApi,
+    type IndustryItem,
+    type JobTitleItem,
+    type RegionItem,
+    type SkillCategoryItem,
+    type SkillItem,
     useReferenceData,
-    skillsApi, skillCategoriesApi, industriesApi, jobTitlesApi,
-    type SkillItem, type SkillCategoryItem, type IndustryItem, type JobTitleItem,
 } from '../../hooks/useReferenceData';
 
 // ── Reusable inline-edit row ───────────────────────────────────────────────────
@@ -102,11 +110,13 @@ function AddItemRow({
     onAdd,
     selectOptions,
     selectLabel,
+    extraTextPlaceholder,
 }: {
     placeholder: string;
     onAdd: (name: string, extraId?: string) => Promise<void>;
     selectOptions?: { id: string; name: string }[];
     selectLabel?: string;
+    extraTextPlaceholder?: string;
 }) {
     const [name, setName] = useState('');
     const [extraId, setExtraId] = useState('');
@@ -147,6 +157,14 @@ function AddItemRow({
                         <option value="">{selectLabel ?? 'Category (optional)'}</option>
                         {selectOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                     </select>
+                )}
+                {extraTextPlaceholder && (
+                    <input
+                        value={extraId}
+                        onChange={e => setExtraId(e.target.value)}
+                        placeholder={extraTextPlaceholder}
+                        className="w-40 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
+                    />
                 )}
                 <button onClick={submit} disabled={busy || !name.trim()}
                     className="flex items-center gap-1.5 bg-[#166534] hover:bg-[#14532d] text-white px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
@@ -217,6 +235,7 @@ export function AdminSettings() {
     const [categories, setCategories] = useState<SkillCategoryItem[]>([]);
     const [industries, setIndustries] = useState<IndustryItem[]>([]);
     const [jobTitles, setJobTitles] = useState<JobTitleItem[]>([]);
+    const [regions, setRegions] = useState<RegionItem[]>([]);
 
     const [search, setSearch] = useState('');
 
@@ -225,6 +244,7 @@ export function AdminSettings() {
         setCategories(data.skill_categories);
         setIndustries(data.industries);
         setJobTitles(data.job_titles);
+        setRegions(data.regions);
     }, [data]);
 
     // ── Skills ──────────────────────────────────────────────────────────────────
@@ -291,11 +311,34 @@ export function AdminSettings() {
         setJobTitles(prev => prev.filter(j => j.id !== id));
     };
 
+    // ── Regions ─────────────────────────────────────────────────────────────────
+    const addRegion = async (name: string, code?: string) => {
+        const normalizedCode = (code ?? '').trim().toUpperCase();
+        if (!normalizedCode) {
+            throw new Error('Region code is required.');
+        }
+        const res = await regionsApi.create(name, normalizedCode);
+        setRegions(prev => [...prev, res.region].sort((a, b) => a.name.localeCompare(b.name)));
+    };
+
+    const updateRegion = async (id: string, newName: string) => {
+        const res = await regionsApi.update(id, { name: newName });
+        setRegions(prev => prev.map(r => r.id === id ? res.region : r));
+    };
+
+    const removeRegion = async (id: string) => {
+        await regionsApi.remove(id);
+        setRegions(prev => prev.filter(r => r.id !== id));
+    };
+
     // ── Filter ──────────────────────────────────────────────────────────────────
     const q = search.toLowerCase();
     const filteredSkills = q ? skills.filter(s => s.name.toLowerCase().includes(q)) : skills;
     const filteredIndustries = q ? industries.filter(i => i.name.toLowerCase().includes(q)) : industries;
     const filteredJobTitles = q ? jobTitles.filter(j => j.name.toLowerCase().includes(q)) : jobTitles;
+    const filteredRegions = q
+        ? regions.filter(r => r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q))
+        : regions;
 
     return (
         <PortalLayout
@@ -470,6 +513,33 @@ export function AdminSettings() {
                             ))}
                             {filteredJobTitles.length === 0 && (
                                 <p className="text-gray-400 text-sm text-center py-4">No job titles yet.</p>
+                            )}
+                        </Section>
+
+                        {/* ── Regions ─────────────────────────────────────────────── */}
+                        <Section
+                            icon={MapPin}
+                            title="Regions"
+                            subtitle="Region reference list used in alumni employment records"
+                            count={regions.length}>
+                            <div className="mb-4">
+                                <AddItemRow
+                                    placeholder="New region name (e.g. Region VI - Western Visayas)"
+                                    onAdd={addRegion}
+                                    extraTextPlaceholder="Code (e.g. R6)"
+                                />
+                            </div>
+                            {filteredRegions.map(r => (
+                                <EditableRow
+                                    key={r.id}
+                                    value={r.name}
+                                    badge={r.code}
+                                    onSave={name => updateRegion(r.id, name)}
+                                    onDelete={() => removeRegion(r.id)}
+                                />
+                            ))}
+                            {filteredRegions.length === 0 && (
+                                <p className="text-gray-400 text-sm text-center py-4">No regions yet.</p>
                             )}
                         </Section>
                     </>
