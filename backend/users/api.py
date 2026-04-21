@@ -4,6 +4,7 @@ from datetime import date
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
+from django.core import signing
 from django.db import DatabaseError, OperationalError, transaction
 from django.utils import timezone
 from rest_framework import status
@@ -33,6 +34,10 @@ FACE_DESCRIPTOR_LENGTH = 128
 FACE_DESCRIPTOR_SIMILARITY_SCALE = 1.5
 FACE_DESCRIPTOR_MIN_SIMILARITY = 0.5
 FACE_DESCRIPTOR_DISTANCE_THRESHOLD = (1.0 - FACE_DESCRIPTOR_MIN_SIMILARITY) * FACE_DESCRIPTOR_SIMILARITY_SCALE
+
+# Employer authentication token constants
+_EMPLOYER_TOKEN_SALT = "users.employer.access"
+_EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8  # 8 hours
 
 
 logger = logging.getLogger(__name__)
@@ -428,7 +433,19 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     graduation_year = profile.get("graduation_year") or (
         account.master_record.batch_year if account.master_record else date.today().year
     )
-    name = profile.get("name")
+
+    # Prioritize reading name from AlumniProfile table
+    name = None
+    try:
+        if hasattr(account, "profile") and account.profile:
+            name_parts = [account.profile.first_name, account.profile.middle_name, account.profile.last_name]
+            name = " ".join(part.strip() for part in name_parts if part and part.strip())
+    except Exception:
+        pass
+
+    # Fallback chain if AlumniProfile name not available
+    if not name:
+        name = profile.get("name")
     if not name and account.master_record:
         name = account.master_record.full_name
     if not name:
@@ -597,6 +614,16 @@ def _employer_request_payload(account: EmployerAccount) -> dict:
         "date": account.created_at.date().isoformat(),
         "dateUpdated": account.updated_at.date().isoformat(),
     }
+
+
+def _generate_employer_access_token(user_id: str) -> str:
+    """Generate a signed access token for employer authentication."""
+    payload = {"uid": str(user_id)}
+    return signing.dumps(
+        payload,
+        salt=_EMPLOYER_TOKEN_SALT,
+        compress=True,
+    )
 
 
 class AdminLoginView(APIView):
@@ -881,9 +908,12 @@ class EmployerRegisterView(APIView):
                 account_status=AccountStatus.PENDING,
             )
 
+        access_token = _generate_employer_access_token(user.id)
+
         return Response(
             {
                 "message": "Employer registration submitted. Account is pending admin approval.",
+                "accessToken": access_token,
                 "user": {
                     "id": str(user.id),
                     "email": user.email,
@@ -942,9 +972,12 @@ class EmployerLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        access_token = _generate_employer_access_token(user.id)
+
         return Response(
             {
                 "message": "Employer login successful.",
+                "accessToken": access_token,
                 "user": {
                     "id": str(user.id),
                     "email": user.email,
@@ -1197,6 +1230,9 @@ class AlumniEmploymentUpdateView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+    def patch(self, request, alumni_id):
+        return self.post(request, alumni_id)
 
 
 class EmployerAccountStatusView(APIView):
