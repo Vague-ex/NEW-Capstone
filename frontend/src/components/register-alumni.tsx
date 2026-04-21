@@ -16,15 +16,19 @@ import { useReferenceData } from '../hooks/useReferenceData';
 
 //  Constants 
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 const STEP_CONFIG = [
   { n: 1 as Step, label: 'Account' },
   { n: 2 as Step, label: 'Personal' },
   { n: 3 as Step, label: 'Education' },
-  { n: 4 as Step, label: 'Employment' },
-  { n: 5 as Step, label: 'Skills' },
-  { n: 6 as Step, label: 'Biometrics' },
+  { n: 4 as Step, label: 'Employment Data' },
+  { n: 5 as Step, label: 'Employment' },
+  { n: 6 as Step, label: 'First Job' },
+  { n: 7 as Step, label: 'Current Job' },
+  { n: 8 as Step, label: 'Address' },
+  { n: 9 as Step, label: 'Skills' },
+  { n: 10 as Step, label: 'Biometrics' },
 ];
 
 const SHOT_INSTRUCTIONS = [
@@ -48,6 +52,58 @@ const SKILLS_LIST = [
   'Problem-solving / Critical Thinking',
 ];
 
+// Technical skills (12 options)
+const TECHNICAL_SKILLS = [
+  'Programming/Software Development',
+  'Web Development',
+  'Mobile App Development',
+  'Database Management',
+  'Network Administration',
+  'Cloud Computing',
+  'Data Analytics/Business Intelligence',
+  'System Analysis and Design',
+  'Technical Support/Troubleshooting',
+  'Project Management',
+  'UI/UX Design',
+  'Cybersecurity/Information Security',
+];
+
+// Soft skills (10 options)
+const SOFT_SKILLS = [
+  'Oral Communication',
+  'Written Communication',
+  'Teamwork/Collaboration',
+  'Problem-solving/Critical Thinking',
+  'Adaptability/Flexibility',
+  'Leadership',
+  'Customer Service Orientation',
+  'Attention to Detail',
+  'Ability to Work Under Pressure',
+  'Time Management',
+];
+
+// Philippine regions for work address
+const PHILIPPINE_REGIONS = [
+  'NCR',
+  'Region I',
+  'Region II',
+  'Region III',
+  'Region IV-A',
+  'Region IV-B',
+  'Region V',
+  'Region VI',
+  'Region VII',
+  'Region VIII',
+  'Region IX',
+  'Region X',
+  'Region XI',
+  'Region XII',
+  'Region XIII',
+  'CAR',
+  'BARMM',
+  'Abroad',
+];
+
 const FACE_BLUR_THRESHOLD = 360;
 
 function normalizeEmploymentStatusForBackend(rawStatus: string): 'employed' | 'self_employed' | 'unemployed' {
@@ -56,7 +112,68 @@ function normalizeEmploymentStatusForBackend(rawStatus: string): 'employed' | 's
   return 'unemployed';
 }
 
-//  Form state type 
+//  Field Encoding Mappers (for backend compatibility)
+
+const timeToHireMapper = (selection: string | null): number | null => {
+  if (!selection) return null;
+  const mapping: { [key: string]: number } = {
+    'Within 1 month': 1,
+    '1-3 months': 3,
+    '3-6 months': 4.5,
+    '6 months to 1 year': 9,
+    '1-2 years': 18,
+    'More than 2 years': 30,
+  };
+  return mapping[selection] || null;
+};
+
+const jobApplicationsMapper = (selection: string | null): number | null => {
+  if (!selection) return null;
+  const mapping: { [key: string]: number } = {
+    '1-5 applications': 1,
+    '6-15 applications': 2,
+    '16-30 applications': 3,
+    '31+ applications': 4,
+  };
+  return mapping[selection] || null;
+};
+
+const jobSourceMapper = (selection: string | null): string => {
+  if (!selection) return 'other';
+  const mapping: { [key: string]: string } = {
+    'Personal Network/Referral': 'personal_network',
+    'Online Job Portal': 'online_portal',
+    'CHMSU Career Fair': 'career_fair',
+    'Company Walk-in/Direct Hire': 'walk_in',
+    'Social Media': 'social_media',
+    'Started own business/Freelance': 'entrepreneurship',
+    'Other': 'other',
+  };
+  return mapping[selection] || 'other';
+};
+
+const sectorMapper = (selection: string | null): string | null => {
+  if (!selection) return null;
+  const mapping: { [key: string]: string } = {
+    'Government': 'government',
+    'Private': 'private',
+    'Entrepreneurial/Freelance/Self-Employed': 'entrepreneurial',
+  };
+  return mapping[selection] || null;
+};
+
+const jobStatusMapper = (selection: string | null): string | null => {
+  if (!selection) return null;
+  const mapping: { [key: string]: string } = {
+    'Regular/Permanent': 'regular',
+    'Probationary': 'probationary',
+    'Contractual/Casual/Job Order': 'contractual',
+    'Self-Employed/Freelance': 'self_employed',
+  };
+  return mapping[selection] || null;
+};
+
+//  Form state type
 
 interface GraduateForm {
   // Step 1: Account
@@ -69,17 +186,68 @@ interface GraduateForm {
   graduationDate: string; scholarship: string;
   highestAttainment: string; graduateSchool: string;
   profEligibility: string[]; profEligibilityOther: string;
-  // Step 4: Employment
-  employmentStatus: string; timeToHire: string;
-  firstJobSector: string; firstJobStatus: string;
-  firstJobTitle: string; firstJobRelated: string;
-  firstJobUnrelatedReason: string; firstJobUnrelatedOther: string;
-  currentJobSector: string; currentJobPosition: string;
-  currentJobCompany: string; currentJobLocation: string;
-  currentJobRelated: string; jobRetention: string;
-  jobSource: string; jobSourceOther: string;
-  // Step 5: Skills
-  skills: string[]; awards: string;
+
+  // Step 4: Academic & Pre-Employment (NEW)
+  general_average_range: number | null;         // 0-5 or null
+  academic_honors: number | null;               // 1-4 or null
+  prior_work_experience: boolean;               // true/false
+  ojt_relevance: number | null;                 // 0-3 or null
+  has_portfolio: boolean;                       // true/false
+  english_proficiency: number | null;           // 1-3 or null
+
+  // Step 5: Employment Status (NEW)
+  employment_status: string;                    // employed_full_time|employed_part_time|self_employed|seeking|not_seeking|never_employed
+
+  // Step 6: First Job Details (EXPANDED)
+  timeToHire: string;                           // UI display string
+  time_to_hire_months: number | null;           // 1, 3, 4.5, 9, 18, 30
+  firstJobSector: string;                       // UI display
+  first_job_sector: string | null;              // government|private|entrepreneurial
+  firstJobStatus: string;                       // UI display
+  first_job_status: string | null;              // regular|probationary|contractual|self_employed
+  firstJobTitle: string;
+  first_job_title: string;
+  firstJobRelated: string;                      // UI: Yes/Somewhat/Not
+  first_job_related_to_bsis: boolean | null;
+  firstJobUnrelatedReason: string;
+  first_job_unrelated_reason: string;
+  firstJobUnrelatedOther: string;
+  first_job_duration_months: number | null;
+  jobRetention: string;
+  first_job_applications_count: number | null;  // 1-4 ordinal
+  jobSource: string;                            // UI display
+  first_job_source: string;                     // personal_network|online_portal|career_fair|walk_in|social_media|entrepreneurship|other
+  jobSourceOther: string;
+
+  // Step 7: Current Job (NEW)
+  currentJobSector: string;
+  current_job_sector: string | null;
+  currentJobPosition: string;
+  current_job_title: string;
+  currentJobCompany: string;
+  current_job_company: string;
+  currentJobRelated: string;
+  current_job_related_to_bsis: boolean | null;
+  currentJobLocation: string;                   // UI display
+  location_type: boolean | null;                // true=Local, false=Abroad
+
+  // Step 8: Work Address (EXPANDED)
+  street_address: string;
+  barangay: string;
+  city_municipality: string;
+  region_address: string;                       // Separate from province (personal)
+  zip_code: string;
+  country_address: string;                      // Separate from country default
+  latitude: number | null;
+  longitude: number | null;
+
+  // Step 9: Competency Assessment (EXPANDED)
+  technical_skills: string[];                   // Array of selected skill names
+  technical_skill_count: number;                // 0-12
+  soft_skills: string[];                        // Array of selected skill names
+  soft_skill_count: number;                     // 0-10
+  professional_certifications: string;
+  awards: string;
 }
 
 const INITIAL_FORM: GraduateForm = {
@@ -88,13 +256,51 @@ const INITIAL_FORM: GraduateForm = {
   gender: '', birthDate: '', civilStatus: '', mobile: '', facebook: '', city: '', province: '',
   graduationDate: '', scholarship: '', highestAttainment: '', graduateSchool: '',
   profEligibility: [], profEligibilityOther: '',
-  employmentStatus: '', timeToHire: '',
-  firstJobSector: '', firstJobStatus: '', firstJobTitle: '', firstJobRelated: '',
-  firstJobUnrelatedReason: '', firstJobUnrelatedOther: '',
-  currentJobSector: '', currentJobPosition: '', currentJobCompany: '',
-  currentJobLocation: '', currentJobRelated: '', jobRetention: '',
-  jobSource: '', jobSourceOther: '',
-  skills: [], awards: '',
+  // Step 4: Academic & Pre-Employment
+  general_average_range: null,
+  academic_honors: null,
+  prior_work_experience: false,
+  ojt_relevance: null,
+  has_portfolio: false,
+  english_proficiency: null,
+  // Step 5: Employment Status
+  employment_status: '',
+  // Step 6: First Job Details
+  timeToHire: '', time_to_hire_months: null,
+  firstJobSector: '', first_job_sector: null,
+  firstJobStatus: '', first_job_status: null,
+  firstJobTitle: '', first_job_title: '',
+  firstJobRelated: '', first_job_related_to_bsis: null,
+  firstJobUnrelatedReason: '', first_job_unrelated_reason: '',
+  firstJobUnrelatedOther: '', first_job_duration_months: null,
+  first_job_applications_count: null,
+  jobSource: '', first_job_source: '',
+  jobSourceOther: '',
+  // Step 7: Current Job
+  currentJobSector: '', current_job_sector: null,
+  currentJobPosition: '', current_job_title: '',
+  currentJobCompany: '', current_job_company: '',
+  currentJobRelated: '', current_job_related_to_bsis: null,
+  currentJobLocation: '', location_type: null,
+  jobRetention: '',
+  // Step 8: Work Address
+  street_address: '',
+  barangay: '',
+  city_municipality: '',
+  region_address: '',
+  zip_code: '',
+  country_address: 'Philippines',
+  latitude: null,
+  longitude: null,
+  // Step 9: Competency Assessment
+  technical_skills: [],
+  technical_skill_count: 0,
+  soft_skills: [],
+  soft_skill_count: 0,
+  professional_certifications: '',
+  awards: '',
+  // Legacy: old skills field (backward compatibility)
+  skills: [],
 };
 
 //  Sub-components 
@@ -221,7 +427,7 @@ export function RegisterAlumni() {
       return { ...f, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
     });
 
-  //  Validation 
+  //  Validation
   const validateStep = (): boolean => {
     setStepError('');
     if (step === 1) {
@@ -242,10 +448,82 @@ export function RegisterAlumni() {
     if (step === 3) {
       if (!form.graduationDate.trim()) { setStepError('Date of graduation is required.'); return false; }
     }
+    if (step === 4) {
+      // Academic & Pre-Employment validation (optional fields)
+      return true;
+    }
+    if (step === 5) {
+      // Employment Status validation
+      if (!form.employment_status) {
+        setStepError('Please select your employment status.'); return false;
+      }
+      return true;
+    }
+    if (step === 6) {
+      // First Job Details validation
+      if (form.employment_status !== 'never_employed' && form.employment_status !== 'not_seeking') {
+        if (!form.time_to_hire_months) {
+          setStepError('Time-to-hire is required.'); return false;
+        }
+        if (![1, 3, 4.5, 9, 18, 30].includes(form.time_to_hire_months)) {
+          setStepError('Invalid time-to-hire value.'); return false;
+        }
+        if (!form.first_job_sector) {
+          setStepError('First job sector is required.'); return false;
+        }
+      }
+      return true;
+    }
+    if (step === 7) {
+      // Current Job validation (conditional)
+      if (['employed_full_time', 'employed_part_time', 'self_employed'].includes(form.employment_status)) {
+        // Current job is optional here, just return true
+      }
+      return true;
+    }
+    if (step === 8) {
+      // Work Address validation
+      if (!form.city_municipality.trim()) {
+        setStepError('City/Municipality is required.'); return false;
+      }
+      if (!form.region_address) {
+        setStepError('Region is required.'); return false;
+      }
+      return true;
+    }
+    if (step === 9) {
+      // Competency Assessment (optional fields)
+      return true;
+    }
     return true;
   };
 
-  const nextStep = () => { if (validateStep()) setStep(s => (s + 1) as Step); };
+  const nextStep = () => {
+    if (!validateStep()) return;
+
+    // Conditional skipping based on employment_status
+    if (step === 5) {
+      if (['never_employed', 'not_seeking'].includes(form.employment_status)) {
+        // Skip First Job (6) and Current Job (7) → go to Work Address (8)
+        setStep(8 as Step);
+        return;
+      }
+      if (form.employment_status === 'seeking') {
+        // Skip Current Job (7) → go to First Job (6)
+        setStep(6 as Step);
+        return;
+      }
+    }
+
+    if (step === 6 && form.employment_status === 'seeking') {
+      // Skip Current Job (7) → go to Work Address (8)
+      setStep(8 as Step);
+      return;
+    }
+
+    // Default: increment by 1
+    setStep(s => (s + 1) as Step);
+  };
   const prevStep = () => { setStepError(''); setStep(s => (s - 1) as Step); };
 
   //  Camera helpers 
