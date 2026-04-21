@@ -1,6 +1,9 @@
 from django.urls import path
 
 from .api import (
+    AdminAnalyticsPredictionsView,
+    ComprehensiveSurveySubmissionView,
+    DataQualityReportView,
     EmployerVerifiableGraduateListView,
     IndustryDetailView,
     IndustryListView,
@@ -13,6 +16,8 @@ from .api import (
     SkillCategoryListView,
     SkillDetailView,
     SkillListView,
+    SurveyDataRetrievalView,
+    TrainingDataExportView,
     VerificationTokenDecisionView,
     VerificationTokenDetailView,
     VerificationTokenIssueView,
@@ -55,4 +60,13 @@ urlpatterns = [
         VerificationTokenDecisionView.as_view(),
         name="verification-token-decision",
     ),
+
+    # Survey submission and data retrieval (Phase 3)
+    path("survey/submit/", ComprehensiveSurveySubmissionView.as_view(), name="survey-submit"),
+    path("survey/", SurveyDataRetrievalView.as_view(), name="survey-retrieve"),
+
+    # Admin analytics endpoints (Phase 3)
+    path("admin/analytics/employability-predictions/", AdminAnalyticsPredictionsView.as_view(), name="admin-predictions"),
+    path("admin/analytics/export-training-data/", TrainingDataExportView.as_view(), name="admin-export-training"),
+    path("admin/analytics/data-quality-report/", DataQualityReportView.as_view(), name="admin-quality-report"),
 ]
