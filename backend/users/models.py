@@ -2,6 +2,7 @@ import uuid
 
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractBaseUser, Group, Permission, PermissionsMixin
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -221,6 +222,59 @@ class AlumniProfile(models.Model):
 
     # Awards / honors
     awards = models.TextField(blank=True)
+
+    # Academic Profile Fields (Questionnaire Section 3)
+    # GPA Range: 0=<75, 1=75-79, 2=80-84, 3=85-89, 4=90-94, 5=95-100, None=I don't remember
+    general_average_range = models.IntegerField(
+        choices=[(0, 'Below 75'), (1, '75-79'), (2, '80-84'), (3, '85-89'), (4, '90-94'), (5, '95-100')],
+        null=True,
+        blank=True,
+        help_text="GPA range encoding for regression model"
+    )
+    # Academic Honors: 1=None, 2=Cum Laude, 3=Magna Cum Laude, 4=Summa Cum Laude
+    academic_honors = models.IntegerField(
+        choices=[(1, 'None'), (2, 'Cum Laude'), (3, 'Magna Cum Laude'), (4, 'Summa Cum Laude')],
+        null=True,
+        blank=True,
+        help_text="Academic honors for regression model"
+    )
+
+    # Pre-Employment Experience (Questionnaire Section 3 continued)
+    prior_work_experience = models.BooleanField(default=False)
+    # OJT Relevance: 0=Not applicable, 1=Not related, 2=Somewhat related, 3=Yes, directly related
+    ojt_relevance = models.IntegerField(
+        choices=[(0, 'Not applicable'), (1, 'Not related'), (2, 'Somewhat related'), (3, 'Yes, directly related')],
+        null=True,
+        blank=True,
+        help_text="OJT relevance to BSIS degree"
+    )
+    has_portfolio = models.BooleanField(default=False)
+    # English Proficiency: 1=Basic, 2=Conversational, 3=Professional/Business
+    english_proficiency = models.IntegerField(
+        choices=[(1, 'Basic'), (2, 'Conversational'), (3, 'Professional/Business')],
+        null=True,
+        blank=True,
+        help_text="English proficiency level"
+    )
+
+    # Skill Counts (Questionnaire Section 8) - denormalized for regression model
+    technical_skill_count = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(12)],
+        help_text="Count of technical skills selected (0-12)"
+    )
+    soft_skill_count = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(10)],
+        help_text="Count of soft skills selected (0-10)"
+    )
+
+    # Competency Assessment
+    professional_certifications = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Array of professional certification strings"
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
