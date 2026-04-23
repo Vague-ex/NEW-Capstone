@@ -162,7 +162,12 @@ function SectionHeader({ icon: Icon, title, subtitle }: any) {
   );
 }
 
-function RadioOption({ label, value, current, onSelect }: any) {
+function RadioOption<T>({ label, value, current, onSelect }: {
+  label: string;
+  value: T;
+  current: T | null | undefined;
+  onSelect: (v: T) => void;
+}) {
   const isSelected = current === value;
   return (
     <button type="button" onClick={() => onSelect(value)}
@@ -210,14 +215,14 @@ const timeToHireMapper = (selection: string | null): number | null => ({
   '6 months to 1 year': 9,
   '1-2 years': 18,
   'More than 2 years': 30,
-}[selection] || null);
+}[selection ?? ''] ?? null);
 
 const jobApplicationsMapper = (selection: string | null): number | null => ({
   '1-5 applications': 1,
   '6-15 applications': 2,
   '16-30 applications': 3,
   '31+ applications': 4,
-}[selection] || null);
+}[selection ?? ''] ?? null);
 
 const jobSourceMapper = (selection: string | null): string => ({
   'Personal Network/Referral': 'personal_network',
@@ -227,13 +232,13 @@ const jobSourceMapper = (selection: string | null): string => ({
   'Social Media': 'social_media',
   'Started own business': 'entrepreneurship',
   'Other': 'other',
-}[selection] || 'other');
+}[selection ?? ''] ?? 'other');
 
 const sectorMapper = (selection: string | null): string => ({
   'Government': 'government',
   'Private Sector': 'private',
   'Entrepreneurial/Freelance/Self-Employed': 'entrepreneurial',
-}[selection] || 'private');
+}[selection ?? ''] ?? 'private');
 
 // Main Component
 export interface RegisterAlumniEmploymentProps {
@@ -245,7 +250,7 @@ export default function RegisterAlumniEmployment({
   onComplete,
   onBack,
 }: RegisterAlumniEmploymentProps) {
-  const { referenceData } = useReferenceData();
+  const { data: referenceData } = useReferenceData();
   const [step, setStep] = useState<EmploymentStep>(1);
   const [form, setForm] = useState<EmploymentFormData>(INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
