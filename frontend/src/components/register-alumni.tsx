@@ -1,42 +1,117 @@
-/**
- * Alumni Registration Orchestrator
- * Routes between personal information and employment survey components
- * Manages shared form state and handles final submission
- */
-
-import { useState, useEffect, useReducer } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { AlertCircle, CheckCircle2, Loader } from 'lucide-react';
-import RegisterAlumniPersonal, { type PersonalFormData } from './register-alumni-personal';
-import RegisterAlumniEmployment, { type EmploymentFormData } from './register-alumni-employment';
+import {
+  GraduationCap, ArrowLeft, CheckCircle2, AlertCircle,
+  User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff,
+  MapPin, RefreshCw, Video, ChevronRight, ChevronLeft,
+  Briefcase, BookOpen, Award,
+} from 'lucide-react';
 import { registerAlumni } from '../app/api-client';
+import isImageBlurry from 'is-image-blurry';
+import {
+  averageFaceDescriptors,
+  extractFaceDescriptorFromDataUrl,
+} from '../app/modern-face-descriptor';
+import { useReferenceData } from '../hooks/useReferenceData';
 
-// Types
-type RegistrationStage = 'personal' | 'employment' | 'complete' | 'error';
+//  Constants 
 
-interface CompleteFormData extends PersonalFormData, EmploymentFormData {
-  hasGraduated: boolean;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
+const STEP_CONFIG = [
+  { n: 1 as Step, label: 'Account' },
+  { n: 2 as Step, label: 'Personal' },
+  { n: 3 as Step, label: 'Education' },
+  { n: 4 as Step, label: 'Employment Data' },
+  { n: 5 as Step, label: 'Employment' },
+  { n: 6 as Step, label: 'First Job' },
+  { n: 7 as Step, label: 'Current Job' },
+  { n: 8 as Step, label: 'Address' },
+  { n: 9 as Step, label: 'Skills' },
+  { n: 10 as Step, label: 'Biometrics' },
+];
+
+const SHOT_INSTRUCTIONS = [
+  { label: 'Face Forward', desc: 'Look directly at the camera' },
+  { label: 'Turn LEFT', desc: 'Slowly turn your head to the left' },
+  { label: 'Turn RIGHT', desc: 'Slowly turn your head to the right' },
+];
+
+const SKILLS_LIST = [
+  'Programming/Software Development',
+  'Database Management',
+  'Network Administration',
+  'Business Process Analysis',
+  'Project Management',
+  'Technical Support / Troubleshooting',
+  'Data Analytics',
+  'Web Development',
+  'System Analysis and Design',
+  'Communication Skills (Oral/Written)',
+  'Teamwork/Collaboration',
+  'Problem-solving / Critical Thinking',
+];
+
+// Technical skills (12 options)
+const TECHNICAL_SKILLS = [
+  'Programming/Software Development',
+  'Web Development',
+  'Mobile App Development',
+  'Database Management',
+  'Network Administration',
+  'Cloud Computing',
+  'Data Analytics/Business Intelligence',
+  'System Analysis and Design',
+  'Technical Support/Troubleshooting',
+  'Project Management',
+  'UI/UX Design',
+  'Cybersecurity/Information Security',
+];
+
+// Soft skills (10 options)
+const SOFT_SKILLS = [
+  'Oral Communication',
+  'Written Communication',
+  'Teamwork/Collaboration',
+  'Problem-solving/Critical Thinking',
+  'Adaptability/Flexibility',
+  'Leadership',
+  'Customer Service Orientation',
+  'Attention to Detail',
+  'Ability to Work Under Pressure',
+  'Time Management',
+];
+
+// Philippine regions for work address
+const PHILIPPINE_REGIONS = [
+  'NCR',
+  'Region I',
+  'Region II',
+  'Region III',
+  'Region IV-A',
+  'Region IV-B',
+  'Region V',
+  'Region VI',
+  'Region VII',
+  'Region VIII',
+  'Region IX',
+  'Region X',
+  'Region XI',
+  'Region XII',
+  'Region XIII',
+  'CAR',
+  'BARMM',
+  'Abroad',
+];
+
+const FACE_BLUR_THRESHOLD = 360;
+
+function normalizeEmploymentStatusForBackend(rawStatus: string): 'employed' | 'self_employed' | 'unemployed' {
+  if (rawStatus === 'Yes') return 'employed';
+  if (rawStatus === 'No' || rawStatus === 'Never Employed') return 'unemployed';
+  return 'unemployed';
 }
 
-<<<<<<< HEAD
-interface RegistrationState {
-  stage: RegistrationStage;
-  personalData: PersonalFormData | null;
-  employmentData: EmploymentFormData | null;
-  isSubmitting: boolean;
-  submitError: string | null;
-}
-
-type RegistrationAction =
-  | { type: 'SET_PERSONAL_DATA'; personalData: PersonalFormData }
-  | { type: 'SET_EMPLOYMENT_DATA'; employmentData: EmploymentFormData }
-  | { type: 'GO_TO_EMPLOYMENT' }
-  | { type: 'GO_TO_COMPLETE' }
-  | { type: 'GO_TO_PERSONAL' }
-  | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
-  | { type: 'SET_ERROR'; error: string }
-  | { type: 'RESET_ERROR' };
-=======
 //  Field Encoding Mappers (for backend compatibility)
 
 const timeToHireMapper = (selection: string | null): number | null => {
@@ -227,175 +302,372 @@ const INITIAL_FORM: GraduateForm = {
   // Legacy: old skills field (backward compatibility)
   skills: [],
 };
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
 
-// Reducer
-function registrationReducer(state: RegistrationState, action: RegistrationAction): RegistrationState {
-  switch (action.type) {
-    case 'SET_PERSONAL_DATA':
-      return { ...state, personalData: action.personalData };
-    case 'SET_EMPLOYMENT_DATA':
-      return { ...state, employmentData: action.employmentData };
-    case 'GO_TO_EMPLOYMENT':
-      return { ...state, stage: 'employment' };
-    case 'GO_TO_COMPLETE':
-      return { ...state, stage: 'complete' };
-    case 'GO_TO_PERSONAL':
-      return { ...state, stage: 'personal' };
-    case 'SET_SUBMITTING':
-      return { ...state, isSubmitting: action.isSubmitting };
-    case 'SET_ERROR':
-      return { ...state, submitError: action.error, stage: 'error' };
-    case 'RESET_ERROR':
-      return { ...state, submitError: null };
-    default:
-      return state;
-  }
+//  Sub-components 
+
+const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
+
+function RadioOption({ label, value, current, onSelect }: { label: string; value: string; current: string; onSelect: (v: string) => void }) {
+  const active = current === value;
+  return (
+    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${active ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+      }`}>
+      <div className={`size-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-[#166534]' : 'border-gray-300'}`}>
+        {active && <div className="size-2 rounded-full bg-[#166534]" />}
+      </div>
+      <input type="radio" className="hidden" value={value} checked={active} onChange={() => onSelect(value)} />
+      {label}
+    </label>
+  );
 }
 
-// Progress Indicator Component
-function ProgressIndicator({ stage, hasGraduated }: { stage: RegistrationStage; hasGraduated: boolean }) {
-  const steps = hasGraduated
-    ? ['Personal', 'Employment', 'Complete']
-    : ['Personal', 'Complete'];
-
-  const stageIndex = stage === 'personal' ? 0 : stage === 'employment' ? 1 : 2;
-
+function CheckOption({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
-    <div className="mb-8">
-      <div className="flex justify-between text-sm text-gray-600 mb-2">
-        <span>
-          Step {stageIndex + 1} of {steps.length}
-        </span>
-        <span>{((stageIndex / (steps.length - 1)) * 100).toFixed(0)}%</span>
+    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-xs cursor-pointer transition select-none ${checked ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+      }`}>
+      <div className={`size-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'}`}>
+        {checked && (
+          <svg className="size-2.5 text-white" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
       </div>
-      <div className="flex gap-2">
-        {steps.map((label, index) => (
-          <div key={index} className="flex-1">
-            <div
-              className={`h-2 rounded-full transition-all ${
-                index <= stageIndex ? 'bg-emerald-500' : 'bg-gray-200'
-              }`}
-            />
-            <p className="text-xs text-gray-600 mt-1 text-center">{label}</p>
-          </div>
-        ))}
+      <input type="checkbox" className="hidden" checked={checked} onChange={onChange} />
+      {label}
+    </label>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-start gap-3 mb-6">
+      <div className="flex size-10 items-center justify-center rounded-xl bg-green-50 shrink-0">
+        <Icon className="size-5 text-green-700" />
+      </div>
+      <div>
+        <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.15rem' }}>{title}</h2>
+        {subtitle && <p className="text-gray-500 text-xs mt-0.5">{subtitle}</p>}
       </div>
     </div>
   );
 }
 
-// Registration Complete Component
-function RegistrationComplete({ data }: { data: CompleteFormData | null }) {
+function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = false }: {
+  onBack: () => void; onNext: () => void; nextLabel?: string; nextDisabled?: boolean;
+}) {
   return (
-    <div className="w-full max-w-2xl mx-auto p-6 text-center">
-      <div className="flex justify-center mb-6">
-        <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100">
-          <CheckCircle2 className="size-8 text-emerald-600" />
-        </div>
-      </div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-2">Registration Complete!</h2>
-      <p className="text-gray-600 mb-8">
-        Thank you for registering with the Graduate Tracer System. Your information has been securely saved.
-      </p>
-      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6 text-left">
-        <h3 className="font-semibold text-emerald-900 mb-3">What happens next?</h3>
-        <ul className="space-y-2 text-sm text-emerald-800">
-          <li className="flex items-start gap-2">
-            <span className="font-bold">1.</span>
-            <span>Your profile will be verified by our admin team</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="font-bold">2.</span>
-            <span>You will receive a confirmation email once verified</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="font-bold">3.</span>
-            <span>Your employment data will help us provide better insights to the program</span>
-          </li>
-        </ul>
-      </div>
+    <div className="flex gap-3 mt-6">
+      <button onClick={onBack}
+        className="flex-1 flex items-center justify-center gap-2 border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl text-sm transition"
+        style={{ fontWeight: 500 }}>
+        <ChevronLeft className="size-4" /> Back
+      </button>
+      <button onClick={onNext} disabled={nextDisabled}
+        className="flex-1 flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-50"
+        style={{ fontWeight: 600 }}>
+        {nextLabel} <ChevronRight className="size-4" />
+      </button>
     </div>
   );
 }
 
-// Error State Component
-function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
-  return (
-    <div className="w-full max-w-2xl mx-auto p-6">
-      <div className="mb-6 p-6 border border-red-200 bg-red-50 rounded-lg flex gap-4">
-        <AlertCircle className="text-red-600 flex-shrink-0" size={24} />
-        <div>
-          <h2 className="font-semibold text-red-900 mb-1">Submission Error</h2>
-          <p className="text-red-700 text-sm mb-4">{error}</p>
-          <button
-            onClick={onRetry}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm font-semibold"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+//  Main Component 
 
-// Main Orchestrator Component
 export function RegisterAlumni() {
   const navigate = useNavigate();
-  const [state, dispatch] = useReducer(registrationReducer, {
-    stage: 'personal',
-    personalData: null,
-    employmentData: null,
-    isSubmitting: false,
-    submitError: null,
-  });
+  const { data: referenceData } = useReferenceData();
 
-  // Handle personal component completion
-  const handlePersonalComplete = async (personalData: PersonalFormData) => {
-    dispatch({ type: 'SET_PERSONAL_DATA', personalData });
+  const [step, setStep] = useState<Step>(1);
+  const [form, setForm] = useState<GraduateForm>(INITIAL_FORM);
+  const [stepError, setStepError] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [employerLinkStatus, setEmployerLinkStatus] = useState('');
 
-    // Check if graduated
-    if (!personalData.hasGraduated) {
-      // Skip employment survey, go directly to complete
-      dispatch({ type: 'GO_TO_COMPLETE' });
+  // Biometrics state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [currentShot, setCurrentShot] = useState(0);
+  const [shots, setShots] = useState<(string | null)[]>([null, null, null]);
+  const [captureTime, setCaptureTime] = useState<string | null>(null);
+  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [checkingBlur, setCheckingBlur] = useState(false);
 
-      // Submit only personal data (non-graduated)
-      await submitRegistration(personalData, null);
-    } else {
-      // Go to employment survey (graduated)
-      dispatch({ type: 'GO_TO_EMPLOYMENT' });
-    }
-  };
+  const allShotsCaptured = shots.every(s => s !== null);
+  const availableSkills = referenceData.skills.length > 0
+    ? referenceData.skills.map((skill) => skill.name)
+    : SKILLS_LIST;
+  const employerPortalLink = typeof window === 'undefined'
+    ? '/employer'
+    : `${window.location.origin}/employer`;
 
-  // Handle employment component completion
-  const handleEmploymentComplete = async (employmentData: EmploymentFormData) => {
-    dispatch({ type: 'SET_EMPLOYMENT_DATA', employmentData });
-    dispatch({ type: 'GO_TO_COMPLETE' });
+  useEffect(() => { return () => stopCamera(); }, []);
 
-    // Merge personal and employment data for submission
-    if (state.personalData) {
-      await submitRegistration(state.personalData, employmentData);
-    }
-  };
+  // Helper: set single string field
+  const setF = (field: keyof GraduateForm, value: string) =>
+    setForm(f => ({ ...f, [field]: value }));
 
-  // Submit registration to backend
-  const submitRegistration = async (
-    personalData: PersonalFormData,
-    employmentData: EmploymentFormData | null
-  ) => {
-    dispatch({ type: 'SET_SUBMITTING', isSubmitting: true });
+  const handleShareEmployerPortalLink = async () => {
     try {
-      // Merge and prepare complete data
-      const completeData = {
-        ...personalData,
-        ...(employmentData || {}),
+      await navigator.clipboard.writeText(employerPortalLink);
+      setEmployerLinkStatus('Employer Portal link copied. You may now share it with your employer.');
+    } catch {
+      setEmployerLinkStatus('Copy not available in this browser. Please share the link shown below manually.');
+    }
+  };
+
+  // Helper: toggle string in array field
+  const toggleArr = (field: 'profEligibility' | 'skills', value: string) =>
+    setForm(f => {
+      const arr = f[field] as string[];
+      return { ...f, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
+    });
+
+  //  Validation
+  const validateStep = (): boolean => {
+    setStepError('');
+    if (step === 1) {
+      if (!form.email.trim() || !form.email.includes('@')) {
+        setStepError('Please enter a valid email address.'); return false;
+      }
+      if (form.password.length < 8) {
+        setStepError('Password must be at least 8 characters.'); return false;
+      }
+      if (form.password !== form.confirmPassword) {
+        setStepError('Passwords do not match.'); return false;
+      }
+    }
+    if (step === 2) {
+      if (!form.familyName.trim()) { setStepError('Family name is required.'); return false; }
+      if (!form.firstName.trim()) { setStepError('First name is required.'); return false; }
+    }
+    if (step === 3) {
+      if (!form.graduationDate.trim()) { setStepError('Date of graduation is required.'); return false; }
+    }
+    if (step === 4) {
+      // Academic & Pre-Employment validation (optional fields)
+      return true;
+    }
+    if (step === 5) {
+      // Employment Status validation
+      if (!form.employment_status) {
+        setStepError('Please select your employment status.'); return false;
+      }
+      return true;
+    }
+    if (step === 6) {
+      // First Job Details validation
+      if (form.employment_status !== 'never_employed' && form.employment_status !== 'not_seeking') {
+        if (!form.time_to_hire_months) {
+          setStepError('Time-to-hire is required.'); return false;
+        }
+        if (![1, 3, 4.5, 9, 18, 30].includes(form.time_to_hire_months)) {
+          setStepError('Invalid time-to-hire value.'); return false;
+        }
+        if (!form.first_job_sector) {
+          setStepError('First job sector is required.'); return false;
+        }
+      }
+      return true;
+    }
+    if (step === 7) {
+      // Current Job validation (conditional)
+      if (['employed_full_time', 'employed_part_time', 'self_employed'].includes(form.employment_status)) {
+        // Current job is optional here, just return true
+      }
+      return true;
+    }
+    if (step === 8) {
+      // Work Address validation
+      if (!form.city_municipality.trim()) {
+        setStepError('City/Municipality is required.'); return false;
+      }
+      if (!form.region_address) {
+        setStepError('Region is required.'); return false;
+      }
+      return true;
+    }
+    if (step === 9) {
+      // Competency Assessment (optional fields)
+      return true;
+    }
+    return true;
+  };
+
+  const nextStep = () => {
+    if (!validateStep()) return;
+
+    // Conditional skipping based on employment_status
+    if (step === 5) {
+      if (['never_employed', 'not_seeking'].includes(form.employment_status)) {
+        // Skip First Job (6) and Current Job (7) → go to Work Address (8)
+        setStep(8 as Step);
+        return;
+      }
+      if (form.employment_status === 'seeking') {
+        // Skip Current Job (7) → go to First Job (6)
+        setStep(6 as Step);
+        return;
+      }
+    }
+
+    if (step === 6 && form.employment_status === 'seeking') {
+      // Skip Current Job (7) → go to Work Address (8)
+      setStep(8 as Step);
+      return;
+    }
+
+    // Default: increment by 1
+    setStep(s => (s + 1) as Step);
+  };
+  const prevStep = () => { setStepError(''); setStep(s => (s - 1) as Step); };
+
+  //  Camera helpers 
+  const startCamera = async () => {
+    setCameraError('');
+    setStepError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      setCameraOn(true);
+    } catch {
+      setCameraError('Camera access denied. Please allow camera permission and try again.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+      videoRef.current.srcObject = null;
+    }
+    setCameraOn(false);
+  };
+
+  const captureShot = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setStepError('');
+    setCheckingBlur(true);
+
+    try {
+      const ctx = canvasRef.current.getContext('2d');
+      if (!ctx) {
+        setStepError('Unable to capture image. Please try again.');
+        return;
+      }
+
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      ctx.drawImage(videoRef.current, 0, 0);
+      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
+
+      const blurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
+      if (blurry) {
+        setStepError(`Shot ${currentShot + 1} (${SHOT_INSTRUCTIONS[currentShot].label}) is blurry. Please keep your face steady and capture again.`);
+        return;
+      }
+
+      setShots(prev => { const next = [...prev]; next[currentShot] = dataUrl; return next; });
+
+      if (!captureTime) {
+        setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+      }
+      if (currentShot === 0 && !gps) {
+        setGpsLoading(true);
+        navigator.geolocation.getCurrentPosition(
+          pos => { setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setGpsLoading(false); },
+          () => { setGps({ lat: 10.7202, lng: 122.5621 }); setGpsLoading(false); },
+          { timeout: 6000 }
+        );
+      }
+      if (currentShot < 2) {
+        setCurrentShot(c => c + 1);
+      } else {
+        stopCamera();
+      }
+    } catch {
+      setStepError('Unable to check image clarity right now. Please retake your capture.');
+    } finally {
+      setCheckingBlur(false);
+    }
+  };
+
+  const retakeAll = () => {
+    setShots([null, null, null]);
+    setCurrentShot(0);
+    setCaptureTime(null);
+    setGps(null);
+    setGpsLoading(false);
+    setStepError('');
+    setCheckingBlur(false);
+    startCamera();
+  };
+
+  const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
+    const response = await fetch(dataUrl);
+    return response.blob();
+  };
+
+  //  Final submit 
+  const handleFinalSubmit = async () => {
+    if (!allShotsCaptured) {
+      setStepError('All 3 biometric captures are required before submitting.');
+      return;
+    }
+
+    const [faceFront, faceLeft, faceRight] = shots as [string, string, string];
+    setStepError('');
+    setIsSaving(true);
+
+    try {
+      const blurChecks = await Promise.all(
+        [faceFront, faceLeft, faceRight].map((shot) =>
+          isImageBlurry({ dataUrl: shot, threshold: FACE_BLUR_THRESHOLD }),
+        ),
+      );
+      const blurryShotIndex = blurChecks.findIndex(Boolean);
+      if (blurryShotIndex !== -1) {
+        setStepError(`${SHOT_INSTRUCTIONS[blurryShotIndex].label} capture is too blurry. Please retake all biometric shots before submitting.`);
+        return;
+      }
+
+      const descriptorCandidates = await Promise.all(
+        [faceFront, faceLeft, faceRight].map((shot) => extractFaceDescriptorFromDataUrl(shot)),
+      );
+      const descriptorSamples = descriptorCandidates.filter(
+        (descriptor): descriptor is number[] => Array.isArray(descriptor) && descriptor.length === 128,
+      );
+      const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
+      if (!averagedDescriptor) {
+        setStepError('No valid face was detected in your captures. Please retake all shots with your face centered and clearly visible.');
+        return;
+      }
+
+      const [frontBlob, leftBlob, rightBlob] = await Promise.all([
+        dataUrlToBlob(faceFront),
+        dataUrlToBlob(faceLeft),
+        dataUrlToBlob(faceRight),
+      ]);
+
+      const employmentStatus = normalizeEmploymentStatusForBackend(form.employmentStatus);
+      const selectedSkillEntries = referenceData.skills
+        .filter((skill) => form.skills.includes(skill.name))
+        .map((skill) => ({
+          skillId: skill.id,
+          name: skill.name,
+          proficiency: 'intermediate',
+        }));
+      const surveyData = {
+        ...form,
+        employmentStatus: form.employmentStatus,
+        employmentStatusNormalized: employmentStatus,
+        skillIds: selectedSkillEntries.map((entry) => entry.skillId),
+        skillEntries: selectedSkillEntries,
       };
 
-<<<<<<< HEAD
-      // Call backend API
-      const response = await registerAlumni(completeData);
-=======
       const payload = new FormData();
       payload.append('email', form.email.trim().toLowerCase());
       payload.append('password', form.password);
@@ -417,88 +689,102 @@ export function RegisterAlumni() {
       payload.append('face_front', frontBlob, `face_front_${Date.now()}.jpg`);
       payload.append('face_left', leftBlob, `face_left_${Date.now()}.jpg`);
       payload.append('face_right', rightBlob, `face_right_${Date.now()}.jpg`);
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
 
-      if (response.status !== 'success') {
-        throw new Error(response.message || 'Registration failed');
-      }
-
-      // Success - data already on complete page
-      dispatch({ type: 'SET_SUBMITTING', isSubmitting: false });
-    } catch (error: any) {
-      console.error('Registration submission error:', error);
-      dispatch({
-        type: 'SET_ERROR',
-        error: error.message || 'Failed to submit registration. Please try again.',
-      });
+      const response = await registerAlumni(payload);
+      sessionStorage.setItem('alumni_user', JSON.stringify(response.alumni));
+      setDone(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Registration failed. Please try again.';
+      setStepError(message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // Handle back from employment to personal
-  const handleEmploymentBack = () => {
-    dispatch({ type: 'GO_TO_PERSONAL' });
-  };
+  //  Done screen 
+  if (done) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
+          <div className="flex size-7 items-center justify-center rounded-lg bg-[#166534]">
+            <GraduationCap className="size-4 text-white" />
+          </div>
+          <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
+            <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 mx-auto mb-5">
+              <CheckCircle2 className="size-9 text-emerald-500" />
+            </div>
+            <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Account Created!</h2>
+            <p className="text-gray-600 text-sm mb-1">Welcome, {form.firstName}!</p>
+            <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
+              <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending Program Chair Verification</span>
+            </div>
+            <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
+              Your account and CHED Graduate Tracer survey have been submitted. The Program Chair will review your biometric submission and verify your identity.
+            </p>
+            <button onClick={() => navigate('/alumni/dashboard')}
+              className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition mx-auto"
+              style={{ fontWeight: 600 }}>
+              Go to My Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  // Render appropriate stage
+  //  Main render 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-12">
-      <div className="w-full max-w-2xl mx-auto px-4">
-        {/* Show progress only during active registration (not on complete or error) */}
-        {state.stage !== 'complete' && state.stage !== 'error' && state.personalData && (
-          <ProgressIndicator
-            stage={state.stage}
-            hasGraduated={state.personalData?.hasGraduated || false}
-          />
-        )}
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Top bar */}
+      <div className="bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
+        <button
+          onClick={() => step === 1 ? navigate('/') : prevStep()}
+          className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+          <ArrowLeft className="size-4 text-gray-600" />
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex size-7 items-center justify-center rounded-lg bg-[#166534]">
+            <GraduationCap className="size-4 text-white" />
+          </div>
+          <div>
+            <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
+            <p className="text-gray-400 text-xs">CHMSU Talisay  BSIS Graduate Tracer System</p>
+          </div>
+        </div>
+      </div>
 
-        {/* Personal Information Stage */}
-        {state.stage === 'personal' && (
-          <RegisterAlumniPersonal onComplete={handlePersonalComplete} />
-        )}
+      <div className="flex-1 flex flex-col items-center px-4 py-8">
+        <div className="w-full max-w-lg">
 
-        {/* Employment Information Stage */}
-        {state.stage === 'employment' && (
-          <RegisterAlumniEmployment
-            onComplete={handleEmploymentComplete}
-            onBack={handleEmploymentBack}
-          />
-        )}
+          {/* Stepper */}
+          <div className="flex items-center mb-8">
+            {STEP_CONFIG.map((s, i) => (
+              <div key={s.n} className="flex items-center flex-1 last:flex-none">
+                <div className="flex flex-col items-center shrink-0">
+                  <div className={`flex size-7 items-center justify-center rounded-full text-xs transition-all ${step > s.n ? 'bg-emerald-500 text-white' :
+                    step === s.n ? 'bg-[#166534] text-white' : 'bg-gray-200 text-gray-400'
+                    }`} style={{ fontWeight: 700 }}>
+                    {step > s.n ? <CheckCircle2 className="size-3.5" /> : s.n}
+                  </div>
+                  <p className={`mt-1 whitespace-nowrap ${step >= s.n ? 'text-gray-700' : 'text-gray-400'}`}
+                    style={{ fontWeight: step === s.n ? 600 : 400, fontSize: '0.62rem' }}>
+                    {s.label}
+                  </p>
+                </div>
+                {i < 5 && <div className={`flex-1 h-px mx-1 mb-5 ${step > s.n ? 'bg-emerald-400' : 'bg-gray-200'}`} />}
+              </div>
+            ))}
+          </div>
 
-        {/* Registration Complete Stage */}
-        {state.stage === 'complete' && (
-          <>
-            <ProgressIndicator
-              stage={state.stage}
-              hasGraduated={state.personalData?.hasGraduated || false}
-            />
-            <RegistrationComplete
-              data={
-                state.personalData
-                  ? ({
-                      ...state.personalData,
-                      ...(state.employmentData || {}),
-                    } as CompleteFormData)
-                  : null
-              }
-            />
-          </>
-        )}
+          {/*  STEP 1: Account Setup  */}
+          {step === 1 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+              <SectionHeader icon={Lock} title="Create Your Account" subtitle="Set up your login credentials for the Graduate Portal." />
 
-<<<<<<< HEAD
-        {/* Error State */}
-        {state.stage === 'error' && state.submitError && (
-          <ErrorState
-            error={state.submitError}
-            onRetry={() => {
-              dispatch({ type: 'RESET_ERROR' });
-              // Go back to appropriate stage
-              dispatch({
-                type: state.employmentData ? 'GO_TO_EMPLOYMENT' : 'GO_TO_PERSONAL',
-              });
-            }}
-          />
-        )}
-=======
               {stepError && (
                 <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
                   <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
@@ -1191,48 +1477,8 @@ export function RegisterAlumni() {
           )}
 
         </div>
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
       </div>
     </div>
   );
 }
 
-// Encoding Mappers (for use in employment component)
-export const timeToHireMapper = (selection: string | null): number | null => ({
-  'Within 1 month': 1,
-  '1-3 months': 3,
-  '3-6 months': 4.5,
-  '6 months to 1 year': 9,
-  '1-2 years': 18,
-  'More than 2 years': 30,
-}[selection] || null);
-
-export const jobApplicationsMapper = (selection: string | null): number | null => ({
-  '1-5 applications': 1,
-  '6-15 applications': 2,
-  '16-30 applications': 3,
-  '31+ applications': 4,
-}[selection] || null);
-
-export const jobSourceMapper = (selection: string | null): string => ({
-  'Personal Network/Referral': 'personal_network',
-  'Online Job Portal': 'online_portal',
-  'CHMSU Career Fair': 'career_fair',
-  'Company Walk-in/Direct Hire': 'walk_in',
-  'Social Media': 'social_media',
-  'Started own business': 'entrepreneurship',
-  'Other': 'other',
-}[selection] || 'other');
-
-export const sectorMapper = (selection: string | null): string => ({
-  'Government': 'government',
-  'Private Sector': 'private',
-  'Entrepreneurial/Freelance/Self-Employed': 'entrepreneurial',
-}[selection] || 'private');
-
-export const jobStatusMapper = (selection: string | null): string => ({
-  'Regular / Permanent': 'regular',
-  'Probationary': 'probationary',
-  'Contractual / Casual': 'contractual',
-  'Self-Employed / Freelance': 'self_employed',
-}[selection] || 'regular');
