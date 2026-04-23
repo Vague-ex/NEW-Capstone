@@ -42,8 +42,13 @@ interface PersonalFormData {
   birthDay: string;
   birthYear: string;
   civilStatus: string;
+<<<<<<< HEAD
   mobileCountryCode: string;
   mobileNumber: string;
+=======
+  mobile: string;
+  mobileCountryCode: string;
+>>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
   facebook: string;
   city: string;
   province: string;
@@ -88,8 +93,13 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   birthDay: '',
   birthYear: '',
   civilStatus: '',
+<<<<<<< HEAD
   mobileCountryCode: '+63',
   mobileNumber: '',
+=======
+  mobile: '',
+  mobileCountryCode: '+63',
+>>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
   facebook: '',
   city: '',
   province: '',
@@ -380,6 +390,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
       const payload = new FormData();
       payload.append('email', form.email);
       payload.append('password', form.password);
+      payload.append('confirm_password', form.confirmPassword);
       payload.append('family_name', form.familyName);
       payload.append('first_name', form.firstName);
       payload.append('middle_name', form.middleName);
@@ -388,8 +399,13 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
       const birthDateFormatted = `${form.birthYear}-${form.birthMonth.padStart(2, '0')}-${form.birthDay.padStart(2, '0')}`;
       payload.append('birth_date', birthDateFormatted);
       payload.append('civil_status', form.civilStatus);
+<<<<<<< HEAD
       payload.append('mobile_country_code', form.mobileCountryCode);
       payload.append('mobile_number', form.mobileNumber);
+=======
+      payload.append('mobile', form.mobileCountryCode + form.mobile);
+      payload.append('mobile_country_code', form.mobileCountryCode);
+>>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
       payload.append('facebook_url', form.facebook);
       payload.append('city', form.city);
       payload.append('province', form.province);
@@ -656,6 +672,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                       Birth Date
                     </label>
+<<<<<<< HEAD
                     <div className="flex gap-2">
                       <select
                         value={form.birthMonth}
@@ -687,6 +704,14 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                         className={inputCls}
                       />
                     </div>
+=======
+                    <input
+                      type="date"
+                      value={form.birthDate}
+                      onChange={(e) => setF('birthDate', e.target.value)}
+                      className={inputCls}
+                    />
+>>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
                   </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
@@ -710,6 +735,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                     <select
                       value={form.mobileCountryCode}
                       onChange={(e) => setF('mobileCountryCode', e.target.value)}
+<<<<<<< HEAD
                       className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm"
                     >
                       <option value="+63">+63</option>
@@ -720,15 +746,34 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                       <option value="+65">+65</option>
                       <option value="+60">+60</option>
                       <option value="+66">+66</option>
+=======
+                      className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                    >
+                      <option value="+63">+63 Philippines</option>
+                      <option value="+1">+1 United States</option>
+                      <option value="+44">+44 United Kingdom</option>
+                      <option value="+61">+61 Australia</option>
+                      <option value="+65">+65 Singapore</option>
+                      <option value="+60">+60 Malaysia</option>
+                      <option value="+81">+81 Japan</option>
+                      <option value="+82">+82 Korea</option>
+                      <option value="+86">+86 China</option>
+                      <option value="+971">+971 UAE</option>
+>>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
                     </select>
                     <div className="relative flex-1">
                       <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                       <input
                         type="tel"
                         placeholder="9XXXXXXXXX"
+<<<<<<< HEAD
                         maxLength="10"
                         value={form.mobileNumber}
                         onChange={(e) => setF('mobileNumber', e.target.value.replace(/\D/g, ''))}
+=======
+                        value={form.mobile}
+                        onChange={(e) => setF('mobile', e.target.value)}
+>>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
                         className={`${inputCls} pl-10`}
                       />
                     </div>

@@ -203,7 +203,8 @@ export async function registerAlumni(
     });
     await throwIfNotOk(response);
     return response.json();
-}
+}   // Passing FormData but not setting the Content-Type header. When you send FormData, 
+    // the browser automatically sets multipart/form-data, but your backend expects application/json
 
 export async function alumniLogin(
     email: string,
