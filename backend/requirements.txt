@@ -1,5 +1,21 @@
-Django==5.2.13
-djangorestframework==3.17.1
-django-cors-headers==4.9.0
-numpy==2.4.4
-opencv-python-headless==4.13.0.92
+# Core Django packages;
+pip install Django==5.2.13;
+pip install djangorestframework==3.17.1;
+pip install django-cors-headers==4.9.0;
+
+# Database (choose one based on your setup);
+# For PostgreSQL/Supabase:
+pip install psycopg2-binary==2.9.9;
+
+# For ML/Data processing (optional, for Phase 5)
+pip install scikit-learn==1.3.0;
+pip install pandas==2.0.0;
+pip install numpy==2.4.4;
+pip install joblib==1.3.0;
+
+# Image processing (for face verification)
+pip install opencv-python-headless==4.13.0.92;
+
+# Utilities
+pip install python-dotenv==1.0.0;
+pip install requests==2.31.0;

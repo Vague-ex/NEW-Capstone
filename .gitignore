@@ -57,3 +57,8 @@ Figmanuts/
 
 # modern-face-api model assets copied at runtime/setup
 frontend/public/modern-face-models/
+
+# misc
+django_setup_guide.md  
+EyeOfTheTiger/
+.claude/
