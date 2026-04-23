@@ -38,9 +38,12 @@ interface PersonalFormData {
   firstName: string;
   middleName: string;
   gender: string;
-  birthDate: string;
+  birthMonth: string;
+  birthDay: string;
+  birthYear: string;
   civilStatus: string;
-  mobile: string;
+  mobileCountryCode: string;
+  mobileNumber: string;
   facebook: string;
   city: string;
   province: string;
@@ -81,9 +84,12 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   firstName: '',
   middleName: '',
   gender: '',
-  birthDate: '',
+  birthMonth: '',
+  birthDay: '',
+  birthYear: '',
   civilStatus: '',
-  mobile: '',
+  mobileCountryCode: '+63',
+  mobileNumber: '',
   facebook: '',
   city: '',
   province: '',
@@ -222,8 +228,16 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
         setStepError('Gender is required.');
         return false;
       }
-      if (!form.mobile.trim()) {
+      if (!form.birthMonth || !form.birthDay || !form.birthYear) {
+        setStepError('Date of birth is required.');
+        return false;
+      }
+      if (!form.mobileNumber.trim()) {
         setStepError('Mobile number is required.');
+        return false;
+      }
+      if (!/^\d{10}$/.test(form.mobileNumber)) {
+        setStepError('Mobile number must be 10 digits.');
         return false;
       }
       if (!form.city.trim()) {
@@ -370,9 +384,12 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
       payload.append('first_name', form.firstName);
       payload.append('middle_name', form.middleName);
       payload.append('gender', form.gender);
-      payload.append('birth_date', form.birthDate);
+      // Format birth_date as YYYY-MM-DD
+      const birthDateFormatted = `${form.birthYear}-${form.birthMonth.padStart(2, '0')}-${form.birthDay.padStart(2, '0')}`;
+      payload.append('birth_date', birthDateFormatted);
       payload.append('civil_status', form.civilStatus);
-      payload.append('mobile', form.mobile);
+      payload.append('mobile_country_code', form.mobileCountryCode);
+      payload.append('mobile_number', form.mobileNumber);
       payload.append('facebook_url', form.facebook);
       payload.append('city', form.city);
       payload.append('province', form.province);
@@ -637,15 +654,39 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Birth Date (MM/YY)
+                      Birth Date
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 08/01"
-                      value={form.birthDate}
-                      onChange={(e) => setF('birthDate', e.target.value)}
-                      className={inputCls}
-                    />
+                    <div className="flex gap-2">
+                      <select
+                        value={form.birthMonth}
+                        onChange={(e) => setF('birthMonth', e.target.value)}
+                        className={inputCls}
+                      >
+                        <option value="">Month</option>
+                        {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={form.birthDay}
+                        onChange={(e) => setF('birthDay', e.target.value)}
+                        className={inputCls}
+                      >
+                        <option value="">Day</option>
+                        {Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0')).map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="YYYY"
+                        min="1950"
+                        max={new Date().getFullYear()}
+                        value={form.birthYear}
+                        onChange={(e) => setF('birthYear', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
@@ -665,15 +706,32 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                     Mobile Number *
                   </label>
-                  <div className="relative">
-                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                    <input
-                      type="tel"
-                      placeholder="09XXXXXXXXX"
-                      value={form.mobile}
-                      onChange={(e) => setF('mobile', e.target.value)}
-                      className={`${inputCls} pl-10`}
-                    />
+                  <div className="flex gap-2">
+                    <select
+                      value={form.mobileCountryCode}
+                      onChange={(e) => setF('mobileCountryCode', e.target.value)}
+                      className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                    >
+                      <option value="+63">+63</option>
+                      <option value="+1">+1</option>
+                      <option value="+44">+44</option>
+                      <option value="+86">+86</option>
+                      <option value="+81">+81</option>
+                      <option value="+65">+65</option>
+                      <option value="+60">+60</option>
+                      <option value="+66">+66</option>
+                    </select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <input
+                        type="tel"
+                        placeholder="9XXXXXXXXX"
+                        maxLength="10"
+                        value={form.mobileNumber}
+                        onChange={(e) => setF('mobileNumber', e.target.value.replace(/\D/g, ''))}
+                        className={`${inputCls} pl-10`}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -798,7 +856,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                       </select>
                     </div>
 
-                    {['Master's Degree', 'Doctorate'].includes(form.highestAttainment) && (
+                    {["Master's Degree", "Doctorate"].includes(form.highestAttainment) && (
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                           Graduate School / University
