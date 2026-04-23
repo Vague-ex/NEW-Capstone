@@ -41,6 +41,7 @@ interface PersonalFormData {
   birthDate: string;
   civilStatus: string;
   mobile: string;
+  mobileCountryCode: string;
   facebook: string;
   city: string;
   province: string;
@@ -84,6 +85,7 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   birthDate: '',
   civilStatus: '',
   mobile: '',
+  mobileCountryCode: '+63',
   facebook: '',
   city: '',
   province: '',
@@ -366,13 +368,15 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
       const payload = new FormData();
       payload.append('email', form.email);
       payload.append('password', form.password);
+      payload.append('confirm_password', form.confirmPassword);
       payload.append('family_name', form.familyName);
       payload.append('first_name', form.firstName);
       payload.append('middle_name', form.middleName);
       payload.append('gender', form.gender);
       payload.append('birth_date', form.birthDate);
       payload.append('civil_status', form.civilStatus);
-      payload.append('mobile', form.mobile);
+      payload.append('mobile', form.mobileCountryCode + form.mobile);
+      payload.append('mobile_country_code', form.mobileCountryCode);
       payload.append('facebook_url', form.facebook);
       payload.append('city', form.city);
       payload.append('province', form.province);
@@ -637,11 +641,10 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Birth Date (MM/YY)
+                      Birth Date
                     </label>
                     <input
-                      type="text"
-                      placeholder="e.g. 08/01"
+                      type="date"
                       value={form.birthDate}
                       onChange={(e) => setF('birthDate', e.target.value)}
                       className={inputCls}
@@ -665,15 +668,33 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                     Mobile Number *
                   </label>
-                  <div className="relative">
-                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                    <input
-                      type="tel"
-                      placeholder="09XXXXXXXXX"
-                      value={form.mobile}
-                      onChange={(e) => setF('mobile', e.target.value)}
-                      className={`${inputCls} pl-10`}
-                    />
+                  <div className="flex gap-2">
+                    <select
+                      value={form.mobileCountryCode}
+                      onChange={(e) => setF('mobileCountryCode', e.target.value)}
+                      className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                    >
+                      <option value="+63">+63 Philippines</option>
+                      <option value="+1">+1 United States</option>
+                      <option value="+44">+44 United Kingdom</option>
+                      <option value="+61">+61 Australia</option>
+                      <option value="+65">+65 Singapore</option>
+                      <option value="+60">+60 Malaysia</option>
+                      <option value="+81">+81 Japan</option>
+                      <option value="+82">+82 Korea</option>
+                      <option value="+86">+86 China</option>
+                      <option value="+971">+971 UAE</option>
+                    </select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <input
+                        type="tel"
+                        placeholder="9XXXXXXXXX"
+                        value={form.mobile}
+                        onChange={(e) => setF('mobile', e.target.value)}
+                        className={`${inputCls} pl-10`}
+                      />
+                    </div>
                   </div>
                 </div>
 

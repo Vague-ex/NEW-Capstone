@@ -181,7 +181,7 @@ interface GraduateForm {
   // Step 2: Personal
   familyName: string; firstName: string; middleName: string;
   gender: string; birthDate: string; civilStatus: string;
-  mobile: string; facebook: string; city: string; province: string;
+  mobile: string; mobileCountryCode: string; facebook: string; city: string; province: string;
   // Step 3: Education
   graduationDate: string; scholarship: string;
   highestAttainment: string; graduateSchool: string;
@@ -253,7 +253,7 @@ interface GraduateForm {
 const INITIAL_FORM: GraduateForm = {
   email: '', password: '', confirmPassword: '',
   familyName: '', firstName: '', middleName: '',
-  gender: '', birthDate: '', civilStatus: '', mobile: '', facebook: '', city: '', province: '',
+  gender: '', birthDate: '', civilStatus: '', mobile: '', mobileCountryCode: '+63', facebook: '', city: '', province: '',
   graduationDate: '', scholarship: '', highestAttainment: '', graduateSchool: '',
   profEligibility: [], profEligibilityOther: '',
   // Step 4: Academic & Pre-Employment
@@ -675,6 +675,9 @@ export function RegisterAlumni() {
       payload.append('first_name', form.firstName.trim());
       payload.append('middle_name', form.middleName.trim());
       payload.append('family_name', form.familyName.trim());
+      payload.append('birth_date', form.birthDate);
+      payload.append('mobile', form.mobileCountryCode + form.mobile);
+      payload.append('mobile_country_code', form.mobileCountryCode);
       payload.append('graduation_date', form.graduationDate);
       payload.append('employment_status', employmentStatus);
       payload.append('capture_time', new Date().toISOString());
@@ -873,8 +876,8 @@ export function RegisterAlumni() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date (MM/YY)</label>
-                    <input type="text" placeholder="e.g. 08/01" value={form.birthDate}
+                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date</label>
+                    <input type="date" value={form.birthDate}
                       onChange={e => setF('birthDate', e.target.value)} className={inputCls} />
                   </div>
                   <div>
@@ -891,10 +894,28 @@ export function RegisterAlumni() {
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Mobile Number</label>
-                  <div className="relative">
-                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                    <input type="tel" placeholder="09XXXXXXXXX" value={form.mobile}
-                      onChange={e => setF('mobile', e.target.value)} className={`${inputCls} pl-10`} />
+                  <div className="flex gap-2">
+                    <select
+                      value={form.mobileCountryCode}
+                      onChange={e => setF('mobileCountryCode', e.target.value)}
+                      className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                    >
+                      <option value="+63">+63 Philippines</option>
+                      <option value="+1">+1 United States</option>
+                      <option value="+44">+44 United Kingdom</option>
+                      <option value="+61">+61 Australia</option>
+                      <option value="+65">+65 Singapore</option>
+                      <option value="+60">+60 Malaysia</option>
+                      <option value="+81">+81 Japan</option>
+                      <option value="+82">+82 Korea</option>
+                      <option value="+86">+86 China</option>
+                      <option value="+971">+971 UAE</option>
+                    </select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <input type="tel" placeholder="9XXXXXXXXX" value={form.mobile}
+                        onChange={e => setF('mobile', e.target.value)} className={`${inputCls} pl-10`} />
+                    </div>
                   </div>
                 </div>
 
