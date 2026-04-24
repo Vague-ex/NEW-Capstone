@@ -181,12 +181,56 @@ export function RegisterAlumni() {
   const navigate = useNavigate();
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
+<<<<<<< HEAD
   const submitRegistration = async (
     personalData: PersonalFormData,
     employmentData: EmploymentFormData | null,
     biometricData?: BiometricData | null,
   ) => {
     dispatch({ type: 'SET_SUBMITTING', isSubmitting: true });
+=======
+  const [step, setStep] = useState<Step>(1);
+  const [form, setForm] = useState<GraduateForm>(INITIAL_FORM);
+  const [stepError, setStepError] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [employerLinkStatus, setEmployerLinkStatus] = useState('');
+
+  // Biometrics state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [currentShot, setCurrentShot] = useState(0);
+  const [shots, setShots] = useState<(string | null)[]>([null, null, null]);
+  const [captureTime, setCaptureTime] = useState<string | null>(null);
+  const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [checkingBlur, setCheckingBlur] = useState(false);
+
+  const allShotsCaptured = shots.every(s => s !== null);
+  const availableSkills = referenceData.skills.length > 0
+    ? referenceData.skills.map((skill) => skill.name)
+    : SKILLS_LIST;
+  const employerPortalLink = typeof window === 'undefined'
+    ? '/employer'
+    : `${window.location.origin}/employer`;
+
+  useEffect(() => { return () => stopCamera(); }, []);
+
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => navigate('/alumni/dashboard'), 3000);
+    return () => clearTimeout(t);
+  }, [done, navigate]);
+
+  // Helper: set single string field
+  const setF = (field: keyof GraduateForm, value: string) =>
+    setForm(f => ({ ...f, [field]: value }));
+
+  const handleShareEmployerPortalLink = async () => {
+>>>>>>> claude/trusting-stonebraker-c03bcd
     try {
       const payload = new FormData();
       payload.append('email', personalData.email.trim().toLowerCase());
@@ -283,6 +327,7 @@ export function RegisterAlumni() {
             <p className="text-gray-400 text-xs">CHMSU Talisay · BSIS Graduate Tracer System</p>
           </div>
         </div>
+<<<<<<< HEAD
         <div className="flex-1 flex flex-col items-center px-4 py-8">
           <div className="w-full max-w-lg">
             <ProgressIndicator stage="employment" />
@@ -290,6 +335,28 @@ export function RegisterAlumni() {
               onComplete={handleEmploymentComplete}
               onBack={handleEmploymentBack}
             />
+=======
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
+            <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 mx-auto mb-5">
+              <CheckCircle2 className="size-9 text-emerald-500" />
+            </div>
+            <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Account Created!</h2>
+            <p className="text-gray-600 text-sm mb-1">Welcome, {form.firstName}!</p>
+            <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
+              <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending Program Chair Verification</span>
+            </div>
+            <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
+              Your account and CHED Graduate Tracer survey have been submitted. The Program Chair will review your biometric submission and verify your identity.
+            </p>
+            <button onClick={() => navigate('/alumni/dashboard')}
+              className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition mx-auto"
+              style={{ fontWeight: 600 }}>
+              Go to My Dashboard <ChevronRight className="size-4" />
+            </button>
+            <p className="text-gray-400 text-xs mt-3">Redirecting automatically in a few seconds…</p>
+>>>>>>> claude/trusting-stonebraker-c03bcd
           </div>
         </div>
       </div>

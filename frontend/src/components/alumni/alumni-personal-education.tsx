@@ -195,8 +195,8 @@ export function AlumniPersonalEducation() {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date (MM/YY)</label>
-                                    <input type="text" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
+                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date</label>
+                                    <input type="date" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
                                 </div>
                                 <div>
                                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Civil Status</label>
@@ -261,8 +261,8 @@ export function AlumniPersonalEducation() {
                             </div>
 
                             <div>
-                                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Date of Graduation * (MM/YYYY)</label>
-                                <input type="text" value={form.graduationDate} onChange={(e) => setF('graduationDate', e.target.value)} className={inputCls} />
+                                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Date of Graduation *</label>
+                                <input type="date" value={form.graduationDate} onChange={(e) => setF('graduationDate', e.target.value)} className={inputCls} />
                             </div>
 
                             <div>
