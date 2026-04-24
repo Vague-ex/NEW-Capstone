@@ -68,7 +68,7 @@ export function AlumniDashboard() {
 
         {/* ── Profile Banner ── */}
         <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-6 text-white relative overflow-hidden">
-          <div className="absolute right-0 top-0 bottom-0 w-48 opacity-10"
+          <div className="absolute right-0 top-0 bottom-0 w-48 opacity-10 pointer-events-none"
             style={{ background: 'radial-gradient(circle at 100% 50%, white 0%, transparent 70%)' }} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             {/* Avatar */}

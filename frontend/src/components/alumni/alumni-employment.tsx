@@ -92,19 +92,6 @@ const ADDITIONAL_CATEGORIES: Record<string, string[]> = {
   'Networking': ['Cisco Networking', 'CCNA', 'Network Admin', 'Linux', 'VPN', 'OSPF'],
 };
 
-const SOFT_SKILLS = [
-  'Oral Communication',
-  'Written Communication',
-  'Teamwork / Collaboration',
-  'Problem-solving / Critical Thinking',
-  'Adaptability / Flexibility',
-  'Leadership',
-  'Customer Service Orientation',
-  'Attention to Detail',
-  'Ability to Work Under Pressure',
-  'Time Management',
-];
-
 const EMPLOYMENT_STATUS_OPTIONS = [
   { value: 'employed_full_time', label: 'Yes, full-time' },
   { value: 'employed_part_time', label: 'Yes, part-time' },
@@ -777,32 +764,15 @@ export function AlumniEmployment() {
             )}
           </div>
 
-          {/* Soft Skills */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-start justify-between mb-4">
-              <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Soft Skills</h3>
-              <span className="text-xs text-[#166534] bg-[#166534]/10 px-2.5 py-1 rounded-full shrink-0 ml-2" style={{ fontWeight: 600 }}>
-                {form.soft_skills.length}/{SOFT_SKILLS.length}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {SOFT_SKILLS.map(skill => (
-                <CheckOption key={skill} label={skill}
-                  checked={form.soft_skills.includes(skill)}
-                  onChange={() => toggleSkill('soft_skills', skill)} />
-              ))}
-            </div>
-          </div>
-
-          {/* All Selected Skills Summary */}
-          {(form.technical_skills.length + form.soft_skills.length) > 0 && (
+          {/* All Selected Technical Skills Summary */}
+          {form.technical_skills.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h3 className="text-gray-800 mb-3" style={{ fontWeight: 700 }}>
-                All Selected Skills
-                <span className="text-gray-400 text-sm ml-2" style={{ fontWeight: 400 }}>({form.technical_skills.length + form.soft_skills.length})</span>
+                All Selected Technical Skills
+                <span className="text-gray-400 text-sm ml-2" style={{ fontWeight: 400 }}>({form.technical_skills.length})</span>
               </h3>
               <div className="flex flex-wrap gap-2">
-                {[...form.technical_skills, ...form.soft_skills].map(skill => (
+                {form.technical_skills.map(skill => (
                   <span key={skill} className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-full" style={{ fontWeight: 500 }}>
                     {skill}
                     <button type="button" onClick={() => removeSkill(skill)} className="hover:text-red-500 transition ml-0.5">
@@ -811,6 +781,9 @@ export function AlumniEmployment() {
                   </span>
                 ))}
               </div>
+              <p className="text-gray-400 text-xs mt-3">
+                Soft skills are now managed on the <span style={{ fontWeight: 600 }}>My Skills</span> page.
+              </p>
             </div>
           )}
 

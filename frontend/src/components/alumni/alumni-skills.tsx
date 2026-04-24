@@ -21,6 +21,21 @@ const BSIS_CORE_SKILLS = [
   'Problem-solving / Critical Thinking',
 ];
 
+// ── Soft Skills ──────────────────────────────────────────────────────────────
+
+const SOFT_SKILLS = [
+  'Oral Communication',
+  'Written Communication',
+  'Teamwork / Collaboration',
+  'Problem-solving / Critical Thinking',
+  'Adaptability / Flexibility',
+  'Leadership',
+  'Customer Service Orientation',
+  'Attention to Detail',
+  'Ability to Work Under Pressure',
+  'Time Management',
+];
+
 // ── Additional Technical Skills (Category Browser) ───────────────────────────
 
 const ADDITIONAL_CATEGORIES: Record<string, string[]> = {
@@ -45,6 +60,9 @@ export function AlumniSkills() {
   const surveyData = graduate?.surveyData ?? {};
 
   const [selectedSkills, setSelectedSkills] = useState<string[]>(graduate.skills ?? surveyData.skills ?? []);
+  const [selectedSoftSkills, setSelectedSoftSkills] = useState<string[]>(
+    Array.isArray(surveyData.soft_skills) ? surveyData.soft_skills : [],
+  );
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -56,8 +74,20 @@ export function AlumniSkills() {
     );
   };
 
+  const toggleSoftSkill = (skill: string) => {
+    setSaved(false);
+    setSelectedSoftSkills(prev =>
+      prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
+    );
+  };
+
   const removeSkill = (skill: string) => {
     setSelectedSkills(prev => prev.filter(s => s !== skill));
+    setSaved(false);
+  };
+
+  const removeSoftSkill = (skill: string) => {
+    setSelectedSoftSkills(prev => prev.filter(s => s !== skill));
     setSaved(false);
   };
 
@@ -67,12 +97,17 @@ export function AlumniSkills() {
       const payloadSurveyData = {
         ...surveyData,
         skills: selectedSkills,
+        soft_skills: selectedSoftSkills,
       };
 
       let serverAlumni: Record<string, unknown> = {};
       if (alumniId) {
         const response = await updateAlumniEmployment(alumniId, {
           survey_data: payloadSurveyData,
+          skill_entries: [
+            ...selectedSkills.map(name => ({ name, proficiency: 'intermediate' })),
+            ...selectedSoftSkills.map(name => ({ name, proficiency: 'intermediate' })),
+          ],
         });
         if (response.alumni && typeof response.alumni === 'object') {
           serverAlumni = response.alumni as Record<string, unknown>;
@@ -239,6 +274,61 @@ export function AlumniSkills() {
           )}
         </div>
 
+        {/* ── Soft Skills ─────────────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="flex items-start justify-between mb-2">
+            <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Soft Skills</h3>
+            <span className="text-xs text-[#166534] bg-[#166534]/10 px-2.5 py-1 rounded-full shrink-0 ml-2" style={{ fontWeight: 600 }}>
+              {selectedSoftSkills.length}/{SOFT_SKILLS.length}
+            </span>
+          </div>
+          <p className="text-gray-500 text-xs mb-4">
+            Interpersonal and behavioral skills that contribute to your employability.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {SOFT_SKILLS.map(skill => {
+              const checked = selectedSoftSkills.includes(skill);
+              return (
+                <button
+                  key={skill}
+                  onClick={() => toggleSoftSkill(skill)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition ${checked
+                      ? 'border-[#166534] bg-[#166534]/5 text-[#166534]'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534]/30 hover:bg-green-50/50'
+                    }`}
+                >
+                  <div className={`size-5 rounded border-2 flex items-center justify-center shrink-0 transition ${checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'
+                    }`}>
+                    {checked && (
+                      <svg className="size-3 text-white" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+                  <span className="text-sm" style={{ fontWeight: checked ? 600 : 400 }}>{skill}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedSoftSkills.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-gray-500 text-xs mb-2" style={{ fontWeight: 600 }}>Your soft skills</p>
+              <div className="flex flex-wrap gap-2">
+                {selectedSoftSkills.map(skill => (
+                  <span key={skill}
+                    className="inline-flex items-center gap-1.5 bg-[#166534] text-white text-xs px-3 py-1.5 rounded-full"
+                    style={{ fontWeight: 500 }}>
+                    {skill}
+                    <button onClick={() => removeSoftSkill(skill)} className="hover:text-red-300 transition ml-0.5">
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── All Selected Skills Summary ─────────────────────────────── */}
         {selectedSkills.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -274,7 +364,7 @@ export function AlumniSkills() {
           style={{ fontWeight: 600 }}>
           {isSaving
             ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
-            : <><Save className="size-4" /> Save Skills ({selectedSkills.length} selected)</>}
+            : <><Save className="size-4" /> Save Skills ({selectedSkills.length + selectedSoftSkills.length} selected)</>}
         </button>
 
       </div>

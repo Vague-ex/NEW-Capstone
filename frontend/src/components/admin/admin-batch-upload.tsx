@@ -22,6 +22,7 @@ export function AdminBatchUpload() {
   const [mode, setMode] = useState<'csv' | 'manual'>('csv');
   const [imported, setImported] = useState(false);
   const [importedCount, setImportedCount] = useState(0);
+  const [importedEntries, setImportedEntries] = useState<BatchEntry[]>([]);
   const [csvError, setCsvError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -31,20 +32,79 @@ export function AdminBatchUpload() {
   const [manualSaved, setManualSaved] = useState(false);
   const [manualError, setManualError] = useState('');
 
+  const parseCsvLine = (line: string): string[] => {
+    const out: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; } else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  };
+
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setCsvError('');
     setIsProcessing(true);
-    await new Promise(r => setTimeout(r, 1500));
+
     const reader = new FileReader();
     reader.onload = () => {
-      const lines = (reader.result as string)
-        .split('\n')
-        .filter(l => l.trim() && !l.toLowerCase().startsWith('name'));
-      setImportedCount(lines.length);
-      setImported(true);
-      setIsProcessing(false);
+      try {
+        const text = (reader.result as string).replace(/^\uFEFF/, '');
+        const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (rawLines.length === 0) {
+          setCsvError('CSV file is empty.');
+          setIsProcessing(false);
+          return;
+        }
+
+        const header = parseCsvLine(rawLines[0]).map(h => h.toLowerCase().replace(/\s+/g, ''));
+        const nameIdx = header.findIndex(h => h === 'name' || h === 'fullname');
+        const emailIdx = header.findIndex(h => h === 'email' || h === 'emailaddress');
+        const yearIdx = header.findIndex(h => h === 'graduationyear' || h === 'year' || h === 'batch');
+
+        const startIdx = nameIdx >= 0 ? 1 : 0;
+        const entries: BatchEntry[] = [];
+        const errors: string[] = [];
+
+        for (let i = startIdx; i < rawLines.length; i++) {
+          const cols = parseCsvLine(rawLines[i]);
+          const name = (nameIdx >= 0 ? cols[nameIdx] : cols[0]) ?? '';
+          const email = (emailIdx >= 0 ? cols[emailIdx] : cols[1]) ?? '';
+          const graduationYear = (yearIdx >= 0 ? cols[yearIdx] : cols[2]) ?? '';
+          if (!name.trim()) { errors.push(`Row ${i + 1}: missing name`); continue; }
+          if (!graduationYear.trim() || Number.isNaN(Number(graduationYear))) {
+            errors.push(`Row ${i + 1}: invalid graduation year`); continue;
+          }
+          entries.push({ name: name.trim(), email: email.trim(), graduationYear: graduationYear.trim() });
+        }
+
+        if (entries.length === 0) {
+          setCsvError(errors.length ? `No valid rows. ${errors.slice(0, 3).join('; ')}` : 'No valid rows found.');
+          setIsProcessing(false);
+          return;
+        }
+
+        setImportedEntries(entries);
+        setImportedCount(entries.length);
+        setImported(true);
+        if (errors.length > 0) {
+          setCsvError(`Imported ${entries.length} rows. Skipped ${errors.length}: ${errors.slice(0, 3).join('; ')}`);
+        }
+        setIsProcessing(false);
+      } catch (err) {
+        setCsvError(err instanceof Error ? err.message : 'Failed to parse CSV.');
+        setIsProcessing(false);
+      }
     };
     reader.onerror = () => {
       setCsvError('Failed to read file. Please try again.');
@@ -190,15 +250,43 @@ export function AdminBatchUpload() {
                 <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
               </>
             ) : (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center">
-                <CheckCircle2 className="size-10 text-emerald-500 mx-auto mb-3" />
-                <p className="text-emerald-800" style={{ fontWeight: 700, fontSize: '1.1rem' }}>CSV Imported Successfully</p>
-                <p className="text-emerald-700 text-sm mt-1">{importedCount} new graduate records added to the master list.</p>
-                <button onClick={() => { setImported(false); if (fileRef.current) fileRef.current.value = ''; }}
-                  className="mt-4 text-emerald-700 bg-emerald-100 hover:bg-emerald-200 text-sm px-4 py-2 rounded-lg transition"
-                  style={{ fontWeight: 600 }}>
-                  Upload Another File
-                </button>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6">
+                <div className="text-center">
+                  <CheckCircle2 className="size-10 text-emerald-500 mx-auto mb-3" />
+                  <p className="text-emerald-800" style={{ fontWeight: 700, fontSize: '1.1rem' }}>CSV Imported Successfully</p>
+                  <p className="text-emerald-700 text-sm mt-1">{importedCount} new graduate record{importedCount !== 1 ? 's' : ''} parsed and ready to add.</p>
+                </div>
+                {importedEntries.length > 0 && (
+                  <div className="mt-4 bg-white border border-emerald-100 rounded-xl overflow-hidden">
+                    <div className="max-h-64 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-emerald-100/60 sticky top-0">
+                          <tr>
+                            <th className="text-left px-3 py-2 text-emerald-800" style={{ fontWeight: 600 }}>Name</th>
+                            <th className="text-left px-3 py-2 text-emerald-800" style={{ fontWeight: 600 }}>Email</th>
+                            <th className="text-left px-3 py-2 text-emerald-800" style={{ fontWeight: 600 }}>Year</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importedEntries.map((entry, i) => (
+                            <tr key={i} className="border-t border-emerald-50">
+                              <td className="px-3 py-2 text-gray-700">{entry.name}</td>
+                              <td className="px-3 py-2 text-gray-500">{entry.email || '—'}</td>
+                              <td className="px-3 py-2 text-gray-700">{entry.graduationYear}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                <div className="mt-4 text-center">
+                  <button onClick={() => { setImported(false); setImportedEntries([]); setImportedCount(0); setCsvError(''); if (fileRef.current) fileRef.current.value = ''; }}
+                    className="text-emerald-700 bg-emerald-100 hover:bg-emerald-200 text-sm px-4 py-2 rounded-lg transition"
+                    style={{ fontWeight: 600 }}>
+                    Upload Another File
+                  </button>
+                </div>
               </div>
             )}
 
