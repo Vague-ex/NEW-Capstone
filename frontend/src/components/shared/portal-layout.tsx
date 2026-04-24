@@ -295,17 +295,19 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => role === 'admin' ? navigate('/admin/unverified') : undefined}
-              className="relative p-2 rounded-lg hover:bg-gray-100 transition"
-            >
-              <Bell className="size-4 text-gray-500" />
-              {bellNotificationCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-white" style={{ fontSize: '9px', fontWeight: 700 }}>
-                  {bellNotificationCount}
-                </span>
-              )}
-            </button>
+            {role !== 'alumni' && (
+              <button
+                onClick={() => role === 'admin' ? navigate('/admin/unverified') : undefined}
+                className="relative p-2 rounded-lg hover:bg-gray-100 transition"
+              >
+                <Bell className="size-4 text-gray-500" />
+                {bellNotificationCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-white" style={{ fontSize: '9px', fontWeight: 700 }}>
+                    {bellNotificationCount}
+                  </span>
+                )}
+              </button>
+            )}
             <div className={`flex size-8 items-center justify-center rounded-full ${config.accent} lg:hidden`}>
               <RoleIcon className="size-4 text-white" />
             </div>

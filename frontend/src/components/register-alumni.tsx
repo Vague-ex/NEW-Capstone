@@ -407,6 +407,12 @@ export function RegisterAlumni() {
 
   useEffect(() => { return () => stopCamera(); }, []);
 
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => navigate('/alumni/dashboard'), 3000);
+    return () => clearTimeout(t);
+  }, [done, navigate]);
+
   // Helper: set single string field
   const setF = (field: keyof GraduateForm, value: string) =>
     setForm(f => ({ ...f, [field]: value }));
@@ -728,8 +734,9 @@ export function RegisterAlumni() {
             <button onClick={() => navigate('/alumni/dashboard')}
               className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition mx-auto"
               style={{ fontWeight: 600 }}>
-              Go to My Dashboard
+              Go to My Dashboard <ChevronRight className="size-4" />
             </button>
+            <p className="text-gray-400 text-xs mt-3">Redirecting automatically in a few seconds…</p>
           </div>
         </div>
       </div>
