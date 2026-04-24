@@ -812,7 +812,42 @@ export default function RegisterAlumniEmployment({
                 onChange={(e) => setForm({ ...form, country: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
               >
-                <option value="Philippines">Philippines</option>
+                <optgroup label="ASEAN">
+                  <option value="Philippines">Philippines</option>
+                  <option value="Indonesia">Indonesia</option>
+                  <option value="Malaysia">Malaysia</option>
+                  <option value="Singapore">Singapore</option>
+                  <option value="Thailand">Thailand</option>
+                  <option value="Vietnam">Vietnam</option>
+                  <option value="Myanmar">Myanmar</option>
+                  <option value="Cambodia">Cambodia</option>
+                  <option value="Laos">Laos</option>
+                  <option value="Brunei">Brunei</option>
+                </optgroup>
+                <optgroup label="East Asia">
+                  <option value="Japan">Japan</option>
+                  <option value="South Korea">South Korea</option>
+                  <option value="China">China</option>
+                  <option value="Hong Kong">Hong Kong</option>
+                  <option value="Taiwan">Taiwan</option>
+                </optgroup>
+                <optgroup label="South Asia & Middle East">
+                  <option value="India">India</option>
+                  <option value="UAE">UAE</option>
+                  <option value="Saudi Arabia">Saudi Arabia</option>
+                  <option value="Qatar">Qatar</option>
+                  <option value="Kuwait">Kuwait</option>
+                  <option value="Bahrain">Bahrain</option>
+                </optgroup>
+                <optgroup label="Oceania">
+                  <option value="Australia">Australia</option>
+                  <option value="New Zealand">New Zealand</option>
+                </optgroup>
+                <optgroup label="Americas & Europe">
+                  <option value="United States">United States</option>
+                  <option value="Canada">Canada</option>
+                  <option value="United Kingdom">United Kingdom</option>
+                </optgroup>
                 <option value="Other">Other</option>
               </select>
             </div>

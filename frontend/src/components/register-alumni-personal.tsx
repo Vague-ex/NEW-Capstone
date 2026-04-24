@@ -1,33 +1,28 @@
 /**
  * Alumni Registration - Personal Information Component
  * Handles: Account Setup, Personal Info, Education Background, Biometric Verification
- * Steps: 1-3 + Biometrics
- *
- * This component collects personal information and captures biometric data for identity verification.
- * After completion, user is directed to employment survey (if graduated) or marked as complete.
+ * Steps: 1-4 + Biometrics
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle,
-  User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff,
-  RefreshCw, Video, ChevronRight, ChevronLeft,
+  User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
+  ChevronRight, ChevronLeft,
   BookOpen,
 } from 'lucide-react';
-import { registerAlumni } from '../app/api-client';
 import isImageBlurry from 'is-image-blurry';
 import {
   averageFaceDescriptors,
   extractFaceDescriptorFromDataUrl,
 } from '../app/modern-face-descriptor';
-import { useReferenceData } from '../hooks/useReferenceData';
 
 //  Types
 
 type PersonalStep = 1 | 2 | 3 | 4;
 
-interface PersonalFormData {
+export interface PersonalFormData {
   // Step 1: Account
   email: string;
   password: string;
@@ -38,17 +33,10 @@ interface PersonalFormData {
   firstName: string;
   middleName: string;
   gender: string;
-  birthMonth: string;
-  birthDay: string;
-  birthYear: string;
+  birthDate: string;
   civilStatus: string;
-<<<<<<< HEAD
-  mobileCountryCode: string;
-  mobileNumber: string;
-=======
   mobile: string;
   mobileCountryCode: string;
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
   facebook: string;
   city: string;
   province: string;
@@ -62,6 +50,14 @@ interface PersonalFormData {
   graduateSchool: string;
   profEligibility: string[];
   profEligibilityOther: string;
+}
+
+export interface BiometricData {
+  front: Blob;
+  left: Blob;
+  right: Blob;
+  descriptor: number[] | null;
+  descriptorSamples: number[][];
 }
 
 //  Constants
@@ -89,17 +85,10 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   firstName: '',
   middleName: '',
   gender: '',
-  birthMonth: '',
-  birthDay: '',
-  birthYear: '',
+  birthDate: '',
   civilStatus: '',
-<<<<<<< HEAD
-  mobileCountryCode: '+63',
-  mobileNumber: '',
-=======
   mobile: '',
   mobileCountryCode: '+63',
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
   facebook: '',
   city: '',
   province: '',
@@ -115,7 +104,7 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
 
 //  Reusable Components
 
-function SectionHeader({ icon: Icon, title, subtitle }: any) {
+function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
   return (
     <div className="mb-6">
       <div className="flex items-center gap-3 mb-2">
@@ -129,7 +118,7 @@ function SectionHeader({ icon: Icon, title, subtitle }: any) {
   );
 }
 
-function RadioOption({ label, value, current, onSelect }: any) {
+function RadioOption({ label, value, current, onSelect }: { label: string; value: string | boolean; current: string | boolean; onSelect: (v: string | boolean) => void }) {
   const isSelected = current === value;
   return (
     <button type="button" onClick={() => onSelect(value)}
@@ -141,7 +130,7 @@ function RadioOption({ label, value, current, onSelect }: any) {
   );
 }
 
-function CheckOption({ label, checked, onChange }: any) {
+function CheckOption({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
     <label className="flex items-center gap-3 cursor-pointer">
       <input type="checkbox" checked={checked} onChange={onChange} className="size-4 rounded border-gray-300" />
@@ -150,7 +139,7 @@ function CheckOption({ label, checked, onChange }: any) {
   );
 }
 
-function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = false }: any) {
+function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = false }: { onBack: () => void; onNext: () => void; nextLabel?: string; nextDisabled?: boolean }) {
   return (
     <div className="flex gap-3 mt-6">
       <button onClick={onBack}
@@ -171,9 +160,12 @@ function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = fal
 
 //  Main Component
 
-export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (formData: PersonalFormData) => void }) {
+export default function RegisterAlumniPersonal({
+  onComplete,
+}: {
+  onComplete: (formData: PersonalFormData, biometricData?: BiometricData) => void | Promise<void>;
+}) {
   const navigate = useNavigate();
-  const { referenceData } = useReferenceData();
 
   // Form state
   const [form, setForm] = useState<PersonalFormData>(INITIAL_PERSONAL_FORM);
@@ -191,13 +183,15 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
   const [descriptorSamples, setDescriptorSamples] = useState<number[][]>([]);
   const [checkingBlur, setCheckingBlur] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [done, setDone] = useState(false);
   const [cameraError, setCameraError] = useState('');
+  const [captureTime, setCaptureTime] = useState<string | null>(null);
+
+  useEffect(() => { return () => stopCamera(); }, []);
 
   const inputCls = 'w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500';
 
   //  Input handlers
-  const setF = (field: keyof PersonalFormData, value: any) => {
+  const setF = (field: keyof PersonalFormData, value: PersonalFormData[keyof PersonalFormData]) => {
     setForm(f => ({ ...f, [field]: value }));
   };
 
@@ -238,16 +232,12 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
         setStepError('Gender is required.');
         return false;
       }
-      if (!form.birthMonth || !form.birthDay || !form.birthYear) {
+      if (!form.birthDate) {
         setStepError('Date of birth is required.');
         return false;
       }
-      if (!form.mobileNumber.trim()) {
+      if (!form.mobile.trim()) {
         setStepError('Mobile number is required.');
-        return false;
-      }
-      if (!/^\d{10}$/.test(form.mobileNumber)) {
-        setStepError('Mobile number must be 10 digits.');
         return false;
       }
       if (!form.city.trim()) {
@@ -271,12 +261,9 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
   const nextPersonalStep = () => {
     if (!validatePersonalStep()) return;
 
-    if (step === 3 && form.hasGraduated) {
-      // If graduated, proceed to biometrics (step 4)
+    if (step === 3) {
+      // Always collect biometrics — backend requires face images for all alumni
       setStep(4 as PersonalStep);
-    } else if (step === 3 && !form.hasGraduated) {
-      // If NOT graduated, complete personal registration
-      handlePersonalComplete();
     } else {
       setStep((s) => (s + 1) as PersonalStep);
     }
@@ -285,11 +272,6 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
   const prevPersonalStep = () => {
     setStepError('');
     setStep((s) => (s - 1) as PersonalStep);
-  };
-
-  const handlePersonalComplete = async () => {
-    // If user hasn't graduated, complete without biometrics
-    onComplete(form);
   };
 
   //  Camera handlers
@@ -337,7 +319,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
       ctx.drawImage(videoRef.current, 0, 0);
 
       const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.9);
-      const isBlurry = await isImageBlurry(dataUrl, FACE_BLUR_THRESHOLD);
+      const isBlurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
 
       if (isBlurry) {
         setStepError('Image too blurry. Please try again.');
@@ -345,7 +327,6 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
         return;
       }
 
-      // Extract face descriptor
       const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
       if (!descriptor) {
         setStepError('Could not detect face. Please try again.');
@@ -353,17 +334,18 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
         return;
       }
 
-      // Convert dataUrl to blob
       const response = await fetch(dataUrl);
       const blob = await response.blob();
 
+      if (shotIndex === 0) {
+        setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+      }
       setPreviews((p) => [...p, dataUrl]);
       setCapturedShots((c) => [...c, blob]);
       setDescriptorSamples((d) => [...d, descriptor]);
       setShotIndex((i) => i + 1);
 
       if (shotIndex === 2) {
-        // All 3 shots captured
         stopCamera();
       }
 
@@ -375,6 +357,17 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
     }
   };
 
+  const retakeAll = () => {
+    setPreviews([]);
+    setCapturedShots([]);
+    setDescriptorSamples([]);
+    setShotIndex(0);
+    setCaptureTime(null);
+    setStepError('');
+    setCheckingBlur(false);
+    void startCamera();
+  };
+
   const handleBiometricSubmit = async () => {
     if (capturedShots.length < 3) {
       setStepError('Please capture all 3 face angles.');
@@ -383,95 +376,21 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
 
     setIsSaving(true);
     try {
-      // Average the descriptors for final biometric template
       const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
-
-      // Prepare multipart form data
-      const payload = new FormData();
-      payload.append('email', form.email);
-      payload.append('password', form.password);
-      payload.append('confirm_password', form.confirmPassword);
-      payload.append('family_name', form.familyName);
-      payload.append('first_name', form.firstName);
-      payload.append('middle_name', form.middleName);
-      payload.append('gender', form.gender);
-      // Format birth_date as YYYY-MM-DD
-      const birthDateFormatted = `${form.birthYear}-${form.birthMonth.padStart(2, '0')}-${form.birthDay.padStart(2, '0')}`;
-      payload.append('birth_date', birthDateFormatted);
-      payload.append('civil_status', form.civilStatus);
-<<<<<<< HEAD
-      payload.append('mobile_country_code', form.mobileCountryCode);
-      payload.append('mobile_number', form.mobileNumber);
-=======
-      payload.append('mobile', form.mobileCountryCode + form.mobile);
-      payload.append('mobile_country_code', form.mobileCountryCode);
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
-      payload.append('facebook_url', form.facebook);
-      payload.append('city', form.city);
-      payload.append('province', form.province);
-      payload.append('graduation_date', form.graduationDate);
-      payload.append('graduation_year', form.graduationYear?.toString() || '');
-      payload.append('scholarship', form.scholarship);
-      payload.append('highest_attainment', form.highestAttainment);
-      payload.append('graduate_school', form.graduateSchool);
-      payload.append('prof_eligibility', form.profEligibility.join(','));
-      payload.append('prof_eligibility_other', form.profEligibilityOther);
-      payload.append('face_descriptor', JSON.stringify(averagedDescriptor));
-      payload.append('face_descriptor_samples', JSON.stringify(descriptorSamples));
-      payload.append('face_front', capturedShots[0], `face_front_${Date.now()}.jpg`);
-      payload.append('face_left', capturedShots[1], `face_left_${Date.now()}.jpg`);
-      payload.append('face_right', capturedShots[2], `face_right_${Date.now()}.jpg`);
-
-      const response = await registerAlumni(payload);
-      sessionStorage.setItem('alumni_user', JSON.stringify(response.alumni));
-
-      // Mark personal registration as complete
-      onComplete(form);
-      setDone(true);
+      const biometricData: BiometricData = {
+        front: capturedShots[0],
+        left: capturedShots[1],
+        right: capturedShots[2],
+        descriptor: averagedDescriptor,
+        descriptorSamples,
+      };
+      await onComplete(form, biometricData);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Registration failed. Please try again.';
-      setStepError(message);
+      setStepError(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
       setIsSaving(false);
     }
   };
-
-  //  Done screen
-  if (done) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <div className="bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
-          <div className="flex size-7 items-center justify-center rounded-lg bg-[#166534]">
-            <GraduationCap className="size-4 text-white" />
-          </div>
-          <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>
-            Alumni Registration - Personal Information
-          </p>
-        </div>
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
-            <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 mx-auto mb-5">
-              <CheckCircle2 className="size-9 text-emerald-500" />
-            </div>
-            <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>
-              Personal Information Verified!
-            </h2>
-            <p className="text-gray-600 text-sm mb-1">Welcome, {form.firstName}!</p>
-            <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
-              Your personal information and biometric verification have been submitted.
-            </p>
-            <button
-              onClick={() => navigate('/alumni/dashboard')}
-              className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition mx-auto"
-              style={{ fontWeight: 600 }}
-            >
-              Go to Dashboard
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   //  Main render
   return (
@@ -662,7 +581,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                   </label>
                   <div className="flex gap-2">
                     {['Male', 'Female'].map((g) => (
-                      <RadioOption key={g} label={g} value={g} current={form.gender} onSelect={(v: string) => setF('gender', v)} />
+                      <RadioOption key={g} label={g} value={g} current={form.gender} onSelect={(v) => setF('gender', v as string)} />
                     ))}
                   </div>
                 </div>
@@ -670,48 +589,14 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Birth Date
+                      Birth Date *
                     </label>
-<<<<<<< HEAD
-                    <div className="flex gap-2">
-                      <select
-                        value={form.birthMonth}
-                        onChange={(e) => setF('birthMonth', e.target.value)}
-                        className={inputCls}
-                      >
-                        <option value="">Month</option>
-                        {Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0')).map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={form.birthDay}
-                        onChange={(e) => setF('birthDay', e.target.value)}
-                        className={inputCls}
-                      >
-                        <option value="">Day</option>
-                        {Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0')).map((d) => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        placeholder="YYYY"
-                        min="1950"
-                        max={new Date().getFullYear()}
-                        value={form.birthYear}
-                        onChange={(e) => setF('birthYear', e.target.value)}
-                        className={inputCls}
-                      />
-                    </div>
-=======
                     <input
                       type="date"
                       value={form.birthDate}
                       onChange={(e) => setF('birthDate', e.target.value)}
                       className={inputCls}
                     />
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
                   </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
@@ -735,18 +620,6 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                     <select
                       value={form.mobileCountryCode}
                       onChange={(e) => setF('mobileCountryCode', e.target.value)}
-<<<<<<< HEAD
-                      className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    >
-                      <option value="+63">+63</option>
-                      <option value="+1">+1</option>
-                      <option value="+44">+44</option>
-                      <option value="+86">+86</option>
-                      <option value="+81">+81</option>
-                      <option value="+65">+65</option>
-                      <option value="+60">+60</option>
-                      <option value="+66">+66</option>
-=======
                       className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
                     >
                       <option value="+63">+63 Philippines</option>
@@ -759,21 +632,14 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                       <option value="+82">+82 Korea</option>
                       <option value="+86">+86 China</option>
                       <option value="+971">+971 UAE</option>
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
                     </select>
                     <div className="relative flex-1">
                       <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                       <input
                         type="tel"
                         placeholder="9XXXXXXXXX"
-<<<<<<< HEAD
-                        maxLength="10"
-                        value={form.mobileNumber}
-                        onChange={(e) => setF('mobileNumber', e.target.value.replace(/\D/g, ''))}
-=======
                         value={form.mobile}
-                        onChange={(e) => setF('mobile', e.target.value)}
->>>>>>> 6771caf016f20b32594230d79b0717e38758bb25
+                        onChange={(e) => setF('mobile', e.target.value.replace(/\D/g, ''))}
                         className={`${inputCls} pl-10`}
                       />
                     </div>
@@ -852,7 +718,7 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                         label={opt.label}
                         value={opt.value}
                         current={form.hasGraduated}
-                        onSelect={(v: boolean) => setF('hasGraduated', v)}
+                        onSelect={(v) => setF('hasGraduated', v as boolean)}
                       />
                     ))}
                   </div>
@@ -895,8 +761,8 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                       </label>
                       <select value={form.highestAttainment} onChange={(e) => setF('highestAttainment', e.target.value)} className={inputCls}>
                         <option value="">Select</option>
-                        <option>Bachelor's Degree</option>
-                        <option>Master's Degree</option>
+                        <option>Bachelor&apos;s Degree</option>
+                        <option>Master&apos;s Degree</option>
                         <option>Doctorate</option>
                       </select>
                     </div>
@@ -946,129 +812,202 @@ export default function RegisterAlumniPersonal({ onComplete }: { onComplete: (fo
                 {!form.hasGraduated && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                     <p className="text-amber-800 text-sm">
-                      <span style={{ fontWeight: 600 }}>Note:</span> Since you haven't graduated yet, you can skip the employment survey. We'll collect your employment
-                      information once you graduate!
+                      <span style={{ fontWeight: 600 }}>Note:</span> Since you haven&apos;t graduated yet, the employment survey will be skipped. Biometric verification is still required for all alumni registrations.
                     </p>
                   </div>
                 )}
               </div>
 
-              <NavButtons onBack={prevPersonalStep} onNext={nextPersonalStep} nextLabel={form.hasGraduated ? 'Verify Identity' : 'Complete'} />
+              <NavButtons onBack={prevPersonalStep} onNext={nextPersonalStep} nextLabel="Verify Identity" />
             </div>
           )}
 
-          {/* STEP 4: Biometric Verification (only if graduated) */}
-          {step === 4 && form.hasGraduated && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
-              <SectionHeader icon={Camera} title="Identity Verification" subtitle="Capture your face from 3 angles for biometric verification." />
+          {/* STEP 4: Biometric Verification (all alumni) */}
+          {step === 4 && (() => {
+            const allCaptured = shotIndex >= 3;
+            return (
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                  <div className="flex items-start gap-3 mb-5">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 shrink-0">
+                      <Camera className="size-5 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Face Capture</h2>
+                      <p className="text-gray-500 text-xs mt-0.5">
+                        Three photos required — facing forward, turning left, and turning right — to prevent identity spoofing.
+                      </p>
+                    </div>
+                  </div>
 
-              {stepError && (
-                <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
-                  <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-red-700 text-sm">{stepError}</p>
-                </div>
-              )}
+                  {stepError && (
+                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+                      <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-red-700 text-xs">{stepError}</p>
+                    </div>
+                  )}
+                  {cameraError && (
+                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+                      <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-red-700 text-xs">{cameraError}</p>
+                    </div>
+                  )}
 
-              {cameraError && (
-                <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
-                  <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-red-700 text-sm">{cameraError}</p>
-                </div>
-              )}
+                  {/* Shot progress tiles */}
+                  <div className="flex gap-2 mb-4">
+                    {SHOT_INSTRUCTIONS.map((s, i) => (
+                      <div key={i} className={`flex-1 rounded-xl border p-2.5 text-center transition ${
+                        previews[i] ? 'border-emerald-200 bg-emerald-50' :
+                        shotIndex === i && cameraOn ? 'border-[#166534] bg-[#166534]/5' :
+                        'border-gray-200 bg-gray-50'
+                      }`}>
+                        <div className={`flex size-6 items-center justify-center rounded-full mx-auto mb-1 ${
+                          previews[i] ? 'bg-emerald-500' :
+                          shotIndex === i && cameraOn ? 'bg-[#166534]' : 'bg-gray-200'
+                        }`}>
+                          {previews[i]
+                            ? <CheckCircle2 className="size-3.5 text-white" />
+                            : <span className="text-white" style={{ fontWeight: 700, fontSize: '0.6rem' }}>{i + 1}</span>}
+                        </div>
+                        <p className={`whitespace-nowrap text-center ${
+                          previews[i] ? 'text-emerald-700' :
+                          shotIndex === i && cameraOn ? 'text-[#166534]' : 'text-gray-400'
+                        }`} style={{ fontWeight: 600, fontSize: '0.6rem' }}>
+                          {s.label}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
 
-              {!cameraOn ? (
-                <div className="space-y-4">
-                  <p className="text-gray-600 text-sm">
-                    We need to capture your face from 3 angles (front, left angle, right angle) to verify your identity. This ensures secure and accurate registration.
-                  </p>
+                  {/* Camera viewport */}
+                  <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center w-full max-w-[400px] mx-auto" style={{ aspectRatio: '4/3', maxHeight: '300px' }}>
+                    {!cameraOn && !allCaptured && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <Camera className="size-12 text-gray-600 mb-2" />
+                        <p className="text-gray-400 text-sm">Camera not started</p>
+                        <p className="text-gray-600 text-xs mt-1">Tap "Start Camera" below</p>
+                      </div>
+                    )}
 
-                  <button
-                    onClick={startCamera}
-                    className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-lg transition text-sm"
-                    style={{ fontWeight: 600 }}
-                  >
-                    <Camera className="size-4" /> Start Camera
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-gray-900 rounded-lg overflow-hidden aspect-video relative">
-                    <video ref={videoRef} className="w-full h-full object-cover" />
+                    <video
+                      ref={videoRef}
+                      className={`absolute inset-0 w-full h-full object-cover object-center ${(!cameraOn || allCaptured) ? 'hidden' : ''}`}
+                      playsInline muted autoPlay
+                    />
                     <canvas ref={canvasRef} className="hidden" />
 
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-32 h-40 border-2 border-emerald-400 rounded-lg relative">
-                        <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
-                        <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
-                        <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
-                        <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
-                      </div>
-                    </div>
-
-                    {shotIndex < 3 && (
-                      <div className="absolute bottom-4 left-4 right-4 bg-black/70 rounded-lg p-3">
-                        <p className="text-white text-xs mb-2" style={{ fontWeight: 600 }}>
-                          {SHOT_INSTRUCTIONS[shotIndex]?.label}
-                        </p>
-                        <p className="text-gray-300 text-xs">{SHOT_INSTRUCTIONS[shotIndex]?.desc}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={stopCamera}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
-                      style={{ fontWeight: 600 }}
-                    >
-                      <VideoOff className="size-4" /> Cancel
-                    </button>
-
-                    {shotIndex < 3 ? (
-                      <button
-                        onClick={captureShot}
-                        disabled={checkingBlur}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white transition text-sm ${
-                          checkingBlur ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600'
-                        }`}
-                        style={{ fontWeight: 600 }}
-                      >
-                        <Camera className="size-4" />
-                        {checkingBlur ? 'Checking...' : 'Capture'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleBiometricSubmit}
-                        disabled={isSaving}
-                        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white transition text-sm ${
-                          isSaving ? 'bg-gray-300 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600'
-                        }`}
-                        style={{ fontWeight: 600 }}
-                      >
-                        <CheckCircle2 className="size-4" />
-                        {isSaving ? 'Submitting...' : 'Complete'}
-                      </button>
-                    )}
-                  </div>
-
-                  {previews.length > 0 && (
-                    <div>
-                      <p className="text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                        Captured {shotIndex} of 3
-                      </p>
-                      <div className="flex gap-2">
+                    {/* All shots captured — 3-column thumbnail grid */}
+                    {allCaptured && (
+                      <div className="absolute inset-0 grid grid-cols-3 gap-0.5">
                         {previews.map((preview, i) => (
-                          <div key={i} className="flex-1 aspect-square rounded-lg overflow-hidden border-2 border-emerald-500">
-                            <img src={preview} alt={`Capture ${i + 1}`} className="w-full h-full object-cover" />
+                          <div key={i} className="relative overflow-hidden">
+                            <img src={preview} alt={`Shot ${i + 1}`} className="w-full h-full object-cover object-center" />
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1.5">
+                              <p className="text-white text-center" style={{ fontWeight: 600, fontSize: '0.55rem' }}>
+                                {SHOT_INSTRUCTIONS[i].label}
+                              </p>
+                            </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Face guide overlay when camera is live */}
+                    {cameraOn && !allCaptured && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <div className="size-32 rounded-full border-2 border-dashed border-white/50" />
+                        <div className="absolute bottom-3 left-0 right-0 flex justify-center">
+                          <div className="bg-black/65 rounded-full px-4 py-1.5">
+                            <p className="text-white text-xs" style={{ fontWeight: 600 }}>
+                              Shot {shotIndex + 1}/3 — {SHOT_INSTRUCTIONS[shotIndex]?.label}: {SHOT_INSTRUCTIONS[shotIndex]?.desc}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Timestamp badge when all captured */}
+                    {captureTime && allCaptured && (
+                      <div className="absolute top-2 right-2 bg-black/60 rounded-lg px-2 py-1">
+                        <span className="text-white text-xs">{captureTime}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Camera controls */}
+                  <div className="flex gap-2">
+                    {!cameraOn && !allCaptured && (
+                      <button onClick={startCamera}
+                        className="flex-1 flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-2.5 rounded-xl text-sm transition"
+                        style={{ fontWeight: 600 }}>
+                        <Video className="size-4" /> Start Camera
+                      </button>
+                    )}
+                    {cameraOn && !allCaptured && (
+                      <>
+                        <button onClick={stopCamera}
+                          className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-600 text-sm transition"
+                          title="Stop camera">
+                          <VideoOff className="size-4" />
+                        </button>
+                        <button onClick={() => { void captureShot(); }}
+                          disabled={checkingBlur}
+                          className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm transition"
+                          style={{ fontWeight: 600 }}>
+                          {checkingBlur
+                            ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity</>
+                            : <><Camera className="size-4" /> Capture {shotIndex + 1}/3 — {SHOT_INSTRUCTIONS[shotIndex]?.label}</>
+                          }
+                        </button>
+                      </>
+                    )}
+                    {allCaptured && (
+                      <button onClick={retakeAll}
+                        className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-600 text-sm transition"
+                        style={{ fontWeight: 500 }}>
+                        <RefreshCw className="size-4" /> Retake All
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Success banner */}
+                  {allCaptured && (
+                    <div className="mt-3 flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
+                      <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
+                      <div>
+                        <p className="text-emerald-700 text-sm" style={{ fontWeight: 600 }}>All 3 biometric shots captured!</p>
+                        {captureTime && <p className="text-emerald-600 text-xs">{captureTime}</p>}
                       </div>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Submit / back row */}
+                <div className="flex gap-3">
+                  <button onClick={prevPersonalStep}
+                    className="flex-1 flex items-center justify-center gap-2 border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl text-sm transition"
+                    style={{ fontWeight: 500 }}>
+                    <ChevronLeft className="size-4" /> Back
+                  </button>
+                  <button onClick={handleBiometricSubmit} disabled={isSaving || !allCaptured}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm transition ${
+                      allCaptured && !isSaving ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                    style={{ fontWeight: 600 }}>
+                    {isSaving
+                      ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Submitting...</>
+                      : 'Continue to Employment Survey →'
+                    }
+                  </button>
+                </div>
+                {!allCaptured && (
+                  <p className="text-center text-gray-400 text-xs">
+                    All 3 face captures (forward, left, right) are required to continue.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
