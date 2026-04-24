@@ -117,13 +117,11 @@ export function AlumniDashboard() {
                 style={{ fontWeight: 600 }}>
                 <UserCircle className="size-3.5" /> Edit Profile
               </button>
-              {isVerified && (
-                <button onClick={() => navigate('/alumni/employment')}
-                  className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs px-3 py-2 rounded-lg transition"
-                  style={{ fontWeight: 600 }}>
-                  <Briefcase className="size-3.5" /> Update Employment
-                </button>
-              )}
+              <button onClick={() => navigate('/alumni/employment')}
+                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs px-3 py-2 rounded-lg transition"
+                style={{ fontWeight: 600 }}>
+                <Briefcase className="size-3.5" /> Update Employment
+              </button>
             </div>
           </div>
         </div>
@@ -200,14 +198,21 @@ export function AlumniDashboard() {
             </h3>
             {isVerified ? (
               <div className="grid grid-cols-2 gap-4">
-                {[
-                  { label: 'Employment Status', value: statusColor.label },
-                  { label: 'Job Title', value: alumni.jobTitle ?? '—' },
-                  { label: 'Company / Organization', value: alumni.company ?? '—' },
-                  { label: 'Industry', value: alumni.industry ?? '—' },
-                  { label: 'Job Alignment', value: alumni.jobAlignment === 'related' ? '✅ Related to BSIS' : alumni.jobAlignment === 'not-related' ? '❌ Not BSIS-related' : '—' },
-                  { label: 'Work Location', value: alumni.workLocation ?? '—' },
-                ].map(row => (
+                {(() => {
+                  const sd = (alumni.surveyData ?? {}) as Record<string, unknown>;
+                  const rawAlignment = alumni.jobAlignment ?? (
+                    sd.currentJobRelated === 'Yes, directly related (IT/IS role)' ? 'related' :
+                    sd.currentJobRelated === 'Not related (different field)' ? 'not-related' : undefined
+                  );
+                  return [
+                    { label: 'Employment Status', value: statusColor.label },
+                    { label: 'Job Title', value: (alumni.jobTitle ?? sd.currentJobPosition ?? '—') as string },
+                    { label: 'Company / Organization', value: (alumni.company ?? sd.currentJobCompany ?? '—') as string },
+                    { label: 'Industry', value: (alumni.industry ?? '—') as string },
+                    { label: 'Job Alignment', value: rawAlignment === 'related' ? '✅ Related to BSIS' : rawAlignment === 'not-related' ? '❌ Not BSIS-related' : '—' },
+                    { label: 'Work Location', value: (alumni.workLocation ?? '—') as string },
+                  ];
+                })().map(row => (
                   <div key={row.label}>
                     <p className="text-gray-400 text-xs mb-0.5">{row.label}</p>
                     <p className="text-gray-800 text-sm" style={{ fontWeight: 500 }}>{row.value}</p>
