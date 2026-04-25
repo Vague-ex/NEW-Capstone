@@ -118,9 +118,33 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
 
     const audio = new Audio('/notification.mp3');
     audio.preload = 'auto';
+    audio.load();
     notificationAudioRef.current = audio;
 
+    // Browsers block audio.play() until the user has interacted with the page.
+    // Unlock the element on the first pointer/key event so subsequent
+    // notification chimes can play without a NotAllowedError.
+    const unlock = () => {
+      audio
+        .play()
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+        })
+        .catch((err) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[notification] unlock blocked:', err);
+          }
+        });
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+
     return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
       notificationAudioRef.current = null;
     };
   }, [role]);
@@ -152,8 +176,10 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
         const previousTotal = lastKnownAdminPendingRef.current;
         if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
           notificationAudioRef.current.currentTime = 0;
-          void notificationAudioRef.current.play().catch(() => {
-            // Browsers may block autoplay until first user interaction.
+          void notificationAudioRef.current.play().catch((err) => {
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('[notification] play failed:', err);
+            }
           });
         }
 

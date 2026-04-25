@@ -6,6 +6,7 @@ from urllib.request import urlopen
 
 from django.core import signing
 from django.db import DatabaseError, OperationalError, transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -430,6 +431,42 @@ _SECTOR_LABELS = {
 }
 
 
+def _alumni_dashboard_queryset(qs):
+    """Apply the prefetches needed by ``_admin_alumni_payload`` /
+    ``_session_payload_from_alumni`` so the normalized-table reads collapse
+    from N+1 queries (one per related table per alumni) to a constant 4
+    additional queries regardless of result-set size.
+    """
+    from tracer.models import CompetencyProfile, EmploymentProfile, WorkAddress
+
+    return qs.select_related("user", "master_record", "profile").prefetch_related(
+        Prefetch(
+            "employment_profiles",
+            queryset=EmploymentProfile.objects.order_by("-updated_at"),
+            to_attr="_prefetched_emp",
+        ),
+        Prefetch(
+            "work_addresses",
+            queryset=WorkAddress.objects.filter(is_current=True).order_by("-created_at"),
+            to_attr="_prefetched_addr",
+        ),
+        Prefetch(
+            "competency_profiles",
+            queryset=CompetencyProfile.objects.order_by("-assessment_date"),
+            to_attr="_prefetched_comp",
+        ),
+    )
+
+
+def _first_prefetched(account, attr):
+    """Return ``account._prefetched_<attr>[0]`` if available, falling back to
+    a single query when the manager wasn't prefetched."""
+    cached = getattr(account, attr, None)
+    if isinstance(cached, list):
+        return cached[0] if cached else None
+    return None
+
+
 def _normalized_view_from_tables(account: AlumniAccount) -> dict:
     """Read EmploymentProfile / CompetencyProfile / WorkAddress / EmploymentRecord
     rows for this alumni and return values formatted in the camelCase shape used
@@ -439,10 +476,12 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
     overlay this dict onto the JSON blob and not have to change downstream code.
     """
     view: dict = {}
-    try:
-        emp = account.employment_profiles.order_by("-updated_at").first()
-    except Exception:
-        emp = None
+    emp = _first_prefetched(account, "_prefetched_emp")
+    if emp is None:
+        try:
+            emp = account.employment_profiles.order_by("-updated_at").first()
+        except Exception:
+            emp = None
     if emp is not None:
         if emp.current_job_title:
             view["currentJobPosition"] = emp.current_job_title
@@ -472,10 +511,12 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
         elif emp.current_job_related_to_bsis is False:
             view["currentJobRelated"] = "Not related (different field)"
 
-    try:
-        addr = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
-    except Exception:
-        addr = None
+    addr = _first_prefetched(account, "_prefetched_addr")
+    if addr is None:
+        try:
+            addr = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
+        except Exception:
+            addr = None
     if addr is not None:
         view["city_municipality"] = addr.city_municipality
         view["country_address"] = addr.country
@@ -494,10 +535,12 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
                 else "Local (Philippines)"
             )
 
-    try:
-        comp = account.competency_profiles.order_by("-assessment_date").first()
-    except Exception:
-        comp = None
+    comp = _first_prefetched(account, "_prefetched_comp")
+    if comp is None:
+        try:
+            comp = account.competency_profiles.order_by("-assessment_date").first()
+        except Exception:
+            comp = None
     if comp is not None:
         tech = [s.get("name") for s in (comp.technical_skills or []) if isinstance(s, dict) and s.get("selected")]
         soft = [s.get("name") for s in (comp.soft_skills or []) if isinstance(s, dict) and s.get("selected")]
@@ -657,10 +700,12 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
 
     # Prefer the WorkAddress lat/lng (entered/saved per Part VII of the survey)
     # over the GPS capture meta from registration.
-    try:
-        addr_row = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
-    except Exception:
-        addr_row = None
+    addr_row = _first_prefetched(account, "_prefetched_addr")
+    if addr_row is None:
+        try:
+            addr_row = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
+        except Exception:
+            addr_row = None
     if addr_row is not None:
         if addr_row.latitude is not None:
             lat = addr_row.latitude
@@ -1390,8 +1435,8 @@ class PendingAlumniListView(APIView):
 
     def get(self, request):
         try:
-            pending_accounts = AlumniAccount.objects.select_related("user", "master_record").filter(
-                account_status=AccountStatus.PENDING
+            pending_accounts = _alumni_dashboard_queryset(
+                AlumniAccount.objects.filter(account_status=AccountStatus.PENDING)
             ).order_by("-created_at")
             results = [_pending_alumni_payload(account) for account in pending_accounts]
         except (OperationalError, DatabaseError):
@@ -1413,8 +1458,8 @@ class VerifiedAlumniListView(APIView):
 
     def get(self, request):
         try:
-            verified_accounts = AlumniAccount.objects.select_related("user", "master_record").filter(
-                account_status=AccountStatus.ACTIVE
+            verified_accounts = _alumni_dashboard_queryset(
+                AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
             ).order_by("-updated_at")
             results = [_admin_alumni_payload(account) for account in verified_accounts]
         except (OperationalError, DatabaseError):
