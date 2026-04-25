@@ -3,7 +3,6 @@ from django.urls import path
 from .api import (
     AdminAnalyticsPredictionsView,
     ComprehensiveSurveySubmissionView,
-    DataQualityReportView,
     EmployerVerifiableGraduateListView,
     IndustryDetailView,
     IndustryListView,
@@ -21,6 +20,15 @@ from .api import (
     VerificationTokenDecisionView,
     VerificationTokenDetailView,
     VerificationTokenIssueView,
+)
+from .reports_api import (
+    AcademicEmploymentReportView,
+    CohortSummaryReportView,
+    DataQualityReportView,
+    EmploymentOutcomesReportView,
+    GeographicDistributionReportView,
+    PredictiveTrendReportView,
+    SkillsInventoryReportView,
 )
 
 urlpatterns = [
@@ -68,5 +76,13 @@ urlpatterns = [
     # Admin analytics endpoints (Phase 3)
     path("admin/analytics/employability-predictions/", AdminAnalyticsPredictionsView.as_view(), name="admin-predictions"),
     path("admin/analytics/export-training-data/", TrainingDataExportView.as_view(), name="admin-export-training"),
-    path("admin/analytics/data-quality-report/", DataQualityReportView.as_view(), name="admin-quality-report"),
+
+    # Admin report-data endpoints (powering admin-reports.tsx)
+    path("admin/reports/cohort-summary/", CohortSummaryReportView.as_view(), name="admin-report-cohort-summary"),
+    path("admin/reports/employment-outcomes/", EmploymentOutcomesReportView.as_view(), name="admin-report-employment-outcomes"),
+    path("admin/reports/skills-inventory/", SkillsInventoryReportView.as_view(), name="admin-report-skills-inventory"),
+    path("admin/reports/geographic-distribution/", GeographicDistributionReportView.as_view(), name="admin-report-geographic"),
+    path("admin/reports/academic-employment/", AcademicEmploymentReportView.as_view(), name="admin-report-academic-employment"),
+    path("admin/reports/data-quality/", DataQualityReportView.as_view(), name="admin-report-data-quality"),
+    path("admin/reports/predictive-trend/", PredictiveTrendReportView.as_view(), name="admin-report-predictive-trend"),
 ]

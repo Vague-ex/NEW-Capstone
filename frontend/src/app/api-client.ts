@@ -487,3 +487,44 @@ export async function fetchAnalyticsPredictions(
     await throwIfNotOk(response);
     return response.json();
 }
+
+
+export interface ReportSection {
+    title: string;
+    columns: string[];
+    rows: (string | number | null)[][];
+}
+
+export interface ReportPayload {
+    title: string;
+    generated_at: string;
+    filters: {
+        cohort_start: number;
+        cohort_end: number;
+        include_unverified: boolean;
+    };
+    sections: ReportSection[];
+}
+
+export interface ReportFilters {
+    cohortStart: number;
+    cohortEnd: number;
+    includeUnverified: boolean;
+}
+
+export async function fetchReport(
+    endpointSlug: string,
+    filters: ReportFilters,
+): Promise<ReportPayload> {
+    const params = new URLSearchParams({
+        cohort_start: String(filters.cohortStart),
+        cohort_end: String(filters.cohortEnd),
+        include_unverified: String(filters.includeUnverified),
+    });
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/reports/${endpointSlug}/?${params.toString()}`,
+        { headers: withAdminAuthHeaders() },
+    );
+    await throwIfNotOk(response);
+    return response.json();
+}
