@@ -41,7 +41,7 @@ export function EmployerPending() {
             <div className="space-y-3">
               {[
                 { label: 'Application submitted', done: true, desc: 'Your company information was received' },
-                { label: 'Under Program Chair review', done: false, desc: 'Being reviewed by CHMSU BSIS Program Chair', active: true },
+                { label: 'Under BSIS Admin review', done: false, desc: 'Being reviewed by CHMSU BSIS BSIS Admin', active: true },
                 { label: 'Access granted', done: false, desc: 'You will receive an email confirmation' },
               ].map((step, i) => (
                 <div key={i} className="flex gap-3">
@@ -71,7 +71,7 @@ export function EmployerPending() {
                 <div>
                   <p className="text-green-800 text-sm" style={{ fontWeight: 600 }}>What happens next?</p>
                   <p className="text-green-700 text-xs mt-0.5 leading-relaxed">
-                    The Program Chair will review your application within 2–3 business days.
+                    The BSIS Admin will review your application within 2–3 business days.
                     Once approved, you can log in to access the Employer Dashboard.
                     Contact the CHMSU BSIS department if you have urgent queries.
                   </p>

@@ -443,3 +443,47 @@ export async function reviewEmployerRequest(
     const data = await response.json();
     return { employer: data?.employer ?? data };
 }
+
+// ---------------------------------------------------------------------------
+// Analytics — Employability Predictions
+// ---------------------------------------------------------------------------
+
+export interface CohortPrediction {
+    cohort: number;
+    n_alumni: number;
+    actual_employment_rate: number;
+    predicted_employment_rate: number;
+    actual_mean_time_to_hire_months: number;
+    predicted_mean_time_to_hire_months: number;
+    actual_bsis_first_rate: number;
+    predicted_bsis_first_rate: number;
+    actual_bsis_current_rate: number;
+    predicted_bsis_current_rate: number;
+    time_to_hire_distribution: Record<string, number>;
+}
+
+export interface AnalyticsPredictionsResponse {
+    cohort: number | null;
+    overall: Omit<CohortPrediction, 'cohort'> & { cohort?: number };
+    per_cohort: CohortPrediction[];
+    model_metadata: {
+        trained_at: string;
+        n_samples: number;
+        n_features: number;
+        best_models: Record<string, string>;
+        targets: Record<string, { best_model: string; metrics: Record<string, unknown> }>;
+    };
+    timestamp: string;
+}
+
+export async function fetchAnalyticsPredictions(
+    cohort?: number,
+): Promise<AnalyticsPredictionsResponse> {
+    const qs = cohort != null ? `?cohort=${cohort}` : '';
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/analytics/employability-predictions/${qs}`,
+        { headers: withAdminAuthHeaders() },
+    );
+    await throwIfNotOk(response);
+    return response.json();
+}

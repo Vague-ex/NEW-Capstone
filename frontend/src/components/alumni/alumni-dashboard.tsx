@@ -131,9 +131,9 @@ export function AlumniDashboard() {
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
             <Clock className="size-5 text-amber-500 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>Awaiting Program Chair Verification</p>
+              <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>Awaiting BSIS Admin Verification</p>
               <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
-                Your account is being reviewed. The Program Chair will verify your identity and biometric submission.
+                Your account is being reviewed. The BSIS Admin will verify your identity and biometric submission.
                 Once approved, your Employment Details section will be unlocked.
               </p>
             </div>
@@ -156,7 +156,7 @@ export function AlumniDashboard() {
           <StatCard
             label="Verification Status"
             value={isVerified ? 'Verified' : 'Pending'}
-            sub={isVerified ? 'Program Chair approved' : 'Awaiting review'}
+            sub={isVerified ? 'BSIS Admin approved' : 'Awaiting review'}
             icon={isVerified ? CheckCircle2 : Clock}
             iconBg={isVerified ? 'bg-emerald-50' : 'bg-amber-50'}
             iconColor={isVerified ? 'text-emerald-600' : 'text-amber-600'}
@@ -224,7 +224,7 @@ export function AlumniDashboard() {
                 <Lock className="size-10 text-gray-300 mb-3" />
                 <p className="text-gray-500 text-sm" style={{ fontWeight: 600 }}>Locked until verified</p>
                 <p className="text-gray-400 text-xs mt-1 max-w-xs">
-                  Employment details will be available once the Program Chair verifies your account.
+                  Employment details will be available once the BSIS Admin verifies your account.
                 </p>
               </div>
             )}

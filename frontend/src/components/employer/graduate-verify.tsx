@@ -499,7 +499,7 @@ export function GraduateVerify() {
                   <XCircle className="size-8 text-red-300 mx-auto mb-2" />
                   <p className="text-gray-700 text-sm" style={{ fontWeight: 600 }}>No graduate found</p>
                   <p className="text-gray-400 text-xs mt-1">
-                    No BSIS graduate matches "{searchName}". Check the spelling or contact the CHMSU Program Chair.
+                    No BSIS graduate matches "{searchName}". Check the spelling or contact the CHMSU BSIS Admin.
                   </p>
                 </div>
               ) : (
@@ -540,7 +540,7 @@ export function GraduateVerify() {
                       <p className="text-gray-500 text-xs">BSIS Batch {selectedGraduate.graduationYear} · CHMSU Talisay</p>
                       {selectedGraduate.verificationStatus === 'verified' && (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700 mt-1" style={{ fontWeight: 500 }}>
-                          <CheckCircle2 className="size-3.5" /> Identity Verified by Program Chair
+                          <CheckCircle2 className="size-3.5" /> Identity Verified by BSIS Admin
                         </span>
                       )}
                     </div>
@@ -614,7 +614,7 @@ export function GraduateVerify() {
                 )}
                 <p className="text-gray-400 text-xs bg-gray-50 rounded-lg px-3 py-2 flex items-start gap-1.5">
                   <AlertTriangle className="size-3.5 text-gray-400 shrink-0 mt-0.5" />
-                  Disclosure limited to employment status. Full records protected under RA 10173. Contact CHMSU BSIS Program Chair for official documentation.
+                  Disclosure limited to employment status. Full records protected under RA 10173. Contact CHMSU BSIS BSIS Admin for official documentation.
                 </p>
               </div>
             </div>

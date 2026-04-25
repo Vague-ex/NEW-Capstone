@@ -1278,64 +1278,149 @@ class SurveyDataRetrievalView(APIView):
 
 # ── Admin Analytics - Employability Predictions ────────────────────────────────
 
+_ML_CACHE: dict = {}
+
+
+def _load_ml_artifacts():
+    """Lazy-load joblib models + processed population CSV. Only successful loads are cached."""
+    if _ML_CACHE and "models" in _ML_CACHE:
+        return _ML_CACHE
+    import traceback
+    try:
+        from pathlib import Path
+        import json as _json
+        import joblib
+        import pandas as pd
+
+        root = Path(__file__).resolve().parents[2] / "EyeOfTheTiger"
+        models = joblib.load(root / "models" / "employability_model.joblib")
+        scaler = joblib.load(root / "models" / "feature_scaler.joblib")
+        with (root / "models" / "model_metadata.json").open("r", encoding="utf-8") as f:
+            meta = _json.load(f)
+        df = pd.read_csv(root / "data" / "processed_training_data.csv")
+
+        _ML_CACHE.clear()
+        _ML_CACHE.update({
+            "models": models, "scaler": scaler, "meta": meta,
+            "df": df, "features": meta["features"],
+            "source_path": str(root),
+        })
+        return _ML_CACHE
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
+
+
+def _aggregate_for_cohort(artifacts: dict, cohort: int | None) -> dict:
+    import numpy as np
+    df = artifacts["df"]
+    subset = df if cohort is None else df[df["cohort"] == cohort]
+    if subset.empty:
+        return {"n_alumni": 0}
+
+    feats = artifacts["features"]
+    X = artifacts["scaler"].transform(subset[feats])
+    models = artifacts["models"]
+
+    pred_emp = models["employment_status"].predict(X).astype(int)
+    pred_first = models["bsis_related_first_job"].predict(X).astype(int)
+    pred_curr = models["bsis_related_current_job"].predict(X).astype(int)
+    pred_tth = models["time_to_hire"].predict(X)
+
+    actual_emp = subset["employment_status"].astype(int).to_numpy()
+    actual_first = subset["bsis_related_job_first"].dropna().astype(int)
+    actual_curr = subset["bsis_related_job_current"].dropna().astype(int)
+    actual_tth = subset["time_to_hire_months"].dropna().to_numpy()
+
+    buckets = {"1-3 months": 0, "3-6 months": 0, "6-12 months": 0, ">12 months": 0}
+    for t in pred_tth:
+        if t < 3:
+            buckets["1-3 months"] += 1
+        elif t < 6:
+            buckets["3-6 months"] += 1
+        elif t < 12:
+            buckets["6-12 months"] += 1
+        else:
+            buckets[">12 months"] += 1
+
+    return {
+        "n_alumni": int(len(subset)),
+        "actual_employment_rate": float(actual_emp.mean()) if len(actual_emp) else 0.0,
+        "predicted_employment_rate": float(pred_emp.mean()),
+        "actual_mean_time_to_hire_months": float(actual_tth.mean()) if len(actual_tth) else 0.0,
+        "predicted_mean_time_to_hire_months": float(np.mean(pred_tth)),
+        "actual_bsis_first_rate": float(actual_first.mean()) if len(actual_first) else 0.0,
+        "predicted_bsis_first_rate": float(pred_first.mean()),
+        "actual_bsis_current_rate": float(actual_curr.mean()) if len(actual_curr) else 0.0,
+        "predicted_bsis_current_rate": float(pred_curr.mean()),
+        "time_to_hire_distribution": buckets,
+    }
+
+
 class AdminAnalyticsPredictionsView(APIView):
     """
-    GET /api/admin/analytics/employability-predictions/
+    GET /api/admin/analytics/employability-predictions/?cohort=YYYY
 
-    Retrieve model predictions for target cohort (admin only)
-    Note: Model predictions are stubbed until ML models are trained
+    Returns aggregate model predictions. If ?cohort is omitted, returns
+    per-cohort breakdown across the full trained population.
     """
 
     permission_classes = []  # Admin only - set in middleware
 
     def get(self, request):
-        """Get employability predictions for cohort"""
-        cohort = request.query_params.get('cohort')
-        batch_size = request.query_params.get('batch_size')
+        cohort_param = request.query_params.get("cohort")
+        cohort = None
+        if cohort_param:
+            try:
+                cohort = int(cohort_param)
+            except ValueError:
+                return Response({"error": "cohort must be integer"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not cohort:
+        artifacts = _load_ml_artifacts()
+        if "error" in artifacts:
+            import logging
+            logging.getLogger(__name__).error(
+                "ML artifacts failed to load: %s\n%s",
+                artifacts["error"],
+                artifacts.get("traceback", ""),
+            )
             return Response(
-                {'error': 'cohort parameter required'},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "error": "ML artifacts unavailable",
+                    "detail": artifacts["error"],
+                    "traceback": artifacts.get("traceback"),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        try:
-            cohort = int(cohort)
-        except ValueError:
-            return Response(
-                {'error': 'cohort must be integer'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        overall = _aggregate_for_cohort(artifacts, cohort)
+        per_cohort = []
+        for c in sorted(artifacts["df"]["cohort"].unique().tolist()):
+            entry = _aggregate_for_cohort(artifacts, int(c))
+            entry["cohort"] = int(c)
+            per_cohort.append(entry)
 
-        # Stub response - will integrate with actual model after training
-        response_data = {
-            'cohort': cohort,
-            'sample_size': 0,  # Will be populated when model is deployed
-            'employment_rate_percent': 0.0,
-            'avg_time_to_hire_months': 0.0,
-            'time_to_hire_distribution': {
-                '1-3 months': 0,
-                '3-6 months': 0,
-                '6-12 months': 0,
-                '>12 months': 0
-            },
-            'top_technical_skills': [],
-            'top_soft_skills': [],
-            'bsis_alignment_rate_first_job': 0.0,
-            'bsis_alignment_rate_current': 0.0,
-            'confidence_intervals': {
-                'employment_rate': {'lower': 0.0, 'upper': 0.0},
-                'time_to_hire': {'lower': 0.0, 'upper': 0.0}
-            },
-            'model_metadata': {
-                'trained_date': None,
-                'model_version': '1.0-stub',
-                'status': 'pending_training'
-            },
-            'timestamp': timezone.now().isoformat()
-        }
+        meta = artifacts["meta"]
+        best = {k: v.get("best_model") for k, v in meta.get("targets", {}).items()}
 
-        return Response(response_data, status=status.HTTP_200_OK)
+        return Response({
+            "cohort": cohort,
+            "overall": overall,
+            "per_cohort": per_cohort,
+            "model_metadata": {
+                "trained_at": meta.get("trained_at"),
+                "n_samples": meta.get("n_samples"),
+                "n_features": meta.get("n_features"),
+                "best_models": best,
+                "targets": {
+                    k: {
+                        "best_model": v.get("best_model"),
+                        "metrics": v.get("candidates", {}).get(v.get("best_model"), {}),
+                    }
+                    for k, v in meta.get("targets", {}).items()
+                },
+            },
+            "timestamp": timezone.now().isoformat(),
+        }, status=status.HTTP_200_OK)
 
 
 # ── Data Export for Model Training ────────────────────────────────────────────

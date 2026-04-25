@@ -5,7 +5,7 @@ import { updateAlumniEmployment } from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
-  MapPin, AlertTriangle, BookOpen, Star, Plus, X, Info, Award,
+  MapPin, AlertTriangle, BookOpen,
 } from 'lucide-react';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
@@ -63,34 +63,6 @@ function SectionCard({ icon: Icon, title, children }: { icon: React.ElementType;
 const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const BSIS_CORE_SKILLS = [
-  'Programming/Software Development',
-  'Database Management',
-  'Network Administration',
-  'Business Process Analysis',
-  'Project Management',
-  'Technical Support / Troubleshooting',
-  'Data Analytics',
-  'Web Development',
-  'System Analysis and Design',
-  'Communication Skills (Oral/Written)',
-  'Teamwork/Collaboration',
-  'Problem-solving / Critical Thinking',
-];
-
-const ADDITIONAL_CATEGORIES: Record<string, string[]> = {
-  'Web Development': ['HTML/CSS', 'React', 'Vue.js', 'Angular', 'Next.js', 'Tailwind CSS', 'Bootstrap', 'JavaScript', 'TypeScript'],
-  'Backend': ['Node.js', 'Laravel', 'Django', 'Spring Boot', '.NET / C#', 'PHP', 'Python', 'Java', 'Express.js'],
-  'Mobile': ['Flutter / Dart', 'React Native', 'Android (Java)', 'iOS / Swift', 'Kotlin'],
-  'Database': ['MySQL', 'PostgreSQL', 'MongoDB', 'Oracle DB', 'SQL Server', 'Redis', 'Firebase'],
-  'Cloud & DevOps': ['AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'CI/CD', 'Git / GitHub'],
-  'Data & AI': ['Python (Data)', 'Machine Learning', 'Data Analysis', 'Tableau', 'Power BI', 'TensorFlow', 'SQL'],
-  'Cybersecurity': ['Network Security', 'Penetration Testing', 'SOC', 'SIEM', 'Ethical Hacking', 'Firewall'],
-  'Project Mgmt Tools': ['Agile / Scrum', 'JIRA', 'Trello', 'PMP', 'Risk Management', 'Confluence'],
-  'Design': ['UI/UX Design', 'Figma', 'Adobe XD', 'Photoshop', 'Canva'],
-  'Networking': ['Cisco Networking', 'CCNA', 'Network Admin', 'Linux', 'VPN', 'OSPF'],
-};
 
 const EMPLOYMENT_STATUS_OPTIONS = [
   { value: 'employed_full_time', label: 'Yes, full-time' },
@@ -172,31 +144,12 @@ export function AlumniEmployment() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [employerLinkStatus, setEmployerLinkStatus] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   const employerPortalLink = typeof window === 'undefined' ? '/employer' : `${window.location.origin}/employer`;
 
   const setF = (key: string, value: string) => {
     setSaved(false); setSaveError('');
     setForm(f => ({ ...f, [key]: value }));
-  };
-
-  const toggleSkill = (field: 'technical_skills' | 'soft_skills', value: string) => {
-    setSaved(false); setSaveError('');
-    setForm(f => {
-      const arr = f[field];
-      return { ...f, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
-    });
-  };
-
-  const removeSkill = (skill: string) => {
-    setSaved(false); setSaveError('');
-    const allAdditional = Object.values(ADDITIONAL_CATEGORIES).flat();
-    if (BSIS_CORE_SKILLS.includes(skill) || allAdditional.includes(skill)) {
-      setForm(f => ({ ...f, technical_skills: f.technical_skills.filter(s => s !== skill) }));
-    } else {
-      setForm(f => ({ ...f, soft_skills: f.soft_skills.filter(s => s !== skill) }));
-    }
   };
 
   const handleShareLink = async () => {
@@ -290,7 +243,7 @@ export function AlumniEmployment() {
               <p className="text-amber-800 text-sm" style={{ fontWeight: 700 }}>Account pending verification</p>
               <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
                 You can update and save your employment data at any time. Your information will{' '}
-                <span style={{ fontWeight: 700 }}>not appear in analytics</span> until the Program Chair approves your account.
+                <span style={{ fontWeight: 700 }}>not appear in analytics</span> until the BSIS Admin approves your account.
               </p>
             </div>
           </div>
@@ -659,133 +612,9 @@ export function AlumniEmployment() {
             </SectionCard>
           )}
 
-          {/* ── Section 9: Skills ─────────────────────────────────────────────── */}
-
-          {/* Skills header banner */}
-          <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-5 text-white">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-white/20 shrink-0">
-                <Award className="size-5 text-white" />
-              </div>
-              <div>
-                <h3 className="text-white" style={{ fontWeight: 700 }}>Part VIII — Competency &amp; Skills Assessment</h3>
-                <p className="text-green-100 text-sm mt-0.5">
-                  Based on the CHED Graduate Tracer Survey — select all skills you actively use in your current employment.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* BSIS Core Skills */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-start justify-between mb-2">
-              <h3 className="text-gray-800" style={{ fontWeight: 700 }}>BSIS Program Skills — Skills Utilized</h3>
-              <span className="text-xs text-[#166534] bg-[#166534]/10 px-2.5 py-1 rounded-full shrink-0 ml-2" style={{ fontWeight: 600 }}>
-                {form.technical_skills.filter(s => BSIS_CORE_SKILLS.includes(s)).length}/{BSIS_CORE_SKILLS.length}
-              </span>
-            </div>
-            <div className="flex items-start gap-2 mb-5 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
-              <Info className="size-4 text-blue-500 shrink-0 mt-0.5" />
-              <p className="text-blue-700 text-xs">
-                Check <span style={{ fontWeight: 600 }}>all BSIS program skills</span> that you actively use in your current employment.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {BSIS_CORE_SKILLS.map(skill => {
-                const checked = form.technical_skills.includes(skill);
-                return (
-                  <button key={skill} type="button" onClick={() => toggleSkill('technical_skills', skill)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition ${checked ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534]/30 hover:bg-green-50/50'}`}>
-                    <div className={`size-5 rounded border-2 flex items-center justify-center shrink-0 transition ${checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'}`}>
-                      {checked && <svg className="size-3 text-white" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                    </div>
-                    <span className="text-sm" style={{ fontWeight: checked ? 600 : 400 }}>{skill}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Additional Technical Skills — Category Browser */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-start justify-between mb-1">
-              <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Additional Technical Skills</h3>
-              {form.technical_skills.filter(s => !BSIS_CORE_SKILLS.includes(s)).length > 0 && (
-                <span className="text-xs text-[#166534] bg-[#166534]/10 px-2.5 py-1 rounded-full shrink-0 ml-2" style={{ fontWeight: 600 }}>
-                  {form.technical_skills.filter(s => !BSIS_CORE_SKILLS.includes(s)).length} selected
-                </span>
-              )}
-            </div>
-            <p className="text-gray-500 text-xs mb-4">Browse categories for specific frameworks, tools, and certifications.</p>
-            <div className="flex flex-wrap gap-2 mb-4">
-              {Object.keys(ADDITIONAL_CATEGORIES).map(cat => (
-                <button key={cat} type="button"
-                  onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                  className={`px-3 py-1.5 rounded-full text-xs border transition ${activeCategory === cat ? 'bg-[#166534] border-[#166534] text-white' : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
-                  style={{ fontWeight: activeCategory === cat ? 600 : 400 }}>
-                  {cat}
-                </button>
-              ))}
-            </div>
-            {activeCategory ? (
-              <div>
-                <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>{activeCategory}</p>
-                <div className="flex flex-wrap gap-2">
-                  {ADDITIONAL_CATEGORIES[activeCategory].map(skill => {
-                    const isSelected = form.technical_skills.includes(skill);
-                    return (
-                      <button key={skill} type="button" onClick={() => toggleSkill('technical_skills', skill)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${isSelected ? 'bg-[#166534] border-[#166534] text-white' : 'border-gray-200 text-gray-700 hover:border-[#166534]/30 hover:bg-green-50'}`}
-                        style={{ fontWeight: isSelected ? 600 : 400 }}>
-                        {isSelected ? <X className="size-3" /> : <Plus className="size-3" />}
-                        {skill}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <p className="text-gray-400 text-sm text-center py-4">Click a category above to browse and add skills</p>
-            )}
-            {form.technical_skills.filter(s => !BSIS_CORE_SKILLS.includes(s)).length > 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-gray-500 text-xs mb-2" style={{ fontWeight: 600 }}>Your additional skills</p>
-                <div className="flex flex-wrap gap-2">
-                  {form.technical_skills.filter(s => !BSIS_CORE_SKILLS.includes(s)).map(skill => (
-                    <span key={skill} className="inline-flex items-center gap-1.5 bg-[#166534] text-white text-xs px-3 py-1.5 rounded-full" style={{ fontWeight: 500 }}>
-                      {skill}
-                      <button type="button" onClick={() => removeSkill(skill)} className="hover:text-red-300 transition ml-0.5">
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* All Selected Technical Skills Summary */}
-          {form.technical_skills.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h3 className="text-gray-800 mb-3" style={{ fontWeight: 700 }}>
-                All Selected Technical Skills
-                <span className="text-gray-400 text-sm ml-2" style={{ fontWeight: 400 }}>({form.technical_skills.length})</span>
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {form.technical_skills.map(skill => (
-                  <span key={skill} className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-full" style={{ fontWeight: 500 }}>
-                    {skill}
-                    <button type="button" onClick={() => removeSkill(skill)} className="hover:text-red-500 transition ml-0.5">
-                      <X className="size-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <p className="text-gray-400 text-xs mt-3">
-                Soft skills are now managed on the <span style={{ fontWeight: 600 }}>My Skills</span> page.
-              </p>
-            </div>
-          )}
+          {/* ── Skills moved to "My Skills" page ──────────────────────────────
+              Part VIII (Competency & Skills Assessment) lives on alumni-skills.tsx.
+              Removed from this page so each form has a single concern. */}
 
           {/* Professional Certifications */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

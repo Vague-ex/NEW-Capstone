@@ -67,7 +67,7 @@ const ROLE_CONFIG = {
     accent: 'bg-lime-500',
     logoutPath: '/',
     sessionKey: 'admin_authenticated',
-    username: 'Program Chair',
+    username: 'BSIS Admin',
     subtitle: 'CHMSU BSIS · Admin',
   },
 };

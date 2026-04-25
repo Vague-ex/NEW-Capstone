@@ -423,12 +423,114 @@ def _verify_login_face(reference_urls: list[str], login_scan_bytes: bytes) -> tu
     return True, "Face verification passed.", best_score
 
 
+_SECTOR_LABELS = {
+    "government": "Government",
+    "private": "Private",
+    "entrepreneurial": "Entrepreneurial / Freelance / Self-Employed",
+}
+
+
+def _normalized_view_from_tables(account: AlumniAccount) -> dict:
+    """Read EmploymentProfile / CompetencyProfile / WorkAddress / EmploymentRecord
+    rows for this alumni and return values formatted in the camelCase shape used
+    by the rest of the payload helpers. Returns an empty dict when no rows exist.
+
+    The keys here intentionally mirror the survey_data blob keys so callers can
+    overlay this dict onto the JSON blob and not have to change downstream code.
+    """
+    view: dict = {}
+    try:
+        emp = account.employment_profiles.order_by("-updated_at").first()
+    except Exception:
+        emp = None
+    if emp is not None:
+        if emp.current_job_title:
+            view["currentJobPosition"] = emp.current_job_title
+        if emp.first_job_title:
+            view["firstJobTitle"] = emp.first_job_title
+        if emp.current_job_company:
+            view["currentJobCompany"] = emp.current_job_company
+        if emp.current_job_sector:
+            view["currentJobSector"] = _SECTOR_LABELS.get(
+                emp.current_job_sector, emp.current_job_sector
+            )
+        if emp.first_job_sector:
+            view["firstJobSector"] = _SECTOR_LABELS.get(
+                emp.first_job_sector, emp.first_job_sector
+            )
+        if emp.employment_status:
+            view["employment_status"] = emp.employment_status
+        if emp.time_to_hire_raw:
+            view["timeToHire"] = emp.time_to_hire_raw
+        if emp.location_type is not None:
+            view["currentJobLocation"] = (
+                "Local (Philippines)" if emp.location_type
+                else "Abroad / Remote Foreign Employer"
+            )
+        if emp.current_job_related_to_bsis is True:
+            view["currentJobRelated"] = "Yes, directly related (IT/IS role)"
+        elif emp.current_job_related_to_bsis is False:
+            view["currentJobRelated"] = "Not related (different field)"
+
+    try:
+        addr = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
+    except Exception:
+        addr = None
+    if addr is not None:
+        view["city_municipality"] = addr.city_municipality
+        view["country_address"] = addr.country
+        view["region_address"] = addr.region
+        if addr.barangay:
+            view["barangay"] = addr.barangay
+        if addr.zip_code:
+            view["zip_code"] = addr.zip_code
+        if addr.street_address:
+            view["street_address"] = addr.street_address
+        # Surface the work-location label using city + country (used by admin map)
+        if not view.get("currentJobLocation"):
+            view["currentJobLocation"] = (
+                "Abroad / Remote Foreign Employer"
+                if (addr.country and addr.country.lower() not in {"philippines", "ph"})
+                else "Local (Philippines)"
+            )
+
+    try:
+        comp = account.competency_profiles.order_by("-assessment_date").first()
+    except Exception:
+        comp = None
+    if comp is not None:
+        tech = [s.get("name") for s in (comp.technical_skills or []) if isinstance(s, dict) and s.get("selected")]
+        soft = [s.get("name") for s in (comp.soft_skills or []) if isinstance(s, dict) and s.get("selected")]
+        if tech:
+            view["technical_skills"] = tech
+            view["skills"] = tech
+        if soft:
+            view["soft_skills"] = soft
+
+    return view
+
+
+def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
+    """Overlay normalized-table values on top of the legacy JSON blob.
+
+    Tables win whenever they have a value; otherwise blob values are preserved
+    so alumni who haven't re-saved since the dual-write rollout still render."""
+    base = dict(survey_data) if isinstance(survey_data, dict) else {}
+    overlay = _normalized_view_from_tables(account)
+    for key, value in overlay.items():
+        if value not in (None, "", []):
+            base[key] = value
+    return base
+
+
 def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
-    survey_data = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
-    if not isinstance(survey_data, dict):
-        survey_data = {}
+    survey_data_blob = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
+    if not isinstance(survey_data_blob, dict):
+        survey_data_blob = {}
+    # Tables are now the source of truth — overlay them on the legacy blob.
+    survey_data = _merge_survey_view(survey_data_blob, account)
 
     graduation_year = profile.get("graduation_year") or (
         account.master_record.batch_year if account.master_record else date.today().year
@@ -492,9 +594,11 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
 def _admin_alumni_payload(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
-    survey_data = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
-    if not isinstance(survey_data, dict):
-        survey_data = {}
+    survey_data_blob = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
+    if not isinstance(survey_data_blob, dict):
+        survey_data_blob = {}
+    # Tables are now the source of truth — overlay them on the legacy blob.
+    survey_data = _merge_survey_view(survey_data_blob, account)
     capture_meta = template.get("capture_meta", {}) if isinstance(template, dict) else {}
     gps = capture_meta.get("gps", {}) if isinstance(capture_meta, dict) else {}
     registration_scans_raw = template.get("registration_face_scans", {}) if isinstance(template, dict) else {}
@@ -550,6 +654,18 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
             lng = float(lng_raw)
     except (TypeError, ValueError):
         lng = None
+
+    # Prefer the WorkAddress lat/lng (entered/saved per Part VII of the survey)
+    # over the GPS capture meta from registration.
+    try:
+        addr_row = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
+    except Exception:
+        addr_row = None
+    if addr_row is not None:
+        if addr_row.latitude is not None:
+            lat = addr_row.latitude
+        if addr_row.longitude is not None:
+            lng = addr_row.longitude
 
     if account.account_status == AccountStatus.ACTIVE:
         verification_status = "verified"
@@ -1222,6 +1338,17 @@ class AlumniEmploymentUpdateView(APIView):
 
         alumni_account.biometric_template = json.dumps(template)
         alumni_account.save(update_fields=["biometric_template", "updated_at"])
+
+        # Mirror the blob into the normalized tables so analytics, reports,
+        # and admin dashboards can query them directly. JSON blob remains for
+        # backwards compatibility but the tables are the source of truth.
+        try:
+            from .survey_translator import apply_survey_data_to_normalized_tables
+            apply_survey_data_to_normalized_tables(alumni_account, merged_survey_data)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception(
+                "survey_translator failed for alumni %s: %s", alumni_account.id, exc
+            )
 
         return Response(
             {

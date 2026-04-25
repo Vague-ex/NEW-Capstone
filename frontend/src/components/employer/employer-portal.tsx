@@ -48,7 +48,7 @@ export function EmployerPortal() {
           {[
             { icon: CheckCircle2, title: 'Verify Graduates', desc: 'Confirm BSIS graduation and employment status of your candidates.' },
             { icon: Briefcase, title: 'Talent Insights', desc: 'View skills and employment data of alumni at your company.' },
-            { icon: Clock, title: 'Admin-Approved Access', desc: 'All requests are reviewed by the BSIS Program Chair.' },
+            { icon: Clock, title: 'Admin-Approved Access', desc: 'All requests are reviewed by the BSIS BSIS Admin.' },
           ].map(item => (
             <div key={item.title} className="flex items-start gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-white/10 shrink-0">
@@ -61,7 +61,7 @@ export function EmployerPortal() {
             </div>
           ))}
           <div className="mt-4 rounded-xl bg-white/10 border border-white/10 p-4 text-xs text-green-200 leading-relaxed">
-            <span style={{ fontWeight: 600 }}>How to get access:</span> Graduates share this link with their employers. Submit a request, the Program Chair reviews it, and you receive login credentials once approved.
+            <span style={{ fontWeight: 600 }}>How to get access:</span> Graduates share this link with their employers. Submit a request, the BSIS Admin reviews it, and you receive login credentials once approved.
           </div>
         </div>
 
@@ -339,7 +339,7 @@ function RegisterView({
         </button>
         <div>
           <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Request Employer Access</h2>
-          <p className="text-gray-500 text-xs">Reviewed by the BSIS Program Chair</p>
+          <p className="text-gray-500 text-xs">Reviewed by the BSIS BSIS Admin</p>
         </div>
       </div>
 
@@ -469,7 +469,7 @@ function PendingView({ navigate }: { navigate: (path: string) => void }) {
         Your request for <span className="text-gray-700" style={{ fontWeight: 600 }}>{employer.company}</span> has been submitted and is under review.
       </p>
       <p className="text-gray-400 text-xs mb-8 max-w-xs mx-auto">
-        The CHMSU BSIS Program Chair will review your request and notify you at your credential email <span className="text-gray-600">{employer.email}</span>.
+        The CHMSU BSIS BSIS Admin will review your request and notify you at your credential email <span className="text-gray-600">{employer.email}</span>.
       </p>
 
       {/* Status steps */}
@@ -477,7 +477,7 @@ function PendingView({ navigate }: { navigate: (path: string) => void }) {
         <p className="text-gray-700 text-xs mb-3" style={{ fontWeight: 600 }}>Approval Process</p>
         {[
           { label: 'Request submitted', done: true },
-          { label: 'Program Chair review', done: false, active: true },
+          { label: 'BSIS Admin review', done: false, active: true },
           { label: 'Credentials issued', done: false },
           { label: 'Portal access granted', done: false },
         ].map((step, i) => (

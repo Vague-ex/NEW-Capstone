@@ -122,10 +122,10 @@ function RegistrationComplete({ firstName, navigate }: { firstName: string; navi
           <p className="text-gray-600 text-sm mb-1">Welcome, {firstName}!</p>
           <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
             <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending Program Chair Verification</span>
+            <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending BSIS Admin Verification</span>
           </div>
           <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
-            Your account and CHED Graduate Tracer survey have been submitted. The Program Chair will review your biometric submission and verify your identity.
+            Your account and CHED Graduate Tracer survey have been submitted. The BSIS Admin will review your biometric submission and verify your identity.
           </p>
           <button
             onClick={() => navigate('/alumni/dashboard')}

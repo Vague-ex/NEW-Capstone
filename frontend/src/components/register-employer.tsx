@@ -136,7 +136,7 @@ export function RegisterEmployer() {
               ))}
             </div>
             <div className="mt-5 rounded-lg bg-white/10 p-3 text-xs text-green-200">
-              <span style={{ fontWeight: 600 }}>Note:</span> All access requests are reviewed and approved by the CHMSU BSIS Program Chair before activation.
+              <span style={{ fontWeight: 600 }}>Note:</span> All access requests are reviewed and approved by the CHMSU BSIS BSIS Admin before activation.
             </div>
           </div>
         </div>
@@ -223,7 +223,7 @@ export function RegisterEmployer() {
               <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
                 <Lock className="size-4 text-[#166534]" /> Account Credentials
               </h3>
-              <p className="text-gray-500 text-xs mb-4">Set a password to log in once your account is approved by the Program Chair.</p>
+              <p className="text-gray-500 text-xs mb-4">Set a password to log in once your account is approved by the BSIS Admin.</p>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Password">
                   <input name="password" type="password" value={form.password} onChange={handleChange}

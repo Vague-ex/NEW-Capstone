@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
+import { updateAlumniEmployment } from '../../app/api-client';
 import {
   Mail, Phone, Linkedin, Github, Globe, Save, CheckCircle2,
   Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck, BookOpen,
@@ -47,14 +48,34 @@ export function AlumniProfile() {
     if (!form.email.trim()) { setError('Email address is required.'); return; }
     if (!form.email.includes('@')) { setError('Please enter a valid email address.'); return; }
     setIsSaving(true);
-    await new Promise(r => setTimeout(r, 900));
+
     const mergedSurveyData = {
       ...surveyData,
       mobile: form.phone,
+      facebook_url: form.otherSocial,
     };
+
+    let serverAlumni: Record<string, unknown> = {};
+    try {
+      const alumniId = String(alumni?.id ?? '');
+      if (alumniId) {
+        const response = await updateAlumniEmployment(alumniId, {
+          survey_data: mergedSurveyData,
+        });
+        if (response.alumni && typeof response.alumni === 'object') {
+          serverAlumni = response.alumni as Record<string, unknown>;
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save profile right now.');
+      setIsSaving(false);
+      return;
+    }
+
     const updated = {
       ...alumni,
       ...form,
+      ...serverAlumni,
       surveyData: mergedSurveyData,
       dateUpdated: new Date().toISOString().split('T')[0],
     };
@@ -273,7 +294,7 @@ export function AlumniProfile() {
             <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>Profile photo is camera-capture only</p>
             <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
               Per CHMSU data policy, profile photos and biometrics are captured via live camera during registration only.
-              File uploads are not supported. To update your biometric, contact the Program Chair.
+              File uploads are not supported. To update your biometric, contact the BSIS Admin.
             </p>
           </div>
         </div>
