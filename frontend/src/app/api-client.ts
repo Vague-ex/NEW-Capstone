@@ -513,9 +513,7 @@ export interface CohortPrediction {
     actual_mean_time_to_hire_months: number;
     predicted_mean_time_to_hire_months: number;
     actual_bsis_first_rate: number;
-    predicted_bsis_first_rate: number;
     actual_bsis_current_rate: number;
-    predicted_bsis_current_rate: number;
     time_to_hire_distribution: Record<string, number>;
 }
 

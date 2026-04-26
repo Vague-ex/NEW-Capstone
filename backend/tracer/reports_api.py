@@ -716,8 +716,8 @@ class PredictiveTrendReportView(APIView):
                     f"{agg.get('predicted_employment_rate', 0) * 100:.1f}%",
                     f"{agg.get('actual_mean_time_to_hire_months', 0):.1f}",
                     f"{agg.get('predicted_mean_time_to_hire_months', 0):.1f}",
-                    f"{agg.get('predicted_bsis_first_rate', 0) * 100:.1f}%",
-                    f"{agg.get('predicted_bsis_current_rate', 0) * 100:.1f}%",
+                    f"{agg.get('actual_bsis_first_rate', 0) * 100:.1f}%",
+                    f"{agg.get('actual_bsis_current_rate', 0) * 100:.1f}%",
                 ]
             )
 
@@ -734,14 +734,14 @@ class PredictiveTrendReportView(APIView):
                 f"{overall.get('predicted_mean_time_to_hire_months', 0):.1f}",
             ],
             [
-                "BSIS-aligned first job",
+                "BSIS-aligned first job (observed)",
                 f"{overall.get('actual_bsis_first_rate', 0) * 100:.1f}%",
-                f"{overall.get('predicted_bsis_first_rate', 0) * 100:.1f}%",
+                "—",
             ],
             [
-                "BSIS-aligned current job",
+                "BSIS-aligned current job (observed)",
                 f"{overall.get('actual_bsis_current_rate', 0) * 100:.1f}%",
-                f"{overall.get('predicted_bsis_current_rate', 0) * 100:.1f}%",
+                "—",
             ],
         ]
 
@@ -752,8 +752,6 @@ class PredictiveTrendReportView(APIView):
         model_rows = [
             ["Employment status", best.get("employment_status", "—")],
             ["Time-to-hire", best.get("time_to_hire", "—")],
-            ["BSIS-aligned (first job)", best.get("bsis_related_first_job", "—")],
-            ["BSIS-aligned (current job)", best.get("bsis_related_current_job", "—")],
         ]
 
         distribution_rows = [
@@ -778,8 +776,8 @@ class PredictiveTrendReportView(APIView):
                         "Employment (Predicted)",
                         "TTH Actual (mo)",
                         "TTH Predicted (mo)",
-                        "BSIS-Aligned First (Pred)",
-                        "BSIS-Aligned Current (Pred)",
+                        "BSIS-Aligned First (Obs)",
+                        "BSIS-Aligned Current (Obs)",
                     ],
                     "rows": per_cohort_rows,
                 },

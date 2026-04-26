@@ -1322,8 +1322,6 @@ def _aggregate_for_cohort(artifacts: dict, cohort: int | None) -> dict:
     models = artifacts["models"]
 
     pred_emp = models["employment_status"].predict(X).astype(int)
-    pred_first = models["bsis_related_first_job"].predict(X).astype(int)
-    pred_curr = models["bsis_related_current_job"].predict(X).astype(int)
     pred_tth = models["time_to_hire"].predict(X)
 
     actual_emp = subset["employment_status"].astype(int).to_numpy()
@@ -1349,9 +1347,7 @@ def _aggregate_for_cohort(artifacts: dict, cohort: int | None) -> dict:
         "actual_mean_time_to_hire_months": float(actual_tth.mean()) if len(actual_tth) else 0.0,
         "predicted_mean_time_to_hire_months": float(np.mean(pred_tth)),
         "actual_bsis_first_rate": float(actual_first.mean()) if len(actual_first) else 0.0,
-        "predicted_bsis_first_rate": float(pred_first.mean()),
         "actual_bsis_current_rate": float(actual_curr.mean()) if len(actual_curr) else 0.0,
-        "predicted_bsis_current_rate": float(pred_curr.mean()),
         "time_to_hire_distribution": buckets,
     }
 
