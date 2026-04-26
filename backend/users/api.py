@@ -5,6 +5,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import Prefetch
 from django.utils import timezone
@@ -14,7 +16,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AccountStatus, AlumniAccount, EmployerAccount, GraduateMasterRecord, User
+from .models import AccountStatus, AdminCredential, AlumniAccount, EmployerAccount, GraduateMasterRecord, User
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
 
 try:
@@ -826,6 +828,186 @@ class AdminLoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+def _admin_credential_payload(cred: AdminCredential) -> dict:
+    return {
+        "id": str(cred.id),
+        "user_id": str(cred.user_id),
+        "email": cred.admin_email,
+        "is_active": cred.is_active,
+        "created_at": cred.created_at.isoformat(),
+        "updated_at": cred.updated_at.isoformat(),
+    }
+
+
+def _normalize_admin_email(raw: object) -> str:
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip().lower()
+
+
+class AdminListCreateView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        creds = AdminCredential.objects.select_related("user").order_by("created_at")
+        return Response(
+            [_admin_credential_payload(c) for c in creds],
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        email = _normalize_admin_email(request.data.get("email"))
+        password = request.data.get("password") or ""
+        is_active_raw = request.data.get("is_active", True)
+        is_active = bool(is_active_raw) if not isinstance(is_active_raw, str) else is_active_raw.lower() != "false"
+
+        if not email or not password:
+            return Response(
+                {"detail": "Email and password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return Response(
+                {"detail": "Email is not valid."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(password) < 8:
+            return Response(
+                {"detail": "Password must be at least 8 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if User.objects.filter(email__iexact=email).exists():
+            return Response(
+                {"detail": "An account with this email already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if AdminCredential.objects.filter(admin_email__iexact=email).exists():
+            return Response(
+                {"detail": "An admin with this email already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                user = User(email=email, role=User.Role.ADMIN, is_staff=True)
+                user.set_password(password)
+                user.save()
+                cred = AdminCredential.objects.create(
+                    user=user,
+                    admin_email=email,
+                    is_active=is_active,
+                )
+        except (DatabaseError, OperationalError) as exc:
+            logger.exception("Failed to create admin: %s", exc)
+            return Response(
+                {"detail": "Could not create admin. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(_admin_credential_payload(cred), status=status.HTTP_201_CREATED)
+
+
+class AdminDetailView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def _get_credential(self, admin_id):
+        return (
+            AdminCredential.objects.select_related("user")
+            .filter(id=admin_id)
+            .first()
+        )
+
+    def patch(self, request, admin_id):
+        cred = self._get_credential(admin_id)
+        if not cred:
+            return Response(
+                {"detail": "Admin not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        new_email = request.data.get("email", None)
+        new_password = request.data.get("password", None)
+        new_is_active = request.data.get("is_active", None)
+
+        try:
+            with transaction.atomic():
+                if new_email is not None:
+                    normalized = _normalize_admin_email(new_email)
+                    if not normalized:
+                        return Response(
+                            {"detail": "Email cannot be empty."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    try:
+                        validate_email(normalized)
+                    except DjangoValidationError:
+                        return Response(
+                            {"detail": "Email is not valid."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    if (
+                        User.objects.filter(email__iexact=normalized)
+                        .exclude(pk=cred.user_id)
+                        .exists()
+                    ):
+                        return Response(
+                            {"detail": "Another account already uses this email."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    if (
+                        AdminCredential.objects.filter(admin_email__iexact=normalized)
+                        .exclude(pk=cred.id)
+                        .exists()
+                    ):
+                        return Response(
+                            {"detail": "Another admin already uses this email."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    cred.admin_email = normalized
+                    cred.user.email = normalized
+                    cred.user.save(update_fields=["email"])
+
+                if new_password is not None:
+                    if not isinstance(new_password, str) or len(new_password) < 8:
+                        return Response(
+                            {"detail": "Password must be at least 8 characters."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    cred.user.set_password(new_password)
+                    cred.user.save(update_fields=["password"])
+
+                if new_is_active is not None:
+                    cred.is_active = bool(new_is_active)
+
+                cred.save()
+        except (DatabaseError, OperationalError) as exc:
+            logger.exception("Failed to update admin %s: %s", admin_id, exc)
+            return Response(
+                {"detail": "Could not update admin. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        cred.refresh_from_db()
+        return Response(_admin_credential_payload(cred), status=status.HTTP_200_OK)
+
+    def delete(self, request, admin_id):
+        # TODO: backend self-delete check once admin auth is per-request.
+        cred = self._get_credential(admin_id)
+        if not cred:
+            return Response(
+                {"detail": "Admin not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        cred.user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class AlumniRegisterView(APIView):

@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .api import (
+    AdminDetailView,
+    AdminListCreateView,
     AdminLoginView,
     AlumniEmploymentUpdateView,
     AlumniAccountStatusView,
@@ -47,6 +49,8 @@ urlpatterns = [
         AlumniRequestRejectView.as_view(),
         name="admin-alumni-request-reject",
     ),
+    path("admin/users/", AdminListCreateView.as_view(), name="admin-users"),
+    path("admin/users/<uuid:admin_id>/", AdminDetailView.as_view(), name="admin-user-detail"),
     path("admin/employers/requests/", EmployerRequestsListView.as_view(), name="admin-employer-requests"),
     path(
         "admin/employers/requests/<uuid:employer_id>/approve/",

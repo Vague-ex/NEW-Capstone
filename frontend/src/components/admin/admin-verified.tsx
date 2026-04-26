@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState, Fragment } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { GRADUATION_YEARS } from '../../data/app-data';
 import type { AlumniRecord } from '../../data/app-data';
 import { fetchVerifiedAlumni } from '../../app/api-client';
 import {
   Search, CheckCircle2, Users, Briefcase, Star, MapPin,
-  ChevronDown, ChevronUp, Camera, X,
+  ChevronDown, ChevronUp, Camera, X, ChevronLeft, ChevronRight,
   Clock, Building2, Globe, Award,
 } from 'lucide-react';
 
 type ModalTab = 'profile' | 'employment' | 'skills';
+
+const PAGE_SIZE = 20;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -347,6 +348,7 @@ export function AdminVerified() {
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let active = true;
@@ -379,6 +381,26 @@ export function AdminVerified() {
     };
   }, []);
 
+  // Batches reflect what's actually in the verified-alumni list — a year only
+  // appears once at least one alum from that cohort has been verified.
+  const availableBatches = useMemo(
+    () => Array.from(
+      new Set(
+        backendVerified
+          .map(a => a.graduationYear)
+          .filter((y): y is number => typeof y === 'number' && y > 0),
+      ),
+    ).sort((a, b) => b - a),
+    [backendVerified],
+  );
+
+  // Reset stale year filter if its cohort vanished from the list.
+  useEffect(() => {
+    if (filterYear !== 'all' && !availableBatches.includes(parseInt(filterYear))) {
+      setFilterYear('all');
+    }
+  }, [availableBatches, filterYear]);
+
   const verifiedAlumni = useMemo(() => backendVerified.filter(a => {
     const q = search.toLowerCase();
     const matchQ = !q
@@ -398,6 +420,16 @@ export function AdminVerified() {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortField(f); setSortDir('asc'); }
   };
+
+  const totalPages = Math.max(1, Math.ceil(verifiedAlumni.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedAlumni = useMemo(
+    () => verifiedAlumni.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [verifiedAlumni, safePage],
+  );
+
+  // Snap back to page 1 whenever the filtered set changes shape.
+  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, sortField, sortDir]);
 
   const SortIcon = ({ f }: { f: string }) => (
     <span className="inline-flex flex-col ml-1 opacity-60">
@@ -450,7 +482,7 @@ export function AdminVerified() {
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)}
             className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
             <option value="all">All Batches</option>
-            {GRADUATION_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+            {availableBatches.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
             className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
@@ -494,7 +526,7 @@ export function AdminVerified() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {verifiedAlumni.map(a => (
+                    {pagedAlumni.map(a => (
                       <Fragment key={String(a.id ?? a.email ?? safeName(a))}>
                         <tr className="hover:bg-gray-50/60 transition">
                           <td className="px-4 py-3">
@@ -548,6 +580,37 @@ export function AdminVerified() {
 
               {verifiedAlumni.length === 0 && (
                 <div className="text-center py-12 text-gray-400 text-sm">No verified graduates match the current filters.</div>
+              )}
+
+              {verifiedAlumni.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
+                  <p className="text-xs text-gray-500">
+                    Showing <span className="text-gray-700" style={{ fontWeight: 600 }}>
+                      {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, verifiedAlumni.length)}
+                    </span> of {verifiedAlumni.length}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      style={{ fontWeight: 500 }}
+                    >
+                      <ChevronLeft className="size-3.5" /> Prev
+                    </button>
+                    <span className="text-xs text-gray-500 px-2" style={{ fontWeight: 500 }}>
+                      Page <span className="text-gray-800" style={{ fontWeight: 700 }}>{safePage}</span> of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={safePage === totalPages}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      style={{ fontWeight: 500 }}
+                    >
+                      Next <ChevronRight className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
               )}
             </>
           )}

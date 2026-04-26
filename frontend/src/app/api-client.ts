@@ -445,6 +445,63 @@ export async function reviewEmployerRequest(
 }
 
 // ---------------------------------------------------------------------------
+// Admin — User management (admin accounts)
+// ---------------------------------------------------------------------------
+
+export interface AdminAccount {
+    id: string;
+    user_id: string;
+    email: string;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export async function fetchAdmins(): Promise<AdminAccount[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/users/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data) ? (data as AdminAccount[]) : [];
+}
+
+export async function createAdmin(input: {
+    email: string;
+    password: string;
+    is_active?: boolean;
+}): Promise<AdminAccount> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/users/`, {
+        method: 'POST',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(input),
+    });
+    await throwIfNotOk(response);
+    return (await response.json()) as AdminAccount;
+}
+
+export async function updateAdmin(
+    id: string,
+    patch: Partial<{ email: string; password: string; is_active: boolean }>,
+): Promise<AdminAccount> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/users/${id}/`, {
+        method: 'PATCH',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(patch),
+    });
+    await throwIfNotOk(response);
+    return (await response.json()) as AdminAccount;
+}
+
+export async function deleteAdmin(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/users/${id}/`, {
+        method: 'DELETE',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+}
+
+// ---------------------------------------------------------------------------
 // Analytics — Employability Predictions
 // ---------------------------------------------------------------------------
 

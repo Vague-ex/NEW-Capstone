@@ -256,6 +256,13 @@ export function AdminEmployerRequests() {
                   <p className="text-gray-400 text-xs whitespace-nowrap hidden sm:block">
                     {formatDate(emp.date, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </p>
+                  <button
+                    onClick={() => setReviewModal(emp)}
+                    className="text-violet-600 bg-violet-50 hover:bg-violet-100 text-xs px-3 py-1.5 rounded-lg transition shrink-0"
+                    style={{ fontWeight: 600 }}
+                  >
+                    View Details
+                  </button>
                 </div>
               ))}
             </div>
@@ -263,12 +270,17 @@ export function AdminEmployerRequests() {
         </div>
       </div>
 
-      {/* Review Modal */}
+      {/* Review / Detail Modal */}
       {reviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Employer Application Review</h3>
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
+                  {reviewModal.status === 'pending' ? 'Employer Application Review' : 'Employer Details'}
+                </h3>
+                <StatusBadge status={reviewModal.status} />
+              </div>
               <button onClick={() => setReviewModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-400 text-xl leading-none">×</button>
             </div>
             <div className="p-6 space-y-3">
@@ -287,7 +299,11 @@ export function AdminEmployerRequests() {
                 { icon: Phone, label: 'Phone', value: reviewModal.phone },
                 { icon: Globe, label: 'Industry', value: reviewModal.industry },
                 { icon: FileText, label: 'Website', value: reviewModal.website },
-                { icon: FileText, label: 'Applied', value: formatDate(reviewModal.date, { dateStyle: 'long' }) },
+                {
+                  icon: FileText,
+                  label: reviewModal.status === 'pending' ? 'Applied' : 'Last Updated',
+                  value: formatDate(reviewModal.date, { dateStyle: 'long' }),
+                },
               ].map(f => (
                 <div key={f.label} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-2.5">
                   <f.icon className="size-4 text-gray-400 shrink-0" />
@@ -300,20 +316,24 @@ export function AdminEmployerRequests() {
             </div>
             <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
               <button onClick={() => setReviewModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm transition" style={{ fontWeight: 500 }}>
-                Cancel
+                Close
               </button>
               <div className="flex-1" />
-              <button onClick={() => handleAction(reviewModal.id, 'rejected')} disabled={!!loading}
-                className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
-                style={{ fontWeight: 600 }}>
-                <XCircle className="size-4" /> Reject
-              </button>
-              <button onClick={() => handleAction(reviewModal.id, 'approved')} disabled={!!loading}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
-                style={{ fontWeight: 600 }}>
-                {loading ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle2 className="size-4" />}
-                Approve Access
-              </button>
+              {reviewModal.status === 'pending' && (
+                <>
+                  <button onClick={() => handleAction(reviewModal.id, 'rejected')} disabled={!!loading}
+                    className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
+                    style={{ fontWeight: 600 }}>
+                    <XCircle className="size-4" /> Reject
+                  </button>
+                  <button onClick={() => handleAction(reviewModal.id, 'approved')} disabled={!!loading}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
+                    style={{ fontWeight: 600 }}>
+                    {loading ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <CheckCircle2 className="size-4" />}
+                    Approve Access
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

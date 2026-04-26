@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Trash2, Pencil, Check, X, AlertCircle, RefreshCw, Search,
-  Tag, Briefcase, MapPin, FolderOpen, Building2, Inbox,
+  Tag, Briefcase, MapPin, FolderOpen, Building2, Inbox, Users, Shield,
 } from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
 import {
@@ -17,13 +17,21 @@ import {
   type SkillCategoryItem,
   type SkillItem,
 } from '../../hooks/useReferenceData';
+import {
+  fetchAdmins,
+  createAdmin,
+  updateAdmin,
+  deleteAdmin,
+  type AdminAccount,
+} from '../../app/api-client';
 
-type TabId = 'skills' | 'jobs' | 'regions';
+type TabId = 'skills' | 'jobs' | 'regions' | 'users';
 
 const TAB_DEFS: { id: TabId; label: string; Icon: typeof Tag }[] = [
   { id: 'skills', label: 'Skills', Icon: Tag },
   { id: 'jobs', label: 'Industries & Jobs', Icon: Briefcase },
   { id: 'regions', label: 'Regions', Icon: MapPin },
+  { id: 'users', label: 'Users', Icon: Users },
 ];
 
 // Master-rail selection: 'all', null (uncategorized), or a specific id.
@@ -500,6 +508,7 @@ export function AdminSettings() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Selection>('all');
   const [selectedIndustry, setSelectedIndustry] = useState<Selection>('all');
+  const [adminCount, setAdminCount] = useState(0);
 
   useEffect(() => {
     setSkills(data.skills);
@@ -519,8 +528,9 @@ export function AdminSettings() {
       skills: skills.length,
       jobs: jobTitles.length,
       regions: regions.length,
+      users: adminCount,
     }),
-    [skills.length, jobTitles.length, regions.length],
+    [skills.length, jobTitles.length, regions.length, adminCount],
   );
 
   // ── CRUD: skills ──
@@ -718,7 +728,7 @@ export function AdminSettings() {
             onRenameJob={updateJobTitle}
             onDeleteJob={removeJobTitle}
           />
-        ) : (
+        ) : tab === 'regions' ? (
           <RegionsView
             regions={regions}
             search={search}
@@ -726,6 +736,8 @@ export function AdminSettings() {
             onRename={renameRegion}
             onDelete={removeRegion}
           />
+        ) : (
+          <UsersView search={search} onCountChange={setAdminCount} />
         )}
       </div>
     </PortalLayout>
@@ -1099,6 +1111,437 @@ function RegionsView({
             />
           ))
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Users tab ───────────────────────────────────────────────────────────────
+function UsersView({
+  search,
+  onCountChange,
+}: {
+  search: string;
+  onCountChange: (n: number) => void;
+}) {
+  const [admins, setAdmins] = useState<AdminAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const currentUserId = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem('admin_user');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { id?: unknown };
+      return typeof parsed?.id === 'string' ? parsed.id : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchAdmins()
+      .then((rows) => {
+        if (cancelled) return;
+        setAdmins(rows);
+        onCountChange(rows.length);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : 'Failed to load admins.');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onCountChange]);
+
+  const q = search.trim().toLowerCase();
+  const visible = useMemo(
+    () => (q ? admins.filter((a) => a.email.toLowerCase().includes(q)) : admins),
+    [admins, q],
+  );
+
+  const handleCreate = async (input: { email: string; password: string }) => {
+    const created = await createAdmin(input);
+    setAdmins((prev) => {
+      const next = [...prev, created];
+      onCountChange(next.length);
+      return next;
+    });
+    setAdding(false);
+  };
+
+  const handleUpdate = async (
+    id: string,
+    patch: Partial<{ email: string; password: string; is_active: boolean }>,
+  ) => {
+    const updated = await updateAdmin(id, patch);
+    setAdmins((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    setEditingId(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    await deleteAdmin(id);
+    setAdmins((prev) => {
+      const next = prev.filter((a) => a.id !== id);
+      onCountChange(next.length);
+      return next;
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Shield className="size-4 text-[#1B3A6B]" />
+          <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
+            Admins
+          </h3>
+          <span
+            className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            style={{ fontWeight: 600 }}
+          >
+            {admins.length}
+          </span>
+        </div>
+        {!adding && (
+          <button
+            onClick={() => setAdding(true)}
+            className="inline-flex items-center gap-1.5 bg-[#1B3A6B] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#16315a] transition"
+            style={{ fontWeight: 600 }}
+          >
+            <Plus className="size-3.5" /> Add admin
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-xl p-3.5 mb-3">
+          <AlertCircle className="size-4 text-rose-500 shrink-0 mt-0.5" />
+          <p className="text-rose-700 text-sm">{error}</p>
+        </div>
+      )}
+
+      {adding && (
+        <AdminAddForm onSubmit={handleCreate} onCancel={() => setAdding(false)} />
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="size-6 border-4 border-[#1B3A6B]/20 border-t-[#1B3A6B] rounded-full animate-spin" />
+        </div>
+      ) : visible.length === 0 ? (
+        <EmptyState
+          message={
+            q
+              ? 'No admins match that search.'
+              : 'No admins yet — add one to share access.'
+          }
+        />
+      ) : (
+        <div className="space-y-1.5">
+          {visible.map((a) =>
+            editingId === a.id ? (
+              <AdminEditForm
+                key={a.id}
+                admin={a}
+                onSubmit={(patch) => handleUpdate(a.id, patch)}
+                onCancel={() => setEditingId(null)}
+              />
+            ) : (
+              <AdminRow
+                key={a.id}
+                admin={a}
+                isCurrentUser={a.user_id === currentUserId}
+                onEdit={() => setEditingId(a.id)}
+                onDelete={() => handleDelete(a.id)}
+              />
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function AdminRow({
+  admin,
+  isCurrentUser,
+  onEdit,
+  onDelete,
+}: {
+  admin: AdminAccount;
+  isCurrentUser: boolean;
+  onEdit: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 transition">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex size-9 items-center justify-center rounded-full bg-[#1B3A6B]/10 text-[#1B3A6B] shrink-0">
+          <Shield className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-gray-900 truncate" style={{ fontWeight: 600 }}>
+            {admin.email}
+            {isCurrentUser && (
+              <span className="ml-2 text-[10px] text-[#1B3A6B] bg-[#1B3A6B]/10 px-1.5 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
+                you
+              </span>
+            )}
+          </p>
+          <p className="text-[11px] text-gray-400">
+            <span
+              className={`inline-block size-1.5 rounded-full mr-1.5 align-middle ${
+                admin.is_active ? 'bg-emerald-500' : 'bg-gray-300'
+              }`}
+            />
+            {admin.is_active ? 'Active' : 'Inactive'} · Created {formatDate(admin.created_at)}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={onEdit}
+          className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-60 hover:opacity-100 hover:text-[#1B3A6B] hover:border-[#1B3A6B]/30 transition"
+          aria-label="Edit"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        {isCurrentUser ? (
+          <button
+            disabled
+            title="You can't remove your own admin access."
+            className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed"
+            aria-label="Delete (disabled)"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        ) : (
+          <DeleteButton onConfirm={onDelete} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminAddForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (input: { email: string; password: string }) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setErr('Enter a valid email.');
+      return;
+    }
+    if (password.length < 8) {
+      setErr('Password must be at least 8 characters.');
+      return;
+    }
+    setBusy(true);
+    setErr('');
+    try {
+      await onSubmit({ email: trimmed, password });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not create admin.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border border-[#1B3A6B]/20 bg-[#1B3A6B]/[0.03] rounded-xl p-3.5 mb-3">
+      <p className="text-[11px] text-[#1B3A6B] mb-2" style={{ fontWeight: 700 }}>
+        NEW ADMIN
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+        <input
+          autoFocus
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@example.com"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password (min. 8 chars)"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+        />
+      </div>
+      {err && <p className="text-xs text-rose-600 mb-2">{err}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 bg-[#1B3A6B] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#16315a] disabled:opacity-60 transition"
+          style={{ fontWeight: 600 }}
+        >
+          {busy ? (
+            <span className="size-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <Check className="size-3.5" />
+          )}
+          Create
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-60 transition"
+          style={{ fontWeight: 500 }}
+        >
+          <X className="size-3.5" /> Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdminEditForm({
+  admin,
+  onSubmit,
+  onCancel,
+}: {
+  admin: AdminAccount;
+  onSubmit: (
+    patch: Partial<{ email: string; password: string; is_active: boolean }>,
+  ) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [email, setEmail] = useState(admin.email);
+  const [password, setPassword] = useState('');
+  const [isActive, setIsActive] = useState(admin.is_active);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const submit = async () => {
+    const patch: Partial<{ email: string; password: string; is_active: boolean }> = {};
+    const trimmed = email.trim().toLowerCase();
+
+    if (trimmed !== admin.email) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        setErr('Enter a valid email.');
+        return;
+      }
+      patch.email = trimmed;
+    }
+    if (password) {
+      if (password.length < 8) {
+        setErr('Password must be at least 8 characters.');
+        return;
+      }
+      patch.password = password;
+    }
+    if (isActive !== admin.is_active) {
+      patch.is_active = isActive;
+    }
+    if (Object.keys(patch).length === 0) {
+      onCancel();
+      return;
+    }
+    setBusy(true);
+    setErr('');
+    try {
+      await onSubmit(patch);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not update admin.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border border-[#1B3A6B]/30 bg-[#1B3A6B]/[0.03] rounded-xl p-3.5">
+      <p className="text-[11px] text-[#1B3A6B] mb-2" style={{ fontWeight: 700 }}>
+        EDIT ADMIN
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+        <input
+          autoFocus
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@example.com"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Leave blank to keep current"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+        />
+      </div>
+      <label className="inline-flex items-center gap-2 text-sm text-gray-700 mb-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={isActive}
+          onChange={(e) => setIsActive(e.target.checked)}
+          className="size-4 accent-[#1B3A6B]"
+        />
+        Active
+      </label>
+      {err && <p className="text-xs text-rose-600 mb-2">{err}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 bg-[#1B3A6B] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#16315a] disabled:opacity-60 transition"
+          style={{ fontWeight: 600 }}
+        >
+          {busy ? (
+            <span className="size-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+          ) : (
+            <Check className="size-3.5" />
+          )}
+          Save
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-60 transition"
+          style={{ fontWeight: 500 }}
+        >
+          <X className="size-3.5" /> Cancel
+        </button>
       </div>
     </div>
   );
