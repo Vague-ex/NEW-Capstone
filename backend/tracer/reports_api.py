@@ -5,7 +5,7 @@ Each endpoint returns a JSON document of the form:
     {
         "title":       "<report title>",
         "generated_at": "<iso timestamp>",
-        "filters":     {... echo of cohort_start / cohort_end / include_unverified},
+        "filters":     {... echo of batch_start / batch_end / include_unverified},
         "sections":    [
             {"title": "...", "columns": [...], "rows": [[...], ...]},
             ...
@@ -50,11 +50,11 @@ DEFAULT_END = 2030
 def _parse_filters(request) -> dict[str, Any]:
     qp = request.query_params
     try:
-        start = int(qp.get("cohort_start", DEFAULT_START))
+        start = int(qp.get("batch_start", DEFAULT_START))
     except (TypeError, ValueError):
         start = DEFAULT_START
     try:
-        end = int(qp.get("cohort_end", DEFAULT_END))
+        end = int(qp.get("batch_end", DEFAULT_END))
     except (TypeError, ValueError):
         end = DEFAULT_END
     if end < start:
@@ -65,8 +65,8 @@ def _parse_filters(request) -> dict[str, Any]:
         "yes",
     }
     return {
-        "cohort_start": start,
-        "cohort_end": end,
+        "batch_start": start,
+        "batch_end": end,
         "include_unverified": include_unverified,
     }
 
@@ -77,8 +77,8 @@ def _alumni_qs(filters: dict[str, Any]):
     if not filters["include_unverified"]:
         qs = qs.filter(account_status=AccountStatus.ACTIVE)
     qs = qs.filter(
-        profile__graduation_year__gte=filters["cohort_start"],
-        profile__graduation_year__lte=filters["cohort_end"],
+        profile__graduation_year__gte=filters["batch_start"],
+        profile__graduation_year__lte=filters["batch_end"],
     )
     return _alumni_dashboard_queryset(qs)
 
@@ -154,10 +154,10 @@ def _avg(values: list[float]) -> str:
     return f"{(sum(values) / len(values)):.1f}"
 
 
-# ── 1. Cohort Summary ──────────────────────────────────────────────────────
+# ── 1. Batch Summary ──────────────────────────────────────────────────────
 
 
-class CohortSummaryReportView(APIView):
+class BatchSummaryReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -228,12 +228,12 @@ class CohortSummaryReportView(APIView):
             )
 
         return _ok(
-            "Cohort Summary",
+            "Batch Summary",
             [
                 {
-                    "title": "Per-Cohort Outcomes",
+                    "title": "Per-Batch Outcomes",
                     "columns": [
-                        "Cohort",
+                        "Batch",
                         "Alumni (N)",
                         "Employment Rate",
                         "Avg Time-to-Hire (mo)",
@@ -304,7 +304,7 @@ class EmploymentOutcomesReportView(APIView):
                     "title": "Alumni Employment Records",
                     "columns": [
                         "Name",
-                        "Cohort",
+                        "Batch",
                         "Employer",
                         "Position",
                         "Sector",
@@ -341,27 +341,27 @@ class SkillsInventoryReportView(APIView):
 
         tech_overall: Counter = Counter()
         soft_overall: Counter = Counter()
-        per_cohort_tech: dict[int, Counter] = defaultdict(Counter)
-        per_cohort_soft: dict[int, Counter] = defaultdict(Counter)
+        per_batch_tech: dict[int, Counter] = defaultdict(Counter)
+        per_batch_soft: dict[int, Counter] = defaultdict(Counter)
         n_overall = 0
-        n_per_cohort: dict[int, int] = defaultdict(int)
+        n_per_batch: dict[int, int] = defaultdict(int)
 
         for acc in qs:
             comp = _first_prefetched(acc, "_prefetched_comp")
             year = _grad_year(acc)
             n_overall += 1
             if year is not None:
-                n_per_cohort[year] += 1
+                n_per_batch[year] += 1
             if comp is None:
                 continue
             for name in _selected_names(comp.technical_skills):
                 tech_overall[name] += 1
                 if year is not None:
-                    per_cohort_tech[year][name] += 1
+                    per_batch_tech[year][name] += 1
             for name in _selected_names(comp.soft_skills):
                 soft_overall[name] += 1
                 if year is not None:
-                    per_cohort_soft[year][name] += 1
+                    per_batch_soft[year][name] += 1
 
         def _top_rows(counter: Counter, total: int, top_n: int = 12):
             out = []
@@ -382,12 +382,12 @@ class SkillsInventoryReportView(APIView):
             },
         ]
 
-        for year in sorted(per_cohort_tech):
+        for year in sorted(per_batch_tech):
             sections.append(
                 {
-                    "title": f"Top Technical Skills — Cohort {year} (N = {n_per_cohort[year]})",
+                    "title": f"Top Technical Skills — Batch {year} (N = {n_per_batch[year]})",
                     "columns": ["Skill", "Frequency", "% of Alumni"],
-                    "rows": _top_rows(per_cohort_tech[year], n_per_cohort[year], top_n=8),
+                    "rows": _top_rows(per_batch_tech[year], n_per_batch[year], top_n=8),
                 }
             )
 
@@ -579,8 +579,8 @@ class DataQualityReportView(APIView):
         n_completed = 0
 
         missing_counters: Counter = Counter()
-        per_cohort_total: dict[int, int] = defaultdict(int)
-        per_cohort_completed: dict[int, int] = defaultdict(int)
+        per_batch_total: dict[int, int] = defaultdict(int)
+        per_batch_completed: dict[int, int] = defaultdict(int)
 
         REQUIRED_FIELDS = [
             ("Employment status", lambda emp, addr, comp: emp and emp.employment_status),
@@ -596,7 +596,7 @@ class DataQualityReportView(APIView):
             n_total += 1
             year = _grad_year(acc)
             if year is not None:
-                per_cohort_total[year] += 1
+                per_batch_total[year] += 1
 
             emp = _first_prefetched(acc, "_prefetched_emp")
             addr = _first_prefetched(acc, "_prefetched_addr")
@@ -622,7 +622,7 @@ class DataQualityReportView(APIView):
             if not missing_for_this:
                 n_completed += 1
                 if year is not None:
-                    per_cohort_completed[year] += 1
+                    per_batch_completed[year] += 1
 
         overall_rows = [
             ["Total alumni in scope", n_total, ""],
@@ -637,14 +637,14 @@ class DataQualityReportView(APIView):
             for field, count in missing_counters.most_common()
         ]
 
-        cohort_rows = []
-        for year in sorted(per_cohort_total):
-            cohort_rows.append(
+        batch_rows = []
+        for year in sorted(per_batch_total):
+            batch_rows.append(
                 [
                     year,
-                    per_cohort_total[year],
-                    per_cohort_completed[year],
-                    _pct(per_cohort_completed[year], per_cohort_total[year]),
+                    per_batch_total[year],
+                    per_batch_completed[year],
+                    _pct(per_batch_completed[year], per_batch_total[year]),
                 ]
             )
 
@@ -662,9 +662,9 @@ class DataQualityReportView(APIView):
                     "rows": missing_rows,
                 },
                 {
-                    "title": "Completion Rate by Cohort",
-                    "columns": ["Cohort", "Total", "Completed", "Completion Rate"],
-                    "rows": cohort_rows,
+                    "title": "Completion Rate by Batch",
+                    "columns": ["Batch", "Total", "Completed", "Completion Rate"],
+                    "rows": batch_rows,
                 },
             ],
             filters,
@@ -683,7 +683,7 @@ class PredictiveTrendReportView(APIView):
     def get(self, request):
         # Reuse the same model-loading helpers used by the Analytics tab so
         # the chart UI and this report can never disagree.
-        from .api import _aggregate_for_cohort, _load_ml_artifacts
+        from .api import _aggregate_for_batch, _load_ml_artifacts
 
         filters = _parse_filters(request)
         artifacts = _load_ml_artifacts()
@@ -697,18 +697,18 @@ class PredictiveTrendReportView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        overall = _aggregate_for_cohort(artifacts, None)
-        cohorts = sorted(int(c) for c in artifacts["df"]["cohort"].unique().tolist())
-        cohorts = [
+        overall = _aggregate_for_batch(artifacts, None)
+        batches = sorted(int(c) for c in artifacts["df"]["batch"].unique().tolist())
+        batches = [
             c
-            for c in cohorts
-            if filters["cohort_start"] <= c <= filters["cohort_end"]
+            for c in batches
+            if filters["batch_start"] <= c <= filters["batch_end"]
         ]
 
-        per_cohort_rows = []
-        for c in cohorts:
-            agg = _aggregate_for_cohort(artifacts, c)
-            per_cohort_rows.append(
+        per_batch_rows = []
+        for c in batches:
+            agg = _aggregate_for_batch(artifacts, c)
+            per_batch_rows.append(
                 [
                     c,
                     agg.get("n_alumni", 0),
@@ -768,9 +768,9 @@ class PredictiveTrendReportView(APIView):
                     "rows": overall_rows,
                 },
                 {
-                    "title": "Per-Cohort Predictions",
+                    "title": "Per-Batch Predictions",
                     "columns": [
-                        "Cohort",
+                        "Batch",
                         "N",
                         "Employment (Actual)",
                         "Employment (Predicted)",
@@ -779,7 +779,7 @@ class PredictiveTrendReportView(APIView):
                         "BSIS-Aligned First (Obs)",
                         "BSIS-Aligned Current (Obs)",
                     ],
-                    "rows": per_cohort_rows,
+                    "rows": per_batch_rows,
                 },
                 {
                     "title": "Predicted Time-to-Hire Distribution",

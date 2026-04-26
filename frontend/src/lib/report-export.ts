@@ -30,7 +30,7 @@ function formatTimestamp(iso: string): string {
 
 function formatFilters(filters: ReportPayload['filters']): string {
   const parts: string[] = [];
-  parts.push(`Cohorts ${filters.cohort_start}–${filters.cohort_end}`);
+  parts.push(`Batches ${filters.batch_start}–${filters.batch_end}`);
   parts.push(filters.include_unverified ? 'Includes unverified' : 'Verified only');
   return parts.join('  ·  ');
 }
@@ -100,8 +100,8 @@ export async function exportXlsx(payload: ReportPayload): Promise<void> {
     [payload.title],
     [SUBTITLE],
     [`Generated`, formatTimestamp(payload.generated_at)],
-    ['Cohort start', payload.filters.cohort_start],
-    ['Cohort end', payload.filters.cohort_end],
+    ['Batch start', payload.filters.batch_start],
+    ['Batch end', payload.filters.batch_end],
     ['Include unverified', payload.filters.include_unverified ? 'Yes' : 'No'],
   ];
   const summaryWs = XLSX.utils.aoa_to_sheet(summary);

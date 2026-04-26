@@ -1310,10 +1310,10 @@ def _load_ml_artifacts():
         return {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
 
 
-def _aggregate_for_cohort(artifacts: dict, cohort: int | None) -> dict:
+def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
     import numpy as np
     df = artifacts["df"]
-    subset = df if cohort is None else df[df["cohort"] == cohort]
+    subset = df if batch is None else df[df["batch"] == batch]
     if subset.empty:
         return {"n_alumni": 0}
 
@@ -1352,24 +1352,263 @@ def _aggregate_for_cohort(artifacts: dict, cohort: int | None) -> dict:
     }
 
 
+def _compute_forecast(artifacts: dict, n_future: int = 2) -> list[dict]:
+    """Project per-feature linear trend forward N batches; run through models.
+
+    Returns a list of forecast dicts (one per future batch), each with
+    predicted employment rate, predicted mean time-to-hire, 80% prediction
+    intervals via residual bootstrap, and a TTH bucket distribution.
+    """
+    import numpy as np
+
+    df = artifacts["df"]
+    feats = artifacts["features"]
+    scaler = artifacts["scaler"]
+    models = artifacts["models"]
+
+    batches = sorted(df["batch"].unique().tolist())
+    if len(batches) < 2:
+        return []
+    latest = int(max(batches))
+
+    # Per-feature linear trend on batch-year vs mean(feature)
+    batch_means = df.groupby("batch")[feats].mean()
+    x = np.array(batch_means.index, dtype=float)
+    slopes: dict[str, float] = {}
+    for f in feats:
+        y = batch_means[f].to_numpy()
+        if np.std(x) == 0 or np.std(y) == 0:
+            slopes[f] = 0.0
+        else:
+            slope, _ = np.polyfit(x, y, 1)
+            slopes[f] = float(slope)
+    slope_vec = np.array([slopes[f] for f in feats], dtype=float)
+
+    # In-sample residuals for bootstrap
+    X_full = scaler.transform(df[feats])
+    pred_emp_in = models["employment_status"].predict(X_full).astype(int)
+    actual_emp = df["employment_status"].astype(int).to_numpy()
+    emp_residuals = (actual_emp - pred_emp_in).astype(float)
+
+    employed = df[df["time_to_hire_months"].notna()]
+    X_emp = scaler.transform(employed[feats])
+    pred_tth_in = models["time_to_hire"].predict(X_emp)
+    tth_residuals = employed["time_to_hire_months"].to_numpy() - pred_tth_in
+
+    rng = np.random.default_rng(42)
+    n_boot = 200
+
+    base_rows = df[df["batch"] == latest][feats].to_numpy(dtype=float)
+    if len(base_rows) == 0:
+        base_rows = df[feats].to_numpy(dtype=float)
+
+    forecasts: list[dict] = []
+    for k in range(1, n_future + 1):
+        future_year = latest + k
+        shifted = base_rows + slope_vec * float(k)
+        Xf = scaler.transform(shifted)
+
+        pred_emp = models["employment_status"].predict(Xf).astype(int)
+        pred_tth = models["time_to_hire"].predict(Xf)
+
+        emp_rate = float(pred_emp.mean())
+        tth_mean = float(np.mean(pred_tth))
+
+        # 80% bootstrap CI on the batch mean
+        boot_emp = np.empty(n_boot, dtype=float)
+        boot_tth = np.empty(n_boot, dtype=float)
+        for i in range(n_boot):
+            idx_e = rng.integers(0, len(emp_residuals), size=len(emp_residuals))
+            boot_emp[i] = emp_rate + float(emp_residuals[idx_e].mean())
+            if len(tth_residuals):
+                idx_t = rng.integers(0, len(tth_residuals), size=len(tth_residuals))
+                boot_tth[i] = tth_mean + float(tth_residuals[idx_t].mean())
+            else:
+                boot_tth[i] = tth_mean
+
+        emp_lo = float(np.clip(np.percentile(boot_emp, 10), 0, 1))
+        emp_hi = float(np.clip(np.percentile(boot_emp, 90), 0, 1))
+        tth_lo = float(max(0.0, np.percentile(boot_tth, 10)))
+        tth_hi = float(np.percentile(boot_tth, 90))
+
+        buckets = {"1-3 months": 0, "3-6 months": 0, "6-12 months": 0, ">12 months": 0}
+        for t in pred_tth:
+            if t < 3:
+                buckets["1-3 months"] += 1
+            elif t < 6:
+                buckets["3-6 months"] += 1
+            elif t < 12:
+                buckets["6-12 months"] += 1
+            else:
+                buckets[">12 months"] += 1
+
+        forecasts.append({
+            "batch": future_year,
+            "n_alumni_basis": int(len(base_rows)),
+            "predicted_employment_rate": emp_rate,
+            "employment_rate_lo": emp_lo,
+            "employment_rate_hi": emp_hi,
+            "predicted_mean_time_to_hire_months": tth_mean,
+            "time_to_hire_lo": tth_lo,
+            "time_to_hire_hi": tth_hi,
+            "time_to_hire_distribution": buckets,
+        })
+
+    return forecasts
+
+
+def _compute_skill_forecast(n_future: int = 2, top_n: int = 10) -> list[dict]:
+    """Per-skill batch-share linear trend, projected forward N batches.
+
+    Pulls live data from CompetencyProfile (technical + soft skill JSON arrays)
+    joined with AlumniProfile.graduation_year and EmploymentProfile.employment_status.
+    Ranks skills by a relevance score that blends projected demand share with
+    employment-lift (how much more likely a holder is to be employed).
+    """
+    import numpy as np
+    from users.models import AlumniProfile
+
+    EMPLOYED_VALUES = {"employed_full_time", "employed_part_time", "self_employed"}
+
+    profiles = (
+        AlumniProfile.objects
+        .select_related("alumni")
+        .prefetch_related("alumni__competency_profiles", "alumni__employment_profiles")
+        .filter(graduation_year__isnull=False)
+    )
+
+    rows: list[dict] = []
+    for p in profiles:
+        comp = p.alumni.competency_profiles.first()
+        if not comp:
+            continue
+        emp = p.alumni.employment_profiles.first()
+        is_employed = bool(emp and emp.employment_status in EMPLOYED_VALUES)
+        tech = [
+            s.get("name") for s in (comp.technical_skills or [])
+            if isinstance(s, dict) and s.get("selected") and s.get("name")
+        ]
+        soft = [
+            s.get("name") for s in (comp.soft_skills or [])
+            if isinstance(s, dict) and s.get("selected") and s.get("name")
+        ]
+        rows.append({
+            "batch": int(p.graduation_year),
+            "employed": is_employed,
+            "tech": set(tech),
+            "soft": set(soft),
+        })
+
+    if len(rows) < 5:
+        return []
+
+    batches = sorted({r["batch"] for r in rows})
+    if len(batches) < 2:
+        return []
+    latest = max(batches)
+
+    skill_universe: dict[str, str] = {}  # name → 'technical' | 'soft'
+    for r in rows:
+        for s in r["tech"]:
+            skill_universe[s] = "technical"
+        for s in r["soft"]:
+            skill_universe.setdefault(s, "soft")
+
+    batch_totals: dict[int, int] = {c: 0 for c in batches}
+    batch_skill_holders: dict[str, dict[int, int]] = {
+        s: {c: 0 for c in batches} for s in skill_universe
+    }
+    employed_total = 0
+    employed_with: dict[str, int] = {s: 0 for s in skill_universe}
+    n_total = len(rows)
+
+    for r in rows:
+        batch_totals[r["batch"]] += 1
+        if r["employed"]:
+            employed_total += 1
+        for s in r["tech"] | r["soft"]:
+            batch_skill_holders[s][r["batch"]] += 1
+            if r["employed"]:
+                employed_with[s] += 1
+
+    base_employment_rate = employed_total / n_total if n_total else 0.0
+    x = np.array(batches, dtype=float)
+
+    forecast_years = [latest + k for k in range(1, n_future + 1)]
+    out: list[dict] = []
+
+    for skill, kind in skill_universe.items():
+        shares = np.array([
+            (batch_skill_holders[skill][c] / batch_totals[c]) if batch_totals[c] else 0.0
+            for c in batches
+        ], dtype=float)
+
+        if np.std(x) > 0 and np.std(shares) > 0:
+            slope, intercept = np.polyfit(x, shares, 1)
+        else:
+            slope, intercept = 0.0, float(shares.mean())
+
+        projections = []
+        for fy in forecast_years:
+            projected = float(np.clip(slope * fy + intercept, 0.0, 1.0))
+            projections.append({"batch": fy, "projected_share": projected})
+
+        holders_total = sum(batch_skill_holders[skill][c] for c in batches)
+        if holders_total >= 3:
+            holder_emp_rate = employed_with[skill] / holders_total
+            lift = holder_emp_rate - base_employment_rate
+        else:
+            lift = 0.0
+
+        latest_share = (
+            batch_skill_holders[skill][latest] / batch_totals[latest]
+            if batch_totals[latest] else 0.0
+        )
+        next_share = projections[0]["projected_share"] if projections else latest_share
+
+        relevance = 0.55 * next_share + 0.30 * max(lift, 0.0) + 0.15 * max(slope * 5, 0.0)
+
+        out.append({
+            "skill": skill,
+            "kind": kind,
+            "current_share": float(latest_share),
+            "lift": float(lift),
+            "slope_per_year": float(slope),
+            "holders_total": int(holders_total),
+            "projections": projections,
+            "relevance_score": float(relevance),
+        })
+
+    out.sort(key=lambda r: r["relevance_score"], reverse=True)
+    return out[:top_n]
+
+
 class AdminAnalyticsPredictionsView(APIView):
     """
-    GET /api/admin/analytics/employability-predictions/?cohort=YYYY
+    GET /api/admin/analytics/employability-predictions/?batch=YYYY
 
-    Returns aggregate model predictions. If ?cohort is omitted, returns
-    per-cohort breakdown across the full trained population.
+    Returns aggregate model predictions. If ?batch is omitted, returns
+    per-batch breakdown across the full trained population.
     """
 
     permission_classes = []  # Admin only - set in middleware
 
     def get(self, request):
-        cohort_param = request.query_params.get("cohort")
-        cohort = None
-        if cohort_param:
+        batch_param = request.query_params.get("batch")
+        batch = None
+        if batch_param:
             try:
-                cohort = int(cohort_param)
+                batch = int(batch_param)
             except ValueError:
-                return Response({"error": "cohort must be integer"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "batch must be integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        horizon_param = request.query_params.get("horizon")
+        n_future = 2
+        if horizon_param:
+            try:
+                n_future = max(1, min(2, int(horizon_param)))
+            except ValueError:
+                n_future = 2
 
         artifacts = _load_ml_artifacts()
         if "error" in artifacts:
@@ -1388,20 +1627,32 @@ class AdminAnalyticsPredictionsView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        overall = _aggregate_for_cohort(artifacts, cohort)
-        per_cohort = []
-        for c in sorted(artifacts["df"]["cohort"].unique().tolist()):
-            entry = _aggregate_for_cohort(artifacts, int(c))
-            entry["cohort"] = int(c)
-            per_cohort.append(entry)
+        overall = _aggregate_for_batch(artifacts, batch)
+        per_batch = []
+        for c in sorted(artifacts["df"]["batch"].unique().tolist()):
+            entry = _aggregate_for_batch(artifacts, int(c))
+            entry["batch"] = int(c)
+            per_batch.append(entry)
+
+        try:
+            forecast = _compute_forecast(artifacts, n_future=n_future)
+        except Exception:  # noqa: BLE001
+            forecast = []
+
+        try:
+            skill_forecast = _compute_skill_forecast(n_future=n_future, top_n=10)
+        except Exception:  # noqa: BLE001
+            skill_forecast = []
 
         meta = artifacts["meta"]
         best = {k: v.get("best_model") for k, v in meta.get("targets", {}).items()}
 
         return Response({
-            "cohort": cohort,
+            "batch": batch,
             "overall": overall,
-            "per_cohort": per_cohort,
+            "per_batch": per_batch,
+            "forecast": forecast,
+            "skill_forecast": skill_forecast,
             "model_metadata": {
                 "trained_at": meta.get("trained_at"),
                 "n_samples": meta.get("n_samples"),
@@ -1436,16 +1687,16 @@ class TrainingDataExportView(APIView):
         import csv
         from io import StringIO
 
-        start_cohort = request.query_params.get('start_cohort', 2020)
-        end_cohort = request.query_params.get('end_cohort', 2025)
+        start_batch = request.query_params.get('start_batch', 2020)
+        end_batch = request.query_params.get('end_batch', 2025)
         include_unverified = request.query_params.get('include_unverified', 'false').lower() == 'true'
 
         try:
-            start_cohort = int(start_cohort)
-            end_cohort = int(end_cohort)
+            start_batch = int(start_batch)
+            end_batch = int(end_batch)
         except ValueError:
             return Response(
-                {'error': 'Cohort parameters must be integers'},
+                {'error': 'Batch parameters must be integers'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -1454,14 +1705,14 @@ class TrainingDataExportView(APIView):
         from tracer.models import EmploymentProfile, CompetencyProfile
 
         alumni_profiles = AlumniProfile.objects.filter(
-            graduation_year__gte=start_cohort,
-            graduation_year__lte=end_cohort
+            graduation_year__gte=start_batch,
+            graduation_year__lte=end_batch
         ).select_related('alumni')
 
         # Create CSV
         output = StringIO()
         fieldnames = [
-            'alumni_id', 'cohort', 'gender', 'scholarship',
+            'alumni_id', 'batch', 'gender', 'scholarship',
             'general_average_range', 'academic_honors', 'prior_work_experience',
             'ojt_relevance', 'has_portfolio', 'english_proficiency',
             'job_applications_count', 'job_source', 'first_job_sector',
@@ -1483,7 +1734,7 @@ class TrainingDataExportView(APIView):
 
             row = {
                 'alumni_id': str(profile.alumni.id),
-                'cohort': profile.graduation_year,
+                'batch': profile.graduation_year,
                 'gender': 1 if profile.gender and profile.gender.upper() == 'F' else 0,
                 'scholarship': 1 if profile.scholarship else 0,
                 'general_average_range': profile.general_average_range,
@@ -1512,7 +1763,7 @@ class TrainingDataExportView(APIView):
 
         from django.http import HttpResponse
         response = HttpResponse(csv_content, content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="training_data_{start_cohort}_{end_cohort}.csv"'
+        response['Content-Disposition'] = f'attachment; filename="training_data_{start_batch}_{end_batch}.csv"'
         return response
 
 

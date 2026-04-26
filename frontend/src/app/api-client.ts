@@ -505,8 +505,8 @@ export async function deleteAdmin(id: string): Promise<void> {
 // Analytics — Employability Predictions
 // ---------------------------------------------------------------------------
 
-export interface CohortPrediction {
-    cohort: number;
+export interface BatchPrediction {
+    batch: number;
     n_alumni: number;
     actual_employment_rate: number;
     predicted_employment_rate: number;
@@ -517,10 +517,40 @@ export interface CohortPrediction {
     time_to_hire_distribution: Record<string, number>;
 }
 
+export interface BatchForecast {
+    batch: number;
+    n_alumni_basis: number;
+    predicted_employment_rate: number;
+    employment_rate_lo: number;
+    employment_rate_hi: number;
+    predicted_mean_time_to_hire_months: number;
+    time_to_hire_lo: number;
+    time_to_hire_hi: number;
+    time_to_hire_distribution: Record<string, number>;
+}
+
+export interface SkillProjection {
+    batch: number;
+    projected_share: number;
+}
+
+export interface SkillForecast {
+    skill: string;
+    kind: 'technical' | 'soft';
+    current_share: number;
+    lift: number;
+    slope_per_year: number;
+    holders_total: number;
+    projections: SkillProjection[];
+    relevance_score: number;
+}
+
 export interface AnalyticsPredictionsResponse {
-    cohort: number | null;
-    overall: Omit<CohortPrediction, 'cohort'> & { cohort?: number };
-    per_cohort: CohortPrediction[];
+    batch: number | null;
+    overall: Omit<BatchPrediction, 'batch'> & { batch?: number };
+    per_batch: BatchPrediction[];
+    forecast: BatchForecast[];
+    skill_forecast: SkillForecast[];
     model_metadata: {
         trained_at: string;
         n_samples: number;
@@ -532,9 +562,13 @@ export interface AnalyticsPredictionsResponse {
 }
 
 export async function fetchAnalyticsPredictions(
-    cohort?: number,
+    batch?: number,
+    horizon?: number,
 ): Promise<AnalyticsPredictionsResponse> {
-    const qs = cohort != null ? `?cohort=${cohort}` : '';
+    const params = new URLSearchParams();
+    if (batch != null) params.set('batch', String(batch));
+    if (horizon != null) params.set('horizon', String(horizon));
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const response = await fetch(
         `${API_BASE_URL}/api/admin/analytics/employability-predictions/${qs}`,
         { headers: withAdminAuthHeaders() },
@@ -554,16 +588,16 @@ export interface ReportPayload {
     title: string;
     generated_at: string;
     filters: {
-        cohort_start: number;
-        cohort_end: number;
+        batch_start: number;
+        batch_end: number;
         include_unverified: boolean;
     };
     sections: ReportSection[];
 }
 
 export interface ReportFilters {
-    cohortStart: number;
-    cohortEnd: number;
+    batchStart: number;
+    batchEnd: number;
     includeUnverified: boolean;
 }
 
@@ -572,8 +606,8 @@ export async function fetchReport(
     filters: ReportFilters,
 ): Promise<ReportPayload> {
     const params = new URLSearchParams({
-        cohort_start: String(filters.cohortStart),
-        cohort_end: String(filters.cohortEnd),
+        batch_start: String(filters.batchStart),
+        batch_end: String(filters.batchEnd),
         include_unverified: String(filters.includeUnverified),
     });
     const response = await fetch(

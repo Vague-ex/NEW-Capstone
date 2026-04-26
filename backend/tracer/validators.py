@@ -48,7 +48,7 @@ class FieldValidationRules:
 
     # Continuous/Range Fields
     TIME_TO_HIRE_VALID = {1, 3, 4.5, 9, 18, 30}
-    COHORT_RANGE = (2020, 2025)
+    BATCH_RANGE = (2020, 2025)
     AGE_RANGE = (18, 70)
 
     # Count Ranges
@@ -199,11 +199,11 @@ class SurveyDataValidator:
         if data.get('graduation_year'):
             try:
                 year = int(data['graduation_year'])
-                if not (FieldValidationRules.COHORT_RANGE[0] <= year <= FieldValidationRules.COHORT_RANGE[1]):
+                if not (FieldValidationRules.BATCH_RANGE[0] <= year <= FieldValidationRules.BATCH_RANGE[1]):
                     self.errors.append({
                         'section': 'educational_background',
                         'field': 'graduation_year',
-                        'error': f'Year {year} outside valid range {FieldValidationRules.COHORT_RANGE}'
+                        'error': f'Year {year} outside valid range {FieldValidationRules.BATCH_RANGE}'
                     })
             except (ValueError, TypeError):
                 self.errors.append({

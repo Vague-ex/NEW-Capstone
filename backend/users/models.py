@@ -86,7 +86,7 @@ class AccountStatus(models.TextChoices):
 class GraduateMasterRecord(models.Model):
     """
     DS1: Graduate Master List DB
-    Pre-loaded cohort data used for registration identity lookup.
+    Pre-loaded batch data used for registration identity lookup.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

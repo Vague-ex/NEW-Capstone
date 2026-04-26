@@ -346,7 +346,7 @@ export function AlumniPersonalEducation() {
                     <div>
                         <p className="text-blue-800 text-sm" style={{ fontWeight: 600 }}>Tip</p>
                         <p className="text-blue-700 text-xs mt-0.5 leading-relaxed">
-                            Keep these fields up to date so the graduate tracer records and cohort reporting remain accurate.
+                            Keep these fields up to date so the graduate tracer records and batch reporting remain accurate.
                         </p>
                     </div>
                 </div>

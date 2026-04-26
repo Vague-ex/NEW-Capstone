@@ -15,7 +15,7 @@ Planned Data Scope
 Inputs and Data Sources
 - DS2 users_alumni_accounts: profile fields, survey data, captured metadata.
 - DS4 tracer_employment_records: employment outcomes and verification context.
-- DS1 users_graduate_master_records: graduation cohort and batch linkage.
+- DS1 users_graduate_master_records: graduation batch and batch linkage.
 - DS6 reference tables: normalized skills, categories, job titles, and regions.
 
 Predictor Variables
@@ -25,7 +25,7 @@ Predictor Variables
 | Skill Count Technical | Continuous | Count of technical skills in profile | More technical skills often reduce hiring time |
 | Skill Count Soft Skills | Continuous | Count of soft skills in profile | Soft skills correlate with interview success |
 | Has High Demand Skill | Binary (0/1) | Skill-level indicator (for example SQL) | High-demand skills increase employability |
-| Graduation Year Cohort | Categorical | Graduation year | Market conditions vary by cohort |
+| Graduation Year Batch | Categorical | Graduation year | Market conditions vary by batch |
 | Scholarship Status | Binary (0/1) | Scholarship yes/no | Proxy for academic support and performance |
 | Certification Count | Continuous | Count of credentials (PRC/TESDA/Civil Service/etc.) | Certifications signal job readiness |
 | Gender | Categorical | Profile field | Used for trend segmentation and monitoring |

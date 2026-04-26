@@ -20,11 +20,11 @@ interface ReportDef {
 
 const REPORTS: ReportDef[] = [
   {
-    id: 'cohort-summary',
-    title: 'Cohort Summary',
+    id: 'batch-summary',
+    title: 'Batch Summary',
     description:
       'One row per graduating year — counts, response rate, employment rate, mean time-to-hire.',
-    endpoint: 'cohort-summary',
+    endpoint: 'batch-summary',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Users,
     accent: 'text-blue-600 bg-blue-50',
@@ -83,7 +83,7 @@ const REPORTS: ReportDef[] = [
     id: 'predictive-trend',
     title: 'Predictive Trend',
     description:
-      'Model-projected employment rate, time-to-hire, and BSIS alignment per cohort. Capstone artifact.',
+      'Model-projected employment rate, time-to-hire, and BSIS alignment per batch. Capstone artifact.',
     endpoint: 'predictive-trend',
     formats: ['pdf', 'xlsx'],
     Icon: TrendingUp,
@@ -117,15 +117,15 @@ function saveStamps(next: Record<string, string>) {
 function loadFilters(): ReportFilters {
   try {
     const raw = sessionStorage.getItem(FILTERS_KEY);
-    if (!raw) return { cohortStart: DEFAULT_START, cohortEnd: DEFAULT_END, includeUnverified: false };
+    if (!raw) return { batchStart: DEFAULT_START, batchEnd: DEFAULT_END, includeUnverified: false };
     const parsed = JSON.parse(raw) as Partial<ReportFilters>;
     return {
-      cohortStart: Number(parsed.cohortStart) || DEFAULT_START,
-      cohortEnd: Number(parsed.cohortEnd) || DEFAULT_END,
+      batchStart: Number(parsed.batchStart) || DEFAULT_START,
+      batchEnd: Number(parsed.batchEnd) || DEFAULT_END,
       includeUnverified: Boolean(parsed.includeUnverified),
     };
   } catch {
-    return { cohortStart: DEFAULT_START, cohortEnd: DEFAULT_END, includeUnverified: false };
+    return { batchStart: DEFAULT_START, batchEnd: DEFAULT_END, includeUnverified: false };
   }
 }
 
@@ -182,11 +182,11 @@ export function AdminReports() {
     return out;
   }, []);
 
-  const cohortRangeInvalid = filters.cohortStart > filters.cohortEnd;
+  const batchRangeInvalid = filters.batchStart > filters.batchEnd;
 
   async function handleExport(report: ReportDef, format: ExportFormat) {
-    if (cohortRangeInvalid) {
-      setError('Cohort start year must be ≤ cohort end year.');
+    if (batchRangeInvalid) {
+      setError('Batch start year must be ≤ batch end year.');
       return;
     }
     setError(null);
@@ -220,12 +220,12 @@ export function AdminReports() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block" style={{ fontWeight: 600 }}>
-              Cohort start (graduation year)
+              Batch start (graduation year)
             </label>
             <select
-              value={filters.cohortStart}
+              value={filters.batchStart}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, cohortStart: Number(e.target.value) }))
+                setFilters((f) => ({ ...f, batchStart: Number(e.target.value) }))
               }
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
             >
@@ -238,12 +238,12 @@ export function AdminReports() {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block" style={{ fontWeight: 600 }}>
-              Cohort end (graduation year)
+              Batch end (graduation year)
             </label>
             <select
-              value={filters.cohortEnd}
+              value={filters.batchEnd}
               onChange={(e) =>
-                setFilters((f) => ({ ...f, cohortEnd: Number(e.target.value) }))
+                setFilters((f) => ({ ...f, batchEnd: Number(e.target.value) }))
               }
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
             >
@@ -268,9 +268,9 @@ export function AdminReports() {
             </label>
           </div>
         </div>
-        {cohortRangeInvalid && (
+        {batchRangeInvalid && (
           <p className="text-xs text-rose-600 mt-3">
-            Cohort start must be on or before cohort end.
+            Batch start must be on or before batch end.
           </p>
         )}
       </div>
@@ -320,7 +320,7 @@ export function AdminReports() {
                       <button
                         key={fmt}
                         onClick={() => handleExport(r, fmt)}
-                        disabled={isBusy || anyBusy || cohortRangeInvalid}
+                        disabled={isBusy || anyBusy || batchRangeInvalid}
                         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 hover:border-[#1B3A6B] hover:text-[#1B3A6B] transition disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ fontWeight: 600 }}
                       >

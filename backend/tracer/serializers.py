@@ -306,7 +306,7 @@ class SurveyDataRetrievalSerializer(serializers.Serializer):
 class PredictionDataSerializer(serializers.Serializer):
     """Response serializer for model predictions"""
 
-    cohort = serializers.IntegerField()
+    batch = serializers.IntegerField()
     sample_size = serializers.IntegerField()
     employment_rate_percent = serializers.FloatField()
     avg_time_to_hire_months = serializers.FloatField()
@@ -335,7 +335,7 @@ class TrainingDataRowSerializer(serializers.Serializer):
     """Single row of training data for export"""
 
     alumni_id = serializers.CharField()
-    cohort = serializers.IntegerField()
+    batch = serializers.IntegerField()
     gender = serializers.IntegerField()
     scholarship = serializers.IntegerField()
     general_average_range = serializers.IntegerField(allow_null=True)

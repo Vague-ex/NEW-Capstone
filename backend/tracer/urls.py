@@ -23,7 +23,7 @@ from .api import (
 )
 from .reports_api import (
     AcademicEmploymentReportView,
-    CohortSummaryReportView,
+    BatchSummaryReportView,
     DataQualityReportView,
     EmploymentOutcomesReportView,
     GeographicDistributionReportView,
@@ -78,7 +78,7 @@ urlpatterns = [
     path("admin/analytics/export-training-data/", TrainingDataExportView.as_view(), name="admin-export-training"),
 
     # Admin report-data endpoints (powering admin-reports.tsx)
-    path("admin/reports/cohort-summary/", CohortSummaryReportView.as_view(), name="admin-report-cohort-summary"),
+    path("admin/reports/batch-summary/", BatchSummaryReportView.as_view(), name="admin-report-batch-summary"),
     path("admin/reports/employment-outcomes/", EmploymentOutcomesReportView.as_view(), name="admin-report-employment-outcomes"),
     path("admin/reports/skills-inventory/", SkillsInventoryReportView.as_view(), name="admin-report-skills-inventory"),
     path("admin/reports/geographic-distribution/", GeographicDistributionReportView.as_view(), name="admin-report-geographic"),

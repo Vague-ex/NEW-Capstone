@@ -382,7 +382,7 @@ export function AdminVerified() {
   }, []);
 
   // Batches reflect what's actually in the verified-alumni list — a year only
-  // appears once at least one alum from that cohort has been verified.
+  // appears once at least one alum from that batch has been verified.
   const availableBatches = useMemo(
     () => Array.from(
       new Set(
@@ -394,7 +394,7 @@ export function AdminVerified() {
     [backendVerified],
   );
 
-  // Reset stale year filter if its cohort vanished from the list.
+  // Reset stale year filter if its batch vanished from the list.
   useEffect(() => {
     if (filterYear !== 'all' && !availableBatches.includes(parseInt(filterYear))) {
       setFilterYear('all');
