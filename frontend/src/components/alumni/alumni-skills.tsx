@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
+import { useReferenceData } from '../../hooks/useReferenceData';
 import { Award, Plus, X, CheckCircle2, Save, Info } from 'lucide-react';
 
 // ── CHED BSIS Core Skills (Part IV — Skills Utilized) ────────────────────────
@@ -36,21 +37,6 @@ const SOFT_SKILLS = [
   'Time Management',
 ];
 
-// ── Additional Technical Skills (Category Browser) ───────────────────────────
-
-const ADDITIONAL_CATEGORIES: Record<string, string[]> = {
-  'Web Development': ['HTML/CSS', 'React', 'Vue.js', 'Angular', 'Next.js', 'Tailwind CSS', 'Bootstrap', 'JavaScript', 'TypeScript'],
-  'Backend': ['Node.js', 'Laravel', 'Django', 'Spring Boot', '.NET / C#', 'PHP', 'Python', 'Java', 'Express.js'],
-  'Mobile': ['Flutter / Dart', 'React Native', 'Android (Java)', 'iOS / Swift', 'Kotlin'],
-  'Database': ['MySQL', 'PostgreSQL', 'MongoDB', 'Oracle DB', 'SQL Server', 'Redis', 'Firebase'],
-  'Cloud & DevOps': ['AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'CI/CD', 'Git / GitHub'],
-  'Data & AI': ['Python (Data)', 'Machine Learning', 'Data Analysis', 'Tableau', 'Power BI', 'TensorFlow', 'SQL'],
-  'Cybersecurity': ['Network Security', 'Penetration Testing', 'SOC', 'SIEM', 'Ethical Hacking', 'Firewall'],
-  'Project Mgmt Tools': ['Agile / Scrum', 'JIRA', 'Trello', 'PMP', 'Risk Management', 'Confluence'],
-  'Design': ['UI/UX Design', 'Figma', 'Adobe XD', 'Photoshop', 'Canva'],
-  'Networking': ['Cisco Networking', 'CCNA', 'Network Admin', 'Linux', 'VPN', 'OSPF'],
-};
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AlumniSkills() {
@@ -66,6 +52,25 @@ export function AlumniSkills() {
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+
+  const { data: referenceData, loading: referenceLoading } = useReferenceData();
+
+  const additionalCategories = useMemo<Record<string, string[]>>(() => {
+    const grouped: Record<string, string[]> = {};
+    for (const skill of referenceData.skills) {
+      if (!skill.is_active || !skill.category_name) continue;
+      if (BSIS_CORE_SKILLS.includes(skill.name)) continue;
+      if (SOFT_SKILLS.includes(skill.name)) continue;
+      const bucket = grouped[skill.category_name] ?? (grouped[skill.category_name] = []);
+      if (!bucket.includes(skill.name)) bucket.push(skill.name);
+    }
+    return grouped;
+  }, [referenceData.skills]);
+
+  const additionalCategoryNames = useMemo(
+    () => Object.keys(additionalCategories).sort((a, b) => a.localeCompare(b)),
+    [additionalCategories],
+  );
 
   const toggleSkill = (skill: string) => {
     setSaved(false);
@@ -210,28 +215,36 @@ export function AlumniSkills() {
           <p className="text-gray-500 text-xs mb-4">Browse categories for specific frameworks, tools, and certifications.</p>
 
           {/* Category tabs */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {Object.keys(ADDITIONAL_CATEGORIES).map(cat => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                className={`px-3 py-1.5 rounded-full text-xs border transition ${activeCategory === cat
-                    ? 'bg-[#166534] border-[#166534] text-white'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                style={{ fontWeight: activeCategory === cat ? 600 : 400 }}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          {referenceLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="size-6 border-2 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin" />
+            </div>
+          ) : additionalCategoryNames.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-4">No additional skill categories available yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {additionalCategoryNames.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs border transition ${activeCategory === cat
+                      ? 'bg-[#166534] border-[#166534] text-white'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                    }`}
+                  style={{ fontWeight: activeCategory === cat ? 600 : 400 }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Skills grid for active category */}
-          {activeCategory ? (
+          {activeCategory && additionalCategories[activeCategory] ? (
             <div>
               <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>{activeCategory}</p>
               <div className="flex flex-wrap gap-2">
-                {ADDITIONAL_CATEGORIES[activeCategory].map(skill => {
+                {additionalCategories[activeCategory].map(skill => {
                   const isSelected = selectedSkills.includes(skill);
                   return (
                     <button
