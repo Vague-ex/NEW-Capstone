@@ -5,7 +5,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, Link } from 'react-router';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle,
   User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
@@ -139,14 +139,22 @@ function CheckOption({ label, checked, onChange }: { label: string; checked: boo
   );
 }
 
-function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = false }: { onBack: () => void; onNext: () => void; nextLabel?: string; nextDisabled?: boolean }) {
+function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = false, navigationUrl }: { onBack: () => void; onNext: () => void; nextLabel?: string; nextDisabled?: boolean; navigationUrl?: string }) {
   return (
     <div className="flex gap-3 mt-6">
-      <button onClick={onBack}
-        className="flex items-center justify-center gap-2 px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
-        style={{ fontWeight: 600 }}>
-        <ChevronLeft className="size-4" /> Back
-      </button>
+      {navigationUrl ? (
+        <Link to={navigationUrl}
+          className="flex items-center justify-center gap-2 px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
+          style={{ fontWeight: 600 }}>
+          <ChevronLeft className="size-4" /> Back
+        </Link>
+      ) : (
+        <button onClick={onBack}
+          className="flex items-center justify-center gap-2 px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
+          style={{ fontWeight: 600 }}>
+          <ChevronLeft className="size-4" /> Back
+        </button>
+      )}
       <button onClick={onNext} disabled={nextDisabled}
         className={`flex-1 flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-white transition text-sm ${
           nextDisabled ? 'bg-gray-300 cursor-not-allowed' : 'bg-[#166534] hover:bg-[#14532d]'
@@ -513,7 +521,7 @@ export default function RegisterAlumniPersonal({
                 </div>
               </div>
 
-              <NavButtons onBack={prevPersonalStep} onNext={nextPersonalStep} />
+              <NavButtons onBack={prevPersonalStep} onNext={nextPersonalStep} navigationUrl="/" />
               <p className="text-center text-gray-400 text-xs mt-4">
                 Already have an account?{' '}
                 <button onClick={() => navigate('/')} className="text-[#166534] hover:underline" style={{ fontWeight: 500 }}>
@@ -639,6 +647,7 @@ export default function RegisterAlumniPersonal({
                         type="tel"
                         placeholder="9XXXXXXXXX"
                         value={form.mobile}
+                        maxLength={10}
                         onChange={(e) => setF('mobile', e.target.value.replace(/\D/g, ''))}
                         className={`${inputCls} pl-10`}
                       />
@@ -711,7 +720,7 @@ export default function RegisterAlumniPersonal({
                   <div className="flex gap-2">
                     {[
                       { label: 'Yes, I have graduated', value: true },
-                      { label: 'Not yet, currently in school', value: false },
+                      // { label: 'Not yet, currently in school', value: false },
                     ].map((opt) => (
                       <RadioOption
                         key={opt.label}
