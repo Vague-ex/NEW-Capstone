@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Alumni Registration Orchestrator
  * Coordinates the two-phase registration flow:
  *   Phase 1 (personal): RegisterAlumniPersonal — account, personal info, biometrics
