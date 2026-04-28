@@ -7,7 +7,7 @@
  * Single FormData submission happens here after all data is collected.
  */
 
-import { useReducer } from 'react';
+import { useReducer, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
 import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData } from './register-alumni-personal';
@@ -105,6 +105,14 @@ function ProgressIndicator({ stage }: { stage: RegistrationStage }) {
 }
 
 function RegistrationComplete({ firstName, navigate }: { firstName: string; navigate: (path: string) => void }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      navigate('/alumni/dashboard');
+    }, 4000); // 4 second delay before auto-redirect
+
+    return () => clearTimeout(timer);
+  }, [navigate]);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
