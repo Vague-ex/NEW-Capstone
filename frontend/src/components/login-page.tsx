@@ -289,20 +289,6 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Feature badges */}
-        <div className="relative flex flex-wrap gap-2 mb-2">
-          {[
-            { icon: GraduationCap, label: "Graduate Portal" },
-            { icon: ShieldCheck, label: "Admin Portal" },
-            { icon: User, label: "Employer Portal" },
-          ].map(item => (
-            <div key={item.label} className="flex items-center gap-1.5 bg-white/10 border border-white/15 rounded-full px-3 py-1.5">
-              <item.icon className="size-3 text-white/70" />
-              <span className="text-white/80 text-xs" style={{ fontWeight: 500 }}>{item.label}</span>
-            </div>
-          ))}
-        </div>
-
         {/* Curved bottom edge */}
         <div className="absolute bottom-0 left-0 right-0 h-6 bg-gray-50" style={{ borderRadius: "50% 50% 0 0 / 100% 100% 0 0" }} />
       </div>
