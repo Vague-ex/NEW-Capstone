@@ -128,7 +128,7 @@ export function AlumniPersonalEducation() {
                     survey_data: mergedSurveyData,
                 });
                 if (response.alumni && typeof response.alumni === 'object') {
-                    serverAlumni = response.alumni;
+                    serverAlumni = response.alumni as Record<string, unknown>;
                 }
             }
 
