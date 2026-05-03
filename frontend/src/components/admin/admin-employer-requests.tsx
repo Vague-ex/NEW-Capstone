@@ -65,7 +65,7 @@ export function AdminEmployerRequests() {
       try {
         const records = await fetchEmployerRequests();
         if (!active) return;
-        setEmployers(records.map((entry) => normalizeEmployerRecord(entry)));
+        setEmployers(records.map((entry) => normalizeEmployerRecord(entry as Record<string, unknown>)));
       } catch (err) {
         if (!active) return;
         const message = err instanceof Error ? err.message : 'Failed to load employer requests.';
