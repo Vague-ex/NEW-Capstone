@@ -144,6 +144,10 @@ CORS_ALLOWED_ORIGINS = _env_list(
     "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001",
 )
 CORS_ALLOW_ALL_ORIGINS = _env_bool("CORS_ALLOW_ALL_ORIGINS", DEBUG)
+CSRF_TRUSTED_ORIGINS = _env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:3000,http://localhost:3001",
+)
 
 
 # Database
