@@ -55,11 +55,12 @@ function GraduateAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md
 }
 
 function StatusBadge({ status }: { status: Graduate['employmentStatus'] }) {
-  const cfg = {
+  const cfgMap: Record<string, { cls: string; dot: string; label: string }> = {
     employed: { cls: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', label: 'Employed' },
     'self-employed': { cls: 'bg-green-100 text-green-700', dot: 'bg-green-500', label: 'Self-Employed' },
     unemployed: { cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500', label: 'Not Employed' },
-  }[status];
+  };
+  const cfg = cfgMap[status ?? ''] ?? { cls: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400', label: 'Unknown' };
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full ${cfg.cls}`} style={{ fontWeight: 600 }}>
       <span className={`size-1.5 rounded-full ${cfg.dot}`} />
@@ -78,7 +79,7 @@ function GraduateCard({ graduate, onSelect, isSelected }: { graduate: Graduate; 
         }`}
     >
       <div className="flex items-start gap-3">
-        <GraduateAvatar name={graduate.name} />
+        <GraduateAvatar name={graduate.name ?? ''} />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -529,7 +530,7 @@ export function GraduateVerify() {
               <div className="bg-[#166534]/5 border-b border-[#166534]/10 p-5">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
-                    <GraduateAvatar name={selectedGraduate.name} size="lg" />
+                    <GraduateAvatar name={selectedGraduate.name ?? ''} size="lg" />
                     <div>
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <p className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.05rem' }}>
@@ -603,7 +604,7 @@ export function GraduateVerify() {
                 <div className="flex items-center gap-2">
                   <Clock className="size-4 text-gray-400 shrink-0" />
                   <p className="text-gray-400 text-xs">
-                    Last updated: {new Date(selectedGraduate.dateUpdated).toLocaleDateString('en-PH', { dateStyle: 'long' })}
+                    Last updated: {selectedGraduate.dateUpdated ? new Date(selectedGraduate.dateUpdated).toLocaleDateString('en-PH', { dateStyle: 'long' }) : '—'}
                   </p>
                 </div>
                 {selectedGraduate.biometricCaptured && (
@@ -699,7 +700,7 @@ export function GraduateVerify() {
                       value={endorsement}
                       onChange={e => setEndorsement(e.target.value)}
                       rows={3}
-                      placeholder={`e.g. "${selectedGraduate.name.split(' ')[0]} demonstrated excellent technical skills and professionalism during their time at ${employerCompany}. Highly recommended."`}
+                      placeholder={`e.g. "${(selectedGraduate.name ?? '').split(' ')[0]} demonstrated excellent technical skills and professionalism during their time at ${employerCompany}. Highly recommended."`}
                       className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white resize-none"
                     />
                     <p className="text-gray-400 text-xs mt-1">This will be visible on the graduate's profile as an employer endorsement.</p>
