@@ -9,7 +9,7 @@ import {
   Settings, UserCheck,
 } from 'lucide-react';
 import { ADMIN_ACCESS_TOKEN_KEY, fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
-const schoolLogo = '/android-chrome-192x192.png';
+const schoolLogo = '/favicon-32x32.png';
 
 type PortalRole = 'alumni' | 'employer' | 'admin';
 
