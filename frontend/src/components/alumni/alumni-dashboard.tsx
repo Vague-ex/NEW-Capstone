@@ -48,11 +48,12 @@ export function AlumniDashboard() {
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = (alumni.verificationStatus ?? 'pending') === 'pending';
 
-  const statusColor = {
+  const statusColorMap: Record<string, { bg: string; text: string; dot: string; label: string }> = {
     employed: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Employed' },
     'self-employed': { bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500', label: 'Self-Employed' },
     unemployed: { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unemployed' },
-  }[alumni.employmentStatus] ?? { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unknown' };
+  };
+  const statusColor = statusColorMap[alumni.employmentStatus ?? ''] ?? { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unknown' };
 
   const batchPeers = VALID_ALUMNI.filter(a => a.graduationYear === alumni.graduationYear);
   const batchEmployed = batchPeers.filter(a => a.employmentStatus !== 'unemployed').length;
