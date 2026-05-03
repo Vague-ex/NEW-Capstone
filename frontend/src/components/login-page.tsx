@@ -96,7 +96,8 @@ export function LoginPage() {
         autoDetectInterval.current = null;
       }
     };
-  }, [cameraOn, scanStage, faceAuthBusy]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOn, scanStage, faceAuthBusy]); // runGraduateFaceAuthentication omitted — credential/password stable during scan phase
 
   const handleCredentialNext = () => {
     setError("");

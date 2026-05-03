@@ -6,7 +6,7 @@ import {
   Building2, Search, BarChart2, Map, Upload,
   ChevronRight, Bell, Shield, Star, Briefcase,
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
-  Settings,
+  Settings, UserCheck,
 } from 'lucide-react';
 import { ADMIN_ACCESS_TOKEN_KEY, fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
@@ -91,7 +91,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [liveAdminNotificationCount, setLiveAdminNotificationCount] = useState<number | null>(null);
+  const [pendingAlumniCount, setPendingAlumniCount] = useState(0);
+  const [pendingEmployerCount, setPendingEmployerCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifButtonRef = useRef<HTMLButtonElement>(null);
+  const notifDropdownRef = useRef<HTMLDivElement>(null);
   const lastKnownAdminPendingRef = useRef<number | null>(null);
   const notificationAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -171,7 +175,8 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
           employerRequests as Array<Record<string, unknown>>,
         );
         const totalPending = pendingAlumni.length + pendingEmployers;
-        setLiveAdminNotificationCount(totalPending);
+        setPendingAlumniCount(pendingAlumni.length);
+        setPendingEmployerCount(pendingEmployers);
 
         const previousTotal = lastKnownAdminPendingRef.current;
         if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
@@ -201,14 +206,29 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     };
   }, [role]);
 
+  // Close bell dropdown on outside click
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (
+        notifDropdownRef.current && !notifDropdownRef.current.contains(e.target as Node) &&
+        notifButtonRef.current && !notifButtonRef.current.contains(e.target as Node)
+      ) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [notifOpen]);
+
   const handleLogout = () => {
     sessionStorage.removeItem(config.sessionKey);
     sessionStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
     navigate(config.logoutPath);
   };
 
-  const bellNotificationCount = role === 'admin' && liveAdminNotificationCount !== null
-    ? liveAdminNotificationCount
+  const bellNotificationCount = role === 'admin'
+    ? pendingAlumniCount + pendingEmployerCount
     : notificationCount;
 
   const RoleIcon = role === 'admin' ? Shield : role === 'employer' ? Building2 : GraduationCap;
@@ -252,10 +272,15 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               <item.icon className={`size-4 shrink-0 ${isActive ? 'text-white' : 'text-white/50'}`} />
               <span className="flex-1 text-left text-sm">{item.label}</span>
               {isActive && <ChevronRight className="size-3 text-white/60 shrink-0" />}
-              {/* Notification dot on pending verification */}
-              {item.path === '/admin/unverified' && notificationCount > 0 && !isActive && (
+              {/* Per-item notification badges */}
+              {item.path === '/admin/unverified' && pendingAlumniCount > 0 && !isActive && (
                 <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
-                  {notificationCount}
+                  {pendingAlumniCount}
+                </span>
+              )}
+              {item.path === '/admin/employers' && pendingEmployerCount > 0 && !isActive && (
+                <span className="flex size-4 items-center justify-center rounded-full bg-blue-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
+                  {pendingEmployerCount}
                 </span>
               )}
             </button>
@@ -322,17 +347,63 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
           </div>
           <div className="flex items-center gap-2">
             {role !== 'alumni' && (
-              <button
-                onClick={() => role === 'admin' ? navigate('/admin/unverified') : undefined}
-                className="relative p-2 rounded-lg hover:bg-gray-100 transition"
-              >
-                <Bell className="size-4 text-gray-500" />
-                {bellNotificationCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-white" style={{ fontSize: '9px', fontWeight: 700 }}>
-                    {bellNotificationCount}
-                  </span>
+              <div className="relative">
+                <button
+                  ref={notifButtonRef}
+                  onClick={() => setNotifOpen(o => !o)}
+                  className="relative p-2 rounded-lg hover:bg-gray-100 transition"
+                >
+                  <Bell className="size-4 text-gray-500" />
+                  {bellNotificationCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-red-500 text-white" style={{ fontSize: '9px', fontWeight: 700 }}>
+                      {bellNotificationCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Bell dropdown */}
+                {notifOpen && (
+                  <div ref={notifDropdownRef} className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-gray-200 shadow-lg z-50 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <p className="text-gray-800 text-sm" style={{ fontWeight: 600 }}>Notifications</p>
+                    </div>
+                    {pendingAlumniCount === 0 && pendingEmployerCount === 0 ? (
+                      <div className="px-4 py-5 text-center text-gray-400 text-xs">No pending items</div>
+                    ) : (
+                      <div>
+                        {pendingAlumniCount > 0 && (
+                          <button
+                            onClick={() => { navigate('/admin/unverified'); setNotifOpen(false); }}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left"
+                          >
+                            <span className="flex size-8 items-center justify-center rounded-full bg-amber-100 shrink-0">
+                              <UserCheck className="size-4 text-amber-600" />
+                            </span>
+                            <div>
+                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingAlumniCount} Alumni Pending Verification</p>
+                              <p className="text-gray-400 text-xs">Awaiting biometric review</p>
+                            </div>
+                          </button>
+                        )}
+                        {pendingEmployerCount > 0 && (
+                          <button
+                            onClick={() => { navigate('/admin/employers'); setNotifOpen(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left ${pendingAlumniCount > 0 ? 'border-t border-gray-50' : ''}`}
+                          >
+                            <span className="flex size-8 items-center justify-center rounded-full bg-blue-100 shrink-0">
+                              <Building2 className="size-4 text-blue-600" />
+                            </span>
+                            <div>
+                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingEmployerCount} Employer Request{pendingEmployerCount !== 1 ? 's' : ''}</p>
+                              <p className="text-gray-400 text-xs">Awaiting access approval</p>
+                            </div>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
-              </button>
+              </div>
             )}
             <div className={`flex size-8 items-center justify-center rounded-full ${config.accent} lg:hidden`}>
               <RoleIcon className="size-4 text-white" />

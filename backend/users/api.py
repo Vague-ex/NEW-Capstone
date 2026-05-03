@@ -16,8 +16,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AccountStatus, AdminCredential, AlumniAccount, EmployerAccount, GraduateMasterRecord, User
+from .models import (
+    AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
+    EmployerAccount, FaceScan, GraduateMasterRecord, User,
+)
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
+from tracer.models import (
+    AlumniSkill, CompetencyProfile, EmploymentProfile,
+    Skill, SkillCategory, WorkAddress,
+)
 
 try:
     import cv2
@@ -30,7 +37,7 @@ except Exception:  # pragma: no cover - optional dependency guard
     np = None
 
 
-FACE_MATCH_THRESHOLD = 0.6
+FACE_MATCH_THRESHOLD = 0.5
 MIN_FACE_SIZE_PX = 72
 MIN_FACE_AREA_RATIO = 0.045
 FACE_DESCRIPTOR_LENGTH = 128
@@ -157,15 +164,19 @@ def _authenticate_by_email(email: str, password: str) -> User | None:
 def _find_master_record(
     family_name: str,
     first_name: str,
+    graduation_year: int | None = None,
 ) -> GraduateMasterRecord | None:
     if not family_name or not first_name:
         return None
 
-    return GraduateMasterRecord.objects.filter(
+    qs = GraduateMasterRecord.objects.filter(
         last_name__iexact=family_name,
         full_name__icontains=first_name,
         is_active=True,
-    ).first()
+    )
+    if graduation_year:
+        qs = qs.filter(batch_year=graduation_year)
+    return qs.first()
 
 
 def _normalize_storage_key(raw_value: str) -> str:
@@ -1249,6 +1260,7 @@ class AlumniRegisterView(APIView):
         master_record = _find_master_record(
             family_name=family_name,
             first_name=first_name,
+            graduation_year=graduation_year,
         )
 
         if master_record and family_name.lower() != master_record.last_name.lower():
@@ -1336,6 +1348,18 @@ class AlumniRegisterView(APIView):
                 }),
                 account_status=AccountStatus.PENDING,
             )
+
+            # 2b. Create FaceScan DB records for all three registration angles
+            _captured_at = timezone.now()
+            for _scan_key in ["face_front", "face_left", "face_right"]:
+                _url = face_scan_urls.get(_scan_key)
+                if _url:
+                    FaceScan.objects.create(
+                        alumni=alumni_account,
+                        scan_type=_scan_key,
+                        url=_url,
+                        captured_at=_captured_at,
+                    )
 
             # 3. Create AlumniProfile (personal + academic + pre-employment info)
             profile_dict = _extract_alumni_profile_data(survey_data, request.data)
@@ -1983,3 +2007,53 @@ class EmployerRequestRejectView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class MasterlistCheckView(APIView):
+    """Public: real-time check whether a name + graduation year exists in the masterlist."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        first_name = (request.query_params.get("first_name") or "").strip()
+        last_name  = (request.query_params.get("last_name")  or "").strip()
+        grad_year  = request.query_params.get("graduation_year")
+        if not first_name or not last_name:
+            return Response({"matched": False})
+        year = int(grad_year) if grad_year and str(grad_year).isdigit() else None
+        record = _find_master_record(last_name, first_name, year)
+        return Response({
+            "matched": record is not None,
+            "name": record.full_name if record else None,
+        })
+
+
+class MasterlistBulkCreateView(APIView):
+    """Admin-only: bulk create GraduateMasterRecord entries from the batch-upload UI."""
+    authentication_classes = []
+    permission_classes = [AllowAny]  # TODO: restrict to admin once token auth is wired
+
+    def post(self, request):
+        entries = request.data.get("entries", [])
+        if not isinstance(entries, list) or not entries:
+            return Response({"detail": "entries list is required."}, status=status.HTTP_400_BAD_REQUEST)
+        created = []
+        for entry in entries:
+            name = (entry.get("name") or "").strip()
+            year = entry.get("graduation_year") or entry.get("graduationYear")
+            if not name or not year:
+                continue
+            try:
+                year_int = int(year)
+            except (TypeError, ValueError):
+                continue
+            parts = name.split()
+            last = parts[-1] if len(parts) > 1 else name
+            obj, was_created = GraduateMasterRecord.objects.get_or_create(
+                full_name__iexact=name,
+                batch_year=year_int,
+                defaults={"full_name": name, "last_name": last, "batch_year": year_int},
+            )
+            if was_created:
+                created.append({"id": str(obj.id), "name": obj.full_name, "batch_year": obj.batch_year})
+        return Response({"created": len(created), "entries": created}, status=status.HTTP_201_CREATED)

@@ -17,6 +17,7 @@ import {
   averageFaceDescriptors,
   extractFaceDescriptorFromDataUrl,
 } from '../app/modern-face-descriptor';
+import { API_BASE_URL } from '../app/api-client';
 
 //  Types
 
@@ -177,10 +178,12 @@ function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = fal
 
 //  Main Component
 
+export type MasterlistMatchStatus = 'idle' | 'checking' | 'matched' | 'unmatched';
+
 export default function RegisterAlumniPersonal({
   onComplete,
 }: {
-  onComplete: (formData: PersonalFormData, biometricData?: BiometricData) => void | Promise<void>;
+  onComplete: (formData: PersonalFormData, biometricData?: BiometricData, matchStatus?: MasterlistMatchStatus) => void | Promise<void>;
 }) {
   const navigate = useNavigate();
 
@@ -209,6 +212,34 @@ export default function RegisterAlumniPersonal({
   useEffect(() => {
     fetch('/ph-locations.json').then(r => r.json()).then(setPhLocations).catch(() => {});
   }, []);
+
+  // Real-time masterlist check (fires in Step 2 when name fields have values)
+  const [matchStatus, setMatchStatus] = useState<'idle' | 'checking' | 'matched' | 'unmatched'>('idle');
+  useEffect(() => {
+    if (!form.firstName.trim() || !form.familyName.trim()) {
+      setMatchStatus('idle');
+      return;
+    }
+    setMatchStatus('checking');
+    const params = new URLSearchParams({
+      first_name: form.firstName.trim(),
+      last_name: form.familyName.trim(),
+    });
+    if (form.graduationYear) {
+      params.set('graduation_year', String(form.graduationYear));
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/alumni/masterlist-check/?${params}`);
+        const data = await res.json();
+        setMatchStatus(data.matched ? 'matched' : 'unmatched');
+      } catch {
+        setMatchStatus('idle');
+      }
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.firstName, form.familyName, form.graduationYear]);
 
   // Derived cascading location data
   const phRegions = phLocations?.regions ?? [];
@@ -416,7 +447,7 @@ export default function RegisterAlumniPersonal({
         descriptor: averagedDescriptor,
         descriptorSamples,
       };
-      await onComplete(form, biometricData);
+      await onComplete(form, biometricData, matchStatus);
     } catch (err) {
       setStepError(err instanceof Error ? err.message : 'Registration failed.');
     } finally {
@@ -606,6 +637,26 @@ export default function RegisterAlumniPersonal({
                     />
                   </div>
                 </div>
+
+                {/* Masterlist match indicator */}
+                {matchStatus === 'checking' && (
+                  <div className="flex items-center gap-2 text-gray-400 text-xs">
+                    <span className="size-3 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />
+                    Checking graduate list…
+                  </div>
+                )}
+                {matchStatus === 'matched' && (
+                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-emerald-700 text-xs">
+                    <CheckCircle2 className="size-4 shrink-0" />
+                    <span><strong>Found in BSIS graduate list.</strong> Your account will be automatically verified once submitted.</span>
+                  </div>
+                )}
+                {matchStatus === 'unmatched' && (
+                  <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-700 text-xs">
+                    <AlertCircle className="size-4 shrink-0" />
+                    <span>Not found in the masterlist. Your account will go through manual admin verification.</span>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>

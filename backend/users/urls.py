@@ -16,6 +16,8 @@ from .api import (
     EmployerLoginView,
     EmployerRegisterView,
     EmployerRequestsListView,
+    MasterlistBulkCreateView,
+    MasterlistCheckView,
     PendingAlumniListView,
     VerifiedAlumniListView,
 )
@@ -23,6 +25,7 @@ from .api import (
 urlpatterns = [
     path("auth/admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path("auth/alumni/register/", AlumniRegisterView.as_view(), name="alumni-register"),
+    path("auth/alumni/masterlist-check/", MasterlistCheckView.as_view(), name="alumni-masterlist-check"),
     path("auth/alumni/login/", AlumniLoginView.as_view(), name="alumni-login"),
     path("auth/alumni/account/<uuid:alumni_id>/", AlumniAccountStatusView.as_view(), name="alumni-account-status"),
     path(
@@ -49,6 +52,7 @@ urlpatterns = [
         AlumniRequestRejectView.as_view(),
         name="admin-alumni-request-reject",
     ),
+    path("admin/masterlist/bulk-create/", MasterlistBulkCreateView.as_view(), name="admin-masterlist-bulk-create"),
     path("admin/users/", AdminListCreateView.as_view(), name="admin-users"),
     path("admin/users/<uuid:admin_id>/", AdminDetailView.as_view(), name="admin-user-detail"),
     path("admin/employers/requests/", EmployerRequestsListView.as_view(), name="admin-employer-requests"),

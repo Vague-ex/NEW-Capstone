@@ -10,7 +10,7 @@
 import { useReducer, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
-import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData } from './register-alumni-personal';
+import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData, type MasterlistMatchStatus } from './register-alumni-personal';
 import RegisterAlumniEmployment, { type EmploymentFormData } from './register-alumni-employment';
 import { registerAlumni } from '../app/api-client';
 
@@ -26,6 +26,7 @@ interface RegistrationState {
   isSubmitting: boolean;
   submitError: string | null;
   firstName: string;
+  matchStatus: MasterlistMatchStatus;
 }
 
 type Action =
@@ -36,6 +37,7 @@ type Action =
   | { type: 'GO_TO_COMPLETE'; firstName: string }
   | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
   | { type: 'SET_ERROR'; error: string }
+  | { type: 'SET_MATCH_STATUS'; matchStatus: MasterlistMatchStatus }
   | { type: 'RETRY' };
 
 const INITIAL_STATE: RegistrationState = {
@@ -46,6 +48,7 @@ const INITIAL_STATE: RegistrationState = {
   isSubmitting: false,
   submitError: null,
   firstName: '',
+  matchStatus: 'idle',
 };
 
 function reducer(state: RegistrationState, action: Action): RegistrationState {
@@ -64,6 +67,8 @@ function reducer(state: RegistrationState, action: Action): RegistrationState {
       return { ...state, isSubmitting: action.isSubmitting, submitError: null };
     case 'SET_ERROR':
       return { ...state, stage: 'error', isSubmitting: false, submitError: action.error };
+    case 'SET_MATCH_STATUS':
+      return { ...state, matchStatus: action.matchStatus };
     case 'RETRY':
       return { ...state, stage: 'personal', submitError: null };
     default:
@@ -104,7 +109,7 @@ function ProgressIndicator({ stage }: { stage: RegistrationStage }) {
   );
 }
 
-function RegistrationComplete({ firstName, navigate }: { firstName: string; navigate: (path: string) => void }) {
+function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName: string; matchStatus: MasterlistMatchStatus; navigate: (path: string) => void }) {
   useEffect(() => {
     const timer = setTimeout(() => {
       navigate('/alumni/dashboard');
@@ -112,6 +117,8 @@ function RegistrationComplete({ firstName, navigate }: { firstName: string; navi
 
     return () => clearTimeout(timer);
   }, [navigate]);
+
+  const isMatched = matchStatus === 'matched';
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -128,12 +135,23 @@ function RegistrationComplete({ firstName, navigate }: { firstName: string; navi
           </div>
           <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Account Created!</h2>
           <p className="text-gray-600 text-sm mb-1">Welcome, {firstName}!</p>
-          <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
-            <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending BSIS Admin Verification</span>
-          </div>
+
+          {isMatched ? (
+            <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-6">
+              <span className="size-2 rounded-full bg-emerald-500" />
+              <span className="text-emerald-700 text-xs" style={{ fontWeight: 600 }}>Matched in BSIS Graduate List — Auto-Verified</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
+              <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending BSIS Admin Verification</span>
+            </div>
+          )}
+
           <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
-            Your account and CHED Graduate Tracer survey have been submitted. The BSIS Admin will review your biometric submission and verify your identity.
+            {isMatched
+              ? 'Your name was found in the BSIS graduate list. Your account has been automatically verified and is ready to use.'
+              : 'Your account and CHED Graduate Tracer survey have been submitted. The BSIS Admin will review your biometric submission and verify your identity.'}
           </p>
           <button
             onClick={() => navigate('/alumni/dashboard')}
@@ -243,9 +261,10 @@ export function RegisterAlumni() {
     }
   };
 
-  const handlePersonalComplete = (personalData: PersonalFormData, biometricData?: BiometricData) => {
+  const handlePersonalComplete = (personalData: PersonalFormData, biometricData?: BiometricData, matchStatus?: MasterlistMatchStatus) => {
     dispatch({ type: 'SET_PERSONAL_DATA', personalData });
     dispatch({ type: 'SET_BIOMETRIC_DATA', biometricData: biometricData ?? null });
+    if (matchStatus) dispatch({ type: 'SET_MATCH_STATUS', matchStatus });
 
     if (!personalData.hasGraduated) {
       // submitRegistration shows SubmittingOverlay → then GO_TO_COMPLETE or SET_ERROR
@@ -274,7 +293,7 @@ export function RegisterAlumni() {
   }
 
   if (state.stage === 'complete') {
-    return <RegistrationComplete firstName={state.firstName} navigate={navigate} />;
+    return <RegistrationComplete firstName={state.firstName} matchStatus={state.matchStatus} navigate={navigate} />;
   }
 
   if (state.stage === 'error') {

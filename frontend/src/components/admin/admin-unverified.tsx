@@ -484,10 +484,10 @@ export function AdminUnverified() {
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="flex size-9 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-sm" style={{ fontWeight: 700 }}>
-                    {a.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                    {(a.name ?? 'Unnamed Graduate').split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                   </div>
                   <div>
-                    <h3 className="text-gray-900" style={{ fontWeight: 700 }}>{a.name}</h3>
+                    <h3 className="text-gray-900" style={{ fontWeight: 700 }}>{a.name ?? 'Unnamed Graduate'}</h3>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-gray-400 text-xs">Batch {a.graduationYear}</span>
                       <span className="text-gray-300">·</span>

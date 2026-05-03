@@ -47,6 +47,17 @@ function safeInitials(a: AlumniRecord): string {
     .slice(0, 2);
 }
 
+type FaceScans = { front?: string; left?: string; right?: string };
+function getFaceScans(a: AlumniRecord): FaceScans {
+  const scansRaw = (a as Record<string, unknown>).registrationFaceScans;
+  const scans = scansRaw && typeof scansRaw === 'object' ? (scansRaw as Record<string, unknown>) : {};
+  return {
+    front: (scans.front ?? scans.face_front ?? (a as Record<string, unknown>).facePhotoUrl) as string | undefined,
+    left: (scans.left ?? scans.face_left) as string | undefined,
+    right: (scans.right ?? scans.face_right) as string | undefined,
+  };
+}
+
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
@@ -138,6 +149,27 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
           {/* ── Profile & Education ── */}
           {tab === 'profile' && (
             <div className="space-y-5">
+              {/* Face photo strip */}
+              {(() => {
+                const faceScans = getFaceScans(a);
+                const hasFace = !!(faceScans.front || faceScans.left || faceScans.right);
+                if (!hasFace) return null;
+                return (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['front', 'left', 'right'] as const).map((k) => (
+                      <div key={k} className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                        <div className="h-20">
+                          {faceScans[k]
+                            ? <img src={faceScans[k]} alt={k} className="w-full h-full object-cover object-center" />
+                            : <div className="w-full h-full flex items-center justify-center text-gray-500 text-[10px]">Missing</div>
+                          }
+                        </div>
+                        <p className="text-center text-[10px] text-gray-300 py-1 capitalize">{k}</p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
               <div>
                 <p className="text-[#166534] text-xs mb-2 flex items-center gap-1.5" style={{ fontWeight: 700 }}>
                   <Camera className="size-3.5" /> ACCOUNT & BIOMETRIC

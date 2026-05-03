@@ -508,6 +508,18 @@ export async function deleteAdmin(id: string): Promise<void> {
     await throwIfNotOk(response);
 }
 
+export async function createMasterlistEntries(
+    entries: { name: string; graduation_year: number }[],
+): Promise<{ created: number; entries: { id: string; name: string; batch_year: number }[] }> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/bulk-create/`, {
+        method: 'POST',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ entries }),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 // ---------------------------------------------------------------------------
 // Analytics — Employability Predictions
 // ---------------------------------------------------------------------------
