@@ -1,0 +1,108 @@
+{
+  "trained_at": "2026-04-26T11:02:17.275211+00:00",
+  "n_samples": 230,
+  "n_features": 30,
+  "features": [
+    "batch_code",
+    "gender",
+    "scholarship",
+    "general_average_range",
+    "academic_honors",
+    "prior_work_experience",
+    "ojt_relevance",
+    "has_portfolio",
+    "english_proficiency",
+    "technical_skill_count",
+    "soft_skill_count",
+    "job_applications_count",
+    "job_source_1",
+    "job_source_2",
+    "job_source_3",
+    "job_source_4",
+    "job_source_5",
+    "job_source_6",
+    "job_source_7",
+    "first_sector_1",
+    "first_sector_2",
+    "first_sector_3",
+    "first_status_1",
+    "first_status_2",
+    "first_status_3",
+    "first_status_4",
+    "location_type",
+    "current_sector_1",
+    "current_sector_2",
+    "current_sector_3"
+  ],
+  "random_state": 42,
+  "targets": {
+    "time_to_hire": {
+      "task": "regression",
+      "target_column": "time_to_hire_months",
+      "best_model": "random_forest",
+      "candidates": {
+        "linear_regression": {
+          "cv_mean": -0.2725486133104149,
+          "cv_std": 0.5182161695029506,
+          "scoring": "r2",
+          "n_samples": 157,
+          "train_r2": 0.37193155064846795,
+          "train_mae": 0.4551867454192644
+        },
+        "ridge": {
+          "cv_mean": -0.2623565869476591,
+          "cv_std": 0.50755946003522,
+          "scoring": "r2",
+          "n_samples": 157,
+          "train_r2": 0.371909363262246,
+          "train_mae": 0.45424863976655283
+        },
+        "random_forest": {
+          "cv_mean": 0.008148667917062613,
+          "cv_std": 0.3699169030186678,
+          "scoring": "r2",
+          "n_samples": 157,
+          "train_r2": 0.8811758335733038,
+          "train_mae": 0.15406780681727267
+        }
+      }
+    },
+    "employment_status": {
+      "task": "classification",
+      "target_column": "employment_status",
+      "best_model": "logistic_regression",
+      "candidates": {
+        "logistic_regression": {
+          "cv_mean": 1.0,
+          "cv_std": 0.0,
+          "scoring": "f1",
+          "n_samples": 230,
+          "train_accuracy": 1.0,
+          "train_precision": 1.0,
+          "train_recall": 1.0,
+          "train_f1": 1.0
+        },
+        "random_forest": {
+          "cv_mean": 0.9939435028248587,
+          "cv_std": 0.007505274938600614,
+          "scoring": "f1",
+          "n_samples": 230,
+          "train_accuracy": 1.0,
+          "train_precision": 1.0,
+          "train_recall": 1.0,
+          "train_f1": 1.0
+        },
+        "gradient_boosting": {
+          "cv_mean": 0.9939435028248587,
+          "cv_std": 0.007505274938600614,
+          "scoring": "f1",
+          "n_samples": 230,
+          "train_accuracy": 1.0,
+          "train_precision": 1.0,
+          "train_recall": 1.0,
+          "train_f1": 1.0
+        }
+      }
+    }
+  }
+}

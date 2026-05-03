@@ -1,0 +1,238 @@
+{
+  "targets": {
+    "time_to_hire": {
+      "n_samples": 157,
+      "model": "RandomForestRegressor",
+      "r2": 0.8811758335733038,
+      "mae": 0.15406780681727267,
+      "residual_summary": {
+        "mean": -0.008335737151616672,
+        "std": 0.2726043338091762,
+        "min": -0.55735347985348,
+        "max": 1.304691836349924
+      },
+      "top_features": [
+        {
+          "feature": "ojt_relevance",
+          "importance": 0.17135173587277183
+        },
+        {
+          "feature": "cohort_code",
+          "importance": 0.16964417772014947
+        },
+        {
+          "feature": "technical_skill_count",
+          "importance": 0.1452934835699962
+        },
+        {
+          "feature": "soft_skill_count",
+          "importance": 0.07420983565017948
+        },
+        {
+          "feature": "job_applications_count",
+          "importance": 0.05997608207342783
+        },
+        {
+          "feature": "has_portfolio",
+          "importance": 0.04820297392432439
+        },
+        {
+          "feature": "first_sector_1",
+          "importance": 0.046192116152232204
+        },
+        {
+          "feature": "scholarship",
+          "importance": 0.03248812706381645
+        },
+        {
+          "feature": "prior_work_experience",
+          "importance": 0.03225426880618049
+        },
+        {
+          "feature": "general_average_range",
+          "importance": 0.02381337156149076
+        }
+      ]
+    },
+    "employment_status": {
+      "n_samples": 230,
+      "model": "LogisticRegression",
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "confusion_matrix": [
+        [
+          73,
+          0
+        ],
+        [
+          0,
+          157
+        ]
+      ],
+      "top_features": [
+        {
+          "feature": "current_sector_2",
+          "coef": 1.297317213495547
+        },
+        {
+          "feature": "first_sector_2",
+          "coef": 1.2646549607775603
+        },
+        {
+          "feature": "job_source_7",
+          "coef": -1.0209485420169688
+        },
+        {
+          "feature": "first_status_1",
+          "coef": 0.9451094178836665
+        },
+        {
+          "feature": "current_sector_1",
+          "coef": 0.7316867997044666
+        },
+        {
+          "feature": "first_status_3",
+          "coef": 0.6957889439952641
+        },
+        {
+          "feature": "first_sector_3",
+          "coef": 0.5985503329210623
+        },
+        {
+          "feature": "first_sector_1",
+          "coef": 0.5905184206086324
+        },
+        {
+          "feature": "first_status_2",
+          "coef": 0.5610556187193555
+        },
+        {
+          "feature": "current_sector_3",
+          "coef": 0.4651540463933258
+        }
+      ]
+    },
+    "bsis_related_first_job": {
+      "n_samples": 157,
+      "model": "RandomForestClassifier",
+      "accuracy": 0.9363057324840764,
+      "precision": 0.9180327868852459,
+      "recall": 1.0,
+      "f1": 0.9572649572649573,
+      "confusion_matrix": [
+        [
+          35,
+          10
+        ],
+        [
+          0,
+          112
+        ]
+      ],
+      "top_features": [
+        {
+          "feature": "soft_skill_count",
+          "importance": 0.1374909981230452
+        },
+        {
+          "feature": "technical_skill_count",
+          "importance": 0.09536082029590515
+        },
+        {
+          "feature": "cohort_code",
+          "importance": 0.07499127867333116
+        },
+        {
+          "feature": "general_average_range",
+          "importance": 0.06636346665021438
+        },
+        {
+          "feature": "ojt_relevance",
+          "importance": 0.05858273930676271
+        },
+        {
+          "feature": "has_portfolio",
+          "importance": 0.05755491010779425
+        },
+        {
+          "feature": "job_applications_count",
+          "importance": 0.04527104354432134
+        },
+        {
+          "feature": "english_proficiency",
+          "importance": 0.03864611353397634
+        },
+        {
+          "feature": "job_source_2",
+          "importance": 0.037892394446816635
+        },
+        {
+          "feature": "current_sector_2",
+          "importance": 0.0348404952921987
+        }
+      ]
+    },
+    "bsis_related_current_job": {
+      "n_samples": 157,
+      "model": "RandomForestClassifier",
+      "accuracy": 0.89171974522293,
+      "precision": 0.8547008547008547,
+      "recall": 1.0,
+      "f1": 0.9216589861751152,
+      "confusion_matrix": [
+        [
+          40,
+          17
+        ],
+        [
+          0,
+          100
+        ]
+      ],
+      "top_features": [
+        {
+          "feature": "technical_skill_count",
+          "importance": 0.09816735249240952
+        },
+        {
+          "feature": "cohort_code",
+          "importance": 0.08278360111148608
+        },
+        {
+          "feature": "soft_skill_count",
+          "importance": 0.08199803150018992
+        },
+        {
+          "feature": "general_average_range",
+          "importance": 0.07175762717041523
+        },
+        {
+          "feature": "current_sector_3",
+          "importance": 0.049363318775222736
+        },
+        {
+          "feature": "job_applications_count",
+          "importance": 0.04783662052810904
+        },
+        {
+          "feature": "job_source_3",
+          "importance": 0.0470202086036214
+        },
+        {
+          "feature": "ojt_relevance",
+          "importance": 0.04408910145335469
+        },
+        {
+          "feature": "english_proficiency",
+          "importance": 0.034039703172949215
+        },
+        {
+          "feature": "scholarship",
+          "importance": 0.0334931069577003
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,231 @@
+alumni_id,batch,gender,scholarship,general_average_range,academic_honors,prior_work_experience,ojt_relevance,has_portfolio,english_proficiency,technical_skill_count,soft_skill_count,job_applications_count,job_source,first_job_sector,first_job_status,location_type,current_job_sector,time_to_hire_months,employment_status,bsis_related_job_first,bsis_related_job_current,label_employment,label_time_to_hire,label_first_job_related,label_current_job_related,label_first_sector,label_job_source
+SYN-2020-0000,2020,0,0,1,1,0,3,0,2,6,7,1,5,1,1,1,2,3.0,1,1,1,"Yes, full-time",1-3 months,"Yes, directly related","Yes, directly related",Government,Social Media
+SYN-2020-0001,2020,1,0,2,1,1,2,1,3,7,5,1,1,3,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2020-0002,2020,1,0,2,1,1,2,0,2,6,3,3,2,2,3,1,2,1.0,1,0,0,"Yes, full-time",Within 1 month,Somewhat related,Somewhat related,Private,Online Job Portal
+SYN-2020-0003,2020,0,0,2,1,1,2,1,1,10,7,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0004,2020,0,0,3,2,0,2,0,2,3,5,1,2,2,3,1,2,3.0,1,1,1,"Yes, full-time",1-3 months,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0005,2020,0,0,4,1,0,2,0,2,10,5,2,2,2,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0006,2020,1,1,4,1,0,1,0,2,6,6,1,5,2,3,1,2,1.0,1,0,1,"Yes, part-time",Within 1 month,Not related,"Yes, directly related",Private,Social Media
+SYN-2020-0007,2020,1,0,2,1,0,2,0,1,5,7,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2020-0008,2020,1,1,1,1,1,2,0,2,7,8,1,2,2,4,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0009,2020,1,1,2,1,0,2,0,3,3,7,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0010,2020,1,1,1,1,1,2,0,3,5,5,4,7,2,1,1,2,3.0,1,1,1,"Yes, full-time",1-3 months,"Yes, directly related","Yes, directly related",Private,Other
+SYN-2020-0011,2020,1,0,2,1,1,3,0,2,6,6,1,2,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0012,2020,1,0,1,1,0,1,0,2,7,5,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0013,2020,1,1,4,2,0,1,0,1,2,7,1,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2020-0014,2020,1,0,0,1,0,3,0,2,5,6,1,1,2,3,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2020-0015,2020,1,0,1,1,0,3,1,3,11,7,1,1,1,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Personal Network/Referral
+SYN-2020-0016,2020,1,0,1,1,1,2,0,3,3,1,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0017,2020,0,0,2,1,0,1,0,3,3,8,2,2,2,3,1,2,4.5,1,1,1,"Yes, part-time",3-6 months,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0018,2020,1,0,2,1,0,3,1,2,7,3,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0019,2020,0,0,2,1,0,2,0,3,7,7,4,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2020-0020,2020,0,0,0,1,1,3,0,3,7,9,2,5,3,1,0,1,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Social Media
+SYN-2020-0021,2020,0,1,3,1,0,2,0,2,6,4,2,2,3,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Online Job Portal
+SYN-2020-0022,2020,0,1,2,1,1,2,1,3,3,5,3,2,2,1,1,2,1.0,1,0,0,"Yes, full-time",Within 1 month,Somewhat related,Not related,Private,Online Job Portal
+SYN-2020-0023,2020,1,0,3,1,0,3,0,2,7,6,2,3,1,3,1,2,3.0,1,0,1,"Yes, full-time",1-3 months,Not related,"Yes, directly related",Government,CHMSU Career Fair
+SYN-2020-0024,2020,1,0,2,1,0,3,1,2,5,5,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0025,2020,1,0,2,1,0,3,0,1,8,2,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2020-0026,2020,0,0,2,1,1,1,1,3,6,4,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0027,2020,0,0,2,1,0,3,0,3,10,4,1,3,2,1,1,1,1.0,1,0,0,"Yes, part-time",Within 1 month,Not related,Not related,Private,CHMSU Career Fair
+SYN-2020-0028,2020,0,1,1,1,1,1,0,2,5,3,1,4,2,1,1,2,4.5,1,0,1,"Yes, full-time",3-6 months,Somewhat related,"Yes, directly related",Private,Company Walk-in/Direct Hire
+SYN-2020-0029,2020,1,0,4,1,0,1,0,2,6,7,1,2,2,1,1,2,3.0,1,1,1,"Yes, self-employed/freelance",1-3 months,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0030,2020,0,1,3,1,1,2,0,2,7,9,2,1,2,4,1,3,1.0,1,0,0,"Yes, full-time",Within 1 month,Somewhat related,Somewhat related,Private,Personal Network/Referral
+SYN-2020-0031,2020,1,1,1,1,0,2,1,3,8,3,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2020-0032,2020,0,0,1,1,1,3,1,2,11,8,1,2,2,1,1,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2020-0033,2020,0,0,2,1,1,2,1,3,6,4,2,1,2,2,0,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2020-0034,2020,1,0,2,1,0,3,0,2,4,5,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0000,2021,1,0,3,1,0,1,0,1,8,5,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0001,2021,0,0,1,1,0,2,0,2,4,2,2,1,2,3,1,1,4.5,1,0,0,"Yes, full-time",3-6 months,Not related,Not related,Private,Personal Network/Referral
+SYN-2021-0002,2021,1,0,3,1,0,3,0,1,8,5,4,2,3,1,1,2,3.0,1,1,0,"Yes, full-time",1-3 months,"Yes, directly related",Somewhat related,Entrepreneurial/Freelance/Self-Employed,Online Job Portal
+SYN-2021-0003,2021,1,0,3,1,1,2,1,2,11,7,2,3,1,3,1,3,3.0,1,1,1,"Yes, self-employed/freelance",1-3 months,"Yes, directly related","Yes, directly related",Government,CHMSU Career Fair
+SYN-2021-0004,2021,1,1,2,1,1,1,0,2,7,7,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0005,2021,1,1,2,1,0,3,0,2,7,7,1,2,2,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Online Job Portal
+SYN-2021-0006,2021,0,0,3,1,0,2,1,2,9,3,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0007,2021,0,0,2,1,0,3,0,2,6,4,1,1,2,2,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0008,2021,1,1,0,1,0,2,1,3,7,7,1,1,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0009,2021,1,1,2,1,0,1,1,2,6,5,1,1,2,3,0,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0010,2021,1,1,1,1,0,3,1,3,12,4,1,1,1,2,1,1,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Government,Personal Network/Referral
+SYN-2021-0011,2021,1,0,0,1,0,1,0,3,3,8,4,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2021-0012,2021,0,0,3,1,0,3,1,2,12,4,1,1,1,1,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Personal Network/Referral
+SYN-2021-0013,2021,1,0,2,1,0,3,1,3,7,7,2,2,2,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Online Job Portal
+SYN-2021-0014,2021,1,0,3,1,1,3,1,1,9,6,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0015,2021,0,0,2,1,1,2,1,3,7,4,1,2,2,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Online Job Portal
+SYN-2021-0016,2021,0,1,1,1,1,3,0,2,4,7,1,3,2,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,CHMSU Career Fair
+SYN-2021-0017,2021,0,1,2,1,1,3,0,2,11,4,1,5,2,1,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Social Media
+SYN-2021-0018,2021,1,0,2,1,1,3,1,2,7,1,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0019,2021,1,0,1,1,1,3,0,2,0,3,1,1,2,3,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0020,2021,0,0,1,1,1,3,0,3,6,0,2,1,2,2,1,1,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0021,2021,1,0,1,1,0,2,0,2,8,4,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0022,2021,1,0,3,1,0,1,0,2,8,6,2,1,2,1,1,2,3.0,1,0,1,"Yes, self-employed/freelance",1-3 months,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0023,2021,0,1,0,1,0,3,0,2,6,6,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0024,2021,1,0,1,1,1,3,0,2,7,6,2,3,3,4,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,CHMSU Career Fair
+SYN-2021-0025,2021,1,0,1,1,0,3,1,2,10,6,1,5,2,2,1,2,1.0,1,1,0,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related",Somewhat related,Private,Social Media
+SYN-2021-0026,2021,0,0,0,1,1,2,0,3,5,7,2,2,3,1,1,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Online Job Portal
+SYN-2021-0027,2021,1,0,3,1,0,1,0,1,4,4,2,7,2,1,1,2,4.5,1,0,0,"Yes, part-time",3-6 months,Not related,Not related,Private,Other
+SYN-2021-0028,2021,0,1,2,1,1,1,0,2,1,6,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0029,2021,0,0,2,1,1,3,1,3,11,6,1,1,2,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Personal Network/Referral
+SYN-2021-0030,2021,1,0,3,1,0,3,1,1,9,3,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2021-0031,2021,1,1,4,1,0,1,1,2,9,7,3,1,1,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Government,Personal Network/Referral
+SYN-2021-0032,2021,0,0,1,1,0,2,0,3,3,5,4,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2021-0033,2021,0,1,1,1,1,2,1,2,8,4,1,1,2,2,0,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2021-0034,2021,0,0,2,1,1,1,0,2,4,4,1,2,2,4,0,2,4.5,1,1,1,"Yes, full-time",3-6 months,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2021-0035,2021,1,0,1,1,1,2,0,2,4,7,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2021-0036,2021,1,0,3,1,0,3,0,3,1,8,2,2,2,2,1,2,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Not related,Private,Online Job Portal
+SYN-2021-0037,2021,0,0,4,3,1,2,1,2,6,4,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0000,2022,1,0,1,1,1,2,0,3,8,4,1,1,2,3,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2022-0001,2022,1,0,3,1,0,1,1,3,10,7,1,2,2,2,1,3,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2022-0002,2022,0,0,1,1,1,2,1,2,7,3,1,1,2,2,1,1,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Personal Network/Referral
+SYN-2022-0003,2022,1,0,3,1,1,2,0,1,9,5,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0004,2022,1,1,1,1,0,2,1,2,5,7,1,3,2,1,1,3,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,CHMSU Career Fair
+SYN-2022-0005,2022,1,0,1,1,0,2,0,2,8,5,1,1,1,2,1,2,3.0,1,1,0,"Yes, part-time",1-3 months,"Yes, directly related",Somewhat related,Government,Personal Network/Referral
+SYN-2022-0006,2022,1,0,2,1,0,1,0,3,9,7,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2022-0007,2022,1,0,3,2,1,2,0,2,6,8,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0008,2022,1,0,3,1,1,1,0,3,6,6,1,1,1,3,1,2,1.0,1,0,1,"Yes, part-time",Within 1 month,Somewhat related,"Yes, directly related",Government,Personal Network/Referral
+SYN-2022-0009,2022,1,1,3,1,1,3,1,2,5,6,3,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2022-0010,2022,1,0,2,1,0,3,0,3,6,4,1,7,1,3,1,1,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Government,Other
+SYN-2022-0011,2022,1,0,0,1,0,3,1,2,4,5,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0012,2022,1,1,2,1,1,2,1,3,11,2,1,5,3,3,0,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Social Media
+SYN-2022-0013,2022,1,0,2,1,0,1,0,2,5,4,2,2,2,1,1,2,3.0,1,1,0,"Yes, full-time",1-3 months,"Yes, directly related",Somewhat related,Private,Online Job Portal
+SYN-2022-0014,2022,1,0,0,1,0,3,1,2,6,5,3,4,2,4,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Company Walk-in/Direct Hire
+SYN-2022-0015,2022,0,0,3,1,0,3,1,2,7,6,1,3,2,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,CHMSU Career Fair
+SYN-2022-0016,2022,0,1,1,1,1,2,0,2,4,6,2,1,2,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Personal Network/Referral
+SYN-2022-0017,2022,1,0,2,1,0,2,0,1,5,5,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0018,2022,1,1,4,2,1,3,1,3,9,4,1,1,3,2,1,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2022-0019,2022,1,0,2,1,1,1,0,1,4,5,2,7,3,1,1,1,1.0,1,0,0,"Yes, full-time",Within 1 month,Not related,Somewhat related,Entrepreneurial/Freelance/Self-Employed,Other
+SYN-2022-0020,2022,0,0,2,1,0,2,0,1,7,9,2,2,1,1,1,3,3.0,1,0,1,"Yes, part-time",1-3 months,Not related,"Yes, directly related",Government,Online Job Portal
+SYN-2022-0021,2022,0,0,2,1,1,3,1,3,7,5,1,2,2,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2022-0022,2022,1,0,2,1,1,2,1,2,12,4,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0023,2022,1,0,2,1,1,3,0,1,6,5,1,5,2,1,1,2,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Not related,Private,Social Media
+SYN-2022-0024,2022,0,1,2,1,0,2,0,2,1,6,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0025,2022,0,1,1,1,0,3,1,3,8,6,1,5,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Social Media
+SYN-2022-0026,2022,1,0,2,1,0,3,1,2,5,7,1,2,2,1,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Private,Online Job Portal
+SYN-2022-0027,2022,0,0,1,1,1,1,1,2,5,7,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2022-0028,2022,1,0,3,1,1,3,1,2,8,5,3,5,2,2,1,3,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Private,Social Media
+SYN-2022-0029,2022,0,1,3,2,1,3,1,3,6,6,1,4,2,2,1,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Private,Company Walk-in/Direct Hire
+SYN-2022-0030,2022,1,1,2,1,1,0,1,1,10,3,1,2,3,1,1,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Online Job Portal
+SYN-2022-0031,2022,0,0,2,1,1,1,0,2,5,4,1,7,2,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Other
+SYN-2022-0032,2022,1,0,2,1,1,3,1,1,7,8,2,1,2,1,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2022-0033,2022,1,1,2,1,0,2,0,2,4,4,1,1,2,3,1,3,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2022-0034,2022,1,0,1,1,0,3,1,3,6,4,1,4,2,2,1,2,1.0,1,0,0,"Yes, part-time",Within 1 month,Not related,Somewhat related,Private,Company Walk-in/Direct Hire
+SYN-2022-0035,2022,1,0,0,1,0,3,0,2,5,9,1,5,3,1,1,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Social Media
+SYN-2022-0036,2022,0,0,0,1,0,3,0,2,4,6,1,1,2,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Personal Network/Referral
+SYN-2022-0037,2022,0,1,3,2,1,3,0,2,7,2,1,1,2,2,1,2,1.0,1,0,1,"Yes, self-employed/freelance",Within 1 month,Somewhat related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2022-0038,2022,0,0,1,1,0,2,1,3,6,5,4,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2022-0039,2022,1,0,3,1,0,3,0,3,5,3,3,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2023-0000,2023,1,0,1,1,1,3,0,3,2,3,1,2,2,3,1,3,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Online Job Portal
+SYN-2023-0001,2023,1,0,2,1,0,2,1,2,10,9,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2023-0002,2023,0,1,2,1,0,2,0,2,5,3,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0003,2023,1,1,0,1,0,3,1,3,10,5,1,2,1,1,0,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Online Job Portal
+SYN-2023-0004,2023,1,0,3,1,1,3,1,2,7,3,1,1,2,4,1,3,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Personal Network/Referral
+SYN-2023-0005,2023,0,1,1,1,1,2,1,2,9,6,2,2,2,1,0,1,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2023-0006,2023,0,0,0,1,0,3,1,3,6,7,2,1,2,2,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2023-0007,2023,1,0,3,1,0,3,1,2,7,8,1,1,2,4,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2023-0008,2023,1,1,3,1,0,3,1,3,7,5,3,5,2,3,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Social Media
+SYN-2023-0009,2023,0,0,3,1,0,3,1,2,7,3,2,4,3,1,0,2,1.0,1,0,1,"Yes, self-employed/freelance",Within 1 month,Not related,"Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Company Walk-in/Direct Hire
+SYN-2023-0010,2023,1,0,2,1,1,3,0,2,4,7,4,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2023-0011,2023,1,0,2,1,0,3,0,2,7,5,1,2,2,1,1,3,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Online Job Portal
+SYN-2023-0012,2023,0,0,1,1,0,2,1,2,8,5,2,5,2,1,1,2,3.0,1,1,1,"Yes, full-time",1-3 months,"Yes, directly related","Yes, directly related",Private,Social Media
+SYN-2023-0013,2023,1,1,3,1,0,2,1,3,8,6,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0014,2023,1,0,2,1,0,2,0,2,2,5,1,4,2,4,1,3,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Company Walk-in/Direct Hire
+SYN-2023-0015,2023,0,0,3,1,0,3,1,2,6,4,3,2,2,1,1,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2023-0016,2023,0,1,0,1,0,2,1,3,6,8,1,2,1,3,0,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Online Job Portal
+SYN-2023-0017,2023,1,0,3,1,1,3,0,2,5,5,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2023-0018,2023,0,1,1,1,0,2,1,3,5,4,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0019,2023,0,0,0,1,1,2,0,3,4,6,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0020,2023,0,0,3,2,1,3,0,2,6,3,2,3,1,2,0,3,1.0,1,0,0,"Yes, full-time",Within 1 month,Not related,Not related,Government,CHMSU Career Fair
+SYN-2023-0021,2023,1,0,2,1,1,1,1,3,6,4,1,1,2,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2023-0022,2023,1,0,3,1,0,2,0,1,10,5,2,2,2,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2023-0023,2023,0,0,5,1,0,3,1,3,10,6,1,2,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2023-0024,2023,1,0,0,1,1,2,0,3,6,8,2,5,2,3,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Social Media
+SYN-2023-0025,2023,1,0,1,1,0,3,0,2,9,3,2,1,2,1,1,2,1.0,1,0,1,"Yes, self-employed/freelance",Within 1 month,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2023-0026,2023,0,0,3,1,1,3,1,2,7,6,1,7,2,1,0,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Other
+SYN-2023-0027,2023,0,0,2,1,0,3,0,1,9,5,2,2,2,3,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2023-0028,2023,1,1,1,1,1,2,1,1,10,3,1,1,1,1,0,2,1.0,1,0,1,"Yes, self-employed/freelance",Within 1 month,Not related,"Yes, directly related",Government,Personal Network/Referral
+SYN-2023-0029,2023,0,1,2,1,0,3,1,3,11,5,1,2,1,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Online Job Portal
+SYN-2023-0030,2023,0,0,3,1,1,2,1,1,9,7,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0031,2023,0,1,0,1,0,2,1,3,6,5,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0032,2023,0,0,4,2,0,2,0,3,8,3,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0033,2023,1,0,2,1,1,3,0,2,7,3,2,2,2,1,1,1,1.0,1,0,0,"Yes, self-employed/freelance",Within 1 month,Not related,Somewhat related,Private,Online Job Portal
+SYN-2023-0034,2023,0,0,4,3,1,2,1,3,8,3,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0035,2023,1,1,1,1,1,3,0,2,1,5,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0036,2023,0,0,2,1,1,3,0,1,5,5,2,1,2,3,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Somewhat related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2023-0037,2023,0,0,4,2,1,3,0,2,4,10,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0038,2023,1,1,2,1,0,3,0,1,8,6,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2023-0039,2023,1,1,5,1,1,3,1,2,12,5,3,7,2,4,1,2,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Other
+SYN-2024-0000,2024,1,1,0,1,0,2,1,2,9,6,1,1,3,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2024-0001,2024,1,1,1,1,0,3,1,2,1,4,1,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2024-0002,2024,0,0,3,1,1,3,1,2,2,1,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2024-0003,2024,0,0,2,1,0,3,1,2,10,4,1,1,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2024-0004,2024,1,0,3,1,1,3,1,1,8,5,2,3,2,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,CHMSU Career Fair
+SYN-2024-0005,2024,1,0,1,1,0,1,1,2,9,7,3,2,2,1,1,1,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Online Job Portal
+SYN-2024-0006,2024,1,0,2,1,0,2,0,2,7,4,1,5,2,1,1,2,1.0,1,0,0,"Yes, part-time",Within 1 month,Somewhat related,Not related,Private,Social Media
+SYN-2024-0007,2024,0,0,2,1,0,2,1,2,9,5,1,3,2,4,1,2,1.0,1,1,0,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related",Somewhat related,Private,CHMSU Career Fair
+SYN-2024-0008,2024,0,1,2,1,1,2,1,2,4,6,1,1,2,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Personal Network/Referral
+SYN-2024-0009,2024,1,0,1,1,1,3,1,3,5,5,1,1,2,1,1,3,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Personal Network/Referral
+SYN-2024-0010,2024,0,1,2,1,1,1,1,1,5,5,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2024-0011,2024,0,0,3,1,1,3,0,2,6,4,1,1,3,3,1,3,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2024-0012,2024,0,1,2,1,0,2,1,2,6,7,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2024-0013,2024,1,0,4,1,0,3,1,2,7,3,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2024-0014,2024,0,1,0,1,0,2,1,2,8,3,1,4,1,2,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Government,Company Walk-in/Direct Hire
+SYN-2024-0015,2024,1,1,2,1,1,3,0,2,3,6,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2024-0016,2024,1,1,2,1,0,2,0,2,5,5,1,2,2,2,1,2,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Online Job Portal
+SYN-2024-0017,2024,1,0,3,2,1,1,0,3,7,4,1,5,3,1,1,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Social Media
+SYN-2024-0018,2024,0,0,1,1,1,2,1,1,12,6,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2024-0019,2024,1,1,2,1,0,1,1,2,8,8,1,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2024-0020,2024,1,0,3,1,0,0,1,2,10,6,4,2,1,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Online Job Portal
+SYN-2024-0021,2024,0,1,2,1,0,2,1,2,6,5,3,7,2,3,1,2,1.0,1,0,1,"Yes, full-time",Within 1 month,Not related,"Yes, directly related",Private,Other
+SYN-2024-0022,2024,0,1,3,1,0,2,0,3,7,5,3,7,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Other
+SYN-2024-0023,2024,0,0,4,2,1,2,1,3,7,5,1,1,3,2,1,1,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2024-0024,2024,0,0,3,1,0,2,0,3,6,5,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2024-0025,2024,0,1,1,1,0,2,1,1,8,2,2,2,2,4,1,3,1.0,1,0,0,"Yes, full-time",Within 1 month,Somewhat related,Somewhat related,Private,Online Job Portal
+SYN-2024-0026,2024,1,0,2,1,0,1,1,3,6,6,2,5,2,1,0,2,1.0,1,0,0,"Yes, full-time",Within 1 month,Not related,Not related,Private,Social Media
+SYN-2024-0027,2024,1,0,3,2,0,2,1,1,8,6,1,2,2,1,1,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2024-0028,2024,1,0,1,1,0,2,1,2,6,7,1,6,3,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Started own business/Freelance
+SYN-2024-0029,2024,0,0,2,1,0,3,1,3,8,6,2,4,2,1,1,2,1.0,1,1,0,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related",Not related,Private,Company Walk-in/Direct Hire
+SYN-2024-0030,2024,0,1,5,3,0,3,1,1,6,6,3,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2024-0031,2024,1,0,1,1,1,2,0,3,5,3,2,3,2,1,1,2,1.0,1,1,0,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related",Not related,Private,CHMSU Career Fair
+SYN-2024-0032,2024,0,1,3,2,1,2,1,3,6,3,2,2,2,4,1,2,1.0,1,0,0,"Yes, full-time",Within 1 month,Not related,Somewhat related,Private,Online Job Portal
+SYN-2024-0033,2024,0,1,4,1,1,0,0,3,11,10,1,1,3,4,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2024-0034,2024,1,0,1,1,1,3,1,2,9,0,1,6,3,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Started own business/Freelance
+SYN-2024-0035,2024,1,0,5,4,1,2,1,3,9,7,2,2,2,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Online Job Portal
+SYN-2024-0036,2024,0,1,2,1,0,2,1,3,8,1,1,1,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2024-0037,2024,1,0,3,1,1,3,1,3,11,6,1,4,2,3,1,3,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Company Walk-in/Direct Hire
+SYN-2024-0038,2024,1,0,1,1,0,1,1,3,9,5,1,1,3,1,1,2,1.0,1,0,1,"Yes, self-employed/freelance",Within 1 month,Somewhat related,"Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2025-0000,2025,1,0,3,2,1,3,0,2,5,8,1,2,2,1,1,2,1.0,1,0,1,"Yes, self-employed/freelance",Within 1 month,Somewhat related,"Yes, directly related",Private,Online Job Portal
+SYN-2025-0001,2025,1,0,2,1,1,1,1,3,10,3,1,2,2,1,1,1,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0002,2025,0,0,4,2,1,2,1,2,12,3,1,4,3,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Entrepreneurial/Freelance/Self-Employed,Company Walk-in/Direct Hire
+SYN-2025-0003,2025,1,0,3,1,1,1,1,3,5,6,2,2,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0004,2025,1,0,3,1,0,3,1,2,12,6,1,5,3,1,1,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Social Media
+SYN-2025-0005,2025,1,1,2,1,1,2,1,3,6,7,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0006,2025,0,0,1,1,1,3,1,3,6,6,2,5,1,2,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Government,Social Media
+SYN-2025-0007,2025,1,1,1,1,1,3,1,1,10,6,1,4,2,2,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Company Walk-in/Direct Hire
+SYN-2025-0008,2025,1,0,2,1,0,2,1,2,10,4,1,1,2,1,1,3,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Personal Network/Referral
+SYN-2025-0009,2025,1,0,2,1,0,1,1,1,8,6,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0010,2025,0,0,3,1,1,2,1,2,12,5,1,1,1,3,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Government,Personal Network/Referral
+SYN-2025-0011,2025,0,1,2,1,0,3,0,3,6,6,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0012,2025,1,1,3,1,0,3,1,2,9,4,1,2,1,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Online Job Portal
+SYN-2025-0013,2025,0,1,4,3,1,3,1,2,6,5,1,4,2,3,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Company Walk-in/Direct Hire
+SYN-2025-0014,2025,0,0,1,1,1,3,1,1,6,5,2,1,1,3,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Government,Personal Network/Referral
+SYN-2025-0015,2025,0,1,2,1,0,1,1,2,11,4,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0016,2025,0,0,3,1,1,3,1,2,12,6,2,1,3,2,1,2,1.0,1,1,1,"Yes, part-time",Within 1 month,"Yes, directly related","Yes, directly related",Entrepreneurial/Freelance/Self-Employed,Personal Network/Referral
+SYN-2025-0017,2025,0,0,3,1,0,2,1,3,10,4,2,1,2,1,1,2,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Private,Personal Network/Referral
+SYN-2025-0018,2025,1,1,1,1,1,0,1,1,8,4,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2025-0019,2025,1,0,4,3,1,3,1,2,10,5,4,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0020,2025,1,0,2,1,1,3,1,2,2,6,1,2,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0021,2025,1,0,2,1,0,3,1,2,10,4,3,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0022,2025,1,1,4,1,1,3,1,1,8,8,1,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0023,2025,0,1,1,1,1,3,1,3,9,4,2,2,2,2,1,2,1.0,1,1,1,"Yes, self-employed/freelance",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0024,2025,1,0,3,2,0,3,1,2,10,7,1,2,2,1,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0025,2025,0,0,2,1,0,2,1,3,10,6,1,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2025-0026,2025,0,0,2,1,1,2,1,2,7,6,2,7,0,0,1,0,nan,0,nan,nan,"No, currently seeking employment",,,,,
+SYN-2025-0027,2025,0,0,1,1,1,3,1,3,9,7,1,3,2,1,1,3,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Somewhat related,Private,CHMSU Career Fair
+SYN-2025-0028,2025,1,0,1,1,0,1,1,3,6,8,3,2,2,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0029,2025,1,0,1,1,1,2,1,1,9,6,1,1,2,3,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2025-0030,2025,1,1,4,1,0,3,1,2,9,3,1,6,3,3,1,3,1.0,1,1,0,"Yes, part-time",Within 1 month,"Yes, directly related",Not related,Entrepreneurial/Freelance/Self-Employed,Started own business/Freelance
+SYN-2025-0031,2025,1,0,3,2,1,2,1,3,8,8,1,2,3,2,1,2,1.0,1,0,0,"Yes, self-employed/freelance",Within 1 month,Somewhat related,Somewhat related,Entrepreneurial/Freelance/Self-Employed,Online Job Portal
+SYN-2025-0032,2025,0,1,2,1,1,2,1,3,9,7,1,1,2,3,1,2,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Personal Network/Referral
+SYN-2025-0033,2025,0,0,4,2,1,1,1,2,9,6,1,2,2,2,1,1,1.0,1,1,0,"Yes, full-time",Within 1 month,"Yes, directly related",Not related,Private,Online Job Portal
+SYN-2025-0034,2025,0,0,1,1,1,0,1,3,9,7,1,2,1,1,1,3,1.0,1,0,0,"Yes, full-time",Within 1 month,Somewhat related,Not related,Government,Online Job Portal
+SYN-2025-0035,2025,0,0,4,2,0,2,1,2,11,6,2,2,2,1,1,1,1.0,1,1,1,"Yes, full-time",Within 1 month,"Yes, directly related","Yes, directly related",Private,Online Job Portal
+SYN-2025-0036,2025,1,0,1,1,1,2,1,2,9,4,4,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,
+SYN-2025-0037,2025,1,0,1,1,0,3,1,2,3,5,2,7,0,0,1,0,nan,0,nan,nan,"No, not seeking employment",,,,,

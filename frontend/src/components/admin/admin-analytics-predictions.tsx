@@ -152,7 +152,7 @@ export function AdminAnalyticsPredictions() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-br from-[#1B3A6B] to-[#2c5599] rounded-2xl p-5 text-white">
+      <div className="bg-gradient-to-br from-[#166534] to-[#14532d] rounded-2xl p-5 text-white">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2" style={{ fontWeight: 700, fontSize: '1.05rem' }}>
@@ -173,7 +173,7 @@ export function AdminAnalyticsPredictions() {
                   onClick={() => setHorizon(h)}
                   className={`px-2.5 py-1 rounded-lg transition ${
                     horizon === h
-                      ? 'bg-white text-[#1B3A6B]'
+                      ? 'bg-white text-[#166534]'
                       : 'text-white/80 hover:text-white'
                   }`}
                   style={{ fontWeight: horizon === h ? 700 : 500 }}
@@ -252,8 +252,8 @@ export function AdminAnalyticsPredictions() {
               ? `80% PI: ${pct(nextForecast.employment_rate_lo)}–${pct(nextForecast.employment_rate_hi)}`
               : 'Need ≥2 batches to forecast',
             icon: Sparkles,
-            bg: 'bg-violet-50',
-            color: 'text-violet-600',
+            bg: 'bg-green-50',
+            color: 'text-green-600',
             trend: '',
           },
           {
@@ -303,7 +303,7 @@ export function AdminAnalyticsPredictions() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Zap className="size-4 text-[#1B3A6B]" /> Batch Trend & Forecast
+            <Zap className="size-4 text-[#166534]" /> Batch Trend & Forecast
           </h3>
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
@@ -361,7 +361,7 @@ export function AdminAnalyticsPredictions() {
                     dataKey="forecastBand"
                     name="Forecast 80% PI"
                     stroke="none"
-                    fill="#8b5cf6"
+                    fill="#166534"
                     fillOpacity={0.18}
                     isAnimationActive={false}
                   />
@@ -369,9 +369,9 @@ export function AdminAnalyticsPredictions() {
                     type="monotone"
                     dataKey="actual"
                     name="Observed"
-                    stroke="#1B3A6B"
+                    stroke="#166534"
                     strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#1B3A6B' }}
+                    dot={{ r: 4, fill: '#166534' }}
                     activeDot={{ r: 6 }}
                     connectNulls={false}
                   />
@@ -379,10 +379,10 @@ export function AdminAnalyticsPredictions() {
                     type="monotone"
                     dataKey="forecast"
                     name="Forecast"
-                    stroke="#8b5cf6"
+                    stroke="#22c55e"
                     strokeWidth={2.5}
                     strokeDasharray="5 4"
-                    dot={{ r: 4, fill: '#8b5cf6' }}
+                    dot={{ r: 4, fill: '#22c55e' }}
                     connectNulls={false}
                   />
                 </ComposedChart>
@@ -419,7 +419,7 @@ export function AdminAnalyticsPredictions() {
                     dataKey="forecastBand"
                     name="Forecast 80% PI"
                     stroke="none"
-                    fill="#8b5cf6"
+                    fill="#166534"
                     fillOpacity={0.18}
                     isAnimationActive={false}
                   />
@@ -427,9 +427,9 @@ export function AdminAnalyticsPredictions() {
                     type="monotone"
                     dataKey="actual"
                     name="Observed"
-                    stroke="#1B3A6B"
+                    stroke="#166534"
                     strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#1B3A6B' }}
+                    dot={{ r: 4, fill: '#166534' }}
                     activeDot={{ r: 6 }}
                     connectNulls={false}
                   />
@@ -437,10 +437,10 @@ export function AdminAnalyticsPredictions() {
                     type="monotone"
                     dataKey="forecast"
                     name="Forecast"
-                    stroke="#8b5cf6"
+                    stroke="#22c55e"
                     strokeWidth={2.5}
                     strokeDasharray="5 4"
-                    dot={{ r: 4, fill: '#8b5cf6' }}
+                    dot={{ r: 4, fill: '#22c55e' }}
                     connectNulls={false}
                   />
                 </ComposedChart>
@@ -453,7 +453,7 @@ export function AdminAnalyticsPredictions() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Clock className="size-4 text-[#1B3A6B]" /> Time-to-Hire Distribution ·{' '}
+            <Clock className="size-4 text-[#166534]" /> Time-to-Hire Distribution ·{' '}
             <span className="text-gray-500 text-xs" style={{ fontWeight: 500 }}>
               {distributionSource.label}
             </span>
@@ -497,8 +497,8 @@ export function AdminAnalyticsPredictions() {
             <LineChart data={distribution} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="ttDistFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#1B3A6B" stopOpacity={0.22} />
-                  <stop offset="100%" stopColor="#1B3A6B" stopOpacity={0} />
+                  <stop offset="0%" stopColor="#166534" stopOpacity={0.22} />
+                  <stop offset="100%" stopColor="#166534" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -509,9 +509,9 @@ export function AdminAnalyticsPredictions() {
                 type="monotone"
                 dataKey="n"
                 name="Alumni count"
-                stroke="#1B3A6B"
+                stroke="#166534"
                 strokeWidth={2.5}
-                dot={{ r: 5, fill: '#1B3A6B' }}
+                dot={{ r: 5, fill: '#166534' }}
                 activeDot={{ r: 6 }}
               />
             </LineChart>
@@ -524,7 +524,7 @@ export function AdminAnalyticsPredictions() {
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-              <Lightbulb className="size-4 text-[#1B3A6B]" /> Top Skills for Next Batches
+              <Lightbulb className="size-4 text-[#166534]" /> Top Skills for Next Batches
             </h3>
             <p className="text-gray-500 text-xs mt-1">
               Ranked by projected demand share, employment-lift (alumni holding the
@@ -593,7 +593,7 @@ export function AdminAnalyticsPredictions() {
                         </span>
                       </td>
                       <td className="py-2.5 pr-4">
-                        <span className="text-violet-600 text-xs" style={{ fontWeight: 600 }}>
+                        <span className="text-green-600 text-xs" style={{ fontWeight: 600 }}>
                           {next ? pct(next.projected_share) : '—'}
                         </span>
                         {last && last !== next && (
@@ -656,7 +656,7 @@ export function AdminAnalyticsPredictions() {
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-              <Cpu className="size-4 text-[#1B3A6B]" /> BSIS-Aligned Employment (Observed)
+              <Cpu className="size-4 text-[#166534]" /> BSIS-Aligned Employment (Observed)
             </h3>
             <p className="text-gray-500 text-xs mt-1">
               Share of alumni whose first / current job aligns with the BSIS program.
@@ -676,7 +676,7 @@ export function AdminAnalyticsPredictions() {
               <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
               <Tooltip formatter={(v: number) => `${v}%`} />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="firstJob" name="First Job" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="firstJob" name="First Job" fill="#166534" radius={[3, 3, 0, 0]} />
               <Bar dataKey="currentJob" name="Current Job" fill="#f59e0b" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

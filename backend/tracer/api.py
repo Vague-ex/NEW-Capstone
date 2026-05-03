@@ -1292,7 +1292,7 @@ def _load_ml_artifacts():
         import joblib
         import pandas as pd
 
-        root = Path(__file__).resolve().parents[2] / "EyeOfTheTiger"
+        root = Path(__file__).resolve().parents[1] / "ml"
         models = joblib.load(root / "models" / "employability_model.joblib")
         scaler = joblib.load(root / "models" / "feature_scaler.joblib")
         with (root / "models" / "model_metadata.json").open("r", encoding="utf-8") as f:
@@ -1310,6 +1310,120 @@ def _load_ml_artifacts():
         return {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
 
 
+# ── Live-DB feature encoding maps (must match training CSV OHE order) ──────────
+_JOB_SOURCE_COLS: dict[str, str] = {
+    "personal_network": "job_source_1",
+    "online_portal":    "job_source_2",
+    "social_media":     "job_source_3",
+    "career_fair":      "job_source_4",
+    "walk_in":          "job_source_5",
+    "entrepreneurship": "job_source_6",
+    "other":            "job_source_7",
+}
+_FIRST_SECTOR_COLS: dict[str, str] = {
+    "government":     "first_sector_1",
+    "private":        "first_sector_2",
+    "entrepreneurial":"first_sector_3",
+}
+_FIRST_STATUS_COLS: dict[str, str] = {
+    "regular":       "first_status_1",
+    "probationary":  "first_status_2",
+    "contractual":   "first_status_3",
+    "self_employed": "first_status_4",
+}
+_CURRENT_SECTOR_COLS: dict[str, str] = {
+    "government":     "current_sector_1",
+    "private":        "current_sector_2",
+    "entrepreneurial":"current_sector_3",
+}
+_EMPLOYED_STATUSES: frozenset[str] = frozenset({"employed_full_time", "employed_part_time", "self_employed"})
+
+
+def _build_live_df():
+    """Build a feature DataFrame from live verified alumni — same schema as the training CSV.
+
+    Uses AlumniProfile + EmploymentProfile + CompetencyProfile for ACTIVE accounts.
+    Returns an empty DataFrame when no eligible alumni exist (triggers CSV fallback).
+    """
+    import pandas as pd
+    from users.models import AlumniProfile, AccountStatus
+
+    BASE_YEAR = 2020
+
+    profiles = (
+        AlumniProfile.objects
+        .filter(
+            alumni__account_status=AccountStatus.ACTIVE,
+            graduation_year__isnull=False,
+        )
+        .select_related("alumni")
+        .prefetch_related("alumni__employment_profiles", "alumni__competency_profiles")
+    )
+
+    rows: list[dict] = []
+    for p in profiles:
+        emp  = p.alumni.employment_profiles.first()
+        comp = p.alumni.competency_profiles.first()
+
+        row: dict = {
+            "batch":                  int(p.graduation_year),
+            "batch_code":             int(p.graduation_year) - BASE_YEAR,
+            "gender":                 1 if (p.gender or "").upper().startswith("F") else 0,
+            "scholarship":            1 if (p.scholarship or "").strip() else 0,
+            "general_average_range":  int(p.general_average_range or 0),
+            "academic_honors":        int(p.academic_honors or 1),
+            "prior_work_experience":  int(bool(p.prior_work_experience)),
+            "ojt_relevance":          int(p.ojt_relevance or 0),
+            "has_portfolio":          int(bool(p.has_portfolio)),
+            "english_proficiency":    int(p.english_proficiency or 1),
+            "technical_skill_count":  int((comp.technical_skill_count if comp else None) or p.technical_skill_count or 0),
+            "soft_skill_count":       int((comp.soft_skill_count     if comp else None) or p.soft_skill_count     or 0),
+        }
+        # All OHE columns default to 0
+        for col in (
+            *_JOB_SOURCE_COLS.values(),
+            *_FIRST_SECTOR_COLS.values(),
+            *_FIRST_STATUS_COLS.values(),
+            *_CURRENT_SECTOR_COLS.values(),
+        ):
+            row[col] = 0
+
+        if emp:
+            row["employment_status"]        = 1 if emp.employment_status in _EMPLOYED_STATUSES else 0
+            row["time_to_hire_months"]      = emp.time_to_hire_months
+            row["bsis_related_job_first"]   = (
+                None if emp.first_job_related_to_bsis is None
+                else int(emp.first_job_related_to_bsis)
+            )
+            row["bsis_related_job_current"] = (
+                None if emp.current_job_related_to_bsis is None
+                else int(emp.current_job_related_to_bsis)
+            )
+            row["job_applications_count"] = int(emp.first_job_applications_count or 0)
+            row["location_type"]          = 1 if emp.location_type else 0
+            for mapping, attr in (
+                (_JOB_SOURCE_COLS,     emp.first_job_source),
+                (_FIRST_SECTOR_COLS,   emp.first_job_sector),
+                (_FIRST_STATUS_COLS,   emp.first_job_status),
+                (_CURRENT_SECTOR_COLS, emp.current_job_sector),
+            ):
+                if attr and attr in mapping:
+                    row[mapping[attr]] = 1
+        else:
+            row.update(
+                employment_status=0,
+                time_to_hire_months=None,
+                bsis_related_job_first=None,
+                bsis_related_job_current=None,
+                job_applications_count=0,
+                location_type=0,
+            )
+
+        rows.append(row)
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
 def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
     import numpy as np
     df = artifacts["df"]
@@ -1318,7 +1432,8 @@ def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
         return {"n_alumni": 0}
 
     feats = artifacts["features"]
-    X = artifacts["scaler"].transform(subset[feats])
+    feature_df = subset[feats].fillna(df[feats].median())
+    X = artifacts["scaler"].transform(feature_df)
     models = artifacts["models"]
 
     pred_emp = models["employment_status"].predict(X).astype(int)
@@ -1371,8 +1486,15 @@ def _compute_forecast(artifacts: dict, n_future: int = 2) -> list[dict]:
         return []
     latest = int(max(batches))
 
-    # Per-feature linear trend on batch-year vs mean(feature)
-    batch_means = df.groupby("batch")[feats].mean()
+    # Per-feature linear trend — use only batches with ≥25% employment so that
+    # freshly-graduated cohorts (0% employed, no employment OHE data yet) don't
+    # pull slopes sharply negative and corrupt the forecast.
+    batch_emp_rate = df.groupby("batch")["employment_status"].mean()
+    stable_batches = sorted([b for b in batches if batch_emp_rate.get(b, 0.0) >= 0.25])
+    slope_df = df[df["batch"].isin(stable_batches)] if len(stable_batches) >= 2 else df
+    latest_stable = int(max(stable_batches)) if stable_batches else latest
+
+    batch_means = slope_df.groupby("batch")[feats].mean()
     x = np.array(batch_means.index, dtype=float)
     slopes: dict[str, float] = {}
     for f in feats:
@@ -1385,27 +1507,30 @@ def _compute_forecast(artifacts: dict, n_future: int = 2) -> list[dict]:
     slope_vec = np.array([slopes[f] for f in feats], dtype=float)
 
     # In-sample residuals for bootstrap
-    X_full = scaler.transform(df[feats])
+    X_full = scaler.transform(df[feats].fillna(df[feats].median()))
     pred_emp_in = models["employment_status"].predict(X_full).astype(int)
     actual_emp = df["employment_status"].astype(int).to_numpy()
     emp_residuals = (actual_emp - pred_emp_in).astype(float)
 
     employed = df[df["time_to_hire_months"].notna()]
-    X_emp = scaler.transform(employed[feats])
+    X_emp = scaler.transform(employed[feats].fillna(df[feats].median()))
     pred_tth_in = models["time_to_hire"].predict(X_emp)
     tth_residuals = employed["time_to_hire_months"].to_numpy() - pred_tth_in
 
     rng = np.random.default_rng(42)
     n_boot = 200
 
-    base_rows = df[df["batch"] == latest][feats].to_numpy(dtype=float)
+    # Base the projection on the last stable batch so its feature vector is
+    # representative; slope offset is relative to that base year.
+    base_rows = slope_df[slope_df["batch"] == latest_stable][feats].to_numpy(dtype=float)
     if len(base_rows) == 0:
-        base_rows = df[feats].to_numpy(dtype=float)
+        base_rows = slope_df[feats].to_numpy(dtype=float)
 
     forecasts: list[dict] = []
     for k in range(1, n_future + 1):
         future_year = latest + k
-        shifted = base_rows + slope_vec * float(k)
+        steps = float(future_year - latest_stable)
+        shifted = base_rows + slope_vec * steps
         Xf = scaler.transform(shifted)
 
         pred_emp = models["employment_status"].predict(Xf).astype(int)
@@ -1627,15 +1752,36 @@ class AdminAnalyticsPredictionsView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        overall = _aggregate_for_batch(artifacts, batch)
+        # --- Inject live DB data; fall back to CSV when DB is empty ---
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        try:
+            live_df = _build_live_df()
+        except Exception as _exc:  # noqa: BLE001
+            live_df = None
+            _log.warning("_build_live_df() failed: %s", _exc)
+
+        working_df = (
+            live_df if (live_df is not None and not live_df.empty)
+            else artifacts["df"]
+        )
+        if live_df is not None and not live_df.empty:
+            _log.info("Analytics: using live DB data (%d rows)", len(live_df))
+        else:
+            _log.warning("Analytics: live DB empty or unavailable — falling back to training CSV")
+
+        # Shallow copy so _ML_CACHE["df"] is never mutated
+        local_artifacts = {**artifacts, "df": working_df}
+
+        overall = _aggregate_for_batch(local_artifacts, batch)
         per_batch = []
-        for c in sorted(artifacts["df"]["batch"].unique().tolist()):
-            entry = _aggregate_for_batch(artifacts, int(c))
+        for c in sorted(local_artifacts["df"]["batch"].unique().tolist()):
+            entry = _aggregate_for_batch(local_artifacts, int(c))
             entry["batch"] = int(c)
             per_batch.append(entry)
 
         try:
-            forecast = _compute_forecast(artifacts, n_future=n_future)
+            forecast = _compute_forecast(local_artifacts, n_future=n_future)
         except Exception:  # noqa: BLE001
             forecast = []
 

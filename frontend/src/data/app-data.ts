@@ -25,6 +25,8 @@ export interface AlumniRecord {
     skills?: string[];
     lat?: number;
     lng?: number;
+    facePhotoUrl?: string;
+    registrationFaceScans?: { front?: string | null; left?: string | null; right?: string | null };
     [key: string]: unknown;
 }
 

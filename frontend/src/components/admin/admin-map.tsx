@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { GRADUATION_YEARS, type AlumniRecord } from '../../data/app-data';
 import { fetchVerifiedAlumni } from '../../app/api-client';
-import { MapPin, Filter, Users, CheckCircle2, AlertTriangle, Globe, Home } from 'lucide-react';
+import { MapPin, Filter, Users, CheckCircle2, AlertTriangle, Globe, Home, Search } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
   employed: '#10b981',
@@ -51,6 +51,7 @@ export function AdminMap() {
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterLocation, setFilterLocation] = useState<'all' | 'local' | 'abroad'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loadingData, setLoadingData] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState('');
@@ -101,8 +102,28 @@ export function AdminMap() {
     if (filterStatus !== 'all' && a.employmentStatus !== filterStatus) return false;
     if (filterLocation === 'local' && isAbroad(a)) return false;
     if (filterLocation === 'abroad' && !isAbroad(a)) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const rec = a as Record<string, unknown>;
+      if (!(['name', 'company', 'workCity', 'workLocation'] as const).some(
+        k => ((rec[k] as string) ?? '').toLowerCase().includes(q)
+      )) return false;
+    }
     return true;
   });
+
+  // Fly to single search result
+  useEffect(() => {
+    if (
+      searchQuery.trim() &&
+      filteredAlumni.length === 1 &&
+      filteredAlumni[0].lat != null &&
+      filteredAlumni[0].lng != null &&
+      leafletMapRef.current
+    ) {
+      leafletMapRef.current.flyTo([filteredAlumni[0].lat!, filteredAlumni[0].lng!], 12);
+    }
+  }, [filteredAlumni, searchQuery]);
 
   // All employed/self-employed graduates with location
   const withLocation = alumniRecords.filter(a => a.lat && a.lng && a.employmentStatus !== 'unemployed');
@@ -189,25 +210,45 @@ export function AdminMap() {
           ? `<span style="display:inline-block;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#fef3c7;color:#d97706;border:1px solid #fcd34d;">Abroad</span>`
           : `<span style="display:inline-block;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#d1fae5;color:#065f46;">Local (PH)</span>`;
 
-        const marker = L.marker([alumni.lat, alumni.lng], { icon })
-          .addTo(leafletMapRef.current)
-          .bindPopup(
-            `<div style="font-family:system-ui,sans-serif;min-width:190px;padding:4px 0">
-              <p style="margin:0 0 2px;font-weight:700;font-size:13px;color:#111">${alumni.name}</p>
-              <p style="margin:0 0 4px;font-size:11px;color:#6b7280">Batch ${alumni.graduationYear}</p>
-              <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">
-                <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:${color}20;color:${color};">${STATUS_LABELS[statusKey]}</span>
-                ${locationBadge}
-              </div>
-              ${alumni.company ? `<p style="margin:4px 0 0;font-size:12px;color:#374151">${alumni.jobTitle ?? ''} @ ${alumni.company}</p>` : ''}
-              ${alumni.workLocation ? `<p style="margin:2px 0 0;font-size:11px;color:#9ca3af;display:flex;align-items:center;gap:3px;"><span style="font-size:10px">&#128205;</span> ${alumni.workLocation}</p>` : ''}
-            </div>`,
-            { maxWidth: 240 }
-          );
+        const statusBadge = `<span style="display:inline-block;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:${color}20;color:${color};">${STATUS_LABELS[statusKey]}</span>`;
+
+        const faceUrl = alumni.facePhotoUrl ?? alumni.registrationFaceScans?.front ?? '';
+        const skills = Array.isArray(alumni.skills) ? alumni.skills as string[] : [];
+
+        const popupHtml = `
+          <div style="font-family:system-ui,sans-serif;min-width:220px;max-width:260px;padding:4px 0">
+            ${faceUrl ? `<img src="${faceUrl}" onerror="this.style.display='none'"
+                style="width:100%;height:130px;object-fit:cover;border-radius:8px;margin-bottom:8px;"/>` : ''}
+            <p style="margin:0 0 2px;font-weight:700;font-size:14px;color:#111">${alumni.name ?? 'Unknown'}</p>
+            <p style="margin:0 0 6px;font-size:11px;color:#6b7280">BSIS Graduate · Batch ${alumni.graduationYear}</p>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+              ${statusBadge} ${locationBadge}
+              ${alumni.jobAlignment === 'related'
+                ? `<span style="padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;background:#dcfce7;color:#166534;">BSIS-aligned</span>`
+                : ''}
+            </div>
+            ${alumni.company
+              ? `<p style="margin:0 0 2px;font-size:12px;color:#374151;font-weight:600">${alumni.jobTitle ?? 'Employed'} @ ${alumni.company}</p>`
+              : ''}
+            ${alumni.workCity
+              ? `<p style="margin:0 0 4px;font-size:11px;color:#9ca3af">&#128205; ${alumni.workCity}</p>`
+              : ''}
+            ${skills.length
+              ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:4px">
+                   ${skills.slice(0, 4).map(s =>
+                     `<span style="padding:1px 6px;background:#dcfce7;color:#166534;border-radius:99px;font-size:10px;font-weight:600">${s}</span>`
+                   ).join('')}
+                 </div>`
+              : ''}
+          </div>`;
+
+        const marker = L.marker([alumni.lat!, alumni.lng!], { icon })
+          .addTo(leafletMapRef.current!)
+          .bindPopup(popupHtml, { maxWidth: 280 });
         markersRef.current.push(marker);
       });
     });
-  }, [mapReady, filteredAlumni.length, filterYear, filterStatus, filterLocation]);
+  }, [mapReady, filteredAlumni.length, filterYear, filterStatus, filterLocation, searchQuery]);
 
   const byCity = filteredAlumni.reduce((acc, a) => {
     const city = a.workCity ?? 'Unknown';
@@ -277,6 +318,16 @@ export function AdminMap() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex flex-wrap items-center gap-3">
           <Filter className="size-4 text-gray-400 shrink-0" />
           <span className="text-gray-600 text-sm" style={{ fontWeight: 600 }}>Filters:</span>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search name, company, city…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10 w-52"
+            />
+          </div>
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)}
             className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
             <option value="all">All Batches</option>
