@@ -38,8 +38,10 @@ export interface PersonalFormData {
   mobile: string;
   mobileCountryCode: string;
   facebook: string;
-  city: string;
+  region: string;
   province: string;
+  city: string;
+  barangay: string;
 
   // Step 3: Education Information
   graduationDate: string;
@@ -77,6 +79,11 @@ const SHOT_INSTRUCTIONS = [
 
 const FACE_BLUR_THRESHOLD = 360;
 
+type PhCity = { name: string; zip: string; barangays: string[] };
+type PhProvince = { name: string; cities: PhCity[] };
+type PhRegion = { name: string; provinces: PhProvince[] };
+type PhLocations = { regions: PhRegion[] };
+
 const INITIAL_PERSONAL_FORM: PersonalFormData = {
   email: '',
   password: '',
@@ -90,8 +97,10 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   mobile: '',
   mobileCountryCode: '+63',
   facebook: '',
-  city: '',
+  region: '',
   province: '',
+  city: '',
+  barangay: '',
   graduationDate: '',
   graduationYear: null,
   hasGraduated: true,
@@ -196,6 +205,17 @@ export default function RegisterAlumniPersonal({
 
   useEffect(() => { return () => stopCamera(); }, []);
 
+  const [phLocations, setPhLocations] = useState<PhLocations | null>(null);
+  useEffect(() => {
+    fetch('/ph-locations.json').then(r => r.json()).then(setPhLocations).catch(() => {});
+  }, []);
+
+  // Derived cascading location data
+  const phRegions = phLocations?.regions ?? [];
+  const phProvinces = phRegions.find(r => r.name === form.region)?.provinces ?? [];
+  const phCities = phProvinces.find(p => p.name === form.province)?.cities ?? [];
+  const phBarangays = phCities.find(c => c.name === form.city)?.barangays ?? [];
+
   const inputCls = 'w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500';
 
   //  Input handlers
@@ -248,12 +268,16 @@ export default function RegisterAlumniPersonal({
         setStepError('Mobile number is required.');
         return false;
       }
-      if (!form.city.trim()) {
-        setStepError('City is required.');
+      if (!form.region) {
+        setStepError('Region is required.');
         return false;
       }
-      if (!form.province.trim()) {
+      if (!form.province) {
         setStepError('Province is required.');
+        return false;
+      }
+      if (!form.city) {
+        setStepError('City / Municipality is required.');
         return false;
       }
     }
@@ -648,6 +672,7 @@ export default function RegisterAlumniPersonal({
                         placeholder="9XXXXXXXXX"
                         value={form.mobile}
                         maxLength={10}
+                        minLength={10}
                         onChange={(e) => setF('mobile', e.target.value.replace(/\D/g, ''))}
                         className={`${inputCls} pl-10`}
                       />
@@ -668,31 +693,80 @@ export default function RegisterAlumniPersonal({
                   />
                 </div>
 
+                {/* Cascading location: Region → Province → City → Barangay */}
+                <div>
+                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                    Region *
+                  </label>
+                  <select
+                    value={form.region}
+                    onChange={(e) => { setF('region', e.target.value); setF('province', ''); setF('city', ''); setF('barangay', ''); }}
+                    className={inputCls}
+                  >
+                    <option value="">Select Region</option>
+                    {phRegions.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      City *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Talisay"
-                      value={form.city}
-                      onChange={(e) => setF('city', e.target.value)}
-                      className={inputCls}
-                    />
-                  </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                       Province *
                     </label>
+                    <select
+                      value={form.province}
+                      onChange={(e) => { setF('province', e.target.value); setF('city', ''); setF('barangay', ''); }}
+                      disabled={!form.region}
+                      className={inputCls}
+                    >
+                      <option value="">Select Province</option>
+                      {phProvinces.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                      City / Municipality *
+                    </label>
+                    <select
+                      value={form.city}
+                      onChange={(e) => {
+                        const city = phCities.find(c => c.name === e.target.value);
+                        setF('city', e.target.value);
+                        setF('barangay', '');
+                      }}
+                      disabled={!form.province}
+                      className={inputCls}
+                    >
+                      <option value="">Select City</option>
+                      {phCities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                    Barangay <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  {phBarangays.length > 0 ? (
+                    <select
+                      value={form.barangay}
+                      onChange={(e) => setF('barangay', e.target.value)}
+                      disabled={!form.city}
+                      className={inputCls}
+                    >
+                      <option value="">Select Barangay</option>
+                      {phBarangays.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  ) : (
                     <input
                       type="text"
-                      placeholder="e.g. Negros Occidental"
-                      value={form.province}
-                      onChange={(e) => setF('province', e.target.value)}
+                      placeholder={form.city ? 'Enter barangay' : 'Select a city first'}
+                      value={form.barangay}
+                      onChange={(e) => setF('barangay', e.target.value)}
+                      disabled={!form.city}
                       className={inputCls}
                     />
-                  </div>
+                  )}
                 </div>
               </div>
 

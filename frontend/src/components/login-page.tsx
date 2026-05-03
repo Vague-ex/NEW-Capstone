@@ -45,6 +45,7 @@ export function LoginPage() {
   const [cameraError, setCameraError] = useState("");
   const [faceAuthBusy, setFaceAuthBusy] = useState(false);
   const scanTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const autoDetectInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const detectedRole = detectRole(credential);
   const CredIcon = credentialIcon(credential);
@@ -62,6 +63,40 @@ export function LoginPage() {
       void ensureModernFaceModelsLoaded();
     }
   }, [phase]);
+
+  useEffect(() => {
+    if (!cameraOn || scanStage !== "idle" || faceAuthBusy) {
+      if (autoDetectInterval.current) {
+        clearInterval(autoDetectInterval.current);
+        autoDetectInterval.current = null;
+      }
+      return;
+    }
+    autoDetectInterval.current = setInterval(async () => {
+      if (faceAuthBusy || scanStage !== "idle") return;
+      const video = videoRef.current;
+      if (!video || video.videoWidth === 0) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")?.drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      try {
+        const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
+        if (descriptor) {
+          clearInterval(autoDetectInterval.current!);
+          autoDetectInterval.current = null;
+          void runGraduateFaceAuthentication();
+        }
+      } catch { /* silent — keep polling */ }
+    }, 1000);
+    return () => {
+      if (autoDetectInterval.current) {
+        clearInterval(autoDetectInterval.current);
+        autoDetectInterval.current = null;
+      }
+    };
+  }, [cameraOn, scanStage, faceAuthBusy]);
 
   const handleCredentialNext = () => {
     setError("");
@@ -194,6 +229,10 @@ export function LoginPage() {
   };
 
   const stopCamera = () => {
+    if (autoDetectInterval.current) {
+      clearInterval(autoDetectInterval.current);
+      autoDetectInterval.current = null;
+    }
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       videoRef.current.srcObject = null;
@@ -617,12 +656,16 @@ export function LoginPage() {
 
                 {cameraOn && scanStage !== "matched" && !faceAuthBusy && (
                   <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 py-1">
+                      <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-gray-600 text-sm">Scanning automatically…</span>
+                    </div>
                     <button
                       onClick={() => { void runGraduateFaceAuthentication(); }}
-                      className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition"
-                      style={{ fontWeight: 600 }}
+                      className="w-full flex items-center justify-center gap-2 border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-xl text-sm transition"
+                      style={{ fontWeight: 500 }}
                     >
-                      <Camera className="size-4" /> Capture & Verify Face
+                      <Camera className="size-4" /> Scan Now
                     </button>
                     <button
                       onClick={stopCamera}

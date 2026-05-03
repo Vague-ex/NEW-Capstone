@@ -54,6 +54,7 @@ export interface EmploymentFormData {
   street_address: string;
   barangay: string;
   city_municipality: string;
+  province_work: string;
   region: string;
   zip_code: string;
   country: string;
@@ -104,6 +105,11 @@ const SOFT_SKILLS = [
   'Time Management',
 ];
 
+type PhCityEmp = { name: string; zip: string; barangays: string[] };
+type PhProvinceEmp = { name: string; cities: PhCityEmp[] };
+type PhRegionEmp = { name: string; provinces: PhProvinceEmp[] };
+type PhLocationsEmp = { regions: PhRegionEmp[] };
+
 const PHILIPPINE_REGIONS = [
   'NCR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B',
   'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X',
@@ -137,6 +143,7 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   street_address: '',
   barangay: '',
   city_municipality: '',
+  province_work: '',
   region: '',
   zip_code: '',
   country: 'Philippines',
@@ -276,6 +283,36 @@ export default function RegisterAlumniEmployment({
   // Get available regions (from Supabase or fallback)
   const regions = referenceData?.regions?.map((r: any) => r.name) || PHILIPPINE_REGIONS;
 
+  // Philippines location JSON for cascading dropdowns
+  const [phLocations, setPhLocations] = useState<PhLocationsEmp | null>(null);
+  useEffect(() => {
+    fetch('/ph-locations.json').then(r => r.json()).then(setPhLocations).catch(() => {});
+  }, []);
+
+  const isPhilippinesWork = !form.country || form.country === 'Philippines';
+  const phRegionsWork = phLocations?.regions ?? [];
+  const phProvincesWork = phRegionsWork.find(r => r.name === form.region)?.provinces ?? [];
+  const phCitiesWork = phProvincesWork.find(p => p.name === form.province_work)?.cities ?? [];
+  const phBarangaysWork = phCitiesWork.find(c => c.name === form.city_municipality)?.barangays ?? [];
+
+  // Dynamic skills from reference API (falls back to hardcoded)
+  const technicalSkills: string[] = (() => {
+    const apiSkills = (referenceData?.skills ?? []) as any[];
+    const filtered = apiSkills
+      .filter(s => typeof s?.category?.name === 'string' && s.category.name.toLowerCase().includes('technical'))
+      .map(s => String(s.name)).filter(Boolean);
+    return filtered.length > 0 ? filtered : TECHNICAL_SKILLS;
+  })();
+  const softSkills: string[] = (() => {
+    const apiSkills = (referenceData?.skills ?? []) as any[];
+    const filtered = apiSkills
+      .filter(s => typeof s?.category?.name === 'string' && s.category.name.toLowerCase().includes('soft'))
+      .map(s => String(s.name)).filter(Boolean);
+    return filtered.length > 0 ? filtered : SOFT_SKILLS;
+  })();
+  const maxTechnical = technicalSkills.length;
+  const maxSoft = softSkills.length;
+
   // Validation logic
   const validateStep = (): boolean => {
     setStepError('');
@@ -322,9 +359,16 @@ export default function RegisterAlumniEmployment({
           setStepError('City/Municipality is required');
           return false;
         }
-        if (!form.region) {
+        if (isPhilippinesWork && !form.region) {
           setStepError('Region is required');
           return false;
+        }
+        {
+          const expectedZipLen = isPhilippinesWork ? 4 : 5;
+          if (form.zip_code && form.zip_code.length !== expectedZipLen) {
+            setStepError(`ZIP code must be exactly ${expectedZipLen} digits`);
+            return false;
+          }
         }
         break;
       case 6: // Competency (all optional)
@@ -757,52 +801,121 @@ export default function RegisterAlumniEmployment({
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
-            <input
-              type="text"
-              value={form.barangay}
-              onChange={(e) => setForm({ ...form, barangay: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-            />
-          </div>
+          {/* Cascading location (Philippines) or free-text (abroad) */}
+          {isPhilippinesWork ? (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Region *</label>
+                <select
+                  value={form.region}
+                  onChange={(e) => setForm({ ...form, region: e.target.value, province_work: '', city_municipality: '', barangay: '', zip_code: '' })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                >
+                  <option value="">Select Region</option>
+                  {(phRegionsWork.length > 0 ? phRegionsWork.map(r => r.name) : regions).map((r: string) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">Province</label>
+                  <select
+                    value={form.province_work}
+                    onChange={(e) => setForm({ ...form, province_work: e.target.value, city_municipality: '', barangay: '', zip_code: '' })}
+                    disabled={!form.region}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                  >
+                    <option value="">Select Province</option>
+                    {phProvincesWork.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality *</label>
+                  <select
+                    value={form.city_municipality}
+                    onChange={(e) => {
+                      const city = phCitiesWork.find(c => c.name === e.target.value);
+                      setForm({ ...form, city_municipality: e.target.value, barangay: '', zip_code: city?.zip ?? '' });
+                    }}
+                    disabled={!form.province_work}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                  >
+                    <option value="">Select City</option>
+                    {phCitiesWork.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
+                {phBarangaysWork.length > 0 ? (
+                  <select
+                    value={form.barangay}
+                    onChange={(e) => setForm({ ...form, barangay: e.target.value })}
+                    disabled={!form.city_municipality}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                  >
+                    <option value="">Select Barangay</option>
+                    {phBarangaysWork.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={form.barangay}
+                    onChange={(e) => setForm({ ...form, barangay: e.target.value })}
+                    placeholder={form.city_municipality ? 'Enter barangay' : 'Select a city first'}
+                    disabled={!form.city_municipality}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                  />
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality *</label>
+                <input
+                  type="text"
+                  value={form.city_municipality}
+                  onChange={(e) => setForm({ ...form, city_municipality: e.target.value })}
+                  placeholder="Required"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
+                <input
+                  type="text"
+                  value={form.barangay}
+                  onChange={(e) => setForm({ ...form, barangay: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                />
+              </div>
+            </>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality *</label>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">
+                ZIP Code (optional)
+              </label>
               <input
                 type="text"
-                value={form.city_municipality}
-                onChange={(e) => setForm({ ...form, city_municipality: e.target.value })}
-                placeholder="Required"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Region *</label>
-              <select
-                value={form.region}
-                onChange={(e) => setForm({ ...form, region: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-              >
-                <option value="">Select Region</option>
-                {regions.map((region: string) => (
-                  <option key={region} value={region}>{region}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">ZIP Code (optional)</label>
-              <input
-                type="text"
+                inputMode="numeric"
+                maxLength={isPhilippinesWork ? 4 : 5}
                 value={form.zip_code}
-                onChange={(e) => setForm({ ...form, zip_code: e.target.value })}
+                onChange={(e) => {
+                  const max = isPhilippinesWork ? 4 : 5;
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, max);
+                  setForm({ ...form, zip_code: digits });
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
               />
+              {form.zip_code && form.zip_code.length !== (isPhilippinesWork ? 4 : 5) && (
+                <p className="text-red-500 text-xs mt-1">ZIP must be exactly {isPhilippinesWork ? 4 : 5} digits</p>
+              )}
             </div>
 
             <div>
@@ -865,16 +978,16 @@ export default function RegisterAlumniEmployment({
           {/* Technical Skills */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Technical Skills ({form.technical_skills.length} of 12 selected)
+              Technical Skills ({form.technical_skills.length} of {maxTechnical} selected)
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {TECHNICAL_SKILLS.map((skill) => (
+              {technicalSkills.map((skill) => (
                 <CheckOption
                   key={skill}
                   label={skill}
                   checked={form.technical_skills.includes(skill)}
                   onChange={(e: any) => {
-                    if (e.target.checked && form.technical_skills.length < 12) {
+                    if (e.target.checked && form.technical_skills.length < maxTechnical) {
                       setForm({ ...form, technical_skills: [...form.technical_skills, skill] });
                     } else if (!e.target.checked) {
                       setForm({ ...form, technical_skills: form.technical_skills.filter(s => s !== skill) });
@@ -888,16 +1001,16 @@ export default function RegisterAlumniEmployment({
           {/* Soft Skills */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Soft Skills ({form.soft_skills.length} of 10 selected)
+              Soft Skills ({form.soft_skills.length} of {maxSoft} selected)
             </label>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {SOFT_SKILLS.map((skill) => (
+              {softSkills.map((skill) => (
                 <CheckOption
                   key={skill}
                   label={skill}
                   checked={form.soft_skills.includes(skill)}
                   onChange={(e: any) => {
-                    if (e.target.checked && form.soft_skills.length < 10) {
+                    if (e.target.checked && form.soft_skills.length < maxSoft) {
                       setForm({ ...form, soft_skills: [...form.soft_skills, skill] });
                     } else if (!e.target.checked) {
                       setForm({ ...form, soft_skills: form.soft_skills.filter(s => s !== skill) });

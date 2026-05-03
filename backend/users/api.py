@@ -548,9 +548,10 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
         soft = [s.get("name") for s in (comp.soft_skills or []) if isinstance(s, dict) and s.get("selected")]
         if tech:
             view["technical_skills"] = tech
-            view["skills"] = tech
         if soft:
             view["soft_skills"] = soft
+        if tech or soft:
+            view["skills"] = (tech or []) + (soft or [])
 
     return view
 
@@ -654,6 +655,18 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "right": registration_scans.get("face_right") or registration_scans.get("right"),
     }
     primary_face_url = account.face_photo_url or registration_face_scans.get("front")
+    if not primary_face_url:
+        try:
+            face_scan_obj = (
+                account.face_scans
+                .filter(scan_type="face_front")
+                .order_by("-captured_at")
+                .first()
+            )
+            if face_scan_obj:
+                primary_face_url = face_scan_obj.url
+        except Exception:
+            pass
     has_biometric_capture = bool(
         primary_face_url or registration_face_scans.get("left") or registration_face_scans.get("right")
     )
@@ -734,6 +747,7 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "industry": survey_data.get("currentJobSector") or survey_data.get("firstJobSector") or "",
         "jobAlignment": job_alignment,
         "workLocation": survey_data.get("currentJobLocation") or "",
+        "workCity": addr_row.city_municipality if addr_row is not None else "",
         "unemploymentReason": survey_data.get("unemploymentReason") or "",
         "dateUpdated": timezone.localtime(account.updated_at).date().isoformat() if account.updated_at else timezone.localdate().isoformat(),
         "biometricCaptured": has_biometric_capture,
@@ -1010,6 +1024,170 @@ class AdminDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict:
+    """
+    Extract fields for AlumniProfile from survey_data + personal form data.
+
+    Maps:
+    - Personal info (request.data) → AlumniProfile fields
+    - Academic info (survey_data) → AlumniProfile fields
+    - Pre-employment info (survey_data) → AlumniProfile fields
+
+    Returns dict ready for AlumniProfile.objects.create(**dict)
+    """
+    return {
+        # Personal info (from form, not survey)
+        "first_name": personal_data.get("first_name", "").strip(),
+        "middle_name": personal_data.get("middle_name", "").strip(),
+        "last_name": personal_data.get("family_name", "").strip(),
+        "gender": personal_data.get("gender", ""),
+        "birth_date": personal_data.get("birth_date", ""),
+        "civil_status": personal_data.get("civil_status", ""),
+        "mobile": personal_data.get("mobile", ""),
+        "facebook_url": personal_data.get("facebook_url", ""),
+        "city": personal_data.get("city", ""),
+        "province": personal_data.get("province", ""),
+
+        # Academic info (from form, not survey)
+        "graduation_date": personal_data.get("graduation_date", ""),
+        "graduation_year": personal_data.get("graduation_year"),
+        "scholarship": personal_data.get("scholarship", ""),
+        "highest_attainment": personal_data.get("highest_attainment", ""),
+        "graduate_school": personal_data.get("graduate_school", ""),
+        "prof_eligibility": personal_data.get("prof_eligibility", ""),
+        "prof_eligibility_other": personal_data.get("prof_eligibility_other", ""),
+
+        # Academic Profile (from survey_data - Section 3)
+        "general_average_range": survey_data.get("general_average_range"),
+        "academic_honors": survey_data.get("academic_honors"),
+        "prior_work_experience": survey_data.get("prior_work_experience", False),
+        "ojt_relevance": survey_data.get("ojt_relevance"),
+        "has_portfolio": survey_data.get("has_portfolio", False),
+        "english_proficiency": survey_data.get("english_proficiency"),
+
+        # Skill counts (denormalized for ML regression model)
+        "technical_skill_count": len(survey_data.get("technical_skills", [])),
+        "soft_skill_count": len(survey_data.get("soft_skills", [])),
+        "professional_certifications": survey_data.get("professional_certifications", []),
+    }
+
+
+def _extract_employment_profile_data(survey_data: dict) -> dict:
+    """
+    Extract fields for EmploymentProfile from survey_data.
+
+    Maps employment survey sections (5-7):
+    - Employment status
+    - First job details (sector, title, BSIS-related, source, applications)
+    - Current job details (sector, title, company, BSIS-related)
+
+    Returns dict ready for EmploymentProfile.objects.create(**dict)
+    """
+    return {
+        # Employment Status (Section 5)
+        "employment_status": survey_data.get("employment_status"),
+
+        # First Job Details (Section 6)
+        "time_to_hire_raw": survey_data.get("time_to_hire_raw"),
+        "time_to_hire_months": survey_data.get("time_to_hire_months"),
+        "first_job_sector": survey_data.get("first_job_sector"),
+        "first_job_status": survey_data.get("first_job_status"),
+        "first_job_title": survey_data.get("first_job_title"),
+        "first_job_related_to_bsis": survey_data.get("first_job_related_to_bsis"),
+        "first_job_unrelated_reason": survey_data.get("first_job_unrelated_reason"),
+        "first_job_duration_months": survey_data.get("first_job_duration_months"),
+        "first_job_applications_count": survey_data.get("first_job_applications_count"),
+        "first_job_source": survey_data.get("first_job_source"),
+
+        # Current Job Details (Section 7)
+        "current_job_sector": survey_data.get("current_job_sector"),
+        "current_job_title": survey_data.get("current_job_title"),
+        "current_job_company": survey_data.get("current_job_company"),
+        "current_job_related_to_bsis": survey_data.get("current_job_related_to_bsis"),
+        "location_type": survey_data.get("location_type"),
+
+        # Completion status
+        "survey_completion_status": "completed" if survey_data else "pending",
+    }
+
+
+def _extract_work_address_data(survey_data: dict) -> dict:
+    """
+    Extract fields for WorkAddress from survey_data.
+
+    Maps work location data:
+    - Street address, barangay, city, province, region, country, zip
+    - Latitude/longitude for mapping
+
+    Returns dict ready for WorkAddress.objects.create(**dict)
+    """
+    return {
+        "street_address": survey_data.get("street_address", "").strip(),
+        "barangay": survey_data.get("barangay", "").strip(),
+        "city_municipality": survey_data.get("city_municipality", "").strip(),
+        "province": survey_data.get("province", "").strip(),
+        "region": survey_data.get("region"),
+        "zip_code": survey_data.get("zip_code", "").strip(),
+        "country": survey_data.get("country", "Philippines"),
+        "latitude": survey_data.get("latitude"),
+        "longitude": survey_data.get("longitude"),
+    }
+
+
+def _create_alumni_skills(alumni_account, survey_data: dict) -> int:
+    """
+    Create AlumniSkill entries from technical_skills[] and soft_skills[].
+
+    Process:
+    1. Extract technical_skills and soft_skills arrays from survey_data
+    2. For each skill name:
+       a. Get or create Skill record (lookup by name)
+       b. Get or create SkillCategory ("Technical" or "Soft")
+       c. Create AlumniSkill entry linking alumni → skill
+
+    Returns count of newly created AlumniSkill entries
+    """
+    technical_skills = survey_data.get("technical_skills", [])
+    soft_skills = survey_data.get("soft_skills", [])
+
+    # Default proficiency for registration submissions
+    default_proficiency = AlumniSkill.Proficiency.INTERMEDIATE
+
+    all_skills = [
+        (skill_name, "technical", default_proficiency)
+        for skill_name in technical_skills
+    ] + [
+        (skill_name, "soft", default_proficiency)
+        for skill_name in soft_skills
+    ]
+
+    created_count = 0
+    for skill_name, skill_type, proficiency in all_skills:
+        if not skill_name or not skill_name.strip():
+            continue
+
+        # Get or create SkillCategory
+        category_name = "Technical" if skill_type == "technical" else "Soft"
+        category, _ = SkillCategory.objects.get_or_create(name=category_name)
+
+        # Get or create Skill record
+        skill_obj, _ = Skill.objects.get_or_create(
+            name=skill_name.strip(),
+            defaults={"category": category}
+        )
+
+        # Create AlumniSkill entry (ignore duplicates)
+        _, created = AlumniSkill.objects.get_or_create(
+            alumni=alumni_account,
+            skill=skill_obj,
+            defaults={"proficiency_level": proficiency}
+        )
+        if created:
+            created_count += 1
+
+    return created_count
+
+
 class AlumniRegisterView(APIView):
     parser_classes = [MultiPartParser, FormParser]
     authentication_classes = []
@@ -1134,11 +1312,14 @@ class AlumniRegisterView(APIView):
             face_descriptor_samples = [face_descriptor]
 
         with transaction.atomic():
+            # 1. Create User
             user = User.objects.create_user(
                 email=email,
                 password=password,
                 role=User.Role.ALUMNI,
             )
+
+            # 2. Create AlumniAccount (simplified biometric_template - only biometric data, no survey)
             match_status = AlumniAccount.MatchStatus.MATCHED if master_record else AlumniAccount.MatchStatus.UNMATCHED
             alumni_account = AlumniAccount.objects.create(
                 user=user,
@@ -1146,17 +1327,44 @@ class AlumniRegisterView(APIView):
                 match_status=match_status,
                 matched_at=timezone.now() if master_record else None,
                 face_photo_url=face_scan_urls["face_front"],
-                biometric_template=json.dumps(
-                    {
-                        "profile": profile_data,
-                        "registration_face_scans": face_scan_urls,
-                        "capture_meta": capture_meta,
-                        "face_descriptor": face_descriptor,
-                        "face_descriptor_samples": face_descriptor_samples,
-                    }
-                ),
+                biometric_template=json.dumps({
+                    # Only biometric data, NOT survey_data
+                    "registration_face_scans": face_scan_urls,
+                    "capture_meta": capture_meta,
+                    "face_descriptor": face_descriptor,
+                    "face_descriptor_samples": face_descriptor_samples,
+                }),
                 account_status=AccountStatus.PENDING,
             )
+
+            # 3. Create AlumniProfile (personal + academic + pre-employment info)
+            profile_dict = _extract_alumni_profile_data(survey_data, request.data)
+            profile = AlumniProfile.objects.create(
+                alumni=alumni_account,
+                **profile_dict
+            )
+
+            # 4. Create EmploymentProfile (if survey data submitted)
+            employment_profile = None
+            if survey_data:
+                emp_dict = _extract_employment_profile_data(survey_data)
+                employment_profile = EmploymentProfile.objects.create(
+                    alumni=alumni_account,
+                    **emp_dict
+                )
+
+            # 5. Create WorkAddress (if employment profile exists and address fields present)
+            if employment_profile and any([survey_data.get("city_municipality"), survey_data.get("region")]):
+                work_addr_dict = _extract_work_address_data(survey_data)
+                WorkAddress.objects.create(
+                    alumni=alumni_account,
+                    employment_profile=employment_profile,
+                    **work_addr_dict
+                )
+
+            # 6. Create AlumniSkill entries (if technical or soft skills submitted)
+            if survey_data and (survey_data.get("technical_skills") or survey_data.get("soft_skills")):
+                _create_alumni_skills(alumni_account, survey_data)
 
         return Response(
             {

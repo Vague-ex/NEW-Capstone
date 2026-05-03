@@ -197,12 +197,19 @@ export async function adminLogin(
 export async function registerAlumni(
     payload: FormData,
 ): Promise<AlumniAuthResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/alumni/register/`, {
-        method: 'POST',
-        body: payload,
-    });
-    await throwIfNotOk(response);
-    return response.json();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/alumni/register/`, {
+            method: 'POST',
+            body: payload,
+            signal: controller.signal,
+        });
+        await throwIfNotOk(response);
+        return response.json();
+    } finally {
+        clearTimeout(timeout);
+    }
 }   // Passing FormData but not setting the Content-Type header. When you send FormData, 
     // the browser automatically sets multipart/form-data, but your backend expects application/json
 

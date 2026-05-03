@@ -23,7 +23,7 @@ from typing import Optional
 
 # Maximum Euclidean distance between two 128-float descriptors to be
 # considered a match. face-api.js default is 0.6.
-FACE_MATCH_THRESHOLD: float = 0.6
+FACE_MATCH_THRESHOLD: float = 0.5
 
 # Minimum face bounding-box dimension (px) accepted during registration.
 MIN_FACE_SIZE_PX: int = 72

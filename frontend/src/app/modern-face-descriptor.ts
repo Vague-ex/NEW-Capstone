@@ -69,7 +69,7 @@ export async function extractFaceDescriptorFromDataUrl(dataUrl: string): Promise
     const image = await loadImage(dataUrl);
 
     const detection = await faceapi
-        .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.45 }))
+        .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.60 }))
         .withFaceLandmarks(true)
         .withFaceDescriptor();
 

@@ -59,7 +59,7 @@ function reducer(state: RegistrationState, action: Action): RegistrationState {
     case 'GO_TO_EMPLOYMENT':
       return { ...state, stage: 'employment' };
     case 'GO_TO_COMPLETE':
-      return { ...state, stage: 'complete', firstName: action.firstName };
+      return { ...state, stage: 'complete', firstName: action.firstName, isSubmitting: false };
     case 'SET_SUBMITTING':
       return { ...state, isSubmitting: action.isSubmitting, submitError: null };
     case 'SET_ERROR':
@@ -209,8 +209,10 @@ export function RegisterAlumni() {
       payload.append('mobile', personalData.mobileCountryCode + personalData.mobile);
       payload.append('mobile_country_code', personalData.mobileCountryCode);
       payload.append('facebook_url', personalData.facebook);
-      payload.append('city', personalData.city);
+      payload.append('region', personalData.region || '');
       payload.append('province', personalData.province);
+      payload.append('city', personalData.city);
+      payload.append('barangay', personalData.barangay || '');
       payload.append('graduation_date', personalData.graduationDate || '');
       payload.append('graduation_year', personalData.graduationYear?.toString() || '');
       payload.append('scholarship', personalData.scholarship || '');

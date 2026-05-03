@@ -19,6 +19,46 @@ type FaceScans = {
 };
 
 type SurveyData = {
+  // Academic & Pre-Employment
+  generalAverageRange?: number;
+  academicHonors?: number;
+  priorWorkExperience?: boolean;
+  ojlRelevance?: number;
+  englishProficiency?: number;
+
+  // Employment Status
+  employmentStatus?: string;
+
+  // First Job
+  timeToHireMonths?: number;
+  firstJobSector?: string;
+  firstJobStatus?: string;
+  firstJobTitle?: string;
+  firstJobRelated?: string; // 'Yes' | 'No'
+  firstJobUnrelatedReason?: string;
+  firstJobApplicationsCount?: number;
+  firstJobSource?: string;
+
+  // Current Job
+  currentJobSector?: string;
+  currentJobPosition?: string;
+  currentJobCompany?: string;
+  currentJobRelated?: string; // 'Yes' | 'No'
+
+  // Work Address
+  streetAddress?: string;
+  barangay?: string;
+  cityMunicipality?: string;
+  region?: string;
+  zipCode?: string;
+  country?: string;
+
+  // Skills
+  technicalSkills?: string[];
+  softSkills?: string[];
+  professionalCertifications?: string;
+
+  // Academic Background
   scholarship?: string;
   highestAttainment?: string;
   profEligibility?: string[];
@@ -72,15 +112,58 @@ function getSurveyData(a: AlumniRecord): SurveyData {
   if (!raw || typeof raw !== 'object') return {};
 
   const source = raw as Record<string, unknown>;
-  const profEligibilityRaw = source.profEligibility;
 
   return {
-    scholarship: typeof source.scholarship === 'string' ? source.scholarship : undefined,
-    highestAttainment: typeof source.highestAttainment === 'string' ? source.highestAttainment : undefined,
-    profEligibility: Array.isArray(profEligibilityRaw)
-      ? profEligibilityRaw.filter((item): item is string => typeof item === 'string')
+    // Academic & Pre-Employment
+    generalAverageRange: typeof source.general_average_range === 'number' ? source.general_average_range : undefined,
+    academicHonors: typeof source.academic_honors === 'number' ? source.academic_honors : undefined,
+    priorWorkExperience: typeof source.prior_work_experience === 'boolean' ? source.prior_work_experience : undefined,
+    ojlRelevance: typeof source.ojt_relevance === 'number' ? source.ojt_relevance : undefined,
+    englishProficiency: typeof source.english_proficiency === 'number' ? source.english_proficiency : undefined,
+
+    // Employment Status
+    employmentStatus: typeof source.employment_status === 'string' ? source.employment_status : undefined,
+
+    // First Job
+    timeToHireMonths: typeof source.time_to_hire_months === 'number' ? source.time_to_hire_months : undefined,
+    firstJobSector: typeof source.first_job_sector === 'string' ? source.first_job_sector : undefined,
+    firstJobStatus: typeof source.first_job_status === 'string' ? source.first_job_status : undefined,
+    firstJobTitle: typeof source.first_job_title === 'string' ? source.first_job_title : undefined,
+    firstJobRelated: typeof source.first_job_related_to_bsis === 'boolean' ? (source.first_job_related_to_bsis ? 'Yes' : 'No') : undefined,
+    firstJobUnrelatedReason: typeof source.first_job_unrelated_reason === 'string' ? source.first_job_unrelated_reason : undefined,
+    firstJobApplicationsCount: typeof source.first_job_applications_count === 'number' ? source.first_job_applications_count : undefined,
+    firstJobSource: typeof source.first_job_source === 'string' ? source.first_job_source : undefined,
+
+    // Current Job
+    currentJobSector: typeof source.current_job_sector === 'string' ? source.current_job_sector : undefined,
+    currentJobPosition: typeof source.current_job_title === 'string' ? source.current_job_title : undefined,
+    currentJobCompany: typeof source.current_job_company === 'string' ? source.current_job_company : undefined,
+    currentJobRelated: typeof source.current_job_related_to_bsis === 'boolean' ? (source.current_job_related_to_bsis ? 'Yes' : 'No') : undefined,
+
+    // Work Address
+    streetAddress: typeof source.street_address === 'string' ? source.street_address : undefined,
+    barangay: typeof source.barangay === 'string' ? source.barangay : undefined,
+    cityMunicipality: typeof source.city_municipality === 'string' ? source.city_municipality : undefined,
+    region: typeof source.region === 'string' ? source.region : undefined,
+    zipCode: typeof source.zip_code === 'string' ? source.zip_code : undefined,
+    country: typeof source.country === 'string' ? source.country : undefined,
+
+    // Skills
+    technicalSkills: Array.isArray(source.technical_skills)
+      ? source.technical_skills.filter((item): item is string => typeof item === 'string')
       : undefined,
-    neverEmployed: typeof source.neverEmployed === 'boolean' ? source.neverEmployed : undefined,
+    softSkills: Array.isArray(source.soft_skills)
+      ? source.soft_skills.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    professionalCertifications: typeof source.professional_certifications === 'string' ? source.professional_certifications : undefined,
+
+    // Academic Background (existing fields)
+    scholarship: typeof source.scholarship === 'string' ? source.scholarship : undefined,
+    highestAttainment: typeof source.highest_attainment === 'string' ? source.highest_attainment : undefined,
+    profEligibility: Array.isArray(source.prof_eligibility)
+      ? source.prof_eligibility.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    neverEmployed: typeof source.never_employed === 'boolean' ? source.never_employed : undefined,
   };
 }
 
@@ -591,18 +674,20 @@ export function AdminUnverified() {
                           <SectionRow label="Work Location" value={a.workLocation || '—'} />
                           <SectionRow label="City" value={a.workCity || '—'} />
                           <SectionRow label="BSIS-Related?" value={
-                            a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                              : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                            sd.currentJobRelated === 'Yes' ? 'Yes — Related to BSIS'
+                              : sd.currentJobRelated === 'No' ? 'No — Not related'
+                                : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
+                                  : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
                           } />
                         </div>
                       </div>
 
                       {/* Q5 + Q6 */}
                       <div>
-                        <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q5–Q6 · RETENTION & SOURCING</p>
+                        <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q5 · JOB SOURCING</p>
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
-                          <SectionRow label="Q5 — Job Retention" value={sd.jobRetention || '—'} />
-                          <SectionRow label="Q6 — Job Source" value={sd.jobSource || '—'} />
+                          <SectionRow label="Job Source" value={sd.firstJobSource || '—'} />
+                          <SectionRow label="Job Applications" value={sd.firstJobApplicationsCount ? `${sd.firstJobApplicationsCount} applications` : '—'} />
                         </div>
                         {a.employmentStatus === 'unemployed' && (
                           <div className="mt-3">
@@ -630,49 +715,75 @@ export function AdminUnverified() {
                     {/* Core BSIS Skills */}
                     {(() => {
                       const BSIS_CORE = [
-                        'Programming/Software Development', 'Database Management', 'Network Administration',
-                        'Business Process Analysis', 'Project Management', 'Technical Support / Troubleshooting',
-                        'Data Analytics', 'Web Development', 'System Analysis and Design',
-                        'Communication Skills (Oral/Written)', 'Teamwork/Collaboration', 'Problem-solving / Critical Thinking',
+                        'Programming/Software Development',
+                        'Web Development',
+                        'Mobile App Development',
+                        'Database Management',
+                        'Network Administration',
+                        'Cloud Computing',
+                        'Data Analytics/Business Intelligence',
+                        'System Analysis and Design',
+                        'Technical Support/Troubleshooting',
+                        'Project Management',
+                        'UI/UX Design',
+                        'Cybersecurity/Information Security',
+                        'Oral Communication',
+                        'Written Communication',
+                        'Teamwork/Collaboration',
+                        'Problem-solving/Critical Thinking',
+                        'Adaptability/Flexibility',
+                        'Leadership',
                       ];
-                      const coreChecked = (a.skills ?? []).filter((s: string) => BSIS_CORE.includes(s));
-                      const additional = (a.skills ?? []).filter((s: string) => !BSIS_CORE.includes(s));
+
+                      // Combine technical and soft skills from survey data
+                      const allSkills = [...(sd.technicalSkills ?? []), ...(sd.softSkills ?? []), ...(a.skills ?? [])];
+                      const uniqueSkills = Array.from(new Set(allSkills));
+
+                      const coreChecked = uniqueSkills.filter((s: string) => BSIS_CORE.some(core => core.toLowerCase() === s.toLowerCase()));
+                      const additional = uniqueSkills.filter((s: string) => !BSIS_CORE.some(core => core.toLowerCase() === s.toLowerCase()));
+
                       return (
                         <>
                           <div>
                             <div className="flex items-center justify-between mb-3">
-                              <p className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>BSIS CORE COMPETENCIES ({coreChecked.length}/12)</p>
-                              <div className="w-24 bg-gray-100 rounded-full h-2">
-                                <div className="h-2 rounded-full bg-[#166534] transition-all" style={{ width: `${(coreChecked.length / 12) * 100}%` }} />
+                              <p className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>TECHNICAL SKILLS ({(sd.technicalSkills?.length ?? 0)})</p>
+                            </div>
+                            {sd.technicalSkills && sd.technicalSkills.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {sd.technicalSkills.map((s: string) => (
+                                  <span key={s} className="bg-[#166534]/10 text-[#166534] text-xs px-3 py-1.5 rounded-full border border-[#166534]/20" style={{ fontWeight: 500 }}>{s}</span>
+                                ))}
                               </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              {BSIS_CORE.map(skill => {
-                                const has = (a.skills ?? []).includes(skill);
-                                return (
-                                  <div key={skill} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs border ${has ? 'bg-[#166534]/5 border-[#166534]/20 text-[#166534]' : 'bg-gray-50 border-gray-100 text-gray-400'}`} style={{ fontWeight: has ? 600 : 400 }}>
-                                    {has
-                                      ? <CheckCircle2 className="size-3.5 shrink-0 text-[#166534]" />
-                                      : <div className="size-3.5 rounded-full border-2 border-gray-300 shrink-0" />}
-                                    {skill}
-                                  </div>
-                                );
-                              })}
-                            </div>
+                            ) : (
+                              <p className="text-gray-400 text-xs italic">No technical skills submitted.</p>
+                            )}
                           </div>
 
-                          {additional.length > 0 && (
-                            <div>
-                              <p className="text-[#166534] text-xs mb-3" style={{ fontWeight: 700 }}>ADDITIONAL SKILLS ({additional.length})</p>
+                          <div>
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>SOFT SKILLS ({(sd.softSkills?.length ?? 0)})</p>
+                            </div>
+                            {sd.softSkills && sd.softSkills.length > 0 ? (
                               <div className="flex flex-wrap gap-2">
-                                {additional.map((s: string) => (
-                                  <span key={s} className="bg-gray-100 text-gray-600 text-xs px-3 py-1.5 rounded-full border border-gray-200" style={{ fontWeight: 500 }}>{s}</span>
+                                {sd.softSkills.map((s: string) => (
+                                  <span key={s} className="bg-emerald-50 text-emerald-700 text-xs px-3 py-1.5 rounded-full border border-emerald-200" style={{ fontWeight: 500 }}>{s}</span>
                                 ))}
+                              </div>
+                            ) : (
+                              <p className="text-gray-400 text-xs italic">No soft skills submitted.</p>
+                            )}
+                          </div>
+
+                          {sd.professionalCertifications && (
+                            <div>
+                              <p className="text-[#166534] text-xs mb-3" style={{ fontWeight: 700 }}>PROFESSIONAL CERTIFICATIONS</p>
+                              <div className="bg-gray-50 rounded-xl border border-gray-100 p-3">
+                                <p className="text-gray-700 text-xs">{sd.professionalCertifications}</p>
                               </div>
                             </div>
                           )}
 
-                          {(a.skills ?? []).length === 0 && (
+                          {allSkills.length === 0 && (
                             <div className="text-center py-8 text-gray-400">
                               <Star className="size-10 mx-auto mb-3 opacity-30" />
                               <p className="text-sm">No skills submitted yet.</p>
