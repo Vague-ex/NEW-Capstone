@@ -566,7 +566,7 @@ export function LoginPage() {
                       <Video className="size-4" /> {scanStage === "failed" ? "Retry Face Scan" : "Begin Face Scan"}
                     </button>
                     <button
-                      onClick={() => { setPhase("password"); setScanStage("idle"); setCameraError(""); }}
+                      onClick={() => { setPhase("login"); setScanStage("idle"); setCameraError(""); }}
                       className="w-full flex items-center justify-center gap-1.5 text-gray-500 hover:text-gray-700 text-xs transition"
                     >
                       <ArrowLeft className="size-3.5" /> Back
