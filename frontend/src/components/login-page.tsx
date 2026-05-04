@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import {
-  GraduationCap, ArrowRight, Eye, EyeOff,
+  GraduationCap, ArrowRight, ArrowLeft, Eye, EyeOff,
   AlertCircle, Mail, Camera, Video,
   CheckCircle2,
 } from "lucide-react";
