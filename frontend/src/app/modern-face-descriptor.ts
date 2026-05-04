@@ -1,7 +1,7 @@
 const MODEL_URI = '/modern-face-models';
 const DESCRIPTOR_LENGTH = 128;
 const FACE_DISTANCE_SIMILARITY_SCALE = 1.5;
-export const FACE_MATCH_SIMILARITY_THRESHOLD = 0.5;
+export const FACE_MATCH_SIMILARITY_THRESHOLD = 0.42;
 export const FACE_MATCH_DISTANCE_THRESHOLD =
     (1 - FACE_MATCH_SIMILARITY_THRESHOLD) * FACE_DISTANCE_SIMILARITY_SCALE;
 
@@ -69,7 +69,7 @@ export async function extractFaceDescriptorFromDataUrl(dataUrl: string): Promise
     const image = await loadImage(dataUrl);
 
     const detection = await faceapi
-        .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.60 }))
+        .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.45 }))
         .withFaceLandmarks(true)
         .withFaceDescriptor();
 

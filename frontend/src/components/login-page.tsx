@@ -29,6 +29,44 @@ function credentialIcon(cred: string) {
   return User;
 }
 
+/**
+ * Capture a video frame clipped to the oval face guide.
+ * The oval matches the CSS guide: 55% of video width, 3:4 aspect ratio, centred.
+ * Pixels outside the oval are filled with a neutral grey so the model ignores background.
+ */
+function captureOvalFrame(video: HTMLVideoElement, quality = 0.85): string {
+  const W = video.videoWidth;
+  const H = video.videoHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+  const rx = W * 0.275;          // 55 % / 2
+  const ry = rx * (4 / 3);       // 3 : 4 portrait oval
+  const cx = W / 2;
+  const cy = H / 2;
+  ctx.fillStyle = "#d0d0d0";
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.restore();
+  // Crop to oval bounding box so the model receives a tight face image
+  const cropCanvas = document.createElement("canvas");
+  cropCanvas.width = Math.round(rx * 2);
+  cropCanvas.height = Math.round(ry * 2);
+  cropCanvas.getContext("2d")!.drawImage(
+    canvas,
+    Math.round(cx - rx), Math.round(cy - ry),
+    Math.round(rx * 2), Math.round(ry * 2),
+    0, 0,
+    cropCanvas.width, cropCanvas.height,
+  );
+  return cropCanvas.toDataURL("image/jpeg", quality);
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
 
@@ -76,11 +114,7 @@ export function LoginPage() {
       if (faceAuthBusy || scanStage !== "idle") return;
       const video = videoRef.current;
       if (!video || video.videoWidth === 0) return;
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d")?.drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const dataUrl = captureOvalFrame(video, 0.85);
       try {
         const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
         if (descriptor) {
@@ -165,29 +199,25 @@ export function LoginPage() {
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
 
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Unable to access camera frame.");
-    }
-
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    const dataUrl = captureOvalFrame(video, 0.9);
     const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
     if (!descriptor) {
-      throw new Error("No face detected. Keep your face centered in the guide and try again.");
+      throw new Error("No face detected. Center your face in the oval and try again.");
     }
 
     return new Promise<{ blob: Blob; descriptor: number[] }>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          reject(new Error("Failed to capture face scan image."));
-          return;
-        }
-        resolve({ blob, descriptor });
-      }, "image/jpeg", 0.9);
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement("canvas");
+        c.width = img.width;
+        c.height = img.height;
+        c.getContext("2d")!.drawImage(img, 0, 0);
+        c.toBlob((blob) => {
+          if (!blob) { reject(new Error("Failed to capture face scan image.")); return; }
+          resolve({ blob, descriptor });
+        }, "image/jpeg", 0.9);
+      };
+      img.src = dataUrl;
     });
   };
 
@@ -585,7 +615,7 @@ export function LoginPage() {
                         <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
                           <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
                           <span className="text-white text-xs" style={{ fontWeight: 500 }}>
-                            {scanStage === "idle" ? "Position face in oval" : "Scanning face…"}
+                            {scanStage === "idle" ? "Fill your face into the oval" : "Scanning face…"}
                           </span>
                         </div>
                       </div>
