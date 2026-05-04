@@ -161,6 +161,18 @@ def _authenticate_by_email(email: str, password: str) -> User | None:
     return user
 
 
+def _authenticate_by_email_specific(email: str, password: str) -> tuple[User | None, str | None]:
+    """Like _authenticate_by_email but returns a specific error string on failure."""
+    if not email or not password:
+        return None, "Email and password are required."
+    user = User.objects.filter(email__iexact=email.strip()).first()
+    if not user or not user.is_active:
+        return None, "Email not recognized."
+    if not user.check_password(password):
+        return None, "Incorrect password."
+    return user, None
+
+
 def _find_master_record(
     family_name: str,
     first_name: str,
@@ -911,10 +923,10 @@ class AdminLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = _authenticate_by_email(email=email, password=password)
+        user, auth_error = _authenticate_by_email_specific(email=email, password=password)
         if not user:
             return Response(
-                {"detail": "Invalid email or password."},
+                {"detail": auth_error},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -1667,10 +1679,10 @@ class AlumniLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = _authenticate_by_email(email=email, password=password)
+        user, auth_error = _authenticate_by_email_specific(email=email, password=password)
         if not user:
             return Response(
-                {"detail": "Invalid email or password."},
+                {"detail": auth_error},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 

@@ -60,6 +60,8 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -118,13 +120,13 @@ export function LoginPage() {
 
   const handlePasswordNext = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setError(""); setEmailError(""); setPasswordError("");
     if (!credential.trim() || !credential.includes("@")) {
-      setError("Please enter a valid email address.");
+      setEmailError("Please enter a valid email address.");
       return;
     }
     if (!password.trim()) {
-      setError("Please enter your password.");
+      setPasswordError("Please enter your password.");
       return;
     }
 
@@ -141,11 +143,21 @@ export function LoginPage() {
       return;
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 403) {
-        // Credentials are valid, but the account is not admin. Continue with graduate FaceID.
         setIsLoading(false);
         setCameraError("");
         setScanStage("idle");
         setPhase("facescan");
+        return;
+      }
+
+      if (err instanceof ApiClientError && err.status === 401) {
+        const msg = err.message ?? "";
+        if (/not recognized/i.test(msg)) {
+          setEmailError(msg);
+        } else {
+          setPasswordError(msg);
+        }
+        setIsLoading(false);
         return;
       }
 
@@ -368,11 +380,12 @@ export function LoginPage() {
                         type="email"
                         placeholder="Enter your email address"
                         value={credential}
-                        onChange={(e) => { setCredential(e.target.value); setError(""); }}
-                        className={`${inputBase} pl-10 pr-4`}
+                        onChange={(e) => { setCredential(e.target.value); setError(""); setEmailError(""); }}
+                        className={`${inputBase} pl-10 pr-4 ${emailError ? "border-red-300 focus:border-red-400 focus:ring-red-100" : ""}`}
                         autoFocus
                       />
                     </div>
+                    {emailError && <p className="text-red-500 text-xs mt-1.5">{emailError}</p>}
                   </div>
 
                   <div>
@@ -382,14 +395,15 @@ export function LoginPage() {
                         type={showPass ? "text" : "password"}
                         placeholder="Enter your password"
                         value={password}
-                        onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                        className={`${inputBase} pl-4 pr-10`}
+                        onChange={(e) => { setPassword(e.target.value); setError(""); setPasswordError(""); }}
+                        className={`${inputBase} pl-4 pr-10 ${passwordError ? "border-red-300 focus:border-red-400 focus:ring-red-100" : ""}`}
                       />
                       <button type="button" onClick={() => setShowPass(!showPass)}
                         className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
                         {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                       </button>
                     </div>
+                    {passwordError && <p className="text-red-500 text-xs mt-1.5">{passwordError}</p>}
                   </div>
 
                   <button
