@@ -481,14 +481,67 @@ def _first_prefetched(account, attr):
 
 
 def _normalized_view_from_tables(account: AlumniAccount) -> dict:
-    """Read EmploymentProfile / CompetencyProfile / WorkAddress / EmploymentRecord
-    rows for this alumni and return values formatted in the camelCase shape used
-    by the rest of the payload helpers. Returns an empty dict when no rows exist.
-
-    The keys here intentionally mirror the survey_data blob keys so callers can
-    overlay this dict onto the JSON blob and not have to change downstream code.
-    """
+    """Read AlumniProfile / EmploymentProfile / WorkAddress / AlumniSkill rows for
+    this alumni and return values in the camelCase shape the frontend expects.
+    Keys mirror the survey_data blob so callers can overlay without changing
+    downstream code."""
     view: dict = {}
+
+    # ── AlumniProfile (personal + academic) ───────────────────────────────────
+    prof = None
+    try:
+        prof = account.profile  # select_related covers this in prefetched querysets
+    except Exception:
+        prof = None
+    if prof is not None:
+        if prof.first_name:
+            view["firstName"] = prof.first_name
+        if prof.middle_name:
+            view["middleName"] = prof.middle_name
+        if prof.last_name:
+            view["familyName"] = prof.last_name
+        if prof.gender:
+            view["gender"] = prof.gender
+        if prof.birth_date:
+            view["birthDate"] = prof.birth_date
+        if prof.civil_status:
+            view["civilStatus"] = prof.civil_status
+        if prof.mobile:
+            view["mobile"] = prof.mobile
+        if prof.facebook_url:
+            view["facebook"] = prof.facebook_url
+        if prof.city:
+            view["city"] = prof.city
+        if prof.province:
+            view["province"] = prof.province
+        if prof.graduation_date:
+            view["graduationDate"] = prof.graduation_date
+        if prof.graduation_year:
+            view["graduationYear"] = prof.graduation_year
+        if prof.scholarship:
+            view["scholarship"] = prof.scholarship
+        if prof.highest_attainment:
+            view["highestAttainment"] = prof.highest_attainment
+        if prof.graduate_school:
+            view["graduateSchool"] = prof.graduate_school
+        if prof.prof_eligibility:
+            view["profEligibility"] = [e.strip() for e in prof.prof_eligibility.split(",") if e.strip()]
+        if prof.prof_eligibility_other:
+            view["profEligibilityOther"] = prof.prof_eligibility_other
+        if prof.general_average_range is not None:
+            view["general_average_range"] = prof.general_average_range
+        if prof.academic_honors:
+            view["academic_honors"] = prof.academic_honors
+        if prof.prior_work_experience is not None:
+            view["prior_work_experience"] = prof.prior_work_experience
+        if prof.ojt_relevance:
+            view["ojt_relevance"] = prof.ojt_relevance
+        if prof.has_portfolio is not None:
+            view["has_portfolio"] = prof.has_portfolio
+        if prof.english_proficiency:
+            view["english_proficiency"] = prof.english_proficiency
+
+    # ── EmploymentProfile ──────────────────────────────────────────────────────
     emp = _first_prefetched(account, "_prefetched_emp")
     if emp is None:
         try:
@@ -496,34 +549,45 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
         except Exception:
             emp = None
     if emp is not None:
-        if emp.current_job_title:
-            view["currentJobPosition"] = emp.current_job_title
-        if emp.first_job_title:
-            view["firstJobTitle"] = emp.first_job_title
-        if emp.current_job_company:
-            view["currentJobCompany"] = emp.current_job_company
-        if emp.current_job_sector:
-            view["currentJobSector"] = _SECTOR_LABELS.get(
-                emp.current_job_sector, emp.current_job_sector
-            )
-        if emp.first_job_sector:
-            view["firstJobSector"] = _SECTOR_LABELS.get(
-                emp.first_job_sector, emp.first_job_sector
-            )
         if emp.employment_status:
             view["employment_status"] = emp.employment_status
         if emp.time_to_hire_raw:
             view["timeToHire"] = emp.time_to_hire_raw
+        if emp.first_job_title:
+            view["firstJobTitle"] = emp.first_job_title
+        if emp.first_job_sector:
+            view["firstJobSector"] = _SECTOR_LABELS.get(emp.first_job_sector, emp.first_job_sector)
+        if emp.first_job_status:
+            view["firstJobStatus"] = emp.first_job_status
+        if emp.first_job_related_to_bsis is True:
+            view["firstJobRelated"] = "Yes, directly related (IT/IS role)"
+        elif emp.first_job_related_to_bsis is False:
+            view["firstJobRelated"] = "Not related (different field)"
+        if emp.first_job_unrelated_reason:
+            view["firstJobUnrelatedReason"] = emp.first_job_unrelated_reason
+        if emp.first_job_duration_months is not None:
+            view["jobRetention"] = str(emp.first_job_duration_months)
+        if emp.first_job_applications_count is not None:
+            view["jobApplications"] = str(emp.first_job_applications_count)
+        if emp.first_job_source:
+            view["jobSource"] = emp.first_job_source
+        if emp.current_job_title:
+            view["currentJobPosition"] = emp.current_job_title
+        if emp.current_job_company:
+            view["currentJobCompany"] = emp.current_job_company
+        if emp.current_job_sector:
+            view["currentJobSector"] = _SECTOR_LABELS.get(emp.current_job_sector, emp.current_job_sector)
+        if emp.current_job_related_to_bsis is True:
+            view["currentJobRelated"] = "Yes, directly related (IT/IS role)"
+        elif emp.current_job_related_to_bsis is False:
+            view["currentJobRelated"] = "Not related (different field)"
         if emp.location_type is not None:
             view["currentJobLocation"] = (
                 "Local (Philippines)" if emp.location_type
                 else "Abroad / Remote Foreign Employer"
             )
-        if emp.current_job_related_to_bsis is True:
-            view["currentJobRelated"] = "Yes, directly related (IT/IS role)"
-        elif emp.current_job_related_to_bsis is False:
-            view["currentJobRelated"] = "Not related (different field)"
 
+    # ── WorkAddress ───────────────────────────────────────────────────────────
     addr = _first_prefetched(account, "_prefetched_addr")
     if addr is None:
         try:
@@ -540,7 +604,6 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             view["zip_code"] = addr.zip_code
         if addr.street_address:
             view["street_address"] = addr.street_address
-        # Surface the work-location label using city + country (used by admin map)
         if not view.get("currentJobLocation"):
             view["currentJobLocation"] = (
                 "Abroad / Remote Foreign Employer"
@@ -548,21 +611,33 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
                 else "Local (Philippines)"
             )
 
-    comp = _first_prefetched(account, "_prefetched_comp")
-    if comp is None:
-        try:
-            comp = account.competency_profiles.order_by("-assessment_date").first()
-        except Exception:
-            comp = None
-    if comp is not None:
-        tech = [s.get("name") for s in (comp.technical_skills or []) if isinstance(s, dict) and s.get("selected")]
-        soft = [s.get("name") for s in (comp.soft_skills or []) if isinstance(s, dict) and s.get("selected")]
-        if tech:
-            view["technical_skills"] = tech
-        if soft:
-            view["soft_skills"] = soft
-        if tech or soft:
-            view["skills"] = (tech or []) + (soft or [])
+    # ── Skills: AlumniSkill table (primary) then CompetencyProfile (legacy) ──
+    tech: list[str] = []
+    soft: list[str] = []
+    try:
+        alumni_skills = list(account.skills.select_related("skill", "skill__category").all())
+        tech = [s.skill.name for s in alumni_skills if s.skill.category and s.skill.category.name == "Technical"]
+        soft = [s.skill.name for s in alumni_skills if s.skill.category and s.skill.category.name == "Soft"]
+    except Exception:
+        alumni_skills = []
+
+    if not tech and not soft:
+        comp = _first_prefetched(account, "_prefetched_comp")
+        if comp is None:
+            try:
+                comp = account.competency_profiles.order_by("-assessment_date").first()
+            except Exception:
+                comp = None
+        if comp is not None:
+            tech = [s.get("name") for s in (comp.technical_skills or []) if isinstance(s, dict) and s.get("selected")]
+            soft = [s.get("name") for s in (comp.soft_skills or []) if isinstance(s, dict) and s.get("selected")]
+
+    if tech:
+        view["technical_skills"] = tech
+    if soft:
+        view["soft_skills"] = soft
+    if tech or soft:
+        view["skills"] = (tech or []) + (soft or [])
 
     return view
 
@@ -589,9 +664,16 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     # Tables are now the source of truth — overlay them on the legacy blob.
     survey_data = _merge_survey_view(survey_data_blob, account)
 
-    graduation_year = profile.get("graduation_year") or (
-        account.master_record.batch_year if account.master_record else date.today().year
-    )
+    graduation_year = None
+    try:
+        if account.profile:
+            graduation_year = account.profile.graduation_year
+    except Exception:
+        pass
+    if not graduation_year:
+        graduation_year = profile.get("graduation_year") or (
+            account.master_record.batch_year if account.master_record else date.today().year
+        )
 
     # Prioritize reading name from AlumniProfile table
     name = None
