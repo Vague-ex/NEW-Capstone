@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import {
-  GraduationCap, ArrowRight, ArrowLeft, Eye, EyeOff,
-  AlertCircle, ShieldCheck, User, Mail, Camera,
-  CheckCircle2, Video,
+  GraduationCap, ArrowRight, Eye, EyeOff,
+  AlertCircle, Mail, Camera, Video,
+  CheckCircle2,
 } from "lucide-react";
 import { ADMIN_ACCESS_TOKEN_KEY, API_BASE_URL, adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
 import {
@@ -12,22 +12,7 @@ import {
 } from "../app/modern-face-descriptor";
 const schoolLogo = "/CHMSULogo.png";
 
-type Phase = "credential" | "password" | "facescan";
-type DetectedRole = "admin" | null;
-
-function detectRole(cred: string): DetectedRole {
-  const t = cred.trim();
-  if (!t) return null;
-  if (t.toLowerCase() === "chmsuadmin@chmsu.edu.ph") return "admin";
-  if (t.toLowerCase().endsWith("@chmsu.edu.ph") && t.toLowerCase().includes("admin"))
-    return "admin";
-  return null;
-}
-
-function credentialIcon(cred: string) {
-  if (cred.trim().includes("@")) return Mail;
-  return User;
-}
+type Phase = "login" | "facescan";
 
 /**
  * Capture a video frame clipped to the oval face guide.
@@ -70,7 +55,7 @@ function captureOvalFrame(video: HTMLVideoElement, quality = 0.85): string {
 export function LoginPage() {
   const navigate = useNavigate();
 
-  const [phase, setPhase] = useState<Phase>("credential");
+  const [phase, setPhase] = useState<Phase>("login");
   const [credential, setCredential] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -85,8 +70,6 @@ export function LoginPage() {
   const scanTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const autoDetectInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const detectedRole = detectRole(credential);
-  const CredIcon = credentialIcon(credential);
 
   useEffect(() => {
     const timers = scanTimers.current;
@@ -133,22 +116,13 @@ export function LoginPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOn, scanStage, faceAuthBusy]); // runGraduateFaceAuthentication omitted — credential/password stable during scan phase
 
-  const handleCredentialNext = () => {
-    setError("");
-    if (!credential.trim()) {
-      setError("Please enter your email address.");
-      return;
-    }
-    if (!credential.includes("@")) {
-      setError("School ID login is no longer supported. Please enter your registered email address.");
-      return;
-    }
-    setPhase("password");
-  };
-
   const handlePasswordNext = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!credential.trim() || !credential.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
     if (!password.trim()) {
       setError("Please enter your password.");
       return;
@@ -274,15 +248,6 @@ export function LoginPage() {
   const inputBase =
     "w-full rounded-xl border border-gray-200 bg-gray-50 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white";
 
-  const RoleBadge = () => {
-    if (!detectedRole) return null;
-    return (
-      <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-700 text-xs px-2.5 py-1 rounded-full" style={{ fontWeight: 600 }}>
-        <ShieldCheck className="size-3.5" /> Admin Account Hint
-      </span>
-    );
-  };
-
   const featureItems = [
     {
       icon: GraduationCap,
@@ -377,13 +342,13 @@ export function LoginPage() {
               </div>
             </div>
 
-            {/* ── Phase: CREDENTIAL ── */}
-            {phase === "credential" && (
+            {/* ── Phase: LOGIN ── */}
+            {phase === "login" && (
               <div>
                 <h2 className="text-gray-900 mb-1" style={{ fontWeight: 700, fontSize: "1.35rem" }}>
                   Sign in
                 </h2>
-                <p className="text-gray-500 text-sm mb-6">Enter your email address to continue.</p>
+                <p className="text-gray-500 text-sm mb-6">Enter your credentials to continue.</p>
 
                 {error && (
                   <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
@@ -392,39 +357,54 @@ export function LoginPage() {
                   </div>
                 )}
 
-                <div className="space-y-4">
+                <form onSubmit={handlePasswordNext} className="space-y-4">
                   <div>
                     <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                       Email Address
                     </label>
                     <div className="relative">
-                      <CredIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                       <input
                         type="email"
                         placeholder="Enter your email address"
                         value={credential}
                         onChange={(e) => { setCredential(e.target.value); setError(""); }}
-                        onKeyDown={(e) => e.key === "Enter" && handleCredentialNext()}
                         className={`${inputBase} pl-10 pr-4`}
                         autoFocus
                       />
                     </div>
-                    {detectedRole && (
-                      <div className="mt-2">
-                        <RoleBadge />
-                      </div>
-                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPass ? "text" : "password"}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                        className={`${inputBase} pl-4 pr-10`}
+                      />
+                      <button type="button" onClick={() => setShowPass(!showPass)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
+                        {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <button
-                    onClick={handleCredentialNext}
-                    disabled={!credential.trim()}
-                    className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-50"
+                    type="submit"
+                    disabled={isLoading || !credential.trim() || !password.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
                     style={{ fontWeight: 600 }}
                   >
-                    Continue <ArrowRight className="size-4" />
+                    {isLoading ? (
+                      <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying…</>
+                    ) : (
+                      <>Sign In <ArrowRight className="size-4" /></>
+                    )}
                   </button>
-                </div>
+                </form>
 
                 <p className="text-center text-gray-400 text-xs mt-5">
                   Employer?{" "}
@@ -438,82 +418,6 @@ export function LoginPage() {
                     Create account →
                   </button>
                 </p>
-              </div>
-            )}
-
-            {/* ── Phase: PASSWORD ── */}
-            {phase === "password" && (
-              <div>
-                <button
-                  onClick={() => { setPhase("credential"); setPassword(""); setError(""); }}
-                  className="flex items-center gap-1.5 text-gray-500 hover:text-gray-700 text-sm mb-6 transition"
-                >
-                  <ArrowLeft className="size-4" /> Back
-                </button>
-
-                <div className="flex items-center gap-2.5 bg-white border border-gray-100 shadow-sm rounded-xl px-4 py-3 mb-6">
-                  <div className={`flex size-8 items-center justify-center rounded-lg ${detectedRole === "admin" ? "bg-amber-100" : "bg-gray-100"} shrink-0`}>
-                    {detectedRole === "admin"
-                      ? <ShieldCheck className="size-4 text-amber-600" />
-                      : <User className="size-4 text-gray-500" />
-                    }
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{credential}</p>
-                    <p className={`text-xs ${detectedRole === "admin" ? "text-amber-600" : "text-gray-500"}`} style={{ fontWeight: 500 }}>
-                      {detectedRole === "admin" ? "Admin account hint detected" : "Account type will be verified after password"}
-                    </p>
-                  </div>
-                </div>
-
-                <h2 className="text-gray-900 mb-1" style={{ fontWeight: 700, fontSize: "1.2rem" }}>
-                  Enter your password
-                </h2>
-                <p className="text-gray-500 text-sm mb-5">
-                  {detectedRole === "admin"
-                    ? "Enter your admin password to continue."
-                    : "If this is a graduate account, FaceID verification starts after password check."}
-                </p>
-
-                {error && (
-                  <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-4">
-                    <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-                    <p className="text-red-700 text-xs">{error}</p>
-                  </div>
-                )}
-
-                <form onSubmit={handlePasswordNext} className="space-y-4">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Password</label>
-                    <div className="relative">
-                      <input
-                        type={showPass ? "text" : "password"}
-                        placeholder="Enter password"
-                        value={password}
-                        onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                        className={`${inputBase} pl-4 pr-10`}
-                        autoFocus
-                      />
-                      <button type="button" onClick={() => setShowPass(!showPass)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition">
-                        {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isLoading || !password.trim()}
-                    className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
-                    style={{ fontWeight: 600 }}
-                  >
-                    {isLoading ? (
-                      <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying…</>
-                    ) : (
-                      <>Sign In <ArrowRight className="size-4" /></>
-                    )}
-                  </button>
-                </form>
               </div>
             )}
 
@@ -533,8 +437,7 @@ export function LoginPage() {
                 {/* Steps indicator */}
                 <div className="flex items-center gap-2 mb-5">
                   {[
-                    { label: "Credential", done: true },
-                    { label: "Password", done: true },
+                    { label: "Sign In", done: true },
                     { label: "Face Scan", done: scanStage === "matched", active: scanStage !== "matched" },
                   ].map((s, i) => (
                     <div key={s.label} className="flex items-center gap-2">
@@ -547,7 +450,7 @@ export function LoginPage() {
                       <span className={`text-xs ${s.done || s.active ? "text-gray-700" : "text-gray-400"}`} style={{ fontWeight: s.active ? 600 : 400 }}>
                         {s.label}
                       </span>
-                      {i < 2 && <div className="w-4 h-px bg-gray-200" />}
+                      {i < 1 && <div className="w-4 h-px bg-gray-200" />}
                     </div>
                   ))}
                 </div>
