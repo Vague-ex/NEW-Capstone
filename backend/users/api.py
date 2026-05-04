@@ -1257,6 +1257,7 @@ class AlumniRegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        graduation_year = _extract_year(graduation_date)
         master_record = _find_master_record(
             family_name=family_name,
             first_name=first_name,
@@ -1293,7 +1294,6 @@ class AlumniRegisterView(APIView):
 
         profile_name = _build_profile_name(first_name, middle_name, family_name)
         survey_data = _safe_json_loads(request.data.get("survey_data"))
-        graduation_year = _extract_year(graduation_date)
 
         normalized_employment_status = _normalize_employment_status(employment_status)
         normalized_employment_status = _derive_employment_status_from_survey(
