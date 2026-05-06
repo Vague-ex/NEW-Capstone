@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { GRADUATION_YEARS, type AlumniRecord } from '../../data/app-data';
+import type { AlumniRecord } from '../../data/app-data';
 import { fetchVerifiedAlumni } from '../../app/api-client';
 import { MapPin, Filter, Users, CheckCircle2, AlertTriangle, Globe, Home, Search } from 'lucide-react';
 
@@ -76,9 +76,49 @@ export function AdminMap() {
             employmentStatus: String(item.employmentStatus ?? ''),
             lat: toNumberOrNull(item.lat),
             lng: toNumberOrNull(item.lng),
+            workLat: toNumberOrNull(item.workLat),
+            workLng: toNumberOrNull(item.workLng),
           } as AlumniRecord;
         });
         setAlumniRecords(normalized);
+
+        // Forward-geocode employed alumni who have work-address text but no explicit WorkAddress pin.
+        // workLat/workLng are null when the alumni hasn't dragged the pin yet.
+        // We override the registration GPS (lat/lng) with the geocoded work address for accuracy.
+        const toGeocode = normalized.filter(a =>
+          a.employmentStatus !== 'unemployed' &&
+          !a.workLat && !a.workLng &&
+          !!a.workCity
+        );
+        if (active && toGeocode.length > 0) {
+          void (async () => {
+            const updates: Record<string, { lat: number; lng: number }> = {};
+            for (const a of toGeocode) {
+              if (!active) break;
+              const sd = (a as Record<string, unknown>).surveyData as Record<string, unknown> | undefined;
+              const query = [a.workCity, sd?.region_address as string, 'Philippines']
+                .filter(Boolean).join(', ');
+              if (!query.trim()) continue;
+              try {
+                const res = await fetch(
+                  `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+                  { headers: { 'Accept-Language': 'en', 'User-Agent': 'GraduateTracerSystem/1.0 (tracer@chmsc.edu.ph)' } }
+                );
+                const json = await res.json() as Array<{ lat: string; lon: string }>;
+                if (json[0] && a.id) {
+                  updates[a.id] = { lat: parseFloat(json[0].lat), lng: parseFloat(json[0].lon) };
+                }
+              } catch { /* skip on error */ }
+              // Respect Nominatim ToS: max 1 request per second
+              await new Promise(r => setTimeout(r, 1100));
+            }
+            if (active && Object.keys(updates).length > 0) {
+              setAlumniRecords(prev => prev.map(a =>
+                a.id && updates[a.id] ? { ...a, lat: updates[a.id].lat, lng: updates[a.id].lng } : a
+              ));
+            }
+          })();
+        }
       } catch {
         if (!active) return;
         setAlumniRecords([]);
@@ -95,6 +135,13 @@ export function AdminMap() {
       active = false;
     };
   }, []);
+
+  const availableYears = useMemo(
+    () =>
+      Array.from(new Set(alumniRecords.map(a => a.graduationYear).filter(Boolean) as number[]))
+        .sort((a, b) => a - b),
+    [alumniRecords],
+  );
 
   const filteredAlumni = alumniRecords.filter(a => {
     if (!a.lat || !a.lng) return false;
@@ -331,7 +378,7 @@ export function AdminMap() {
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)}
             className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
             <option value="all">All Batches</option>
-            {GRADUATION_YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
             className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { fetchPendingAlumni, reviewAlumniRequest } from '../../app/api-client';
 import type { AlumniRecord } from '../../data/app-data';
+import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   CheckCircle2, XCircle, Clock, Camera, User,
   Calendar, Briefcase, AlertTriangle, X, Search,
@@ -168,6 +169,12 @@ function getSurveyData(a: AlumniRecord): SurveyData {
 }
 
 export function AdminUnverified() {
+  const { data: refData } = useReferenceData();
+  const bsisCore = useMemo(
+    () => refData.skills.filter(s => s.is_active).map(s => s.name),
+    [refData.skills],
+  );
+
   const [backendPending, setBackendPending] = useState<AlumniRecord[]>([]);
   const [loadingPending, setLoadingPending] = useState(true);
   const [fetchError, setFetchError] = useState('');
@@ -714,33 +721,12 @@ export function AdminUnverified() {
 
                     {/* Core BSIS Skills */}
                     {(() => {
-                      const BSIS_CORE = [
-                        'Programming/Software Development',
-                        'Web Development',
-                        'Mobile App Development',
-                        'Database Management',
-                        'Network Administration',
-                        'Cloud Computing',
-                        'Data Analytics/Business Intelligence',
-                        'System Analysis and Design',
-                        'Technical Support/Troubleshooting',
-                        'Project Management',
-                        'UI/UX Design',
-                        'Cybersecurity/Information Security',
-                        'Oral Communication',
-                        'Written Communication',
-                        'Teamwork/Collaboration',
-                        'Problem-solving/Critical Thinking',
-                        'Adaptability/Flexibility',
-                        'Leadership',
-                      ];
-
                       // Combine technical and soft skills from survey data
                       const allSkills = [...(sd.technicalSkills ?? []), ...(sd.softSkills ?? []), ...(a.skills ?? [])];
                       const uniqueSkills = Array.from(new Set(allSkills));
 
-                      const coreChecked = uniqueSkills.filter((s: string) => BSIS_CORE.some(core => core.toLowerCase() === s.toLowerCase()));
-                      const additional = uniqueSkills.filter((s: string) => !BSIS_CORE.some(core => core.toLowerCase() === s.toLowerCase()));
+                      const coreChecked = uniqueSkills.filter((s: string) => bsisCore.some(core => core.toLowerCase() === s.toLowerCase()));
+                      const additional = uniqueSkills.filter((s: string) => !bsisCore.some(core => core.toLowerCase() === s.toLowerCase()));
 
                       return (
                         <>

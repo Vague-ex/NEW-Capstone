@@ -572,9 +572,9 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
         if emp.first_job_status:
             view["firstJobStatus"] = emp.first_job_status
         if emp.first_job_related_to_bsis is True:
-            view["firstJobRelated"] = "Yes, directly related (IT/IS role)"
+            view["firstJobRelated"] = "Yes"
         elif emp.first_job_related_to_bsis is False:
-            view["firstJobRelated"] = "Not related (different field)"
+            view["firstJobRelated"] = "No"
         if emp.first_job_unrelated_reason:
             view["firstJobUnrelatedReason"] = emp.first_job_unrelated_reason
         if emp.first_job_duration_months is not None:
@@ -590,9 +590,9 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
         if emp.current_job_sector:
             view["currentJobSector"] = _SECTOR_LABELS.get(emp.current_job_sector, emp.current_job_sector)
         if emp.current_job_related_to_bsis is True:
-            view["currentJobRelated"] = "Yes, directly related (IT/IS role)"
+            view["currentJobRelated"] = "Yes"
         elif emp.current_job_related_to_bsis is False:
-            view["currentJobRelated"] = "Not related (different field)"
+            view["currentJobRelated"] = "No"
         if emp.location_type is not None:
             view["currentJobLocation"] = (
                 "Local (Philippines)" if emp.location_type
@@ -791,13 +791,13 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
     employment_status = _normalize_employment_status(profile.get("employment_status"), fallback="unemployed")
     employment_status = _derive_employment_status_from_survey(survey_data, fallback=employment_status)
     job_related = survey_data.get("currentJobRelated") or survey_data.get("firstJobRelated")
-    if isinstance(job_related, str):
-        job_related = job_related.strip().lower()
     job_alignment = None
-    if job_related == "yes":
-        job_alignment = "related"
-    elif job_related == "no":
-        job_alignment = "not-related"
+    if isinstance(job_related, str):
+        _jr = job_related.strip().lower()
+        if _jr.startswith("yes"):
+            job_alignment = "related"
+        elif _jr.startswith("no") or _jr.startswith("not"):
+            job_alignment = "not-related"
 
     skills = survey_data.get("skills") if isinstance(survey_data, dict) else []
     if not isinstance(skills, list):
@@ -863,6 +863,8 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "skills": skills,
         "lat": lat,
         "lng": lng,
+        "workLat": addr_row.latitude if addr_row is not None else None,
+        "workLng": addr_row.longitude if addr_row is not None else None,
         "surveyData": survey_data,
     }
 

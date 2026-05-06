@@ -382,6 +382,17 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
             if not province:
                 province = "—"
             country = (sd.get("country_address") or "Philippines").strip() or "Philippines"
+            try:
+                _wlat_raw = sd.get("work_latitude")
+                wlat = float(_wlat_raw) if _wlat_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                wlat = None
+            try:
+                _wlng_raw = sd.get("work_longitude")
+                wlng = float(_wlng_raw) if _wlng_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                wlng = None
+
             WorkAddress.objects.update_or_create(
                 alumni=alumni_account,
                 is_current=True,
@@ -394,6 +405,8 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
                     region=region_choice,
                     zip_code=(sd.get("zip_code") or "")[:20],
                     country=country[:100],
+                    latitude=wlat,
+                    longitude=wlng,
                 ),
             )
             touched["work_address"] = True

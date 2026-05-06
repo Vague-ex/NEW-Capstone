@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, Fragment } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
 import { fetchVerifiedAlumni } from '../../app/api-client';
+import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Search, CheckCircle2, Users, Briefcase, Star, MapPin,
   ChevronDown, ChevronUp, Camera, X, ChevronLeft, ChevronRight,
@@ -72,19 +73,13 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => void }) {
+function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClose: () => void; bsisCore: string[] }) {
   const [tab, setTab] = useState<ModalTab>('profile');
   const sd = ((a as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
 
-  const BSIS_CORE = [
-    'Programming/Software Development', 'Database Management', 'Network Administration',
-    'Business Process Analysis', 'Project Management', 'Technical Support / Troubleshooting',
-    'Data Analytics', 'Web Development', 'System Analysis and Design',
-    'Communication Skills (Oral/Written)', 'Teamwork/Collaboration', 'Problem-solving / Critical Thinking',
-  ];
   const skills = a.skills ?? [];
-  const coreCount = skills.filter((s: string) => BSIS_CORE.includes(s)).length;
-  const additional = skills.filter((s: string) => !BSIS_CORE.includes(s));
+  const coreCount = skills.filter((s: string) => bsisCore.includes(s)).length;
+  const additional = skills.filter((s: string) => !bsisCore.includes(s));
 
   const empStatusLabel =
     a.employmentStatus === 'employed' ? 'Employed'
@@ -184,6 +179,12 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                   {a.lat && a.lng && (
                     <Row label="GPS Coordinates" value={`${a.lat.toFixed(4)}, ${a.lng.toFixed(4)}`} />
                   )}
+                  <Row label="Home Location" value={
+                    [sd.city, sd.province].filter(Boolean).join(', ') || '—'
+                  } />
+                  <Row label="Work Location" value={
+                    [a.workCity, a.workLocation].filter(Boolean).join(' · ') || '—'
+                  } />
                 </div>
               </div>
 
@@ -265,11 +266,11 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
 
               <div>
                 <p className="text-[#166534] text-xs mb-2 flex items-center gap-1.5" style={{ fontWeight: 700 }}>
-                  <Clock className="size-3.5" /> Q5–Q6 · RETENTION & JOB SOURCE
+                  <Clock className="size-3.5" /> Q5–Q6 · JOB SOURCE & APPLICATIONS
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Q5 — Job Retention" value={sd.jobRetention ? String(sd.jobRetention) : '—'} />
-                  <Row label="Q6 — Job Source" value={sd.jobSource ? String(sd.jobSource) : '—'} />
+                  <Row label="Q5 — Job Source" value={sd.jobSource ? String(sd.jobSource) : '—'} />
+                  <Row label="Q6 — Applications Sent" value={sd.jobApplications ? String(sd.jobApplications) : '—'} />
                   {a.unemploymentReason && (
                     <Row label="Unemployment Reason" value={a.unemploymentReason} />
                   )}
@@ -282,13 +283,7 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
           {tab === 'skills' && (
             <div className="space-y-5">
               {(() => {
-                const BSIS_CORE_LIST = [
-                  'Programming/Software Development', 'Database Management', 'Network Administration',
-                  'Business Process Analysis', 'Project Management', 'Technical Support / Troubleshooting',
-                  'Data Analytics', 'Web Development', 'System Analysis and Design',
-                  'Communication Skills (Oral/Written)', 'Teamwork/Collaboration', 'Problem-solving / Critical Thinking',
-                ];
-
+                const totalCore = bsisCore.length || 12;
                 return (
                   <>
                     <div>
@@ -297,14 +292,14 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
                           <Star className="size-3.5" /> BSIS CORE COMPETENCIES
                         </p>
                         <div className="flex items-center gap-2">
-                          <span className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>{coreCount}/12</span>
+                          <span className="text-[#166534] text-xs" style={{ fontWeight: 700 }}>{coreCount}/{totalCore}</span>
                           <div className="w-20 bg-gray-100 rounded-full h-2">
-                            <div className="h-2 rounded-full bg-[#166534]" style={{ width: `${(coreCount / 12) * 100}%` }} />
+                            <div className="h-2 rounded-full bg-[#166534]" style={{ width: `${(coreCount / totalCore) * 100}%` }} />
                           </div>
                         </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {BSIS_CORE_LIST.map(skill => {
+                        {bsisCore.map(skill => {
                           const has = skills.includes(skill);
                           return (
                             <div key={skill} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs border ${has ? 'bg-[#166534]/5 border-[#166534]/20 text-[#166534]' : 'bg-gray-50 border-gray-100 text-gray-400'}`}
@@ -371,6 +366,12 @@ function GraduateDetailModal({ a, onClose }: { a: AlumniRecord; onClose: () => v
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function AdminVerified() {
+  const { data: refData } = useReferenceData();
+  const bsisCore = useMemo(
+    () => refData.skills.filter(s => s.is_active).map(s => s.name),
+    [refData.skills],
+  );
+
   const [backendVerified, setBackendVerified] = useState<AlumniRecord[]>([]);
   const [loadingVerified, setLoadingVerified] = useState(true);
   const [fetchError, setFetchError] = useState('');
@@ -651,7 +652,7 @@ export function AdminVerified() {
 
       {/* Detail Modal */}
       {modalAlumni && (
-        <GraduateDetailModal a={modalAlumni} onClose={() => setModalAlumni(null)} />
+        <GraduateDetailModal a={modalAlumni} onClose={() => setModalAlumni(null)} bsisCore={bsisCore} />
       )}
     </PortalLayout>
   );

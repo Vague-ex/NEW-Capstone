@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
@@ -145,6 +145,19 @@ export function AlumniEmployment() {
   const [saveError, setSaveError] = useState('');
   const [employerLinkStatus, setEmployerLinkStatus] = useState('');
 
+  // Work location pin coordinates (separate from string form fields)
+  const [workLat, setWorkLat] = useState<number | null>(
+    sd.work_latitude != null && sd.work_latitude !== '' ? Number(sd.work_latitude) : null
+  );
+  const [workLng, setWorkLng] = useState<number | null>(
+    sd.work_longitude != null && sd.work_longitude !== '' ? Number(sd.work_longitude) : null
+  );
+
+  // Leaflet map refs for work address pin
+  const workMapContainerRef = useRef<HTMLDivElement>(null);
+  const workLeafletMapRef = useRef<unknown>(null);
+  const workMarkerRef = useRef<unknown>(null);
+
   const employerPortalLink = typeof window === 'undefined' ? '/employer' : `${window.location.origin}/employer`;
 
   const setF = (key: string, value: string) => {
@@ -166,6 +179,91 @@ export function AlumniEmployment() {
   const isCurrentlyEmployed = ['employed_full_time', 'employed_part_time', 'self_employed'].includes(form.employment_status);
   const isNeverEmployed = form.employment_status === 'never_employed';
 
+  // ── Leaflet work-location map ────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isCurrentlyEmployed || !workMapContainerRef.current) return;
+    if (workLeafletMapRef.current) return; // already initialised
+
+    // Load Leaflet CSS once
+    if (!document.getElementById('leaflet-css-link')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css-link';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+      link.crossOrigin = '';
+      document.head.appendChild(link);
+    }
+
+    void import('leaflet').then(({ default: L }) => {
+      if (!workMapContainerRef.current || workLeafletMapRef.current) return;
+
+      (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl = undefined;
+      L.Icon.Default.mergeOptions({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      const startLat = workLat ?? 12.8;
+      const startLng = workLng ?? 121.7;
+      const startZoom = workLat ? 13 : 6;
+
+      const map = L.map(workMapContainerRef.current, {
+        center: [startLat, startLng],
+        zoom: startZoom,
+        scrollWheelZoom: false,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 18,
+      }).addTo(map);
+
+      const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
+      workMarkerRef.current = marker;
+      workLeafletMapRef.current = map;
+
+      marker.on('dragend', () => {
+        const pos = (marker as unknown as { getLatLng: () => { lat: number; lng: number } }).getLatLng();
+        setWorkLat(pos.lat);
+        setWorkLng(pos.lng);
+
+        // Nominatim reverse geocode to fill address fields
+        void fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`,
+          { headers: { 'Accept-Language': 'en', 'User-Agent': 'GraduateTracerSystem/1.0 (tracer@chmsc.edu.ph)' } }
+        ).then(r => r.json()).then((data: { address?: Record<string, string>; country_code?: string }) => {
+          const addr = data.address ?? {};
+          const city = addr.city || addr.town || addr.municipality || addr.suburb || '';
+          const province = addr.province || addr.state || '';
+          const countryCode = (data.country_code ?? '').toLowerCase();
+          const countryName = addr.country || '';
+
+          if (city) setF('city_municipality', city);
+          if (province) {
+            setForm(f => ({ ...f, province_address: province }));
+          }
+          if (countryCode && countryCode !== 'ph' && countryName) {
+            setF('country_address', countryName);
+          } else if (!countryCode || countryCode === 'ph') {
+            setF('country_address', 'Philippines');
+          }
+        }).catch(() => { /* silent */ });
+      });
+    });
+
+    return () => {
+      if (workLeafletMapRef.current) {
+        (workLeafletMapRef.current as { remove: () => void }).remove();
+        workLeafletMapRef.current = null;
+        workMarkerRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCurrentlyEmployed]);
+
   // ── Save ─────────────────────────────────────────────────────────────────────
 
   const handleSave = async (e: React.FormEvent) => {
@@ -186,6 +284,8 @@ export function AlumniEmployment() {
       ...form,
       currentJobTitleId: resolvedJobTitleId || '',
       currentJobRegionId: resolvedRegionId || '',
+      work_latitude: workLat ?? null,
+      work_longitude: workLng ?? null,
     };
 
     try {
@@ -608,6 +708,23 @@ export function AlumniEmployment() {
                   </optgroup>
                   <optgroup label="Other"><option>Other</option></optgroup>
                 </select>
+              </div>
+
+              {/* Work location map pin */}
+              <div>
+                <FieldLabel>Exact Workplace Location (Pin)</FieldLabel>
+                <div
+                  ref={workMapContainerRef}
+                  style={{ height: 250, borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
+                />
+                <p className="text-gray-400 text-xs mt-2">
+                  Drag the pin to your exact workplace. The City/Municipality field above will update automatically.
+                  {workLat && workLng && (
+                    <span className="ml-1 text-[#166534]" style={{ fontWeight: 600 }}>
+                      ✓ Pin set ({workLat.toFixed(4)}, {workLng.toFixed(4)})
+                    </span>
+                  )}
+                </p>
               </div>
             </SectionCard>
           )}
