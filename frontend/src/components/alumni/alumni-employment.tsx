@@ -199,13 +199,6 @@ export function AlumniEmployment() {
     void import('leaflet').then(({ default: L }) => {
       if (!workMapContainerRef.current || workLeafletMapRef.current) return;
 
-      (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl = undefined;
-      L.Icon.Default.mergeOptions({
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
-
       const startLat = workLat ?? 12.8;
       const startLng = workLng ?? 121.7;
       const startZoom = workLat ? 13 : 6;
@@ -221,7 +214,29 @@ export function AlumniEmployment() {
         maxZoom: 18,
       }).addTo(map);
 
-      const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
+      // Use a divIcon so no image URLs are needed (avoids Next.js asset issues)
+      const pinIcon = L.divIcon({
+        className: '',
+        html: `
+          <div style="display:flex;flex-direction:column;align-items:center;cursor:grab;">
+            <div style="
+              width:28px;height:28px;border-radius:50% 50% 50% 0;
+              background:#166534;border:3px solid white;
+              box-shadow:0 2px 8px rgba(0,0,0,0.4);
+              transform:rotate(-45deg);
+            "></div>
+            <div style="
+              margin-top:2px;background:#166534;color:white;
+              font-size:9px;font-weight:700;padding:2px 6px;
+              border-radius:4px;white-space:nowrap;
+              box-shadow:0 1px 4px rgba(0,0,0,0.3);
+            ">Drag me</div>
+          </div>`,
+        iconSize: [40, 52],
+        iconAnchor: [20, 38],
+      });
+
+      const marker = L.marker([startLat, startLng], { draggable: true, icon: pinIcon }).addTo(map);
       workMarkerRef.current = marker;
       workLeafletMapRef.current = map;
 
@@ -713,18 +728,19 @@ export function AlumniEmployment() {
               {/* Work location map pin */}
               <div>
                 <FieldLabel>Exact Workplace Location (Pin)</FieldLabel>
+                <p className="text-gray-500 text-xs mb-2">
+                  Drag the green pin to your exact workplace building.
+                  The City/Municipality field above will update automatically.
+                </p>
                 <div
                   ref={workMapContainerRef}
-                  style={{ height: 250, borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
+                  style={{ height: 280, borderRadius: 12, border: '1px solid #e5e7eb', zIndex: 0, position: 'relative' }}
                 />
-                <p className="text-gray-400 text-xs mt-2">
-                  Drag the pin to your exact workplace. The City/Municipality field above will update automatically.
-                  {workLat && workLng && (
-                    <span className="ml-1 text-[#166534]" style={{ fontWeight: 600 }}>
-                      ✓ Pin set ({workLat.toFixed(4)}, {workLng.toFixed(4)})
-                    </span>
-                  )}
-                </p>
+                {workLat && workLng && (
+                  <p className="text-[#166534] text-xs mt-2" style={{ fontWeight: 600 }}>
+                    ✓ Pin set — coordinates saved ({workLat.toFixed(5)}, {workLng.toFixed(5)})
+                  </p>
+                )}
               </div>
             </SectionCard>
           )}
