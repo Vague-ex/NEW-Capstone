@@ -571,171 +571,6 @@ class SkillsInventoryReportView(APIView):
 # ── 4. Geographic Distribution ─────────────────────────────────────────────
 
 
-class GeographicDistributionReportView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        filters = _parse_filters(request)
-        qs = _alumni_qs(filters)
-
-        by_region: Counter = Counter()
-        by_country: Counter = Counter()
-        by_city: Counter = Counter()
-        n_with_addr = 0
-
-        for acc in qs:
-            addr = _first_prefetched(acc, "_prefetched_addr")
-            if addr is None:
-                continue
-            n_with_addr += 1
-            if addr.region:
-                by_region[addr.region] += 1
-            if addr.country:
-                by_country[addr.country] += 1
-            if addr.city_municipality:
-                by_city[addr.city_municipality] += 1
-
-        def _rows(counter: Counter, top_n: int | None = None):
-            items = counter.most_common(top_n) if top_n else counter.most_common()
-            return [[name, freq, _pct(freq, n_with_addr)] for name, freq in items]
-
-        sections = [
-            {
-                "title": f"By Region (N = {n_with_addr} with work address)",
-                "columns": ["Region", "Alumni", "% Share"],
-                "rows": _rows(by_region),
-            },
-            {
-                "title": "By Country",
-                "columns": ["Country", "Alumni", "% Share"],
-                "rows": _rows(by_country),
-            },
-            {
-                "title": "Top 20 Cities / Municipalities",
-                "columns": ["City / Municipality", "Alumni", "% Share"],
-                "rows": _rows(by_city, top_n=20),
-            },
-        ]
-
-        return _ok("Geographic Distribution", sections, filters)
-
-
-# ── 5. Academic-Employment Correlation ─────────────────────────────────────
-
-
-_GPA_LABELS = {
-    0: "Below 75",
-    1: "75-79",
-    2: "80-84",
-    3: "85-89",
-    4: "90-94",
-    5: "95-100",
-}
-_HONORS_LABELS = {
-    1: "None",
-    2: "Cum Laude",
-    3: "Magna Cum Laude",
-    4: "Summa Cum Laude",
-}
-
-
-class AcademicEmploymentReportView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        filters = _parse_filters(request)
-        qs = _alumni_qs(filters)
-
-        gpa_buckets: dict[Any, dict[str, Any]] = defaultdict(
-            lambda: {"n": 0, "employed": 0, "tth": [], "bsis": []}
-        )
-        honors_buckets: dict[Any, dict[str, Any]] = defaultdict(
-            lambda: {"n": 0, "employed": 0, "tth": []}
-        )
-
-        for acc in qs:
-            prof = getattr(acc, "profile", None)
-            emp = _first_prefetched(acc, "_prefetched_emp")
-
-            gpa_key = (
-                prof.general_average_range
-                if prof and prof.general_average_range is not None
-                else None
-            )
-            honors_key = (
-                prof.academic_honors
-                if prof and prof.academic_honors is not None
-                else None
-            )
-
-            for key, bucket in [(gpa_key, gpa_buckets[gpa_key]), (honors_key, honors_buckets[honors_key])]:
-                bucket["n"] += 1
-                if _is_employed(emp):
-                    bucket["employed"] += 1
-                if emp and emp.time_to_hire_months is not None:
-                    bucket["tth"].append(float(emp.time_to_hire_months))
-            if emp is not None and gpa_key is not None:
-                if emp.current_job_related_to_bsis is True:
-                    gpa_buckets[gpa_key]["bsis"].append(1)
-                elif emp.current_job_related_to_bsis is False:
-                    gpa_buckets[gpa_key]["bsis"].append(0)
-
-        gpa_rows = []
-        for key in sorted(gpa_buckets, key=lambda k: (k is None, k if k is not None else -1)):
-            b = gpa_buckets[key]
-            label = _GPA_LABELS.get(key, "Not reported") if key is not None else "Not reported"
-            gpa_rows.append(
-                [
-                    label,
-                    b["n"],
-                    _pct(b["employed"], b["n"]),
-                    _avg(b["tth"]),
-                    _pct(sum(b["bsis"]), len(b["bsis"])),
-                ]
-            )
-
-        honors_rows = []
-        for key in sorted(honors_buckets, key=lambda k: (k is None, k if k is not None else -1)):
-            b = honors_buckets[key]
-            label = _HONORS_LABELS.get(key, "Not reported") if key is not None else "Not reported"
-            honors_rows.append(
-                [
-                    label,
-                    b["n"],
-                    _pct(b["employed"], b["n"]),
-                    _avg(b["tth"]),
-                ]
-            )
-
-        return _ok(
-            "Academic-Employment Correlation",
-            [
-                {
-                    "title": "By General Average (GPA Range)",
-                    "columns": [
-                        "GPA Range",
-                        "Alumni (N)",
-                        "Employment Rate",
-                        "Avg Time-to-Hire (mo)",
-                        "BSIS-Aligned (Current)",
-                    ],
-                    "rows": gpa_rows,
-                },
-                {
-                    "title": "By Academic Honors",
-                    "columns": [
-                        "Honors",
-                        "Alumni (N)",
-                        "Employment Rate",
-                        "Avg Time-to-Hire (mo)",
-                    ],
-                    "rows": honors_rows,
-                },
-            ],
-            filters,
-        )
-
-
 # ── 6. Survey Data Quality ─────────────────────────────────────────────────
 
 
@@ -848,9 +683,70 @@ class DataQualityReportView(APIView):
 # ── 7. Predictive Employability Trend ──────────────────────────────────────
 
 
+def _linear_forecast(years: list[int], values: list[float], horizon: int) -> list[tuple[int, float]]:
+    """Least-squares linear projection of `values` indexed by `years`.
+
+    Returns up to `horizon` (year, projected_value) tuples for the years
+    immediately following max(years). Returns an empty list when the input
+    has fewer than two distinct points (a slope can't be defined).
+    """
+    if horizon <= 0 or len(years) < 2 or len(years) != len(values):
+        return []
+    n = len(years)
+    mean_x = sum(years) / n
+    mean_y = sum(values) / n
+    num = sum((years[i] - mean_x) * (values[i] - mean_y) for i in range(n))
+    den = sum((years[i] - mean_x) ** 2 for i in range(n))
+    if den == 0:
+        return []
+    slope = num / den
+    intercept = mean_y - slope * mean_x
+    last_year = max(years)
+    return [(last_year + i, slope * (last_year + i) + intercept) for i in range(1, horizon + 1)]
+
+
+def _summarize_trend(
+    employment_history: list[tuple[int, float]],
+    employment_forecast: list[tuple[int, float]],
+    tth_history: list[tuple[int, float]],
+    tth_forecast: list[tuple[int, float]],
+) -> str:
+    """Build a 1–2 sentence narrative describing the trend direction."""
+    parts: list[str] = []
+
+    if employment_history and employment_forecast:
+        first_rate = employment_history[0][1]
+        last_rate = employment_history[-1][1]
+        forecast_rate = employment_forecast[-1][1]
+        delta_obs = (last_rate - first_rate) * 100
+        delta_fwd = (forecast_rate - last_rate) * 100
+        direction_obs = "rose" if delta_obs > 1 else "fell" if delta_obs < -1 else "held steady"
+        direction_fwd = "continue rising" if delta_fwd > 1 else "decline" if delta_fwd < -1 else "stay flat"
+        parts.append(
+            f"Employment rate {direction_obs} by {abs(delta_obs):.1f} pts across observed batches "
+            f"({employment_history[0][0]}–{employment_history[-1][0]}) and is projected to {direction_fwd} "
+            f"to {forecast_rate * 100:.1f}% by {employment_forecast[-1][0]}."
+        )
+
+    if tth_history and tth_forecast:
+        first_tth = tth_history[0][1]
+        last_tth = tth_history[-1][1]
+        forecast_tth = tth_forecast[-1][1]
+        delta_obs = last_tth - first_tth
+        direction_obs = "shortened" if delta_obs < -0.2 else "lengthened" if delta_obs > 0.2 else "remained stable"
+        parts.append(
+            f"Time-to-hire {direction_obs} from {first_tth:.1f} to {last_tth:.1f} months over the same "
+            f"window and is projected at {forecast_tth:.1f} months by {tth_forecast[-1][0]}."
+        )
+
+    if not parts:
+        return "Not enough historical batches in the selected range to project a trend — broaden the year filter to include more graduating batches."
+    return " ".join(parts)
+
+
 class PredictiveTrendReportView(APIView):
-    """Capstone-titled report: bundles the model predictions across the
-    four targets into a single document suitable for accreditation."""
+    """Predictive Employability Trend — historical actual vs predicted plus a
+    forward forecast for the next several years."""
 
     permission_classes = [AllowAny]
 
@@ -860,6 +756,12 @@ class PredictiveTrendReportView(APIView):
         from .api import _aggregate_for_batch, _load_ml_artifacts
 
         filters = _parse_filters(request)
+        try:
+            forecast_years = int(request.query_params.get("forecast_years", 3))
+        except (TypeError, ValueError):
+            forecast_years = 3
+        forecast_years = max(1, min(forecast_years, 10))
+
         artifacts = _load_ml_artifacts()
         if "error" in artifacts:
             logger.error("Predictive trend report: artifacts unavailable — %s", artifacts["error"])
@@ -880,16 +782,22 @@ class PredictiveTrendReportView(APIView):
         ]
 
         per_batch_rows = []
+        employment_history: list[tuple[int, float]] = []
+        tth_history: list[tuple[int, float]] = []
         for c in batches:
             agg = _aggregate_for_batch(artifacts, c)
+            predicted_emp = float(agg.get("predicted_employment_rate", 0))
+            predicted_tth = float(agg.get("predicted_mean_time_to_hire_months", 0))
+            employment_history.append((c, predicted_emp))
+            tth_history.append((c, predicted_tth))
             per_batch_rows.append(
                 [
                     c,
                     agg.get("n_alumni", 0),
                     f"{agg.get('actual_employment_rate', 0) * 100:.1f}%",
-                    f"{agg.get('predicted_employment_rate', 0) * 100:.1f}%",
+                    f"{predicted_emp * 100:.1f}%",
                     f"{agg.get('actual_mean_time_to_hire_months', 0):.1f}",
-                    f"{agg.get('predicted_mean_time_to_hire_months', 0):.1f}",
+                    f"{predicted_tth:.1f}",
                     f"{agg.get('actual_bsis_first_rate', 0) * 100:.1f}%",
                     f"{agg.get('actual_bsis_current_rate', 0) * 100:.1f}%",
                 ]
@@ -919,52 +827,78 @@ class PredictiveTrendReportView(APIView):
             ],
         ]
 
-        meta = artifacts["meta"]
-        best = meta.get("best_models") or {
-            k: v.get("best_model") for k, v in meta.get("targets", {}).items()
-        }
-        model_rows = [
-            ["Employment status", best.get("employment_status", "—")],
-            ["Time-to-hire", best.get("time_to_hire", "—")],
-        ]
+        # Forward forecast — linear-trend projection on top of the per-batch
+        # model predictions. Clamps employment rate to [0, 1] and TTH to >= 0.
+        emp_years = [y for y, _ in employment_history]
+        emp_values = [v for _, v in employment_history]
+        tth_years = [y for y, _ in tth_history]
+        tth_values = [v for _, v in tth_history]
+
+        emp_forecast_raw = _linear_forecast(emp_years, emp_values, forecast_years)
+        tth_forecast_raw = _linear_forecast(tth_years, tth_values, forecast_years)
+
+        emp_forecast = [(y, max(0.0, min(1.0, v))) for y, v in emp_forecast_raw]
+        tth_forecast = [(y, max(0.0, v)) for y, v in tth_forecast_raw]
+
+        if emp_forecast or tth_forecast:
+            forecast_year_set = sorted({y for y, _ in emp_forecast} | {y for y, _ in tth_forecast})
+            emp_map = dict(emp_forecast)
+            tth_map = dict(tth_forecast)
+            forecast_rows = [
+                [
+                    y,
+                    f"{emp_map[y] * 100:.1f}%" if y in emp_map else "—",
+                    f"{tth_map[y]:.1f}" if y in tth_map else "—",
+                ]
+                for y in forecast_year_set
+            ]
+        else:
+            forecast_rows = []
+
+        narrative = _summarize_trend(
+            employment_history, emp_forecast, tth_history, tth_forecast,
+        )
 
         distribution_rows = [
             [bucket, count]
             for bucket, count in (overall.get("time_to_hire_distribution") or {}).items()
         ]
 
-        return _ok(
-            "Predictive Employability Trend",
-            [
-                {
-                    "title": "Overall — Actual vs Predicted",
-                    "columns": ["Metric", "Actual", "Predicted"],
-                    "rows": overall_rows,
-                },
-                {
-                    "title": "Per-Batch Predictions",
-                    "columns": [
-                        "Batch",
-                        "N",
-                        "Employment (Actual)",
-                        "Employment (Predicted)",
-                        "TTH Actual (mo)",
-                        "TTH Predicted (mo)",
-                        "BSIS-Aligned First (Obs)",
-                        "BSIS-Aligned Current (Obs)",
-                    ],
-                    "rows": per_batch_rows,
-                },
-                {
-                    "title": "Predicted Time-to-Hire Distribution",
-                    "columns": ["Bucket", "Count"],
-                    "rows": distribution_rows,
-                },
-                {
-                    "title": "Best Model per Target",
-                    "columns": ["Target", "Algorithm"],
-                    "rows": model_rows,
-                },
-            ],
-            filters,
-        )
+        sections: list[dict[str, Any]] = [
+            {
+                "title": "Narrative Summary",
+                "columns": ["Insight"],
+                "rows": [[narrative]],
+            },
+            {
+                "title": "Overall — Actual vs Predicted",
+                "columns": ["Metric", "Actual", "Predicted"],
+                "rows": overall_rows,
+            },
+            {
+                "title": "Per-Batch Predictions",
+                "columns": [
+                    "Batch",
+                    "N",
+                    "Employment (Actual)",
+                    "Employment (Predicted)",
+                    "TTH Actual (mo)",
+                    "TTH Predicted (mo)",
+                    "BSIS-Aligned First (Obs)",
+                    "BSIS-Aligned Current (Obs)",
+                ],
+                "rows": per_batch_rows,
+            },
+            {
+                "title": f"Forecast — Next {forecast_years} Year(s)",
+                "columns": ["Year (forecast)", "Employment Rate", "Time-to-Hire (mo)"],
+                "rows": forecast_rows or [["—", "Insufficient data to forecast", ""]],
+            },
+            {
+                "title": "Predicted Time-to-Hire Distribution",
+                "columns": ["Bucket", "Count"],
+                "rows": distribution_rows,
+            },
+        ]
+
+        return _ok("Predictive Employability Trend", sections, filters)

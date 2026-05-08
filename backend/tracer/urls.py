@@ -22,11 +22,9 @@ from .api import (
     VerificationTokenIssueView,
 )
 from .reports_api import (
-    AcademicEmploymentReportView,
     BatchSummaryReportView,
     DataQualityReportView,
     EmploymentOutcomesReportView,
-    GeographicDistributionReportView,
     PredictiveTrendReportView,
     SkillsInventoryReportView,
 )
@@ -81,8 +79,6 @@ urlpatterns = [
     path("admin/reports/batch-summary/", BatchSummaryReportView.as_view(), name="admin-report-batch-summary"),
     path("admin/reports/employment-outcomes/", EmploymentOutcomesReportView.as_view(), name="admin-report-employment-outcomes"),
     path("admin/reports/skills-inventory/", SkillsInventoryReportView.as_view(), name="admin-report-skills-inventory"),
-    path("admin/reports/geographic-distribution/", GeographicDistributionReportView.as_view(), name="admin-report-geographic"),
-    path("admin/reports/academic-employment/", AcademicEmploymentReportView.as_view(), name="admin-report-academic-employment"),
     path("admin/reports/data-quality/", DataQualityReportView.as_view(), name="admin-report-data-quality"),
     path("admin/reports/predictive-trend/", PredictiveTrendReportView.as_view(), name="admin-report-predictive-trend"),
 ]

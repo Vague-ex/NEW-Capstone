@@ -299,6 +299,18 @@ export default function RegisterAlumniPersonal({
         setStepError('Mobile number is required.');
         return false;
       }
+      const mobileDigits = form.mobile.replace(/\D/g, '');
+      if (form.mobileCountryCode === '+63') {
+        // Philippine mobile must be 9XXXXXXXXX (10 digits) or 09XXXXXXXXX (11 digits).
+        const normalizedPh = mobileDigits.startsWith('0') ? mobileDigits.slice(1) : mobileDigits;
+        if (normalizedPh.length !== 10 || !normalizedPh.startsWith('9')) {
+          setStepError('Philippine mobile numbers must start with 9 or 09 (e.g. 9171234567 or 09171234567).');
+          return false;
+        }
+      } else if (mobileDigits.length < 6 || mobileDigits.length > 15) {
+        setStepError('Please enter a valid mobile number (6–15 digits).');
+        return false;
+      }
       if (!form.region) {
         setStepError('Region is required.');
         return false;
@@ -720,10 +732,9 @@ export default function RegisterAlumniPersonal({
                       <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                       <input
                         type="tel"
-                        placeholder="9XXXXXXXXX"
+                        placeholder={form.mobileCountryCode === '+63' ? '9XXXXXXXXX or 09XXXXXXXXX' : 'Mobile number'}
                         value={form.mobile}
-                        maxLength={10}
-                        minLength={10}
+                        maxLength={form.mobileCountryCode === '+63' ? 11 : 15}
                         onChange={(e) => setF('mobile', e.target.value.replace(/\D/g, ''))}
                         className={`${inputCls} pl-10`}
                       />

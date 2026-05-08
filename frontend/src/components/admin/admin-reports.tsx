@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   FileText, FileSpreadsheet, FileType2, Loader2, AlertCircle, Filter, Eye, X,
-  Users, Briefcase, Wrench, MapPin, GraduationCap, ShieldCheck, TrendingUp,
+  Users, Briefcase, Wrench, ShieldCheck, TrendingUp,
 } from 'lucide-react';
 import { fetchReport, ReportFilters, type ReportPayload } from '../../app/api-client';
 import { exportCsv, exportPdf, exportXlsx } from '../../lib/report-export';
@@ -50,26 +50,6 @@ const REPORTS: ReportDef[] = [
     accent: 'text-purple-600 bg-purple-50',
   },
   {
-    id: 'geographic-distribution',
-    title: 'Geographic Distribution',
-    description:
-      'Where verified alumni live and work — region/province/city tallies for accreditation maps.',
-    endpoint: 'geographic-distribution',
-    formats: ['pdf', 'xlsx'],
-    Icon: MapPin,
-    accent: 'text-amber-600 bg-amber-50',
-  },
-  {
-    id: 'academic-employment',
-    title: 'Academic vs Employment',
-    description:
-      'GPA bands × employment rate, time-to-hire, and BSIS-alignment — useful for OBE narratives.',
-    endpoint: 'academic-employment',
-    formats: ['pdf', 'xlsx'],
-    Icon: GraduationCap,
-    accent: 'text-rose-600 bg-rose-50',
-  },
-  {
     id: 'data-quality',
     title: 'Data Quality',
     description:
@@ -81,13 +61,13 @@ const REPORTS: ReportDef[] = [
   },
   {
     id: 'predictive-trend',
-    title: 'Predictive Trend',
+    title: 'Predictive Employability Trend',
     description:
-      'Model-projected employment rate, time-to-hire, and BSIS alignment per batch. Capstone artifact.',
+      'Actual vs predicted employment rate and time-to-hire per past batch, plus a forward forecast for the next several years and a short narrative summary.',
     endpoint: 'predictive-trend',
     formats: ['pdf', 'xlsx'],
     Icon: TrendingUp,
-    accent: 'text-indigo-600 bg-indigo-50',
+    accent: 'text-emerald-600 bg-emerald-50',
   },
 ];
 
@@ -235,7 +215,7 @@ export function AdminReports() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="text-xs text-gray-500 mb-1 block" style={{ fontWeight: 600 }}>
-              Batch start (graduation year)
+              Earliest graduation year
             </label>
             <select
               value={filters.batchStart}
@@ -253,7 +233,7 @@ export function AdminReports() {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block" style={{ fontWeight: 600 }}>
-              Batch end (graduation year)
+              Latest graduation year
             </label>
             <select
               value={filters.batchEnd}
