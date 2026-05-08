@@ -25,6 +25,8 @@ export interface EmploymentFormData {
   prior_work_experience: boolean;
   ojt_relevance: number | null;
   has_portfolio: boolean;
+  portfolio_url: string;
+  github_url: string;
 
   // Step 2: Employment Status
   employment_status: string;
@@ -121,6 +123,8 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   prior_work_experience: false,
   ojt_relevance: null,
   has_portfolio: false,
+  portfolio_url: '',
+  github_url: '',
   employment_status: '',
   time_to_hire_months: null,
   time_to_hire_raw: '',
@@ -260,6 +264,14 @@ export default function RegisterAlumniEmployment({
   const [form, setForm] = useState<EmploymentFormData>(INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  // Smooth-scroll the error banner into view whenever a new error fires.
+  useEffect(() => {
+    if (stepError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [stepError]);
 
   // Restore form from sessionStorage on mount
   useEffect(() => {
@@ -317,7 +329,24 @@ export default function RegisterAlumniEmployment({
 
     switch (step) {
       case 1: // Academic Profile
-        break; // All optional
+        if (form.has_portfolio) {
+          const urlPattern = /^https?:\/\/.+\..+/i;
+          const gh = form.github_url.trim();
+          const pf = form.portfolio_url.trim();
+          if (!gh && !pf) {
+            setStepError('Please add at least one URL (GitHub or portfolio), or change your answer to No.');
+            return false;
+          }
+          if (gh && !urlPattern.test(gh)) {
+            setStepError('GitHub URL must start with http:// or https:// and look like a real link.');
+            return false;
+          }
+          if (pf && !urlPattern.test(pf)) {
+            setStepError('Portfolio URL must start with http:// or https:// and look like a real link.');
+            return false;
+          }
+        }
+        break;
       case 2: // Employment Status
         if (!form.employment_status) {
           setStepError('Please select employment status');
@@ -458,7 +487,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Error Display */}
       {stepError && (
-        <div className="mb-6 p-4 border border-red-200 bg-red-50 rounded-lg flex gap-3">
+        <div ref={errorRef} className="mb-6 p-4 border border-red-200 bg-red-50 rounded-lg flex gap-3 scroll-mt-24">
           <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
           <p className="text-red-700 text-sm">{stepError}</p>
         </div>
@@ -540,10 +569,52 @@ export default function RegisterAlumniEmployment({
               Portfolio / GitHub Profile
             </label>
             <div className="flex gap-3">
-              <RadioOption label="Yes" value={true} current={form.has_portfolio} onSelect={(v) => setForm({ ...form, has_portfolio: v })} />
-              <RadioOption label="No" value={false} current={form.has_portfolio} onSelect={(v) => setForm({ ...form, has_portfolio: v })} />
+              <RadioOption
+                label="Yes"
+                value={true}
+                current={form.has_portfolio}
+                onSelect={(v) => setForm({ ...form, has_portfolio: v })}
+              />
+              <RadioOption
+                label="No"
+                value={false}
+                current={form.has_portfolio}
+                onSelect={(v) => setForm({ ...form, has_portfolio: v, portfolio_url: '', github_url: '' })}
+              />
             </div>
           </div>
+
+          {form.has_portfolio && (
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs text-gray-700" style={{ fontWeight: 600 }}>
+                Add at least one link so employers can review your work
+              </p>
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-1.5">
+                  GitHub Profile <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://github.com/yourusername"
+                  value={form.github_url}
+                  onChange={(e) => setForm({ ...form, github_url: e.target.value.trim() })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-1.5">
+                  Portfolio Site <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://yourname.com"
+                  value={form.portfolio_url}
+                  onChange={(e) => setForm({ ...form, portfolio_url: e.target.value.trim() })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400"
+                />
+              </div>
+            </div>
+          )}
 
           <NavButtons onBack={prevStep} onNext={nextStep} />
         </div>

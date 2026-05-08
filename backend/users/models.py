@@ -266,6 +266,11 @@ class AlumniProfile(models.Model):
         help_text="OJT relevance to BSIS degree"
     )
     has_portfolio = models.BooleanField(default=False)
+    # Portfolio / GitHub URLs — populated only when has_portfolio=True. Both
+    # optional individually; the form requires at least one when has_portfolio
+    # is set (UI-side validation).
+    portfolio_url = models.URLField(max_length=500, blank=True)
+    github_url = models.URLField(max_length=500, blank=True)
     # English Proficiency: 1=Basic, 2=Conversational, 3=Professional/Business
     english_proficiency = models.IntegerField(
         choices=[(1, 'Basic'), (2, 'Conversational'), (3, 'Professional/Business')],

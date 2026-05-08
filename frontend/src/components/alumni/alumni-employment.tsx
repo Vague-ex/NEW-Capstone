@@ -250,10 +250,20 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
           if (city) setF('city_municipality', city);
           if (province) setForm(f => ({ ...f, province_address: province }));
+          // Flip both currentJobLocation and country_address together so the
+          // radio + dropdown can never desync after a pin drop.
           if (countryCode && countryCode !== 'ph' && countryName) {
-            setF('country_address', countryName);
+            setForm(f => ({
+              ...f,
+              country_address: countryName,
+              currentJobLocation: 'Abroad / Remote Foreign Employer',
+            }));
           } else if (!countryCode || countryCode === 'ph') {
-            setF('country_address', 'Philippines');
+            setForm(f => ({
+              ...f,
+              country_address: 'Philippines',
+              currentJobLocation: 'Local (Philippines)',
+            }));
           }
         }).catch(() => { /* silent */ });
       };
@@ -307,6 +317,19 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     e.preventDefault();
     setIsSaving(true);
     setSaveError('');
+
+    // ZIP-code validation: PH must be exactly 4 digits when typed (the field
+    // remains optional, so empty stays valid). Foreign ZIPs are unrestricted.
+    if (
+      isCurrentlyEmployed
+      && form.currentJobLocation === 'Local (Philippines)'
+      && form.zip_code
+      && !/^\d{4}$/.test(form.zip_code)
+    ) {
+      setSaveError('Philippine ZIP code must be exactly 4 digits.');
+      setIsSaving(false);
+      return;
+    }
 
     const normalizedStatus = normalizeEmploymentStatus(form.employment_status);
 
@@ -682,7 +705,23 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 <FieldLabel>5. Location Type</FieldLabel>
                 <div className="space-y-2">
                   {['Local (Philippines)', 'Abroad / Remote Foreign Employer'].map(opt => (
-                    <RadioOption key={opt} label={opt} value={opt} current={form.currentJobLocation} onSelect={v => setF('currentJobLocation', v)} />
+                    <RadioOption
+                      key={opt}
+                      label={opt}
+                      value={opt}
+                      current={form.currentJobLocation}
+                      onSelect={v => {
+                        setF('currentJobLocation', v);
+                        // Keep country_address in sync with the radio.
+                        if (v === 'Local (Philippines)') {
+                          setF('country_address', 'Philippines');
+                        } else if (form.country_address === 'Philippines') {
+                          // Switching to Abroad — clear the locked PH value so
+                          // the user is forced to pick a foreign country.
+                          setF('country_address', '');
+                        }
+                      }}
+                    />
                   ))}
                 </div>
               </div>
@@ -729,8 +768,23 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 </div>
                 <div>
                   <FieldLabel>ZIP Code (optional)</FieldLabel>
-                  <input type="text" placeholder="e.g. 6115"
-                    value={form.zip_code} onChange={e => setF('zip_code', e.target.value)} className={inputCls} />
+                  <input
+                    type="text"
+                    inputMode={form.currentJobLocation === 'Local (Philippines)' ? 'numeric' : 'text'}
+                    placeholder={form.currentJobLocation === 'Local (Philippines)' ? 'e.g. 6115' : 'e.g. 90210'}
+                    value={form.zip_code}
+                    onChange={e => {
+                      const isLocal = form.currentJobLocation === 'Local (Philippines)';
+                      const next = isLocal
+                        ? e.target.value.replace(/\D/g, '').slice(0, 4)
+                        : e.target.value.slice(0, 10);
+                      setF('zip_code', next);
+                    }}
+                    className={inputCls}
+                  />
+                  {form.currentJobLocation === 'Local (Philippines)' && (
+                    <p className="text-gray-400 text-xs mt-1">PH ZIP must be exactly 4 digits.</p>
+                  )}
                 </div>
               </div>
 
@@ -746,30 +800,49 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel required>Country</FieldLabel>
-                <select value={form.country_address} onChange={e => setF('country_address', e.target.value)} className={inputCls}>
-                  <option value="Philippines">Philippines</option>
-                  <optgroup label="ASEAN">
-                    <option>Indonesia</option><option>Malaysia</option><option>Singapore</option>
-                    <option>Thailand</option><option>Vietnam</option><option>Myanmar</option>
-                    <option>Cambodia</option><option>Laos</option><option>Brunei</option><option>Timor-Leste</option>
-                  </optgroup>
-                  <optgroup label="East Asia">
-                    <option>Japan</option><option>South Korea</option><option>China</option>
-                    <option>Hong Kong</option><option>Taiwan</option>
-                  </optgroup>
-                  <optgroup label="Middle East">
-                    <option>Saudi Arabia</option><option>United Arab Emirates</option><option>Qatar</option>
-                    <option>Kuwait</option><option>Bahrain</option><option>Oman</option>
-                  </optgroup>
-                  <optgroup label="Oceania">
-                    <option>Australia</option><option>New Zealand</option>
-                  </optgroup>
-                  <optgroup label="Americas &amp; Europe">
-                    <option>United States</option><option>Canada</option><option>United Kingdom</option>
-                    <option>Germany</option><option>Italy</option><option>Spain</option>
-                  </optgroup>
-                  <optgroup label="Other"><option>Other</option></optgroup>
-                </select>
+                {form.currentJobLocation === 'Local (Philippines)' ? (
+                  <select
+                    value="Philippines"
+                    disabled
+                    className={`${inputCls} bg-gray-100 text-gray-700 cursor-not-allowed`}
+                  >
+                    <option value="Philippines">Philippines</option>
+                  </select>
+                ) : (
+                  <select
+                    value={form.country_address === 'Philippines' ? '' : form.country_address}
+                    onChange={e => setF('country_address', e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="" disabled>Select country</option>
+                    <optgroup label="ASEAN">
+                      <option>Indonesia</option><option>Malaysia</option><option>Singapore</option>
+                      <option>Thailand</option><option>Vietnam</option><option>Myanmar</option>
+                      <option>Cambodia</option><option>Laos</option><option>Brunei</option><option>Timor-Leste</option>
+                    </optgroup>
+                    <optgroup label="East Asia">
+                      <option>Japan</option><option>South Korea</option><option>China</option>
+                      <option>Hong Kong</option><option>Taiwan</option>
+                    </optgroup>
+                    <optgroup label="Middle East">
+                      <option>Saudi Arabia</option><option>United Arab Emirates</option><option>Qatar</option>
+                      <option>Kuwait</option><option>Bahrain</option><option>Oman</option>
+                    </optgroup>
+                    <optgroup label="Oceania">
+                      <option>Australia</option><option>New Zealand</option>
+                    </optgroup>
+                    <optgroup label="Americas &amp; Europe">
+                      <option>United States</option><option>Canada</option><option>United Kingdom</option>
+                      <option>Germany</option><option>Italy</option><option>Spain</option>
+                    </optgroup>
+                    <optgroup label="Other"><option>Other</option></optgroup>
+                  </select>
+                )}
+                <p className="text-gray-400 text-xs mt-1">
+                  {form.currentJobLocation === 'Local (Philippines)'
+                    ? 'Locked to Philippines based on your location type.'
+                    : 'Pick the country where your workplace is located.'}
+                </p>
               </div>
 
               {/* Work location map pin */}

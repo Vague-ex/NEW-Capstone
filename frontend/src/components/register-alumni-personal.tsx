@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router';
 import {
-  GraduationCap, ArrowLeft, CheckCircle2, AlertCircle,
+  GraduationCap, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle,
   User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
   ChevronRight, ChevronLeft,
   BookOpen,
@@ -200,6 +200,16 @@ export default function RegisterAlumniPersonal({
   const [form, setForm] = useState<PersonalFormData>(INITIAL_PERSONAL_FORM);
   const [step, setStep] = useState<PersonalStep>(1);
   const [stepError, setStepError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  // Smooth-scroll the active step's error banner into view whenever a new
+  // error fires. Each step's banner gets `ref={errorRef}` — only one is
+  // mounted at a time, so the ref always points at the visible banner.
+  useEffect(() => {
+    if (stepError && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [stepError]);
   const [showPass, setShowPass] = useState(false);
 
   // Biometric capture state
@@ -563,7 +573,7 @@ export default function RegisterAlumniPersonal({
               <SectionHeader icon={Lock} title="Create Your Account" subtitle="Set up your login credentials for the Graduate Portal." />
 
               {stepError && (
-                <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
+                <div ref={errorRef} className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5 scroll-mt-24">
                   <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
                   <p className="text-red-700 text-sm">{stepError}</p>
                 </div>
@@ -639,7 +649,7 @@ export default function RegisterAlumniPersonal({
               <SectionHeader icon={User} title="Personal Information" subtitle="Your basic details and contact information." />
 
               {stepError && (
-                <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
+                <div ref={errorRef} className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5 scroll-mt-24">
                   <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
                   <p className="text-red-700 text-sm">{stepError}</p>
                 </div>
@@ -877,7 +887,7 @@ export default function RegisterAlumniPersonal({
               <SectionHeader icon={BookOpen} title="Educational Background" subtitle="Your graduation and academic details." />
 
               {stepError && (
-                <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
+                <div ref={errorRef} className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5 scroll-mt-24">
                   <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
                   <p className="text-red-700 text-sm">{stepError}</p>
                 </div>
@@ -1066,8 +1076,21 @@ export default function RegisterAlumniPersonal({
                     </div>
                   </div>
 
+                  {/* Accessory removal warning — persistent (not dismissible) */}
+                  <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl p-3.5 mb-3">
+                    <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-900 leading-relaxed">
+                      <p style={{ fontWeight: 700 }}>Before you begin</p>
+                      <p className="mt-0.5">
+                        Please remove anything that hides your face — sunglasses, hats, face masks, or thick reflective glasses.
+                        Make sure your face is well-lit and you're looking directly at the camera.
+                        The system requires three clear shots: front, left, and right.
+                      </p>
+                    </div>
+                  </div>
+
                   {stepError && (
-                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+                    <div ref={errorRef} className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3 scroll-mt-24">
                       <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
                       <p className="text-red-700 text-xs">{stepError}</p>
                     </div>
