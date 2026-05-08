@@ -187,25 +187,31 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     if (!isCurrentlyEmployed || !workMapContainerRef.current) return;
     if (workLeafletMapRef.current) return; // already initialised
 
-    // Load Leaflet CSS once
+    // Load Leaflet CSS once (without SRI integrity — SRI requires crossOrigin
+    // and can silently fail to load the stylesheet on some setups, which is
+    // what was breaking the marker rendering / drag handles before).
     if (!document.getElementById('leaflet-css-link')) {
       const link = document.createElement('link');
       link.id = 'leaflet-css-link';
       link.rel = 'stylesheet';
       link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
-      link.crossOrigin = '';
       document.head.appendChild(link);
     }
 
     void import('leaflet').then(({ default: L }) => {
       if (!workMapContainerRef.current || workLeafletMapRef.current) return;
 
-      (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl = undefined;
-      L.Icon.Default.mergeOptions({
+      // Build an explicit icon — bypasses the Default-icon URL resolution that
+      // breaks under bundlers (the marker becomes a 0×0 element when broken,
+      // and a 0-size element can't be dragged or clicked).
+      const pinIcon = L.icon({
         iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
         iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41],
       });
 
       const startLat = workLat ?? 12.8;
@@ -223,19 +229,18 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
         maxZoom: 18,
       }).addTo(map);
 
-      const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
+      const marker = L.marker([startLat, startLng], {
+        icon: pinIcon,
+        draggable: true,
+        autoPan: true,
+      }).addTo(map);
       workMarkerRef.current = marker;
       workLeafletMapRef.current = map;
 
-      marker.on('dragend', () => {
-        const pos = (marker as unknown as { getLatLng: () => { lat: number; lng: number } }).getLatLng();
-        setWorkLat(pos.lat);
-        setWorkLng(pos.lng);
-
-        // Nominatim reverse geocode to fill address fields
+      const reverseGeocode = (lat: number, lng: number) => {
         void fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.lat}&lon=${pos.lng}`,
-          { headers: { 'Accept-Language': 'en', 'User-Agent': 'GraduateTracerSystem/1.0 (tracer@chmsc.edu.ph)' } }
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+          { headers: { 'Accept-Language': 'en' } },
         ).then(r => r.json()).then((data: { address?: Record<string, string>; country_code?: string }) => {
           const addr = data.address ?? {};
           const city = addr.city || addr.town || addr.municipality || addr.suburb || '';
@@ -244,21 +249,51 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           const countryName = addr.country || '';
 
           if (city) setF('city_municipality', city);
-          if (province) {
-            setForm(f => ({ ...f, province_address: province }));
-          }
+          if (province) setForm(f => ({ ...f, province_address: province }));
           if (countryCode && countryCode !== 'ph' && countryName) {
             setF('country_address', countryName);
           } else if (!countryCode || countryCode === 'ph') {
             setF('country_address', 'Philippines');
           }
         }).catch(() => { /* silent */ });
+      };
+
+      const updatePin = (lat: number, lng: number) => {
+        setWorkLat(lat);
+        setWorkLng(lng);
+        reverseGeocode(lat, lng);
+      };
+
+      marker.on('dragend', () => {
+        const pos = (marker as unknown as { getLatLng: () => { lat: number; lng: number } }).getLatLng();
+        updatePin(pos.lat, pos.lng);
       });
+
+      // Click-to-drop fallback: tap anywhere on the map to move the pin —
+      // useful on touch devices or when the marker is off-screen.
+      map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
+        marker.setLatLng(e.latlng);
+        updatePin(e.latlng.lat, e.latlng.lng);
+      });
+
+      // Force a layout recalculation once the map is in the DOM. Without this,
+      // the map's internal pixel-origin can be wrong when rendered inside a
+      // conditional section, which makes the drag handle land in the wrong
+      // place (or appear unresponsive).
+      const sizeTimer = setTimeout(() => {
+        if (workLeafletMapRef.current === map) {
+          (map as unknown as { invalidateSize: () => void }).invalidateSize();
+        }
+      }, 200);
+
+      (map as unknown as { _sizeTimer: ReturnType<typeof setTimeout> })._sizeTimer = sizeTimer;
     });
 
     return () => {
       if (workLeafletMapRef.current) {
-        (workLeafletMapRef.current as { remove: () => void }).remove();
+        const m = workLeafletMapRef.current as { remove: () => void; _sizeTimer?: ReturnType<typeof setTimeout> };
+        if (m._sizeTimer) clearTimeout(m._sizeTimer);
+        m.remove();
         workLeafletMapRef.current = null;
         workMarkerRef.current = null;
       }
@@ -744,9 +779,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   ref={workMapContainerRef}
                   style={{ height: 250, borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
                 />
-                <p className="text-gray-400 text-xs mt-2">
-                  Drag the pin to your exact workplace. The City/Municipality field above will update automatically.
-                  {workLat && workLng && (
+                <p className="text-gray-500 text-xs mt-2">
+                  Drag the pin or tap anywhere on the map to mark your exact workplace. City / Municipality auto-fills.
+                  {workLat != null && workLng != null && (
                     <span className="ml-1 text-[#166534]" style={{ fontWeight: 600 }}>
                       ✓ Pin set ({workLat.toFixed(4)}, {workLng.toFixed(4)})
                     </span>

@@ -31,7 +31,6 @@ const EMPTY_RATINGS: Record<string, EmployerEvaluationRating | ''> = Object.from
 type Props = {
   isOpen: boolean;
   graduateName: string;
-  defaultEmployerName?: string;
   defaultBusinessType?: string;
   initialPayload?: EmployerEvaluationPayload | null;
   onClose: () => void;
@@ -42,7 +41,6 @@ type Props = {
 export function EvaluationFormModal({
   isOpen,
   graduateName,
-  defaultEmployerName = '',
   defaultBusinessType = '',
   initialPayload = null,
   onClose,
@@ -61,7 +59,7 @@ export function EvaluationFormModal({
     return seeded;
   };
 
-  const [evaluatorName, setEvaluatorName] = useState(initialPayload?.evaluator_name ?? defaultEmployerName);
+  const [evaluatorName, setEvaluatorName] = useState(initialPayload?.evaluator_name ?? '');
   const [employeeStatus, setEmployeeStatus] = useState<'regular' | 'probationary_casual_jo' | 'other' | ''>(
     initialPayload?.employee_status ?? '',
   );
