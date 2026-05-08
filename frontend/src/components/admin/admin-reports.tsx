@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  FileText, FileSpreadsheet, FileType2, Loader2, AlertCircle, Filter,
+  FileText, FileSpreadsheet, FileType2, Loader2, AlertCircle, Filter, Eye, X,
   Users, Briefcase, Wrench, MapPin, GraduationCap, ShieldCheck, TrendingUp,
 } from 'lucide-react';
-import { fetchReport, ReportFilters } from '../../app/api-client';
+import { fetchReport, ReportFilters, type ReportPayload } from '../../app/api-client';
 import { exportCsv, exportPdf, exportXlsx } from '../../lib/report-export';
 
 type ExportFormat = 'pdf' | 'xlsx' | 'csv';
@@ -169,6 +169,8 @@ export function AdminReports() {
   const [busy, setBusy] = useState<{ id: string; format: ExportFormat } | null>(null);
   const [stamps, setStamps] = useState<Record<string, string>>(() => loadStamps());
   const [error, setError] = useState<string | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ reportDef: ReportDef; payload: ReportPayload } | null>(null);
 
   useEffect(() => {
     saveFilters(filters);
@@ -184,20 +186,33 @@ export function AdminReports() {
 
   const batchRangeInvalid = filters.batchStart > filters.batchEnd;
 
-  async function handleExport(report: ReportDef, format: ExportFormat) {
+  async function handlePreview(report: ReportDef) {
     if (batchRangeInvalid) {
       setError('Batch start year must be ≤ batch end year.');
       return;
     }
     setError(null);
-    setBusy({ id: report.id, format });
+    setPreviewLoadingId(report.id);
     try {
       const payload = await fetchReport(report.endpoint, filters);
+      setPreview({ reportDef: report, payload });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load preview');
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  }
+
+  async function handleGenerate(format: ExportFormat) {
+    if (!preview) return;
+    const { reportDef, payload } = preview;
+    setBusy({ id: reportDef.id, format });
+    try {
       if (format === 'csv') exportCsv(payload);
       else if (format === 'xlsx') await exportXlsx(payload);
       else await exportPdf(payload);
 
-      const next = { ...stamps, [report.id]: new Date().toISOString() };
+      const next = { ...stamps, [reportDef.id]: new Date().toISOString() };
       setStamps(next);
       saveStamps(next);
     } catch (err) {
@@ -290,6 +305,7 @@ export function AdminReports() {
         {REPORTS.map((r) => {
           const stamp = stamps[r.id];
           const Icon = r.Icon;
+          const isLoading = previewLoadingId === r.id;
           return (
             <div
               key={r.id}
@@ -312,27 +328,20 @@ export function AdminReports() {
                   {stamp ? `Last generated ${relativeStamp(stamp)}` : 'Not generated yet'}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
-                  {r.formats.map((fmt) => {
-                    const FmtIcon = FORMAT_ICON[fmt];
-                    const isBusy = busy?.id === r.id && busy?.format === fmt;
-                    const anyBusy = busy?.id === r.id;
-                    return (
-                      <button
-                        key={fmt}
-                        onClick={() => handleExport(r, fmt)}
-                        disabled={isBusy || anyBusy || batchRangeInvalid}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 hover:border-[#1B3A6B] hover:text-[#1B3A6B] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ fontWeight: 600 }}
-                      >
-                        {isBusy ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <FmtIcon className="size-3.5" />
-                        )}
-                        {FORMAT_LABEL[fmt]}
-                      </button>
-                    );
-                  })}
+                  <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
+                    {r.formats.map((fmt) => FORMAT_LABEL[fmt]).join(' · ')}
+                  </span>
+                  <button
+                    onClick={() => handlePreview(r)}
+                    disabled={isLoading || previewLoadingId !== null || batchRangeInvalid}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B3A6B] text-white text-xs hover:bg-[#15305a] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ fontWeight: 600 }}
+                  >
+                    {isLoading
+                      ? <Loader2 className="size-3.5 animate-spin" />
+                      : <Eye className="size-3.5" />}
+                    Preview Report
+                  </button>
                 </div>
               </div>
             </div>
@@ -341,10 +350,139 @@ export function AdminReports() {
       </div>
 
       <p className="text-xs text-gray-400 text-center">
-        Reports are generated against the current database state. Drop a branded header at{' '}
+        Reports preview against the current database state. Drop a branded header at{' '}
         <code className="px-1 py-0.5 bg-gray-100 rounded">/public/report-header.png</code> to
         appear at the top of every PDF.
       </p>
+
+      {preview && (
+        <PreviewModal
+          report={preview.reportDef}
+          payload={preview.payload}
+          busy={busy}
+          onClose={() => setPreview(null)}
+          onGenerate={handleGenerate}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Preview modal (blue-themed) ──────────────────────────────────────────────
+
+function PreviewModal({
+  report,
+  payload,
+  busy,
+  onClose,
+  onGenerate,
+}: {
+  report: ReportDef;
+  payload: ReportPayload;
+  busy: { id: string; format: ExportFormat } | null;
+  onClose: () => void;
+  onGenerate: (format: ExportFormat) => void | Promise<void>;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[#1B3A6B] to-[#2752a8] text-white px-6 py-4 flex items-start justify-between">
+          <div>
+            <p className="text-blue-100 text-xs uppercase tracking-wide" style={{ fontWeight: 600 }}>
+              Report Preview
+            </p>
+            <h2 className="text-lg" style={{ fontWeight: 700 }}>{payload.title}</h2>
+            <p className="text-blue-100 text-xs mt-0.5">
+              Batches {payload.filters.batch_start}–{payload.filters.batch_end}
+              {' · '}
+              {payload.filters.include_unverified ? 'Includes unverified' : 'Verified only'}
+              {' · '}
+              Generated {new Date(payload.generated_at).toLocaleString()}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-white/80 hover:text-white" aria-label="Close">
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {/* Sections */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-blue-50/30">
+          {payload.sections.length === 0 && (
+            <div className="rounded-xl border border-dashed border-blue-200 bg-white p-6 text-center">
+              <p className="text-sm text-gray-500">This report returned no sections for the current filters.</p>
+            </div>
+          )}
+          {payload.sections.map((section, idx) => (
+            <div key={idx} className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
+              <div className="px-4 py-2.5 bg-[#1B3A6B]/5 border-b border-blue-100">
+                <h3 className="text-sm text-[#1B3A6B]" style={{ fontWeight: 700 }}>
+                  {section.title}
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                {section.rows.length === 0 ? (
+                  <p className="p-4 text-xs text-gray-400 italic">No rows.</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-[#1B3A6B] text-white">
+                        {section.columns.map((col, i) => (
+                          <th key={i} className="px-3 py-2 text-left" style={{ fontWeight: 600 }}>
+                            {col == null ? '' : String(col)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.rows.map((row, rIdx) => (
+                        <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
+                          {row.map((cell, cIdx) => (
+                            <td key={cIdx} className="px-3 py-2 text-gray-700 border-b border-blue-50">
+                              {cell == null ? '' : String(cell)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer: generate buttons */}
+        <div className="px-6 py-4 border-t border-blue-100 bg-white flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">
+            Like what you see? Generate the report in your preferred format.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 transition"
+              style={{ fontWeight: 600 }}>
+              Cancel
+            </button>
+            {report.formats.map((fmt) => {
+              const FmtIcon = FORMAT_ICON[fmt];
+              const isBusy = busy?.id === report.id && busy?.format === fmt;
+              const anyBusy = busy?.id === report.id;
+              return (
+                <button
+                  key={fmt}
+                  onClick={() => onGenerate(fmt)}
+                  disabled={isBusy || anyBusy}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-xs hover:bg-[#15305a] transition disabled:opacity-60"
+                  style={{ fontWeight: 600 }}>
+                  {isBusy ? <Loader2 className="size-3.5 animate-spin" /> : <FmtIcon className="size-3.5" />}
+                  Generate {FORMAT_LABEL[fmt]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

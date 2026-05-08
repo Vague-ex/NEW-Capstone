@@ -276,6 +276,7 @@ export function GraduateVerify() {
   const [lastSubmitMessage, setLastSubmitMessage] = useState('');
   const [verifiedJobTitleId, setVerifiedJobTitleId] = useState('');
   const [evalModalOpen, setEvalModalOpen] = useState(false);
+  const [evaluationData, setEvaluationData] = useState<EmployerEvaluationPayload | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,24 +307,27 @@ export function GraduateVerify() {
     setSaveError('');
     setLastSubmitWasHeld(false);
     setLastSubmitMessage('');
+    setEvaluationData(null);
+    setEvalModalOpen(false);
   };
 
-  const handleOpenEvalModal = () => {
+  const handleEvaluationCaptured = (evalPayload: EmployerEvaluationPayload) => {
+    setEvaluationData(evalPayload);
+    setEvalModalOpen(false);
+    setSaveError('');
+  };
+
+  const handleSubmitEndorsement = async () => {
     if (!selectedGraduate) return;
+    if (!evaluationData) {
+      setSaveError('Please complete the Employer’s Confidential Feedback Form first.');
+      return;
+    }
     if (!confirmEmployment) {
       setSaveError('Please confirm employment before submitting verification.');
       return;
     }
-    if (!String(selectedGraduate.id ?? '').trim()) {
-      setSaveError('This graduate record is missing an ID required for verification.');
-      return;
-    }
-    setSaveError('');
-    setEvalModalOpen(true);
-  };
 
-  const handleSubmitEvaluation = async (evalPayload: EmployerEvaluationPayload) => {
-    if (!selectedGraduate) return;
     const alumniId = String(selectedGraduate.id ?? '').trim();
     if (!alumniId) {
       setSaveError('This graduate record is missing an ID required for verification.');
@@ -346,14 +350,13 @@ export function GraduateVerify() {
         comment: endorsement.trim() || undefined,
         verified_employer_name: employerCompany.trim() || undefined,
         verified_job_title_id: verifiedJobTitleId.trim() || undefined,
-        ...evalPayload,
+        ...evaluationData,
       });
 
       const held = Boolean(decisionResult.decision?.isHeld);
       setLastSubmitWasHeld(held);
       setLastSubmitMessage(String(decisionResult.message ?? '').trim());
       setEndorsementSent(true);
-      setEvalModalOpen(false);
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.status === 401) {
@@ -634,16 +637,42 @@ export function GraduateVerify() {
               </div>
             </div>
 
-            {/* Employment Confirmation & Endorsement */}
+            {/* Step 1 — Employer's Confidential Feedback Form (must precede confirmation) */}
+            {!endorsementSent && evaluationData === null && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
+                  <Star className="size-4 text-[#166534]" /> Step 1 — Employer's Confidential Feedback Form
+                </h3>
+                <p className="text-gray-500 text-xs mb-4">
+                  Before confirming employment, please complete the confidential evaluation. This rates {selectedGraduate.name?.split(' ')[0] ?? 'the graduate'} across 11 work-quality dimensions and two open-ended assessment questions. Your responses are submitted privately to CHMSU and feed the program's batch reports.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setSaveError(''); setEvalModalOpen(true); }}
+                  className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition"
+                  style={{ fontWeight: 600 }}>
+                  <Star className="size-4" /> Begin Evaluation
+                </button>
+              </div>
+            )}
+
+            {/* Step 2 — Employment Confirmation & Endorsement (unlocked after evaluation) */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
-                <MessageSquare className="size-4 text-[#166534]" /> Employment Confirmation & Endorsement
+                <MessageSquare className="size-4 text-[#166534]" />
+                {evaluationData === null && !endorsementSent ? 'Step 2 — Employment Confirmation & Endorsement (locked)' : 'Step 2 — Employment Confirmation & Endorsement'}
               </h3>
               <p className="text-gray-500 text-xs mb-5">
                 As <span style={{ fontWeight: 600 }}>{employerCompany}</span>, confirm this graduate's employment and leave an endorsement visible on their profile.
               </p>
 
-              {endorsementSent ? (
+              {!endorsementSent && evaluationData === null ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4">
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    Complete <span style={{ fontWeight: 600 }}>Step 1 — Employer's Confidential Feedback Form</span> above to unlock the confirmation button.
+                  </p>
+                </div>
+              ) : endorsementSent ? (
                 <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                   <CheckCircle2 className="size-5 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
@@ -669,6 +698,25 @@ export function GraduateVerify() {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                    <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-emerald-800 text-xs" style={{ fontWeight: 600 }}>
+                        Step 1 complete — Employer's Confidential Feedback Form captured
+                      </p>
+                      <p className="text-emerald-700 text-[11px] mt-0.5">
+                        Your evaluation responses will be submitted alongside this confirmation.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEvalModalOpen(true)}
+                      className="text-[11px] text-emerald-800 underline hover:text-emerald-900"
+                      style={{ fontWeight: 600 }}>
+                      Edit
+                    </button>
+                  </div>
+
                   <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition">
                     <input
                       type="checkbox"
@@ -721,18 +769,15 @@ export function GraduateVerify() {
                   </div>
 
                   <button
-                    onClick={handleOpenEvalModal}
+                    onClick={handleSubmitEndorsement}
                     disabled={isSending || !confirmEmployment}
                     className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
                     style={{ fontWeight: 600 }}>
                     {isSending
                       ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Submitting…</>
-                      : <><Send className="size-4" /> Continue to Evaluation Form</>
+                      : <><Send className="size-4" /> Submit Endorsement</>
                     }
                   </button>
-                  <p className="text-gray-400 text-xs">
-                    Submitting your endorsement opens the Employer's Confidential Feedback Form. The verification is finalized only after you complete it.
-                  </p>
                 </div>
               )}
             </div>
@@ -747,8 +792,8 @@ export function GraduateVerify() {
         defaultEmployerName={employerCompany}
         defaultBusinessType={selectedGraduate?.industry ?? ''}
         onClose={() => setEvalModalOpen(false)}
-        onSubmit={handleSubmitEvaluation}
-        isSubmitting={isSending}
+        onSubmit={handleEvaluationCaptured}
+        isSubmitting={false}
       />
     </PortalLayout>
   );
