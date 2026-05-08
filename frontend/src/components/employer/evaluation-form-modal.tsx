@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Star } from 'lucide-react';
+import { X, Star, ShieldCheck } from 'lucide-react';
 import type { EmployerEvaluationPayload, EmployerEvaluationRating } from '../../app/api-client';
 
 const RATING_OPTIONS: { value: EmployerEvaluationRating; label: string }[] = [
@@ -33,6 +33,7 @@ type Props = {
   graduateName: string;
   defaultEmployerName?: string;
   defaultBusinessType?: string;
+  initialPayload?: EmployerEvaluationPayload | null;
   onClose: () => void;
   onSubmit: (payload: EmployerEvaluationPayload) => Promise<void> | void;
   isSubmitting?: boolean;
@@ -43,21 +44,40 @@ export function EvaluationFormModal({
   graduateName,
   defaultEmployerName = '',
   defaultBusinessType = '',
+  initialPayload = null,
   onClose,
   onSubmit,
   isSubmitting = false,
 }: Props) {
-  const [evaluatorName, setEvaluatorName] = useState(defaultEmployerName);
-  const [employeeStatus, setEmployeeStatus] = useState<'regular' | 'probationary_casual_jo' | 'other' | ''>('');
-  const [employeeStatusOther, setEmployeeStatusOther] = useState('');
-  const [yearsInCompany, setYearsInCompany] = useState('');
-  const [educationalAttainment, setEducationalAttainment] = useState('');
-  const [maritalStatus, setMaritalStatus] = useState('');
-  const [typeOfBusiness, setTypeOfBusiness] = useState(defaultBusinessType);
-  const [dateOfEvaluation, setDateOfEvaluation] = useState(new Date().toISOString().slice(0, 10));
-  const [ratings, setRatings] = useState<Record<string, EmployerEvaluationRating | ''>>({ ...EMPTY_RATINGS });
-  const [strengths, setStrengths] = useState('');
-  const [improvements, setImprovements] = useState('');
+  const seedRatings = (): Record<string, EmployerEvaluationRating | ''> => {
+    if (!initialPayload) return { ...EMPTY_RATINGS };
+    const seeded: Record<string, EmployerEvaluationRating | ''> = { ...EMPTY_RATINGS };
+    for (const q of RATING_QUESTIONS) {
+      const v = initialPayload[q.key];
+      if (typeof v === 'string' && (RATING_OPTIONS as { value: string }[]).some((o) => o.value === v)) {
+        seeded[q.key] = v as EmployerEvaluationRating;
+      }
+    }
+    return seeded;
+  };
+
+  const [evaluatorName, setEvaluatorName] = useState(initialPayload?.evaluator_name ?? defaultEmployerName);
+  const [employeeStatus, setEmployeeStatus] = useState<'regular' | 'probationary_casual_jo' | 'other' | ''>(
+    initialPayload?.employee_status ?? '',
+  );
+  const [employeeStatusOther, setEmployeeStatusOther] = useState(initialPayload?.employee_status_other ?? '');
+  const [yearsInCompany, setYearsInCompany] = useState(
+    initialPayload?.years_in_company != null ? String(initialPayload.years_in_company) : '',
+  );
+  const [educationalAttainment, setEducationalAttainment] = useState(initialPayload?.educational_attainment ?? '');
+  const [maritalStatus, setMaritalStatus] = useState(initialPayload?.marital_status ?? '');
+  const [typeOfBusiness, setTypeOfBusiness] = useState(initialPayload?.type_of_business ?? defaultBusinessType);
+  const [dateOfEvaluation, setDateOfEvaluation] = useState(
+    initialPayload?.date_of_evaluation || new Date().toISOString().slice(0, 10),
+  );
+  const [ratings, setRatings] = useState<Record<string, EmployerEvaluationRating | ''>>(seedRatings());
+  const [strengths, setStrengths] = useState(initialPayload?.assessment_strengths ?? '');
+  const [improvements, setImprovements] = useState(initialPayload?.assessment_improvements ?? '');
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
@@ -115,7 +135,23 @@ export function EvaluationFormModal({
     await onSubmit(payload);
   };
 
-  const inputCls = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15';
+  const inputCls = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15';
+
+  const requestClose = () => {
+    const dirty =
+      evaluatorName.trim() ||
+      employeeStatus ||
+      employeeStatusOther.trim() ||
+      yearsInCompany.trim() ||
+      educationalAttainment.trim() ||
+      maritalStatus.trim() ||
+      strengths.trim() ||
+      improvements.trim() ||
+      Object.values(ratings).some((r) => r);
+    if (!dirty || (typeof window !== 'undefined' && window.confirm('Discard your evaluation responses? This cannot be undone.'))) {
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -125,12 +161,25 @@ export function EvaluationFormModal({
             <h2 className="text-lg" style={{ fontWeight: 700 }}>Employer's Confidential Feedback Form</h2>
             <p className="text-green-100 text-xs mt-0.5">Evaluation for {graduateName}</p>
           </div>
-          <button type="button" onClick={onClose} className="text-white/80 hover:text-white" aria-label="Close">
+          <button type="button" onClick={requestClose} className="text-white/80 hover:text-white" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Confidential notice — RA 10173 (Data Privacy Act) */}
+          <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+            <ShieldCheck className="size-4 text-[#166534] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs text-emerald-900" style={{ fontWeight: 600 }}>
+                Confidential — RA 10173 (Data Privacy Act of 2012)
+              </p>
+              <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
+                Your responses are released only to the CHMSU Talisay BSIS Program for aggregate batch reporting. The graduate will not see your name, ratings, or open-ended answers. Personal evaluator details are stored solely for record verification.
+              </p>
+            </div>
+          </div>
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">
               {error}
@@ -142,20 +191,20 @@ export function EvaluationFormModal({
             <h3 className="text-sm" style={{ fontWeight: 700 }}>Evaluation Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="block">
-                <span className="text-xs text-gray-600">Employer's Name (Last, First, Middle) *</span>
+                <span className="text-xs text-gray-800">Employer's Name (Last, First, Middle) *</span>
                 <input className={inputCls} value={evaluatorName} onChange={(e) => setEvaluatorName(e.target.value)} required />
               </label>
               <label className="block">
-                <span className="text-xs text-gray-600">Employee's Name</span>
+                <span className="text-xs text-gray-800">Employee's Name</span>
                 <input className={inputCls} value={graduateName} readOnly />
               </label>
 
               <div className="md:col-span-2">
-                <span className="text-xs text-gray-600">Employee's Status *</span>
+                <span className="text-xs text-gray-800">Employee's Status *</span>
                 <div className="flex flex-wrap gap-3 mt-1">
                   {(['regular', 'probationary_casual_jo', 'other'] as const).map((s) => (
-                    <label key={s} className="inline-flex items-center gap-2 text-sm">
-                      <input type="radio" name="emp-status" checked={employeeStatus === s} onChange={() => setEmployeeStatus(s)} />
+                    <label key={s} className="inline-flex items-center gap-2 text-sm text-gray-800 cursor-pointer">
+                      <input type="radio" name="emp-status" checked={employeeStatus === s} onChange={() => setEmployeeStatus(s)} className="accent-[#166534]" />
                       {s === 'regular' ? 'Regular' : s === 'probationary_casual_jo' ? 'Probationary/Casual/Job Order' : 'Other'}
                     </label>
                   ))}
@@ -171,23 +220,23 @@ export function EvaluationFormModal({
               </div>
 
               <label className="block">
-                <span className="text-xs text-gray-600">Number of Years</span>
+                <span className="text-xs text-gray-800">Number of Years</span>
                 <input type="number" min={0} className={inputCls} value={yearsInCompany} onChange={(e) => setYearsInCompany(e.target.value)} />
               </label>
               <label className="block">
-                <span className="text-xs text-gray-600">Educational Attainment</span>
+                <span className="text-xs text-gray-800">Educational Attainment</span>
                 <input className={inputCls} value={educationalAttainment} onChange={(e) => setEducationalAttainment(e.target.value)} />
               </label>
               <label className="block">
-                <span className="text-xs text-gray-600">Marital Status</span>
+                <span className="text-xs text-gray-800">Marital Status</span>
                 <input className={inputCls} value={maritalStatus} onChange={(e) => setMaritalStatus(e.target.value)} />
               </label>
               <label className="block">
-                <span className="text-xs text-gray-600">Type of Business</span>
+                <span className="text-xs text-gray-800">Type of Business</span>
                 <input className={inputCls} value={typeOfBusiness} onChange={(e) => setTypeOfBusiness(e.target.value)} />
               </label>
               <label className="block md:col-span-2">
-                <span className="text-xs text-gray-600">Date of Evaluation</span>
+                <span className="text-xs text-gray-800">Date of Evaluation</span>
                 <input type="date" className={inputCls} value={dateOfEvaluation} onChange={(e) => setDateOfEvaluation(e.target.value)} />
               </label>
             </div>
@@ -197,7 +246,7 @@ export function EvaluationFormModal({
           <section className="space-y-3">
             <div>
               <h3 className="text-sm" style={{ fontWeight: 700 }}>(A) Employee's Characteristics</h3>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-700 mt-1">
                 Excellent: consistently exceeds expectations · Very Good: meets and occasionally exceeds · Good: meets · Fair: meets some, needs improvement · Unsatisfactory: consistently falls below.
               </p>
             </div>
@@ -208,17 +257,18 @@ export function EvaluationFormModal({
                     <Star className="size-4 text-[#166534] mt-0.5 shrink-0" />
                     <div>
                       <p className="text-sm" style={{ fontWeight: 600 }}>{q.label}</p>
-                      <p className="text-xs text-gray-500">{q.description}</p>
+                      <p className="text-xs text-gray-700">{q.description}</p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-3 mt-2">
                     {RATING_OPTIONS.map((opt) => (
-                      <label key={opt.value} className="inline-flex items-center gap-1.5 text-xs">
+                      <label key={opt.value} className="inline-flex items-center gap-1.5 text-xs text-gray-800 cursor-pointer">
                         <input
                           type="radio"
                           name={String(q.key)}
                           checked={ratings[q.key] === opt.value}
                           onChange={() => setRating(String(q.key), opt.value)}
+                          className="accent-[#166534]"
                         />
                         {opt.label}
                       </label>
@@ -233,17 +283,17 @@ export function EvaluationFormModal({
           <section className="space-y-3">
             <h3 className="text-sm" style={{ fontWeight: 700 }}>(B) Employee's Assessment</h3>
             <label className="block">
-              <span className="text-xs text-gray-600">1. What do you perceive to be this employee's greatest strengths? *</span>
+              <span className="text-xs text-gray-800">1. What do you perceive to be this employee's greatest strengths? *</span>
               <textarea className={`${inputCls} min-h-[88px]`} value={strengths} onChange={(e) => setStrengths(e.target.value)} required />
             </label>
             <label className="block">
-              <span className="text-xs text-gray-600">2. In what area(s) does this employee need to improve? *</span>
+              <span className="text-xs text-gray-800">2. In what area(s) does this employee need to improve? *</span>
               <textarea className={`${inputCls} min-h-[88px]`} value={improvements} onChange={(e) => setImprovements(e.target.value)} required />
             </label>
           </section>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-sm border border-gray-200 hover:bg-gray-50" disabled={isSubmitting}>
+            <button type="button" onClick={requestClose} className="px-4 py-2 rounded-lg text-sm text-gray-800 border border-gray-300 hover:bg-gray-50" disabled={isSubmitting}>
               Cancel
             </button>
             <button

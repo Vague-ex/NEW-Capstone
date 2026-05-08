@@ -3,7 +3,7 @@ import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
 import {
-    User, BookOpen, Phone, Mail, MapPin, Save, CheckCircle2, AlertTriangle,
+    User, BookOpen, Phone, MapPin, Save, CheckCircle2, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 
 function RadioOption({ label, value, current, onSelect }: {
@@ -153,7 +153,20 @@ export function AlumniPersonalEducation() {
 
     return (
         <PortalLayout role="alumni" pageTitle="Personal and Education" pageSubtitle="Update your personal and educational information from your registration form">
-            <div className="max-w-3xl mx-auto space-y-5">
+            <div className="max-w-3xl mx-auto space-y-5 pb-28">
+
+                <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5">
+                    <ShieldCheck className="size-4 text-[#166534] shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-emerald-900 text-xs" style={{ fontWeight: 600 }}>
+                            Your data is private (RA 10173 — Data Privacy Act)
+                        </p>
+                        <p className="text-emerald-800 text-[11px] mt-0.5 leading-relaxed">
+                            Personal details are visible only to you and the CHMSU BSIS Program for tracer reporting. Employers and other graduates will never see this information.
+                        </p>
+                    </div>
+                </div>
+
                 <form onSubmit={handleSave} className="space-y-5">
 
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -321,33 +334,36 @@ export function AlumniPersonalEducation() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                </form>
+
+                {/* Sticky save bar */}
+                <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 sm:left-64">
+                    <div className="max-w-3xl mx-auto flex items-center gap-3">
+                        <div className="flex-1 min-w-0 text-xs">
+                            {saveError ? (
+                                <span className="flex items-center gap-1.5 text-red-700" style={{ fontWeight: 600 }}>
+                                    <AlertTriangle className="size-4" /> {saveError}
+                                </span>
+                            ) : saved ? (
+                                <span className="flex items-center gap-1.5 text-emerald-700" style={{ fontWeight: 600 }}>
+                                    <CheckCircle2 className="size-4" /> Saved — your information is up to date.
+                                </span>
+                            ) : (
+                                <span className="text-gray-500">Keep your tracer record current — changes save instantly to the BSIS program.</span>
+                            )}
+                        </div>
                         <button
-                            type="submit"
+                            type="button"
+                            onClick={(e) => handleSave(e as unknown as React.FormEvent)}
                             disabled={isSaving}
-                            className="flex-1 flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-70"
+                            className="inline-flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
                             style={{ fontWeight: 600 }}
                         >
                             {isSaving
-                                ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</>
-                                : <><Save className="size-4" /> Save Personal and Education</>
+                                ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
+                                : <><Save className="size-4" /> Save Changes</>
                             }
                         </button>
-                        {saved && (
-                            <span className="flex items-center gap-1.5 text-emerald-600 text-sm shrink-0" style={{ fontWeight: 600 }}>
-                                <CheckCircle2 className="size-5" /> Saved!
-                            </span>
-                        )}
-                    </div>
-                </form>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
-                    <Mail className="size-5 text-blue-500 shrink-0 mt-0.5" />
-                    <div>
-                        <p className="text-blue-800 text-sm" style={{ fontWeight: 600 }}>Tip</p>
-                        <p className="text-blue-700 text-xs mt-0.5 leading-relaxed">
-                            Keep these fields up to date so the graduate tracer records and batch reporting remain accurate.
-                        </p>
                     </div>
                 </div>
             </div>

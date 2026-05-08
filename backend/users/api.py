@@ -682,7 +682,11 @@ def _needs_retracking(account: AlumniAccount) -> bool:
 
 
 def _extract_login_gps(request) -> tuple[float | None, float | None, float | None]:
-    """Pull gps_lat / gps_lng / gps_accuracy_m from the login request, tolerating missing/invalid values."""
+    """Pull gps_lat / gps_lng / gps_accuracy_m from the login request.
+
+    Out-of-range or non-numeric values are silently coerced to None — a corrupt
+    GPS reading must never block an otherwise valid login.
+    """
     def _to_float(value):
         if value in (None, ""):
             return None
@@ -691,11 +695,18 @@ def _extract_login_gps(request) -> tuple[float | None, float | None, float | Non
         except (TypeError, ValueError):
             return None
 
-    return (
-        _to_float(request.data.get("gps_lat")),
-        _to_float(request.data.get("gps_lng")),
-        _to_float(request.data.get("gps_accuracy_m")),
-    )
+    lat = _to_float(request.data.get("gps_lat"))
+    lng = _to_float(request.data.get("gps_lng"))
+    accuracy = _to_float(request.data.get("gps_accuracy_m"))
+
+    if lat is not None and not (-90.0 <= lat <= 90.0):
+        lat = None
+    if lng is not None and not (-180.0 <= lng <= 180.0):
+        lng = None
+    if accuracy is not None and accuracy < 0:
+        accuracy = None
+
+    return lat, lng, accuracy
 
 
 def _session_payload_from_alumni(account: AlumniAccount) -> dict:

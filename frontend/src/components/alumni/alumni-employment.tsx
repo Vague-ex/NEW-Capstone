@@ -349,7 +349,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   return (
     <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey — Employment Record">
-      <div className="max-w-3xl mx-auto space-y-5">
+      <div className="max-w-3xl mx-auto space-y-5 pb-28">
 
         {retrackingMode && (
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
@@ -777,22 +777,39 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             </div>
           )}
 
-          <div className="flex items-center gap-3">
-            <button type="submit" disabled={isSaving}
-              className="flex-1 flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-70"
+        </form>
+
+        {/* Sticky save bar */}
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 sm:left-64">
+          <div className="max-w-3xl mx-auto flex items-center gap-3">
+            <div className="flex-1 min-w-0 text-xs">
+              {saveError ? (
+                <span className="flex items-center gap-1.5 text-red-700" style={{ fontWeight: 600 }}>
+                  <AlertTriangle className="size-4" /> {saveError}
+                </span>
+              ) : saved ? (
+                <span className="flex items-center gap-1.5 text-emerald-700" style={{ fontWeight: 600 }}>
+                  <CheckCircle2 className="size-4" />
+                  {retrackingMode ? 'Retracking submitted — returning to your dashboard.' : 'Saved — your employment record is up to date.'}
+                </span>
+              ) : retrackingMode ? (
+                <span className="text-red-700" style={{ fontWeight: 600 }}>Submit this form to unlock the dashboard.</span>
+              ) : (
+                <span className="text-gray-500">Confidential to you and the BSIS Program (RA 10173). Save anytime — even partial updates are kept.</span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={(e) => handleSave(e as unknown as React.FormEvent)}
+              disabled={isSaving}
+              className="inline-flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
               style={{ fontWeight: 600 }}>
               {isSaving
                 ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
-                : <><Save className="size-4" /> Save Employment Data</>}
+                : <><Save className="size-4" /> Save Changes</>}
             </button>
-            {saved && (
-              <span className="flex items-center gap-1.5 text-emerald-600 text-sm shrink-0" style={{ fontWeight: 600 }}>
-                <CheckCircle2 className="size-5" /> Saved!
-              </span>
-            )}
           </div>
-
-        </form>
+        </div>
       </div>
     </PortalLayout>
   );

@@ -261,6 +261,9 @@ def _extract_evaluation_payload(request) -> tuple[dict | None, str | None]:
     improvements = str(data.get("assessment_improvements") or "").strip()
     if not strengths or not improvements:
         return None, "Both assessment_strengths and assessment_improvements are required."
+    _MAX_TEXT = 5000
+    if len(strengths) > _MAX_TEXT or len(improvements) > _MAX_TEXT:
+        return None, f"Assessment answers must be at most {_MAX_TEXT} characters each."
 
     years_in_company_raw = data.get("years_in_company")
     years_in_company: int | None = None

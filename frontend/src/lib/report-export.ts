@@ -174,7 +174,7 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.setTextColor(27, 58, 107); // #1B3A6B
+  doc.setTextColor(21, 128, 61); // #15803d (green-700)
   doc.text(payload.title, margin, cursorY);
   cursorY += 22;
 
@@ -198,7 +198,7 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.setTextColor(27, 58, 107);
+    doc.setTextColor(21, 128, 61);
     doc.text(section.title, margin, cursorY);
     cursorY += 6;
 
@@ -207,9 +207,9 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
       head: [section.columns],
       body: section.rows.map((r) => r.map((c) => (c == null ? '' : String(c)))),
       theme: 'striped',
-      headStyles: { fillColor: [27, 58, 107], textColor: 255, fontSize: 9 },
+      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontSize: 9 }, // #16a34a (green-600)
       bodyStyles: { fontSize: 8.5, textColor: 40 },
-      alternateRowStyles: { fillColor: [245, 247, 250] },
+      alternateRowStyles: { fillColor: [240, 253, 244] }, // #f0fdf4 (green-50)
       margin: { left: margin, right: margin },
       didDrawPage: () => {
         const pageNum = doc.getCurrentPageInfo().pageNumber;
@@ -324,12 +324,12 @@ function drawTimelineChart(
       points.push({ x, y });
     });
 
-    doc.setDrawColor(27, 58, 107);
+    doc.setDrawColor(22, 163, 74);
     doc.setLineWidth(1.2);
     for (let i = 0; i < points.length - 1; i++) {
       doc.line(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
     }
-    doc.setFillColor(27, 58, 107);
+    doc.setFillColor(22, 163, 74);
     for (const p of points) {
       doc.circle(p.x, p.y, 1.6, 'F');
     }

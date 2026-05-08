@@ -227,7 +227,7 @@ export function AdminReports() {
       {/* Filter bar */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Filter className="size-4 text-[#1B3A6B]" />
+          <Filter className="size-4 text-[#15803d]" />
           <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
             Report Filters
           </h3>
@@ -277,7 +277,7 @@ export function AdminReports() {
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, includeUnverified: e.target.checked }))
                 }
-                className="size-4 accent-[#1B3A6B]"
+                className="size-4 accent-[#16a34a]"
               />
               <span>Include unverified alumni</span>
             </label>
@@ -334,7 +334,7 @@ export function AdminReports() {
                   <button
                     onClick={() => handlePreview(r)}
                     disabled={isLoading || previewLoadingId !== null || batchRangeInvalid}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B3A6B] text-white text-xs hover:bg-[#15305a] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#16a34a] text-white text-xs hover:bg-[#15803d] transition disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ fontWeight: 600 }}
                   >
                     {isLoading
@@ -368,7 +368,7 @@ export function AdminReports() {
   );
 }
 
-// ── Preview modal (blue-themed) ──────────────────────────────────────────────
+// ── Preview modal (light-green theme) ────────────────────────────────────────
 
 function PreviewModal({
   report,
@@ -387,13 +387,13 @@ function PreviewModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[#1B3A6B] to-[#2752a8] text-white px-6 py-4 flex items-start justify-between">
+        <div className="bg-gradient-to-r from-[#16a34a] to-[#22c55e] text-white px-6 py-4 flex items-start justify-between">
           <div>
-            <p className="text-blue-100 text-xs uppercase tracking-wide" style={{ fontWeight: 600 }}>
+            <p className="text-emerald-100 text-xs uppercase tracking-wide" style={{ fontWeight: 600 }}>
               Report Preview
             </p>
             <h2 className="text-lg" style={{ fontWeight: 700 }}>{payload.title}</h2>
-            <p className="text-blue-100 text-xs mt-0.5">
+            <p className="text-emerald-100 text-xs mt-0.5">
               Batches {payload.filters.batch_start}–{payload.filters.batch_end}
               {' · '}
               {payload.filters.include_unverified ? 'Includes unverified' : 'Verified only'}
@@ -407,16 +407,16 @@ function PreviewModal({
         </div>
 
         {/* Sections */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-blue-50/30">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-emerald-50/40">
           {payload.sections.length === 0 && (
-            <div className="rounded-xl border border-dashed border-blue-200 bg-white p-6 text-center">
+            <div className="rounded-xl border border-dashed border-emerald-200 bg-white p-6 text-center">
               <p className="text-sm text-gray-500">This report returned no sections for the current filters.</p>
             </div>
           )}
           {payload.sections.map((section, idx) => (
-            <div key={idx} className="bg-white rounded-xl border border-blue-100 shadow-sm overflow-hidden">
-              <div className="px-4 py-2.5 bg-[#1B3A6B]/5 border-b border-blue-100">
-                <h3 className="text-sm text-[#1B3A6B]" style={{ fontWeight: 700 }}>
+            <div key={idx} className="bg-white rounded-xl border border-emerald-100 shadow-sm overflow-hidden">
+              <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                <h3 className="text-sm text-[#15803d]" style={{ fontWeight: 700 }}>
                   {section.title}
                 </h3>
               </div>
@@ -426,7 +426,7 @@ function PreviewModal({
                 ) : (
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="bg-[#1B3A6B] text-white">
+                      <tr className="bg-[#16a34a] text-white">
                         {section.columns.map((col, i) => (
                           <th key={i} className="px-3 py-2 text-left" style={{ fontWeight: 600 }}>
                             {col == null ? '' : String(col)}
@@ -436,9 +436,9 @@ function PreviewModal({
                     </thead>
                     <tbody>
                       {section.rows.map((row, rIdx) => (
-                        <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'}>
+                        <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/50'}>
                           {row.map((cell, cIdx) => (
-                            <td key={cIdx} className="px-3 py-2 text-gray-700 border-b border-blue-50">
+                            <td key={cIdx} className="px-3 py-2 text-gray-700 border-b border-emerald-50">
                               {cell == null ? '' : String(cell)}
                             </td>
                           ))}
@@ -453,7 +453,7 @@ function PreviewModal({
         </div>
 
         {/* Footer: generate buttons */}
-        <div className="px-6 py-4 border-t border-blue-100 bg-white flex flex-wrap items-center justify-between gap-3">
+        <div className="px-6 py-4 border-t border-emerald-100 bg-white flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-gray-500">
             Like what you see? Generate the report in your preferred format.
           </p>
@@ -473,7 +473,7 @@ function PreviewModal({
                   key={fmt}
                   onClick={() => onGenerate(fmt)}
                   disabled={isBusy || anyBusy}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1B3A6B] text-white text-xs hover:bg-[#15305a] transition disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#16a34a] text-white text-xs hover:bg-[#15803d] transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}>
                   {isBusy ? <Loader2 className="size-3.5 animate-spin" /> : <FmtIcon className="size-3.5" />}
                   Generate {FORMAT_LABEL[fmt]}

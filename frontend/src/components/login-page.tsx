@@ -479,7 +479,7 @@ export function LoginPage() {
                 </div>
 
                 {/* Steps indicator */}
-                <div className="flex items-center gap-2 mb-5">
+                <div className="flex items-center gap-2 mb-3">
                   {[
                     { label: "Sign In", done: true },
                     { label: "Face Scan", done: scanStage === "matched", active: scanStage !== "matched" },
@@ -497,6 +497,14 @@ export function LoginPage() {
                       {i < 1 && <div className="w-4 h-px bg-gray-200" />}
                     </div>
                   ))}
+                </div>
+
+                {/* GPS-capture notice (RA 10173 transparency) */}
+                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-5">
+                  <CheckCircle2 className="size-3.5 text-[#166534] shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-emerald-800 leading-snug">
+                    For audit purposes, your device's approximate GPS location is recorded with this login. If you decline the browser permission, sign-in still proceeds without location data.
+                  </p>
                 </div>
 
                 {/* Camera area */}

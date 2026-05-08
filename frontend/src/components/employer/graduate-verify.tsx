@@ -787,10 +787,12 @@ export function GraduateVerify() {
       </div>
 
       <EvaluationFormModal
+        key={`${selectedGraduate?.id ?? 'none'}-${evalModalOpen ? 'open' : 'closed'}`}
         isOpen={evalModalOpen}
         graduateName={selectedGraduate?.name ?? ''}
         defaultEmployerName={employerCompany}
         defaultBusinessType={selectedGraduate?.industry ?? ''}
+        initialPayload={evaluationData}
         onClose={() => setEvalModalOpen(false)}
         onSubmit={handleEvaluationCaptured}
         isSubmitting={false}
