@@ -1454,7 +1454,8 @@ def _build_live_df():
             "prior_work_experience":  int(bool(p.prior_work_experience)),
             "ojt_relevance":          int(p.ojt_relevance or 0),
             "has_portfolio":          int(bool(p.has_portfolio)),
-            "english_proficiency":    int(p.english_proficiency or 1),
+            "pursuing_postgrad":      1 if getattr(p, "further_studies_status", "") == "enrolled" else 0,
+            "completed_postgrad":     1 if getattr(p, "further_studies_status", "") == "completed" else 0,
             "technical_skill_count":  int((comp.technical_skill_count if comp else None) or p.technical_skill_count or 0),
             "soft_skill_count":       int((comp.soft_skill_count     if comp else None) or p.soft_skill_count     or 0),
         }
@@ -1939,7 +1940,7 @@ class TrainingDataExportView(APIView):
         fieldnames = [
             'alumni_id', 'batch', 'gender', 'scholarship',
             'general_average_range', 'academic_honors', 'prior_work_experience',
-            'ojt_relevance', 'has_portfolio', 'english_proficiency',
+            'ojt_relevance', 'has_portfolio', 'pursuing_postgrad', 'completed_postgrad',
             'job_applications_count', 'job_source', 'first_job_sector',
             'first_job_status', 'technical_skill_count', 'soft_skill_count',
             'location_type', 'current_job_sector',
@@ -1967,7 +1968,8 @@ class TrainingDataExportView(APIView):
                 'prior_work_experience': 1 if profile.prior_work_experience else 0,
                 'ojt_relevance': profile.ojt_relevance,
                 'has_portfolio': 1 if profile.has_portfolio else 0,
-                'english_proficiency': profile.english_proficiency,
+                'pursuing_postgrad': 1 if getattr(profile, 'further_studies_status', '') == 'enrolled' else 0,
+                'completed_postgrad': 1 if getattr(profile, 'further_studies_status', '') == 'completed' else 0,
                 'job_applications_count': emp_profile.first_job_applications_count,
                 'job_source': emp_profile.first_job_source,
                 'first_job_sector': emp_profile.first_job_sector,

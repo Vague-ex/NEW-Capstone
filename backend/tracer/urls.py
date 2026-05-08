@@ -25,6 +25,7 @@ from .reports_api import (
     BatchSummaryReportView,
     DataQualityReportView,
     EmploymentOutcomesReportView,
+    FurtherStudiesReportView,
     PredictiveTrendReportView,
     SkillsInventoryReportView,
 )
@@ -79,6 +80,7 @@ urlpatterns = [
     path("admin/reports/batch-summary/", BatchSummaryReportView.as_view(), name="admin-report-batch-summary"),
     path("admin/reports/employment-outcomes/", EmploymentOutcomesReportView.as_view(), name="admin-report-employment-outcomes"),
     path("admin/reports/skills-inventory/", SkillsInventoryReportView.as_view(), name="admin-report-skills-inventory"),
+    path("admin/reports/further-studies/", FurtherStudiesReportView.as_view(), name="admin-report-further-studies"),
     path("admin/reports/data-quality/", DataQualityReportView.as_view(), name="admin-report-data-quality"),
     path("admin/reports/predictive-trend/", PredictiveTrendReportView.as_view(), name="admin-report-predictive-trend"),
 ]

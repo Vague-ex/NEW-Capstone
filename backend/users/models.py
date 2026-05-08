@@ -216,6 +216,23 @@ class AlumniProfile(models.Model):
     highest_attainment = models.CharField(max_length=20, choices=ATTAINMENT_CHOICES, blank=True)
     graduate_school = models.CharField(max_length=255, blank=True)
 
+    # Further studies (post-baccalaureate). Captures alumni who went to grad school
+    # without forcing them through a separate "did you graduate?" gate — every
+    # registered alumnus already holds the BSIS bachelor's by definition.
+    FURTHER_STUDIES_CHOICES = [
+        ("none", "Bachelor's only"),
+        ("enrolled", "Currently enrolled in further studies"),
+        ("completed", "Completed further studies"),
+    ]
+    further_studies_status = models.CharField(
+        max_length=20, choices=FURTHER_STUDIES_CHOICES, blank=True, default="none",
+    )
+    postgrad_program = models.CharField(max_length=200, blank=True)
+    postgrad_field = models.CharField(max_length=200, blank=True)
+    postgrad_school = models.CharField(max_length=255, blank=True)
+    postgrad_year_started = models.PositiveSmallIntegerField(null=True, blank=True)
+    postgrad_year_completed = models.PositiveSmallIntegerField(null=True, blank=True)
+
     # Professional eligibility (comma-separated; e.g. "TESDA,PRC")
     prof_eligibility = models.CharField(max_length=255, blank=True)
     prof_eligibility_other = models.CharField(max_length=255, blank=True)

@@ -568,7 +568,126 @@ class SkillsInventoryReportView(APIView):
         return _ok("Skills Inventory", sections, filters)
 
 
-# ── 4. Geographic Distribution ─────────────────────────────────────────────
+# ── 4. Further Studies (post-baccalaureate) ────────────────────────────────
+
+
+class FurtherStudiesReportView(APIView):
+    """Distribution of post-baccalaureate study status across the filtered batches.
+
+    Captures three populations adviser asked for:
+      - Graduates who went straight to work (status = "none" or blank).
+      - Graduates currently enrolled in further studies.
+      - Graduates who already completed further studies.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        filters = _parse_filters(request)
+        qs = _alumni_qs(filters)
+
+        status_counts: dict[str, int] = {"none": 0, "enrolled": 0, "completed": 0}
+        program_counter: Counter = Counter()
+        school_counter: Counter = Counter()
+        per_batch: dict[int, dict[str, int]] = defaultdict(
+            lambda: {"n": 0, "none": 0, "enrolled": 0, "completed": 0}
+        )
+
+        completed_durations: list[int] = []  # years started → completed
+        n_total = 0
+
+        for acc in qs:
+            prof = getattr(acc, "profile", None)
+            if not prof:
+                continue
+            n_total += 1
+            raw = (getattr(prof, "further_studies_status", None) or "none").strip().lower()
+            if raw not in status_counts:
+                raw = "none"
+            status_counts[raw] += 1
+
+            year = _grad_year(acc)
+            if year is not None:
+                bucket = per_batch[year]
+                bucket["n"] += 1
+                bucket[raw] += 1
+
+            if raw in {"enrolled", "completed"}:
+                program = (getattr(prof, "postgrad_program", "") or "").strip()
+                school = (getattr(prof, "postgrad_school", "") or getattr(prof, "graduate_school", "") or "").strip()
+                if program:
+                    program_counter[program] += 1
+                if school:
+                    school_counter[school] += 1
+
+            if raw == "completed":
+                ystart = getattr(prof, "postgrad_year_started", None)
+                yend = getattr(prof, "postgrad_year_completed", None)
+                if ystart and yend and yend >= ystart:
+                    completed_durations.append(int(yend) - int(ystart))
+
+        overview_rows = [
+            ["Bachelor's only (no further studies)", status_counts["none"], _pct(status_counts["none"], n_total)],
+            ["Currently enrolled in further studies", status_counts["enrolled"], _pct(status_counts["enrolled"], n_total)],
+            ["Completed further studies", status_counts["completed"], _pct(status_counts["completed"], n_total)],
+            ["Total alumni", n_total, "100%" if n_total else "—"],
+        ]
+
+        per_batch_rows = []
+        for year in sorted(per_batch):
+            b = per_batch[year]
+            per_batch_rows.append(
+                [
+                    year,
+                    b["n"],
+                    b["none"],
+                    b["enrolled"],
+                    b["completed"],
+                    _pct(b["enrolled"] + b["completed"], b["n"]),
+                ]
+            )
+
+        program_rows = [[name, count] for name, count in program_counter.most_common(20)]
+        school_rows = [[name, count] for name, count in school_counter.most_common(20)]
+
+        avg_duration = (
+            f"{sum(completed_durations) / len(completed_durations):.1f}"
+            if completed_durations else "—"
+        )
+        duration_rows = [
+            ["Completed graduates with start/end dates", len(completed_durations)],
+            ["Average years to complete further studies", avg_duration],
+        ]
+
+        sections = [
+            {
+                "title": f"Further-Studies Status (N = {n_total})",
+                "columns": ["Status", "Alumni", "% Share"],
+                "rows": overview_rows,
+            },
+            {
+                "title": "Per-Batch Breakdown",
+                "columns": ["Batch", "Alumni (N)", "Bachelor's only", "Enrolled", "Completed", "% Pursuing/Completed"],
+                "rows": per_batch_rows,
+            },
+            {
+                "title": "Top Programs (Top 20)",
+                "columns": ["Program / Degree", "Alumni"],
+                "rows": program_rows or [["No further-studies records yet", 0]],
+            },
+            {
+                "title": "Top Schools / Universities (Top 20)",
+                "columns": ["School / University", "Alumni"],
+                "rows": school_rows or [["No further-studies records yet", 0]],
+            },
+            {
+                "title": "Completion Duration",
+                "columns": ["Metric", "Value"],
+                "rows": duration_rows,
+            },
+        ]
+
+        return _ok("Further Studies", sections, filters)
 
 
 # ── 6. Survey Data Quality ─────────────────────────────────────────────────

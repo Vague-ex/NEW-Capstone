@@ -10,7 +10,7 @@ The data-generating process encodes realistic signal so downstream regression/
 classification models can actually learn the coefficients described in the spec:
     - More recent batch, higher grades, portfolio, more skills => faster hire
     - Related OJT, more tech/soft skills => higher BSIS-related job probability
-    - Scholarships, English proficiency => employment probability
+    - Scholarships, completed/pursuing post-graduate studies => employment probability
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 AVERAGE_RANGE_LABELS = {5: "95-100", 4: "90-94", 3: "85-89", 2: "80-84", 1: "75-79", 0: "Below 75"}
 HONORS_LABELS = {4: "Summa Cum Laude", 3: "Magna Cum Laude", 2: "Cum Laude", 1: "No Academic Honors"}
 OJT_LABELS = {3: "Yes, directly related", 2: "Somewhat related", 1: "Not related", 0: "Have not secured a job"}
-ENGLISH_LABELS = {3: "Professional/Business", 2: "Conversational", 1: "Basic"}
 APP_COUNT_LABELS = {1: "1-5", 2: "6-15", 3: "16-30", 4: "31+"}
 JOB_SOURCE_LABELS = {
     1: "Personal Network/Referral",
@@ -93,10 +92,19 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
     prior_work = int(rng.random() < 0.45 + scholarship * 0.1)
     ojt_relevance = int(np.clip(rng.choice([3, 2, 1, 0], p=[0.45, 0.30, 0.20, 0.05]), 0, 3))
     portfolio = int(rng.random() < (0.35 + 0.08 * batch_code + 0.1 * (grade_range >= 3)))
-    english = int(np.clip(rng.choice([3, 2, 1], p=[0.35, 0.50, 0.15]), 1, 3))
+
+    # Further-studies signal (replaces english_proficiency).
+    # `completed_postgrad` skews older batches (more time elapsed) and high-GPA grads.
+    # `pursuing_postgrad` is rarer; mutually exclusive with completed.
+    completed_postgrad_p = 0.04 + 0.015 * batch_code + 0.04 * (grade_range >= 4)
+    completed_postgrad = int(rng.random() < completed_postgrad_p)
+    pursuing_postgrad = 0
+    if not completed_postgrad:
+        pursuing_postgrad_p = 0.07 + 0.03 * (grade_range >= 4)
+        pursuing_postgrad = int(rng.random() < pursuing_postgrad_p)
 
     tech_skill_count = int(np.clip(rng.normal(5 + batch_boost * 2 + portfolio * 1.5 + 0.5 * grade_range, 2.2), 0, 12))
-    soft_skill_count = int(np.clip(rng.normal(5 + 0.3 * english + 0.4 * (honors >= 2), 1.8), 0, 10))
+    soft_skill_count = int(np.clip(rng.normal(5 + 0.4 * (honors >= 2) + 0.3 * (completed_postgrad or pursuing_postgrad), 1.8), 0, 10))
 
     # ── Employment status (Y2) depends on predictors ──────────────────────────
     employment_logit = (
@@ -108,7 +116,8 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
         + 0.55 * prior_work
         + 0.45 * (ojt_relevance >= 2)
         + 0.60 * portfolio
-        + 0.40 * (english - 1)
+        + 0.50 * completed_postgrad        # completed grad school → strong employment signal
+        + 0.10 * pursuing_postgrad         # currently enrolled → small positive signal
         + 0.18 * tech_skill_count
         + 0.12 * soft_skill_count
     )
@@ -139,7 +148,8 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
             "prior_work_experience": prior_work,
             "ojt_relevance": ojt_relevance,
             "has_portfolio": portfolio,
-            "english_proficiency": english,
+            "pursuing_postgrad": pursuing_postgrad,
+            "completed_postgrad": completed_postgrad,
             "technical_skill_count": tech_skill_count,
             "soft_skill_count": soft_skill_count,
             "job_applications_count": int(rng.choice([1, 2, 3, 4], p=[0.25, 0.35, 0.25, 0.15])),
@@ -171,7 +181,8 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
         - 2.0 * prior_work
         - 1.5 * ojt_relevance
         - 1.8 * portfolio
-        - 1.0 * (english - 1)
+        - 1.5 * completed_postgrad         # completed grad school → faster hire
+        - 0.4 * pursuing_postgrad          # currently enrolled → mild faster hire
         - 0.25 * tech_skill_count
         - 0.15 * soft_skill_count
     )
@@ -228,7 +239,8 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
         "prior_work_experience": prior_work,
         "ojt_relevance": ojt_relevance,
         "has_portfolio": portfolio,
-        "english_proficiency": english,
+        "pursuing_postgrad": pursuing_postgrad,
+        "completed_postgrad": completed_postgrad,
         "technical_skill_count": tech_skill_count,
         "soft_skill_count": soft_skill_count,
         "job_applications_count": applications,
@@ -262,7 +274,7 @@ def main() -> None:
     raw_fields = [
         "alumni_id", "batch", "gender", "scholarship",
         "general_average_range", "academic_honors", "prior_work_experience",
-        "ojt_relevance", "has_portfolio", "english_proficiency",
+        "ojt_relevance", "has_portfolio", "pursuing_postgrad", "completed_postgrad",
         "technical_skill_count", "soft_skill_count",
         "job_applications_count", "job_source",
         "first_job_sector", "first_job_status",
@@ -285,7 +297,7 @@ def main() -> None:
         "alumni_id", "batch",
         "batch_code", "gender", "scholarship",
         "general_average_range", "academic_honors", "prior_work_experience",
-        "ojt_relevance", "has_portfolio", "english_proficiency",
+        "ojt_relevance", "has_portfolio", "pursuing_postgrad", "completed_postgrad",
         "technical_skill_count", "soft_skill_count",
         "job_applications_count",
         "job_source_1", "job_source_2", "job_source_3", "job_source_4",
@@ -312,7 +324,8 @@ def main() -> None:
                 "prior_work_experience": row["prior_work_experience"],
                 "ojt_relevance": row["ojt_relevance"],
                 "has_portfolio": row["has_portfolio"],
-                "english_proficiency": row["english_proficiency"],
+                "pursuing_postgrad": row["pursuing_postgrad"],
+                "completed_postgrad": row["completed_postgrad"],
                 "technical_skill_count": row["technical_skill_count"],
                 "soft_skill_count": row["soft_skill_count"],
                 "job_applications_count": row["job_applications_count"],

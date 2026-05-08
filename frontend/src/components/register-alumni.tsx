@@ -234,8 +234,13 @@ export function RegisterAlumni() {
       payload.append('graduation_date', personalData.graduationDate || '');
       payload.append('graduation_year', personalData.graduationYear?.toString() || '');
       payload.append('scholarship', personalData.scholarship || '');
-      payload.append('highest_attainment', personalData.highestAttainment || '');
-      payload.append('graduate_school', personalData.graduateSchool || '');
+      // Further-studies replaces the old highest_attainment / graduate_school question.
+      payload.append('further_studies_status', personalData.furtherStudies);
+      payload.append('postgrad_program', personalData.postgradProgram || '');
+      payload.append('postgrad_field', personalData.postgradField || '');
+      payload.append('postgrad_school', personalData.postgradSchool || '');
+      payload.append('postgrad_year_started', personalData.postgradYearStarted || '');
+      payload.append('postgrad_year_completed', personalData.postgradYearCompleted || '');
       payload.append('prof_eligibility', personalData.profEligibility.join(','));
       payload.append('prof_eligibility_other', personalData.profEligibilityOther || '');
       payload.append('employment_status', employmentData?.employment_status || 'unemployed');
@@ -266,12 +271,8 @@ export function RegisterAlumni() {
     dispatch({ type: 'SET_BIOMETRIC_DATA', biometricData: biometricData ?? null });
     if (matchStatus) dispatch({ type: 'SET_MATCH_STATUS', matchStatus });
 
-    if (!personalData.hasGraduated) {
-      // submitRegistration shows SubmittingOverlay → then GO_TO_COMPLETE or SET_ERROR
-      void submitRegistration(personalData, null, biometricData);
-    } else {
-      dispatch({ type: 'GO_TO_EMPLOYMENT' });
-    }
+    // All registrants are alumni (BSIS bachelor's holders) → always go to employment survey.
+    dispatch({ type: 'GO_TO_EMPLOYMENT' });
   };
 
   const handleEmploymentComplete = async (employmentData: EmploymentFormData) => {

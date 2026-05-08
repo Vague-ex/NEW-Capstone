@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   FileText, FileSpreadsheet, FileType2, Loader2, AlertCircle, Filter, Eye, X,
-  Users, Briefcase, Wrench, ShieldCheck, TrendingUp,
+  Users, Briefcase, Wrench, ShieldCheck, TrendingUp, GraduationCap,
 } from 'lucide-react';
 import { fetchReport, ReportFilters, type ReportPayload } from '../../app/api-client';
 import { exportCsv, exportPdf, exportXlsx } from '../../lib/report-export';
@@ -48,6 +48,16 @@ const REPORTS: ReportDef[] = [
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Wrench,
     accent: 'text-purple-600 bg-purple-50',
+  },
+  {
+    id: 'further-studies',
+    title: 'Further Studies',
+    description:
+      "Status breakdown — went straight to work vs. currently enrolled vs. completed Master's / PhD — with top programs, schools, and completion durations.",
+    endpoint: 'further-studies',
+    formats: ['pdf', 'xlsx', 'csv'],
+    Icon: GraduationCap,
+    accent: 'text-emerald-600 bg-emerald-50',
   },
   {
     id: 'data-quality',

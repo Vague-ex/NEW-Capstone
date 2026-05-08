@@ -49,8 +49,13 @@ export interface PersonalFormData {
   graduationYear: number | null;
   hasGraduated: boolean;
   scholarship: string;
-  highestAttainment: string;
-  graduateSchool: string;
+  // Further-studies (post-baccalaureate) — replaces the legacy "highestAttainment" question.
+  furtherStudies: 'none' | 'enrolled' | 'completed';
+  postgradProgram: string;
+  postgradField: string;
+  postgradSchool: string;
+  postgradYearStarted: string;
+  postgradYearCompleted: string;
   profEligibility: string[];
   profEligibilityOther: string;
 }
@@ -106,8 +111,12 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   graduationYear: null,
   hasGraduated: true,
   scholarship: '',
-  highestAttainment: '',
-  graduateSchool: '',
+  furtherStudies: 'none',
+  postgradProgram: '',
+  postgradField: '',
+  postgradSchool: '',
+  postgradYearStarted: '',
+  postgradYearCompleted: '',
   profEligibility: [],
   profEligibilityOther: '',
 };
@@ -325,9 +334,35 @@ export default function RegisterAlumniPersonal({
       }
     }
     if (step === 3) {
-      if (form.hasGraduated && !form.graduationDate.trim()) {
+      if (!form.graduationDate.trim()) {
         setStepError('Graduation date is required.');
         return false;
+      }
+      if (form.furtherStudies === 'enrolled' || form.furtherStudies === 'completed') {
+        if (!form.postgradProgram.trim()) {
+          setStepError('Program / Degree is required for further studies.');
+          return false;
+        }
+        if (!form.postgradSchool.trim()) {
+          setStepError('School / University is required for further studies.');
+          return false;
+        }
+        const startYear = Number(form.postgradYearStarted);
+        if (!startYear || startYear < 1980 || startYear > new Date().getFullYear()) {
+          setStepError('Please enter a valid Year Started (1980–present).');
+          return false;
+        }
+        if (form.furtherStudies === 'completed') {
+          const endYear = Number(form.postgradYearCompleted);
+          if (!endYear || endYear < 1980 || endYear > new Date().getFullYear()) {
+            setStepError('Please enter a valid Year Completed (1980–present).');
+            return false;
+          }
+          if (endYear < startYear) {
+            setStepError('Year Completed cannot be earlier than Year Started.');
+            return false;
+          }
+        }
       }
     }
     return true;
@@ -849,118 +884,164 @@ export default function RegisterAlumniPersonal({
               )}
 
               <div className="space-y-4">
+                <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
+                  Every CHMSU Talisay BSIS alumnus already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken.
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                    Date of Graduation (BSIS) *
+                  </label>
+                  <input
+                    type="date"
+                    value={form.graduationDate}
+                    onChange={(e) => {
+                      setF('graduationDate', e.target.value);
+                      const year = new Date(e.target.value).getFullYear();
+                      setF('graduationYear', year);
+                    }}
+                    className={inputCls}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                    Scholarship Availed
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. CHED, SUC Scholar, None"
+                    value={form.scholarship}
+                    onChange={(e) => setF('scholarship', e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                    Have you graduated? *
+                    Are you currently pursuing or have you completed further studies? *
                   </label>
-                  <div className="flex gap-2">
+                  <div className="space-y-2">
                     {[
-                      { label: 'Yes, I have graduated', value: true },
-                      // { label: 'Not yet, currently in school', value: false },
+                      { label: 'No — only my BSIS Bachelor\'s degree', value: 'none' as const },
+                      { label: 'Yes, currently enrolled', value: 'enrolled' as const },
+                      { label: 'Yes, already completed', value: 'completed' as const },
                     ].map((opt) => (
                       <RadioOption
-                        key={opt.label}
+                        key={opt.value}
                         label={opt.label}
                         value={opt.value}
-                        current={form.hasGraduated}
-                        onSelect={(v) => setF('hasGraduated', v as boolean)}
+                        current={form.furtherStudies}
+                        onSelect={(v) => setF('furtherStudies', v as PersonalFormData['furtherStudies'])}
                       />
                     ))}
                   </div>
                 </div>
 
-                {form.hasGraduated && (
-                  <>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        Date of Graduation *
-                      </label>
-                      <input
-                        type="date"
-                        value={form.graduationDate}
-                        onChange={(e) => {
-                          setF('graduationDate', e.target.value);
-                          const year = new Date(e.target.value).getFullYear();
-                          setF('graduationYear', year);
-                        }}
-                        className={inputCls}
-                      />
-                    </div>
+                {(form.furtherStudies === 'enrolled' || form.furtherStudies === 'completed') && (
+                  <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
+                      {form.furtherStudies === 'enrolled' ? 'Tell us about your current program' : 'Tell us about the completed program'}
+                    </p>
 
                     <div>
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        Scholarship Availed
+                        Program / Degree *
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. CHED, SUC Scholar, None"
-                        value={form.scholarship}
-                        onChange={(e) => setF('scholarship', e.target.value)}
+                        placeholder="e.g. Master of Information Technology, MBA, PhD in Computer Science"
+                        value={form.postgradProgram}
+                        onChange={(e) => setF('postgradProgram', e.target.value)}
                         className={inputCls}
                       />
                     </div>
 
                     <div>
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        Highest Attainment
+                        Field / Specialization
                       </label>
-                      <select value={form.highestAttainment} onChange={(e) => setF('highestAttainment', e.target.value)} className={inputCls}>
-                        <option value="">Select</option>
-                        <option>Bachelor&apos;s Degree</option>
-                        <option>Master&apos;s Degree</option>
-                        <option>Doctorate</option>
-                      </select>
+                      <input
+                        type="text"
+                        placeholder="e.g. Data Science, Information Security"
+                        value={form.postgradField}
+                        onChange={(e) => setF('postgradField', e.target.value)}
+                        className={inputCls}
+                      />
                     </div>
 
-                    {["Master's Degree", "Doctorate"].includes(form.highestAttainment) && (
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                        School / University *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. University of the Philippines"
+                        value={form.postgradSchool}
+                        onChange={(e) => setF('postgradSchool', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                          Graduate School / University
+                          Year Started *
                         </label>
                         <input
-                          type="text"
-                          placeholder="e.g. University of the Philippines"
-                          value={form.graduateSchool}
-                          onChange={(e) => setF('graduateSchool', e.target.value)}
+                          type="number"
+                          min={1980}
+                          max={new Date().getFullYear()}
+                          placeholder="e.g. 2023"
+                          value={form.postgradYearStarted}
+                          onChange={(e) => setF('postgradYearStarted', e.target.value)}
                           className={inputCls}
                         />
                       </div>
-                    )}
-
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                        Professional Eligibility / Certifications
-                      </label>
-                      <div className="space-y-1.5">
-                        {['Civil Service Exam', 'TESDA', 'Board Exam', 'Others'].map((opt) => (
-                          <CheckOption
-                            key={opt}
-                            label={opt}
-                            checked={form.profEligibility.includes(opt)}
-                            onChange={() => toggleArr('profEligibility', opt)}
+                      {form.furtherStudies === 'completed' && (
+                        <div>
+                          <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                            Year Completed *
+                          </label>
+                          <input
+                            type="number"
+                            min={1980}
+                            max={new Date().getFullYear()}
+                            placeholder="e.g. 2025"
+                            value={form.postgradYearCompleted}
+                            onChange={(e) => setF('postgradYearCompleted', e.target.value)}
+                            className={inputCls}
                           />
-                        ))}
-                      </div>
-                      {form.profEligibility.includes('Others') && (
-                        <input
-                          type="text"
-                          placeholder="Please specify certification"
-                          value={form.profEligibilityOther}
-                          onChange={(e) => setF('profEligibilityOther', e.target.value)}
-                          className={`${inputCls} mt-2`}
-                        />
+                        </div>
                       )}
                     </div>
-                  </>
-                )}
-
-                {!form.hasGraduated && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                    <p className="text-amber-800 text-sm">
-                      <span style={{ fontWeight: 600 }}>Note:</span> Since you haven&apos;t graduated yet, the employment survey will be skipped. Biometric verification is still required for all alumni registrations.
-                    </p>
                   </div>
                 )}
+
+                <div>
+                  <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
+                    Professional Eligibility / Certifications
+                  </label>
+                  <div className="space-y-1.5">
+                    {['Civil Service Exam', 'TESDA', 'Board Exam', 'Others'].map((opt) => (
+                      <CheckOption
+                        key={opt}
+                        label={opt}
+                        checked={form.profEligibility.includes(opt)}
+                        onChange={() => toggleArr('profEligibility', opt)}
+                      />
+                    ))}
+                  </div>
+                  {form.profEligibility.includes('Others') && (
+                    <input
+                      type="text"
+                      placeholder="Please specify certification"
+                      value={form.profEligibilityOther}
+                      onChange={(e) => setF('profEligibilityOther', e.target.value)}
+                      className={`${inputCls} mt-2`}
+                    />
+                  )}
+                </div>
               </div>
 
               <NavButtons onBack={prevPersonalStep} onNext={nextPersonalStep} nextLabel="Verify Identity" />

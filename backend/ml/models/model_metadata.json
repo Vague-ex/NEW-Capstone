@@ -1,7 +1,7 @@
 {
-  "trained_at": "2026-04-26T11:02:17.275211+00:00",
+  "trained_at": "2026-05-08T16:08:42.229959+00:00",
   "n_samples": 230,
-  "n_features": 30,
+  "n_features": 31,
   "features": [
     "batch_code",
     "gender",
@@ -11,7 +11,8 @@
     "prior_work_experience",
     "ojt_relevance",
     "has_portfolio",
-    "english_proficiency",
+    "pursuing_postgrad",
+    "completed_postgrad",
     "technical_skill_count",
     "soft_skill_count",
     "job_applications_count",
@@ -42,28 +43,28 @@
       "best_model": "random_forest",
       "candidates": {
         "linear_regression": {
-          "cv_mean": -0.2725486133104149,
-          "cv_std": 0.5182161695029506,
+          "cv_mean": -0.22150432251131483,
+          "cv_std": 0.7801607785340865,
           "scoring": "r2",
-          "n_samples": 157,
-          "train_r2": 0.37193155064846795,
-          "train_mae": 0.4551867454192644
+          "n_samples": 162,
+          "train_r2": 0.4752740410037424,
+          "train_mae": 0.884070906886113
         },
         "ridge": {
-          "cv_mean": -0.2623565869476591,
-          "cv_std": 0.50755946003522,
+          "cv_mean": -0.21085489566357568,
+          "cv_std": 0.7661850916886989,
           "scoring": "r2",
-          "n_samples": 157,
-          "train_r2": 0.371909363262246,
-          "train_mae": 0.45424863976655283
+          "n_samples": 162,
+          "train_r2": 0.47525501560461214,
+          "train_mae": 0.8817580715863054
         },
         "random_forest": {
-          "cv_mean": 0.008148667917062613,
-          "cv_std": 0.3699169030186678,
+          "cv_mean": 0.25096495304100613,
+          "cv_std": 0.22858612932064012,
           "scoring": "r2",
-          "n_samples": 157,
-          "train_r2": 0.8811758335733038,
-          "train_mae": 0.15406780681727267
+          "n_samples": 162,
+          "train_r2": 0.8736169498941133,
+          "train_mae": 0.36603142085416956
         }
       }
     },
@@ -83,8 +84,8 @@
           "train_f1": 1.0
         },
         "random_forest": {
-          "cv_mean": 0.9939435028248587,
-          "cv_std": 0.007505274938600614,
+          "cv_mean": 1.0,
+          "cv_std": 0.0,
           "scoring": "f1",
           "n_samples": 230,
           "train_accuracy": 1.0,
@@ -93,8 +94,8 @@
           "train_f1": 1.0
         },
         "gradient_boosting": {
-          "cv_mean": 0.9939435028248587,
-          "cv_std": 0.007505274938600614,
+          "cv_mean": 1.0,
+          "cv_std": 0.0,
           "scoring": "f1",
           "n_samples": 230,
           "train_accuracy": 1.0,

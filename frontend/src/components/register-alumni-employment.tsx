@@ -25,7 +25,6 @@ export interface EmploymentFormData {
   prior_work_experience: boolean;
   ojt_relevance: number | null;
   has_portfolio: boolean;
-  english_proficiency: number | null;
 
   // Step 2: Employment Status
   employment_status: string;
@@ -122,7 +121,6 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   prior_work_experience: false,
   ojt_relevance: null,
   has_portfolio: false,
-  english_proficiency: null,
   employment_status: '',
   time_to_hire_months: null,
   time_to_hire_raw: '',
@@ -545,22 +543,6 @@ export default function RegisterAlumniEmployment({
               <RadioOption label="Yes" value={true} current={form.has_portfolio} onSelect={(v) => setForm({ ...form, has_portfolio: v })} />
               <RadioOption label="No" value={false} current={form.has_portfolio} onSelect={(v) => setForm({ ...form, has_portfolio: v })} />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">
-              English Proficiency
-            </label>
-            <select
-              value={form.english_proficiency ?? ''}
-              onChange={(e) => setForm({ ...form, english_proficiency: e.target.value ? parseInt(e.target.value) : null })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-            >
-              <option value="">Select Proficiency Level</option>
-              <option value="3">Professional / Business</option>
-              <option value="2">Conversational</option>
-              <option value="1">Basic</option>
-            </select>
           </div>
 
           <NavButtons onBack={prevStep} onNext={nextStep} />

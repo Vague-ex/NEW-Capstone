@@ -64,6 +64,16 @@ def _safe_json_loads(raw_value):
         return {}
 
 
+def _safe_int(value):
+    """Coerce form values to int; return None for empty / non-numeric input."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_profile_name(first_name: str, middle_name: str, family_name: str) -> str:
     return " ".join(part.strip() for part in [first_name, middle_name, family_name] if part and part.strip())
 
@@ -1204,6 +1214,12 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "scholarship": personal_data.get("scholarship", ""),
         "highest_attainment": personal_data.get("highest_attainment", ""),
         "graduate_school": personal_data.get("graduate_school", ""),
+        "further_studies_status": personal_data.get("further_studies_status", "none") or "none",
+        "postgrad_program": personal_data.get("postgrad_program", ""),
+        "postgrad_field": personal_data.get("postgrad_field", ""),
+        "postgrad_school": personal_data.get("postgrad_school", "") or personal_data.get("graduate_school", ""),
+        "postgrad_year_started": _safe_int(personal_data.get("postgrad_year_started")),
+        "postgrad_year_completed": _safe_int(personal_data.get("postgrad_year_completed")),
         "prof_eligibility": personal_data.get("prof_eligibility", ""),
         "prof_eligibility_other": personal_data.get("prof_eligibility_other", ""),
 
@@ -1213,7 +1229,8 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "prior_work_experience": survey_data.get("prior_work_experience", False),
         "ojt_relevance": survey_data.get("ojt_relevance"),
         "has_portfolio": survey_data.get("has_portfolio", False),
-        "english_proficiency": survey_data.get("english_proficiency"),
+        "portfolio_url": (str(survey_data.get("portfolio_url") or "")).strip()[:500],
+        "github_url": (str(survey_data.get("github_url") or "")).strip()[:500],
 
         # Skill counts (denormalized for ML regression model)
         "technical_skill_count": len(survey_data.get("technical_skills", [])),
