@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
-import { updateAlumniEmployment } from '../../app/api-client';
+import { fetchAlumniAccountStatus, updateAlumniEmployment } from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
@@ -81,7 +82,8 @@ function normalizeEmploymentStatus(status: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AlumniEmployment() {
+export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: boolean } = {}) {
+  const navigate = useNavigate();
   const { data: referenceData } = useReferenceData();
   const rawUser = sessionStorage.getItem('alumni_user');
   const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
@@ -323,6 +325,19 @@ export function AlumniEmployment() {
 
       sessionStorage.setItem('alumni_user', JSON.stringify(updated));
       setSaved(true);
+
+      if (retrackingMode && alumniId) {
+        try {
+          const refreshed = await fetchAlumniAccountStatus(alumniId);
+          if (refreshed && typeof refreshed === 'object') {
+            const merged = { ...updated, ...(refreshed as Record<string, unknown>) };
+            sessionStorage.setItem('alumni_user', JSON.stringify(merged));
+          }
+        } catch {
+          // If session refresh fails, the dashboard will re-check on its own mount.
+        }
+        navigate('/alumni/dashboard');
+      }
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Unable to save employment data right now.');
     } finally {
@@ -335,6 +350,18 @@ export function AlumniEmployment() {
   return (
     <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey — Employment Record">
       <div className="max-w-3xl mx-auto space-y-5">
+
+        {retrackingMode && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
+            <AlertTriangle className="size-5 text-red-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Employment record retracking required</p>
+              <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
+                Your employment data is over 2 years old. Please review and update every section before continuing — your dashboard and other features remain locked until this form is submitted.
+              </p>
+            </div>
+          </div>
+        )}
 
         {isPending && (
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">

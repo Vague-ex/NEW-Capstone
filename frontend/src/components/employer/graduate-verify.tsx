@@ -5,6 +5,7 @@ import {
   ApiClientError,
   fetchEmployerAccountStatus,
   fetchEmployerVerifiableGraduates,
+  type EmployerEvaluationPayload,
   type EmployerVerifiableGraduateResponse,
   issueVerificationToken,
   submitVerificationDecision,
@@ -15,6 +16,7 @@ import {
   Briefcase, MapPin, Building2, Shield, Clock, Star,
   MessageSquare, ThumbsUp, Send, ChevronRight, X,
 } from 'lucide-react';
+import { EvaluationFormModal } from './evaluation-form-modal';
 
 type Graduate = EmployerVerifiableGraduateResponse;
 
@@ -273,6 +275,7 @@ export function GraduateVerify() {
   const [lastSubmitWasHeld, setLastSubmitWasHeld] = useState(false);
   const [lastSubmitMessage, setLastSubmitMessage] = useState('');
   const [verifiedJobTitleId, setVerifiedJobTitleId] = useState('');
+  const [evalModalOpen, setEvalModalOpen] = useState(false);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,13 +308,22 @@ export function GraduateVerify() {
     setLastSubmitMessage('');
   };
 
-  const handleSendEndorsement = async () => {
+  const handleOpenEvalModal = () => {
     if (!selectedGraduate) return;
     if (!confirmEmployment) {
       setSaveError('Please confirm employment before submitting verification.');
       return;
     }
+    if (!String(selectedGraduate.id ?? '').trim()) {
+      setSaveError('This graduate record is missing an ID required for verification.');
+      return;
+    }
+    setSaveError('');
+    setEvalModalOpen(true);
+  };
 
+  const handleSubmitEvaluation = async (evalPayload: EmployerEvaluationPayload) => {
+    if (!selectedGraduate) return;
     const alumniId = String(selectedGraduate.id ?? '').trim();
     if (!alumniId) {
       setSaveError('This graduate record is missing an ID required for verification.');
@@ -334,12 +346,14 @@ export function GraduateVerify() {
         comment: endorsement.trim() || undefined,
         verified_employer_name: employerCompany.trim() || undefined,
         verified_job_title_id: verifiedJobTitleId.trim() || undefined,
+        ...evalPayload,
       });
 
       const held = Boolean(decisionResult.decision?.isHeld);
       setLastSubmitWasHeld(held);
       setLastSubmitMessage(String(decisionResult.message ?? '').trim());
       setEndorsementSent(true);
+      setEvalModalOpen(false);
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.status === 401) {
@@ -707,15 +721,18 @@ export function GraduateVerify() {
                   </div>
 
                   <button
-                    onClick={handleSendEndorsement}
+                    onClick={handleOpenEvalModal}
                     disabled={isSending || !confirmEmployment}
                     className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
                     style={{ fontWeight: 600 }}>
                     {isSending
                       ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Submitting…</>
-                      : <><Send className="size-4" /> Submit Endorsement</>
+                      : <><Send className="size-4" /> Continue to Evaluation Form</>
                     }
                   </button>
+                  <p className="text-gray-400 text-xs">
+                    Submitting your endorsement opens the Employer's Confidential Feedback Form. The verification is finalized only after you complete it.
+                  </p>
                 </div>
               )}
             </div>
@@ -723,6 +740,16 @@ export function GraduateVerify() {
         )}
 
       </div>
+
+      <EvaluationFormModal
+        isOpen={evalModalOpen}
+        graduateName={selectedGraduate?.name ?? ''}
+        defaultEmployerName={employerCompany}
+        defaultBusinessType={selectedGraduate?.industry ?? ''}
+        onClose={() => setEvalModalOpen(false)}
+        onSubmit={handleSubmitEvaluation}
+        isSubmitting={isSending}
+      />
     </PortalLayout>
   );
 }

@@ -21,6 +21,7 @@ UI preview the table before the user exports it.
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -37,7 +38,61 @@ from users.api import (
 )
 from users.models import AccountStatus, AlumniAccount
 
+from .models import VerificationDecision
+
 logger = logging.getLogger(__name__)
+
+
+# Numeric scoring for rating choices (excellent → 5, unsatisfactory → 1).
+_RATING_TO_SCORE: dict[str, int] = {
+    "excellent": 5,
+    "very_good": 4,
+    "good": 3,
+    "fair": 2,
+    "unsatisfactory": 1,
+}
+
+_RATING_FIELDS_LABELS: list[tuple[str, str]] = [
+    ("rating_quality_of_work", "Quality"),
+    ("rating_work_habits", "Habits"),
+    ("rating_relationship_with_people", "Relationships"),
+    ("rating_dependability", "Dependability"),
+    ("rating_quantity_of_work", "Quantity"),
+    ("rating_initiative", "Initiative"),
+    ("rating_analytical_ability", "Analytical"),
+    ("rating_ability_as_supervisor", "Supervisor"),
+    ("rating_administrative_ability", "Admin"),
+    ("rating_safety", "Safety"),
+    ("rating_commitment_to_social_equity", "Social Equity"),
+]
+
+# Stop-word filter for the Common Themes section. Keeps tokenization-cheap
+# without bringing in nltk or similar.
+_THEMES_STOP_WORDS: set[str] = {
+    "philippines", "corp", "corporation", "inc", "ltd", "company", "the", "and",
+    "with", "that", "they", "their", "from", "this", "have", "also", "would",
+    "should", "very", "much", "more", "most", "such", "into", "when", "what",
+    "which", "where", "while", "than", "then", "there", "these", "those",
+    "been", "being", "your", "ours", "them", "some", "other", "could",
+    "good", "well", "make", "made", "does", "doing",
+}
+
+
+def _avg_2dp(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _top_words(texts: list[str], k: int = 5) -> list[tuple[str, int]]:
+    counter: Counter[str] = Counter()
+    for raw in texts:
+        if not raw:
+            continue
+        for token in re.findall(r"[a-z]+", raw.lower()):
+            if len(token) >= 4 and token not in _THEMES_STOP_WORDS:
+                counter[token] += 1
+    return counter.most_common(k)
 
 
 DEFAULT_START = 2018
@@ -227,22 +282,141 @@ class BatchSummaryReportView(APIView):
                 ]
             )
 
+        section_a = {
+            "title": "Per-Batch Outcomes",
+            "columns": [
+                "Batch",
+                "Alumni (N)",
+                "Employment Rate",
+                "Avg Time-to-Hire (mo)",
+                "BSIS-Aligned (First)",
+                "BSIS-Aligned (Current)",
+            ],
+            "rows": rows,
+        }
+
+        # ── Section B: Employer Feedback Aggregates per Batch ───────────────────
+        eval_qs = (
+            VerificationDecision.objects.filter(
+                evaluation_submitted=True,
+                token__alumni__profile__graduation_year__gte=filters["batch_start"],
+                token__alumni__profile__graduation_year__lte=filters["batch_end"],
+            )
+            .values_list(
+                "token__alumni__profile__graduation_year",
+                *[f for f, _ in _RATING_FIELDS_LABELS],
+                "assessment_strengths",
+                "assessment_improvements",
+            )
+        )
+
+        eval_buckets: dict[int, dict[str, Any]] = defaultdict(
+            lambda: {
+                "n": 0,
+                "ratings": defaultdict(list),
+                "strengths_texts": [],
+                "improvements_texts": [],
+            }
+        )
+        for row in eval_qs:
+            year_value = row[0]
+            if year_value is None:
+                continue
+            year = int(year_value)
+            bucket = eval_buckets[year]
+            bucket["n"] += 1
+            for idx, (field_name, _label) in enumerate(_RATING_FIELDS_LABELS, start=1):
+                score = _RATING_TO_SCORE.get(row[idx])
+                if score is not None:
+                    bucket["ratings"][field_name].append(score)
+            strengths_text = row[1 + len(_RATING_FIELDS_LABELS)]
+            improvements_text = row[2 + len(_RATING_FIELDS_LABELS)]
+            if strengths_text:
+                bucket["strengths_texts"].append(strengths_text)
+            if improvements_text:
+                bucket["improvements_texts"].append(improvements_text)
+
+        feedback_rows: list[list[Any]] = []
+        composites_by_year: dict[int, float | None] = {}
+        for year in sorted(eval_buckets):
+            bucket = eval_buckets[year]
+            field_means: list[float] = []
+            row_cells: list[Any] = [year, bucket["n"]]
+            for field_name, _label in _RATING_FIELDS_LABELS:
+                mean = _avg_2dp(bucket["ratings"][field_name])
+                row_cells.append(f"{mean:.2f}" if mean is not None else "—")
+                if mean is not None:
+                    field_means.append(mean)
+            composite = _avg_2dp(field_means) if field_means else None
+            composites_by_year[year] = composite
+            row_cells.append(f"{composite:.2f}" if composite is not None else "—")
+            feedback_rows.append(row_cells)
+
+        section_b = {
+            "title": "Employer Feedback Aggregates",
+            "columns": [
+                "Batch",
+                "Evaluations",
+                *[label for _f, label in _RATING_FIELDS_LABELS],
+                "Composite",
+            ],
+            "rows": feedback_rows,
+        }
+
+        # ── Section C: Cross-Batch Timeline (one row per metric, columns = batches) ───
+        timeline_years = sorted(set(buckets) | set(eval_buckets))
+        timeline_rows: list[list[Any]] = []
+        if timeline_years:
+            employment_row: list[Any] = ["Employment Rate %"]
+            tth_row: list[Any] = ["Avg Time-to-Hire (mo)"]
+            composite_row: list[Any] = ["Avg Composite Rating"]
+            for year in timeline_years:
+                outcome = buckets.get(year)
+                if outcome and outcome["n"]:
+                    employment_row.append(_pct(outcome["employed"], outcome["n"]))
+                    tth_row.append(_avg(outcome["tth"]))
+                else:
+                    employment_row.append("—")
+                    tth_row.append("—")
+                composite = composites_by_year.get(year)
+                composite_row.append(f"{composite:.2f}" if composite is not None else "—")
+            timeline_rows = [employment_row, tth_row, composite_row]
+
+        section_c = {
+            "title": "Cross-Batch Timeline",
+            "columns": ["Metric", *[str(y) for y in timeline_years]],
+            "rows": timeline_rows,
+        }
+
+        # ── Section D: Common Themes (two tables, top 5 words per batch) ──────
+        themes_columns = ["Batch", "#1", "#2", "#3", "#4", "#5"]
+        strengths_rows: list[list[Any]] = []
+        improvements_rows: list[list[Any]] = []
+        for year in sorted(eval_buckets):
+            bucket = eval_buckets[year]
+            top_strengths = _top_words(bucket["strengths_texts"], k=5)
+            top_improvements = _top_words(bucket["improvements_texts"], k=5)
+
+            def _format(words: list[tuple[str, int]]) -> list[str]:
+                return [f"{w} ({c})" for w, c in words] + [""] * (5 - len(words))
+
+            strengths_rows.append([year, *_format(top_strengths)])
+            improvements_rows.append([year, *_format(top_improvements)])
+
+        section_d_strengths = {
+            "title": "Common Themes — Strengths",
+            "columns": themes_columns,
+            "rows": strengths_rows,
+        }
+        section_d_improvements = {
+            "title": "Common Themes — Areas to Improve",
+            "columns": themes_columns,
+            "rows": improvements_rows,
+        }
+
         return _ok(
             "Batch Summary",
-            [
-                {
-                    "title": "Per-Batch Outcomes",
-                    "columns": [
-                        "Batch",
-                        "Alumni (N)",
-                        "Employment Rate",
-                        "Avg Time-to-Hire (mo)",
-                        "BSIS-Aligned (First)",
-                        "BSIS-Aligned (Current)",
-                    ],
-                    "rows": rows,
-                }
-            ],
+            [section_a, section_b, section_c, section_d_strengths, section_d_improvements],
             filters,
         )
 

@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 
 from .models import (
     AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
-    EmployerAccount, FaceScan, GraduateMasterRecord, User,
+    EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, User,
 )
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
 from tracer.models import (
@@ -667,6 +667,37 @@ def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
     return base
 
 
+_RETRACKING_THRESHOLD_DAYS = 730
+
+
+def _needs_retracking(account: AlumniAccount) -> bool:
+    """True when the alumni's latest EmploymentProfile is >2 years old."""
+    try:
+        emp = account.employment_profiles.order_by("-updated_at").first()
+    except Exception:  # pragma: no cover - defensive
+        return False
+    if not emp or not emp.updated_at:
+        return False
+    return (timezone.now() - emp.updated_at).days >= _RETRACKING_THRESHOLD_DAYS
+
+
+def _extract_login_gps(request) -> tuple[float | None, float | None, float | None]:
+    """Pull gps_lat / gps_lng / gps_accuracy_m from the login request, tolerating missing/invalid values."""
+    def _to_float(value):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    return (
+        _to_float(request.data.get("gps_lat")),
+        _to_float(request.data.get("gps_lng")),
+        _to_float(request.data.get("gps_accuracy_m")),
+    )
+
+
 def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
@@ -739,6 +770,7 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "accountStatus": account.account_status,
         "surveyData": survey_data,
         "skills": skills,
+        "requiresRetracking": _needs_retracking(account),
     }
 
 
@@ -1804,6 +1836,22 @@ class AlumniLoginView(APIView):
 
         alumni_account.biometric_template = json.dumps(template)
         alumni_account.save(update_fields=["biometric_template"])
+
+        gps_lat, gps_lng, gps_accuracy_m = _extract_login_gps(request)
+        try:
+            LoginAudit.objects.create(
+                alumni=alumni_account,
+                timestamp=timezone.now(),
+                scan_url=login_scan_url,
+                similarity_score=round(similarity_score, 4),
+                descriptor_distance=round(descriptor_distance, 4) if descriptor_distance is not None else None,
+                status="success",
+                gps_lat=gps_lat,
+                gps_lng=gps_lng,
+                gps_accuracy_m=gps_accuracy_m,
+            )
+        except (OperationalError, DatabaseError):  # pragma: no cover - audit is best-effort
+            pass
 
         return Response(
             {

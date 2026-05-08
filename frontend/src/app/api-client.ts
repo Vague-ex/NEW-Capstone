@@ -42,6 +42,7 @@ export interface AlumniSession {
     biometricDate: string | null;
     facePhotoUrl: string;
     accountStatus: string;
+    requiresRetracking?: boolean;
 }
 
 export interface AdminLoginResponse {
@@ -80,6 +81,41 @@ export interface VerificationDecisionResponse {
     employerId?: string;
     isHeld?: boolean;
     heldActivatedAt?: string | null;
+    evaluationSubmitted?: boolean;
+    evaluationSubmittedAt?: string | null;
+}
+
+// Employer's Confidential Feedback Form — 17-field payload submitted
+// alongside a confirm decision via submitVerificationDecision.
+export type EmployerEvaluationRating =
+    | 'excellent'
+    | 'very_good'
+    | 'good'
+    | 'fair'
+    | 'unsatisfactory';
+
+export interface EmployerEvaluationPayload {
+    evaluator_name: string;
+    employee_status: 'regular' | 'probationary_casual_jo' | 'other';
+    employee_status_other?: string;
+    years_in_company?: number | null;
+    educational_attainment?: string;
+    marital_status?: string;
+    type_of_business?: string;
+    date_of_evaluation: string;
+    assessment_strengths: string;
+    assessment_improvements: string;
+    rating_quality_of_work: EmployerEvaluationRating;
+    rating_work_habits: EmployerEvaluationRating;
+    rating_relationship_with_people: EmployerEvaluationRating;
+    rating_dependability: EmployerEvaluationRating;
+    rating_quantity_of_work: EmployerEvaluationRating;
+    rating_initiative: EmployerEvaluationRating;
+    rating_analytical_ability: EmployerEvaluationRating;
+    rating_ability_as_supervisor: EmployerEvaluationRating;
+    rating_administrative_ability: EmployerEvaluationRating;
+    rating_safety: EmployerEvaluationRating;
+    rating_commitment_to_social_equity: EmployerEvaluationRating;
 }
 
 export interface EmployerAccountResponse {
@@ -213,12 +249,19 @@ export async function registerAlumni(
 }   // Passing FormData but not setting the Content-Type header. When you send FormData, 
     // the browser automatically sets multipart/form-data, but your backend expects application/json
 
+export interface AlumniLoginGps {
+    gpsLat?: number | null;
+    gpsLng?: number | null;
+    gpsAccuracyM?: number | null;
+}
+
 export async function alumniLogin(
     email: string,
     password: string,
     faceScan: Blob,
     faceDescriptor?: number[],
     similarityScore?: number,
+    gps?: AlumniLoginGps,
 ): Promise<AlumniAuthResponse> {
     const payload = new FormData();
     payload.append('email', email);
@@ -230,6 +273,9 @@ export async function alumniLogin(
     if (similarityScore !== undefined) {
         payload.append('similarity_score', String(similarityScore));
     }
+    if (gps?.gpsLat != null) payload.append('gps_lat', String(gps.gpsLat));
+    if (gps?.gpsLng != null) payload.append('gps_lng', String(gps.gpsLng));
+    if (gps?.gpsAccuracyM != null) payload.append('gps_accuracy_m', String(gps.gpsAccuracyM));
 
     const response = await fetch(`${API_BASE_URL}/api/auth/alumni/login/`, {
         method: 'POST',
@@ -343,7 +389,7 @@ export async function submitVerificationDecision(
         comment?: string;
         verified_employer_name?: string;
         verified_job_title_id?: string;
-    },
+    } & Partial<EmployerEvaluationPayload>,
 ): Promise<{ message?: string; decision?: VerificationDecisionResponse; employmentRecord?: unknown }> {
     const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/decision/`, {
         method: 'POST',

@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
@@ -227,7 +227,76 @@ def _serialize_verification_decision(decision: VerificationDecision) -> dict:
         "employerId": str(decision.employer_account_id),
         "isHeld": decision.is_held,
         "heldActivatedAt": decision.held_activated_at.isoformat() if decision.held_activated_at else None,
+        "evaluationSubmitted": decision.evaluation_submitted,
+        "evaluationSubmittedAt": decision.evaluation_submitted_at.isoformat() if decision.evaluation_submitted_at else None,
     }
+
+
+def _extract_evaluation_payload(request) -> tuple[dict | None, str | None]:
+    """Validate and shape the Employer's Confidential Feedback Form payload.
+
+    Returns (kwargs, error_message):
+      - (None, None) when no evaluation is being submitted (caller leaves eval columns blank).
+      - (kwargs, None) when a complete, valid eval was submitted.
+      - (None, "...") when the eval is partial or invalid; caller returns 400.
+    """
+    data = request.data
+    evaluator_name = str(data.get("evaluator_name") or "").strip()
+    if not evaluator_name:
+        return None, None
+
+    employee_status = str(data.get("employee_status") or "").strip()
+    if employee_status not in VerificationDecision.EmployeeStatus.values:
+        return None, "employee_status must be one of: regular, probationary_casual_jo, other."
+
+    valid_ratings = set(VerificationDecision.Rating.values)
+    rating_values: dict[str, str] = {}
+    for field in VerificationDecision.RATING_FIELDS:
+        value = str(data.get(field) or "").strip()
+        if value not in valid_ratings:
+            return None, f"{field} must be one of: {', '.join(sorted(valid_ratings))}."
+        rating_values[field] = value
+
+    strengths = str(data.get("assessment_strengths") or "").strip()
+    improvements = str(data.get("assessment_improvements") or "").strip()
+    if not strengths or not improvements:
+        return None, "Both assessment_strengths and assessment_improvements are required."
+
+    years_in_company_raw = data.get("years_in_company")
+    years_in_company: int | None = None
+    if years_in_company_raw not in (None, ""):
+        try:
+            parsed = int(years_in_company_raw)
+        except (TypeError, ValueError):
+            return None, "years_in_company must be a non-negative integer."
+        if parsed < 0:
+            return None, "years_in_company must be a non-negative integer."
+        years_in_company = parsed
+
+    date_of_evaluation_raw = str(data.get("date_of_evaluation") or "").strip()
+    date_of_evaluation: date | None = None
+    if date_of_evaluation_raw:
+        try:
+            date_of_evaluation = date.fromisoformat(date_of_evaluation_raw)
+        except ValueError:
+            return None, "date_of_evaluation must be ISO date (YYYY-MM-DD)."
+
+    kwargs: dict = {
+        "evaluator_name": evaluator_name,
+        "employee_status": employee_status,
+        "employee_status_other": str(data.get("employee_status_other") or "").strip(),
+        "years_in_company": years_in_company,
+        "educational_attainment": str(data.get("educational_attainment") or "").strip(),
+        "marital_status": str(data.get("marital_status") or "").strip(),
+        "type_of_business": str(data.get("type_of_business") or "").strip(),
+        "date_of_evaluation": date_of_evaluation,
+        "assessment_strengths": strengths,
+        "assessment_improvements": improvements,
+        "evaluation_submitted": True,
+        "evaluation_submitted_at": timezone.now(),
+    }
+    kwargs.update(rating_values)
+    return kwargs, None
 
 
 def _split_company_keywords(value: str) -> list[str]:
@@ -886,6 +955,12 @@ class VerificationTokenDecisionView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        eval_kwargs: dict | None = None
+        if raw_decision == VerificationDecision.Decision.CONFIRM:
+            eval_kwargs, eval_error = _extract_evaluation_payload(request)
+            if eval_error:
+                return Response({"detail": eval_error}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             token = (
                 VerificationToken.objects.select_related(
@@ -947,6 +1022,7 @@ class VerificationTokenDecisionView(APIView):
                     decision=raw_decision,
                     comment=comment,
                     is_held=is_held_decision,
+                    **(eval_kwargs or {}),
                 )
 
                 if not is_held_decision:

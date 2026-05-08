@@ -259,11 +259,24 @@ class VerificationDecision(models.Model):
 	"""
 	P7 flow history:
 	Employer confirmation/denial with comment against a pending employment record.
+	Confirm decisions may carry an Employer's Confidential Feedback Form (17 fields).
 	"""
 
 	class Decision(models.TextChoices):
 		CONFIRM = "confirm", "Confirm"
 		DENY = "deny", "Deny"
+
+	class Rating(models.TextChoices):
+		EXCELLENT = "excellent", "Excellent"
+		VERY_GOOD = "very_good", "Very Good"
+		GOOD = "good", "Good"
+		FAIR = "fair", "Fair"
+		UNSATISFACTORY = "unsatisfactory", "Unsatisfactory"
+
+	class EmployeeStatus(models.TextChoices):
+		REGULAR = "regular", "Regular"
+		PROBATIONARY_CASUAL_JO = "probationary_casual_jo", "Probationary/Casual/Job Order"
+		OTHER = "other", "Other"
 
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 	employer_account = models.ForeignKey(
@@ -292,12 +305,58 @@ class VerificationDecision(models.Model):
 	held_activated_at = models.DateTimeField(null=True, blank=True)
 	decided_at = models.DateTimeField(auto_now_add=True)
 
+	# Employer's Confidential Feedback Form metadata (all optional; populated when evaluation_submitted=True)
+	evaluator_name = models.CharField(max_length=255, blank=True)
+	employee_status = models.CharField(max_length=30, choices=EmployeeStatus.choices, blank=True)
+	employee_status_other = models.CharField(max_length=100, blank=True)
+	years_in_company = models.PositiveSmallIntegerField(null=True, blank=True)
+	educational_attainment = models.CharField(max_length=100, blank=True)
+	marital_status = models.CharField(max_length=20, blank=True)
+	type_of_business = models.CharField(max_length=150, blank=True)
+	date_of_evaluation = models.DateField(null=True, blank=True)
+
+	# 11 rating dimensions
+	rating_quality_of_work = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_work_habits = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_relationship_with_people = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_dependability = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_quantity_of_work = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_initiative = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_analytical_ability = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_ability_as_supervisor = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_administrative_ability = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_safety = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+	rating_commitment_to_social_equity = models.CharField(max_length=20, choices=Rating.choices, blank=True)
+
+	# Open-ended assessment
+	assessment_strengths = models.TextField(blank=True)
+	assessment_improvements = models.TextField(blank=True)
+
+	# Submission tracking
+	evaluation_submitted = models.BooleanField(default=False)
+	evaluation_submitted_at = models.DateTimeField(null=True, blank=True)
+
+	RATING_FIELDS = (
+		"rating_quality_of_work",
+		"rating_work_habits",
+		"rating_relationship_with_people",
+		"rating_dependability",
+		"rating_quantity_of_work",
+		"rating_initiative",
+		"rating_analytical_ability",
+		"rating_ability_as_supervisor",
+		"rating_administrative_ability",
+		"rating_safety",
+		"rating_commitment_to_social_equity",
+	)
+
 	class Meta:
 		db_table = "tracer_verification_decisions"
 		ordering = ["-decided_at"]
 		indexes = [
 			models.Index(fields=["decision", "decided_at"]),
 			models.Index(fields=["is_held", "employer_account"]),
+			models.Index(fields=["evaluation_submitted", "decided_at"], name="tracer_vd_evalsub_idx"),
 		]
 
 	def __str__(self):

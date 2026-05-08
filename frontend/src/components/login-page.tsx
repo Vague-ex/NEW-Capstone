@@ -15,6 +15,28 @@ const schoolLogo = "/CHMSULogo.png";
 type Phase = "login" | "facescan";
 
 /**
+ * Best-effort GPS capture for the login audit. Resolves to null on denial,
+ * unavailability, or timeout — callers must tolerate nulls.
+ */
+async function captureLoginGps(timeoutMs = 4000): Promise<{ lat: number; lng: number; acc: number } | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        clearTimeout(timer);
+        resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: timeoutMs },
+    );
+  });
+}
+
+/**
  * Capture a video frame clipped to the oval face guide.
  * The oval matches the CSS guide: 55% of video width, 3:4 aspect ratio, centred.
  * Pixels outside the oval are filled with a neutral grey so the model ignores background.
@@ -214,7 +236,15 @@ export function LoginPage() {
 
     try {
       const { blob: faceBlob, descriptor } = await captureFaceScanBlob();
-      const response = await alumniLogin(credential.trim(), password, faceBlob, descriptor);
+      const gps = await captureLoginGps();
+      const response = await alumniLogin(
+        credential.trim(),
+        password,
+        faceBlob,
+        descriptor,
+        undefined,
+        gps ? { gpsLat: gps.lat, gpsLng: gps.lng, gpsAccuracyM: gps.acc } : undefined,
+      );
       sessionStorage.setItem("alumni_user", JSON.stringify(response.alumni));
       setScanStage("matched");
       stopCamera();

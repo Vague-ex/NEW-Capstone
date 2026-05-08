@@ -278,6 +278,7 @@ class AlumniProfile(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_retracking_reminder_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "users_alumni_profiles"
@@ -341,6 +342,9 @@ class LoginAudit(models.Model):
     similarity_score = models.FloatField(null=True, blank=True)
     descriptor_distance = models.FloatField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="success")
+    gps_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    gps_lng = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    gps_accuracy_m = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = "users_login_audits"

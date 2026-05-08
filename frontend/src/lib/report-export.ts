@@ -227,7 +227,122 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
     // jspdf-autotable mutates lastAutoTable on the doc instance.
     const last = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
     cursorY = (last?.finalY ?? cursorY) + 22;
+
+    if (section.title === 'Cross-Batch Timeline' && section.rows.length > 0) {
+      cursorY = drawTimelineChart(doc, section, margin, cursorY, pageWidth);
+    }
   }
 
   doc.save(safeFilename(payload.title, 'pdf'));
+}
+
+// ── Cross-Batch Timeline chart (jsPDF primitives, no new deps) ──────────────
+
+type JsPdfLike = {
+  internal: { pageSize: { getHeight: () => number; getWidth: () => number } };
+  setFont: (name: string, style: string) => void;
+  setFontSize: (n: number) => void;
+  setTextColor: (...args: number[]) => void;
+  setDrawColor: (...args: number[]) => void;
+  setFillColor: (...args: number[]) => void;
+  setLineWidth: (n: number) => void;
+  text: (text: string, x: number, y: number) => void;
+  line: (x1: number, y1: number, x2: number, y2: number) => void;
+  circle: (x: number, y: number, r: number, style?: string) => void;
+  rect: (x: number, y: number, w: number, h: number) => void;
+  addPage: () => void;
+};
+
+function parseTimelineCell(value: unknown): number | null {
+  if (value == null) return null;
+  const str = String(value).trim();
+  if (!str || str === '—') return null;
+  const cleaned = str.replace(/[%,\s]/g, '');
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
+function drawTimelineChart(
+  doc: JsPdfLike,
+  section: { columns: (string | number | null)[]; rows: (string | number | null)[][] },
+  margin: number,
+  startY: number,
+  pageWidth: number,
+): number {
+  const yearLabels = section.columns
+    .slice(1)
+    .map((c) => String(c ?? ''))
+    .filter((c) => c.length > 0);
+  if (yearLabels.length < 2) return startY;
+
+  const chartW = pageWidth - margin * 2;
+  const chartH = 70;
+  const seriesGap = 16;
+
+  let cursorY = startY;
+  for (const row of section.rows) {
+    if (cursorY + chartH + 30 > doc.internal.pageSize.getHeight() - margin) {
+      doc.addPage();
+      cursorY = margin;
+    }
+
+    const label = String(row[0] ?? '');
+    const numeric = row.slice(1).map(parseTimelineCell);
+    const valid = numeric.filter((v): v is number => v != null);
+    if (valid.length < 2) continue;
+
+    const minV = Math.min(...valid);
+    const maxV = Math.max(...valid);
+    const range = maxV === minV ? 1 : maxV - minV;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(40, 40, 40);
+    doc.text(label, margin, cursorY + 10);
+
+    const plotX0 = margin + 4;
+    const plotY0 = cursorY + 18;
+    const plotX1 = margin + chartW - 4;
+    const plotY1 = plotY0 + chartH;
+
+    doc.setDrawColor(220, 224, 230);
+    doc.setLineWidth(0.5);
+    doc.line(plotX0, plotY1, plotX1, plotY1);
+    doc.line(plotX0, plotY0, plotX0, plotY1);
+
+    doc.setFontSize(7);
+    doc.setTextColor(120, 120, 120);
+    doc.text(maxV.toFixed(2), plotX0 - 2, plotY0 + 3);
+    doc.text(minV.toFixed(2), plotX0 - 2, plotY1);
+
+    const stepX = (plotX1 - plotX0) / (numeric.length - 1 || 1);
+    const points: { x: number; y: number }[] = [];
+    numeric.forEach((value, idx) => {
+      if (value == null) return;
+      const x = plotX0 + stepX * idx;
+      const y = plotY1 - ((value - minV) / range) * chartH;
+      points.push({ x, y });
+    });
+
+    doc.setDrawColor(27, 58, 107);
+    doc.setLineWidth(1.2);
+    for (let i = 0; i < points.length - 1; i++) {
+      doc.line(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+    }
+    doc.setFillColor(27, 58, 107);
+    for (const p of points) {
+      doc.circle(p.x, p.y, 1.6, 'F');
+    }
+
+    doc.setFontSize(7);
+    doc.setTextColor(120, 120, 120);
+    yearLabels.forEach((year, idx) => {
+      const x = plotX0 + stepX * idx;
+      doc.text(year, x - 6, plotY1 + 10);
+    });
+
+    cursorY = plotY1 + 14 + seriesGap;
+  }
+
+  return cursorY;
 }

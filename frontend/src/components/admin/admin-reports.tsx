@@ -23,7 +23,7 @@ const REPORTS: ReportDef[] = [
     id: 'batch-summary',
     title: 'Batch Summary',
     description:
-      'One row per graduating year — counts, response rate, employment rate, mean time-to-hire.',
+      'Per-batch employment outcomes, employer feedback aggregates, cross-batch timeline (with chart in PDF), and common-themes word counts.',
     endpoint: 'batch-summary',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Users,

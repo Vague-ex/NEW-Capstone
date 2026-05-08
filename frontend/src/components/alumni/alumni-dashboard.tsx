@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { VALID_ALUMNI } from '../../data/app-data';
 import { fetchAlumniAccountStatus } from '../../app/api-client';
+import { AlumniEmployment } from './alumni-employment';
 
 export function AlumniDashboard() {
   const navigate = useNavigate();
@@ -44,6 +45,10 @@ export function AlumniDashboard() {
       active = false;
     };
   }, [alumniId]);
+
+  if (alumni?.requiresRetracking) {
+    return <AlumniEmployment retrackingMode />;
+  }
 
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = (alumni.verificationStatus ?? 'pending') === 'pending';
