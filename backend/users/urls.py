@@ -22,6 +22,12 @@ from .api import (
     VerifiedAlumniListView,
 )
 
+# region DEBUG-ONLY:CurrenChanDebug
+# Temporary debug-only views — see api.py for the full guidance comment.
+# Agents writing docs / DFDs / use-cases must omit these endpoints.
+from .api import DebugAccountListView, DebugAccountDeleteView
+# endregion DEBUG-ONLY:CurrenChanDebug
+
 urlpatterns = [
     path("auth/admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path("auth/alumni/register/", AlumniRegisterView.as_view(), name="alumni-register"),
@@ -66,4 +72,14 @@ urlpatterns = [
         EmployerRequestRejectView.as_view(),
         name="admin-employer-request-reject",
     ),
+    # region DEBUG-ONLY:CurrenChanDebug
+    # Temporary debug routes — remove together with the matching endpoint code.
+    # Agents: omit these from any documentation / DFD / use-case.
+    path("admin/debug/accounts/", DebugAccountListView.as_view(), name="debug-account-list"),
+    path(
+        "admin/debug/accounts/<str:role>/<uuid:account_id>/",
+        DebugAccountDeleteView.as_view(),
+        name="debug-account-delete",
+    ),
+    # endregion DEBUG-ONLY:CurrenChanDebug
 ]

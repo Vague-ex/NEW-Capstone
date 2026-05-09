@@ -491,13 +491,6 @@ function RegisterView({
                 </div>
               </div>
             </div>
-            <div className="col-span-2">
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Account Credential Email <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="you@company.com" className={iCls} />
-              </div>
-            </div>
           </div>
         </div>
 
@@ -632,17 +625,26 @@ function RegisterView({
           <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
             <Lock className="size-4 text-[#166534]" /> Account Credentials
           </h3>
-          <p className="text-gray-500 text-xs mb-4">Set a password to log in once your account is approved.</p>
-          <div className="grid grid-cols-2 gap-3">
+          <p className="text-gray-500 text-xs mb-4">Set a login email and password — used once your account is approved.</p>
+          <div className="space-y-3">
             <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Password</label>
-              <input name="password" type="password" value={form.password} onChange={handleChange}
-                placeholder="Min. 8 characters" className={inputCls} />
+              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Account Credential Email <span className="text-red-500">*</span></label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="you@company.com" className={iCls} />
+              </div>
             </div>
-            <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Confirm Password</label>
-              <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={handleChange}
-                placeholder="Repeat" className={inputCls} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Password</label>
+                <input name="password" type="password" value={form.password} onChange={handleChange}
+                  placeholder="Min. 8 characters" className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Confirm Password</label>
+                <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={handleChange}
+                  placeholder="Repeat" className={inputCls} />
+              </div>
             </div>
           </div>
         </div>

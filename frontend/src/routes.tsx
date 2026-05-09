@@ -19,6 +19,7 @@ import { AlumniPersonalEducation } from './components/alumni/alumni-personal-edu
 import { EmployerDashboard } from './components/employer/employer-dashboard';
 import { EmployerPending } from './components/employer/employer-pending';
 import { GraduateVerify } from './components/employer/graduate-verify';
+import { EmployerCandidates } from './components/employer/employer-candidates';
 
 // Admin Portal
 import { AdminNewDashboard } from './components/admin/admin-new-dashboard';
@@ -50,6 +51,7 @@ export const routes: RouteObject[] = [
   { path: '/employer/pending', Component: EmployerPending },
   { path: '/employer/dashboard', Component: EmployerDashboard },
   { path: '/employer/verify', Component: GraduateVerify },
+  { path: '/employer/graduates', Component: EmployerCandidates },
 
   // ── Admin Portal ──
   { path: '/admin/dashboard', Component: AdminNewDashboard },

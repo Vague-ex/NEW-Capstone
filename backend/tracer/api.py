@@ -879,6 +879,128 @@ class EmployerVerifiableGraduateListView(APIView):
         )
 
 
+def _candidate_is_unemployed(emp_profile) -> bool:
+    """True when the alumni's latest EmploymentProfile is NOT an employed status.
+
+    Mirrors `_is_employed` in reports_api.py — kept inline here to avoid a
+    cross-module import cycle.
+    """
+    if emp_profile is None or not emp_profile.employment_status:
+        return True
+    return emp_profile.employment_status not in {
+        "employed_full_time",
+        "employed_part_time",
+        "self_employed",
+    }
+
+
+class EmployerCandidatesListView(APIView):
+    """Unemployed alumni candidates surfaced to verified employers.
+
+    Each candidate carries their skill list + a match-count against the
+    employer's `desired_skills` so the frontend can sort or highlight matches.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        # Employer must be ACTIVE (allow_pending defaults to False — pending
+        # accounts get a 403 here so candidate data isn't exposed early).
+        employer_account, error_response = _require_employer(request)
+        if error_response:
+            return error_response
+
+        from users.models import AlumniAccount as _AlumniAccount
+
+        try:
+            alumni_qs = (
+                _AlumniAccount.objects
+                .select_related("user", "profile", "master_record")
+                .prefetch_related(
+                    "employment_profiles",
+                    "skills__skill__category",
+                )
+                .filter(account_status=AccountStatus.ACTIVE)
+                .order_by("-updated_at")
+            )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        # Desired skill IDs as a set for O(1) match lookup.
+        try:
+            desired_skill_id_set = {
+                str(s_id)
+                for s_id in employer_account.desired_skills.values_list("id", flat=True)
+            }
+        except Exception:  # pragma: no cover - defensive
+            desired_skill_id_set = set()
+
+        results: list[dict] = []
+        for alumni in alumni_qs:
+            emp_profile = alumni.employment_profiles.first()
+            if not _candidate_is_unemployed(emp_profile):
+                continue
+
+            profile = getattr(alumni, "profile", None)
+            if profile is None:
+                # No profile = no name / contact = skip
+                continue
+
+            full_name = " ".join(
+                part.strip()
+                for part in [profile.first_name, profile.middle_name, profile.last_name]
+                if part and part.strip()
+            ).strip()
+            if not full_name:
+                full_name = (
+                    alumni.master_record.full_name if alumni.master_record else None
+                ) or (alumni.user.email.split("@")[0] if alumni.user and alumni.user.email else "Alumni")
+
+            graduation_year = (
+                int(profile.graduation_year)
+                if profile.graduation_year
+                else (int(alumni.master_record.batch_year) if alumni.master_record and alumni.master_record.batch_year else None)
+            )
+
+            skill_payload: list[dict] = []
+            matched: list[str] = []
+            for entry in alumni.skills.all():
+                skill = entry.skill
+                if not skill or not skill.is_active:
+                    continue
+                skill_id = str(skill.id)
+                skill_payload.append({
+                    "id": skill_id,
+                    "name": skill.name,
+                    "category": skill.category.name if skill.category_id else None,
+                })
+                if skill_id in desired_skill_id_set:
+                    matched.append(skill_id)
+
+            results.append({
+                "id": str(alumni.id),
+                "name": full_name,
+                "graduationYear": graduation_year,
+                "email": alumni.user.email if alumni.user else "",
+                "facebookUrl": profile.facebook_url or "",
+                "githubUrl": getattr(profile, "github_url", "") or "",
+                "portfolioUrl": getattr(profile, "portfolio_url", "") or "",
+                "skills": skill_payload,
+                "matchedSkillIds": matched,
+                "matchCount": len(matched),
+            })
+
+        # Sort: highest match count first, then by name.
+        results.sort(key=lambda r: (-r["matchCount"], (r["name"] or "").lower()))
+
+        return Response({
+            "results": results,
+            "count": len(results),
+            "desiredSkillCount": len(desired_skill_id_set),
+        })
+
+
 class VerificationTokenDetailView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]

@@ -431,6 +431,45 @@ export async function fetchEmployerVerifiableGraduates(
         : (Array.isArray(data?.results) ? data.results : []);
 }
 
+// Candidates (View Graduates) — only available to ACTIVE employers.
+export interface EmployerCandidateSkill {
+    id: string;
+    name: string;
+    category: string | null;
+}
+
+export interface EmployerCandidate {
+    id: string;
+    name: string;
+    graduationYear: number | null;
+    email: string;
+    facebookUrl: string;
+    githubUrl: string;
+    portfolioUrl: string;
+    skills: EmployerCandidateSkill[];
+    matchedSkillIds: string[];
+    matchCount: number;
+}
+
+export interface EmployerCandidatesResponse {
+    results: EmployerCandidate[];
+    count: number;
+    desiredSkillCount: number;
+}
+
+export async function fetchEmployerCandidates(): Promise<EmployerCandidatesResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/employer/candidates/`, {
+        headers: withEmployerAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return {
+        results: Array.isArray(data?.results) ? data.results : [],
+        count: typeof data?.count === 'number' ? data.count : 0,
+        desiredSkillCount: typeof data?.desiredSkillCount === 'number' ? data.desiredSkillCount : 0,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Admin — Alumni endpoints
 // ---------------------------------------------------------------------------
@@ -683,3 +722,48 @@ export async function fetchReport(
     await throwIfNotOk(response);
     return response.json();
 }
+
+// #region DEBUG-ONLY:CurrenChanDebug
+// Temporary admin debug-only API helpers — pair with the fenced backend
+// endpoints in users/api.py. Remove together when the codeword is retired.
+// Agents writing docs / DFD / use-cases must omit these.
+
+export type DebugAccountRole = 'alumni' | 'employer' | 'admin';
+
+export interface DebugAccountRow {
+    role: DebugAccountRole;
+    id: string;
+    userId: string | null;
+    email: string;
+    name: string;
+    status: string;
+    createdAt: string | null;
+}
+
+export interface DebugAccountsResponse {
+    alumni: DebugAccountRow[];
+    employer: DebugAccountRow[];
+    admin: DebugAccountRow[];
+}
+
+export async function fetchDebugAccounts(): Promise<DebugAccountsResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/accounts/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return {
+        alumni: Array.isArray(data?.alumni) ? data.alumni : [],
+        employer: Array.isArray(data?.employer) ? data.employer : [],
+        admin: Array.isArray(data?.admin) ? data.admin : [],
+    };
+}
+
+export async function deleteDebugAccount(role: DebugAccountRole, id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/accounts/${role}/${id}/`, {
+        method: 'DELETE',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+}
+// #endregion DEBUG-ONLY:CurrenChanDebug

@@ -252,13 +252,6 @@ export function RegisterEmployer() {
                       placeholder="e.g. HR Manager" className={iconInputClass} />
                   </div>
                 </Field>
-                <Field label="Account Credential Email" required>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                    <input name="email" type="email" value={form.email} onChange={handleChange}
-                      placeholder="you@company.com" className={iconInputClass} />
-                  </div>
-                </Field>
                 <Field label="Phone Number">
                   <div className="flex gap-2">
                     <select
@@ -428,16 +421,25 @@ export function RegisterEmployer() {
               <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
                 <Lock className="size-4 text-[#166534]" /> Account Credentials
               </h3>
-              <p className="text-gray-500 text-xs mb-4">Set a password to log in once your account is approved by the BSIS Admin.</p>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Password">
-                  <input name="password" type="password" value={form.password} onChange={handleChange}
-                    placeholder="Min. 8 characters" className={inputClass} />
+              <p className="text-gray-500 text-xs mb-4">Set a login email and password — used once your account is approved by the BSIS Admin.</p>
+              <div className="space-y-4">
+                <Field label="Account Credential Email" required>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                    <input name="email" type="email" value={form.email} onChange={handleChange}
+                      placeholder="you@company.com" className={iconInputClass} />
+                  </div>
                 </Field>
-                <Field label="Confirm Password">
-                  <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={handleChange}
-                    placeholder="Repeat password" className={inputClass} />
-                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Password">
+                    <input name="password" type="password" value={form.password} onChange={handleChange}
+                      placeholder="Min. 8 characters" className={inputClass} />
+                  </Field>
+                  <Field label="Confirm Password">
+                    <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={handleChange}
+                      placeholder="Repeat password" className={inputClass} />
+                  </Field>
+                </div>
               </div>
             </div>
 

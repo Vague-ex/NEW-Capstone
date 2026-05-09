@@ -3,6 +3,7 @@ from django.urls import path
 from .api import (
     AdminAnalyticsPredictionsView,
     ComprehensiveSurveySubmissionView,
+    EmployerCandidatesListView,
     EmployerVerifiableGraduateListView,
     IndustryDetailView,
     IndustryListView,
@@ -60,6 +61,11 @@ urlpatterns = [
         "verification/employer/graduates/",
         EmployerVerifiableGraduateListView.as_view(),
         name="verification-employer-graduates",
+    ),
+    path(
+        "employer/candidates/",
+        EmployerCandidatesListView.as_view(),
+        name="employer-candidates",
     ),
     path("verification/tokens/<uuid:token_id>/", VerificationTokenDetailView.as_view(), name="verification-token-detail"),
     path(

@@ -4,8 +4,10 @@ import { ApiClientError, fetchEmployerRequests, reviewEmployerRequest } from '..
 import { EMPLOYER_ACCOUNTS } from '../../data/app-data';
 import {
   Building2, CheckCircle2, XCircle, Clock, AlertTriangle,
-  Mail, User, Globe, FileText, Phone,
+  Mail, User, Globe, FileText, Phone, Sparkles,
 } from 'lucide-react';
+
+type DesiredSkill = { id: string; name: string; category: string | null };
 
 type EmployerRequest = {
   id: string;
@@ -17,6 +19,7 @@ type EmployerRequest = {
   website: string;
   status: string;
   date: string;
+  desiredSkills: DesiredSkill[];
 };
 
 function normalizeEmployerRecord(input: Record<string, unknown>): EmployerRequest {
@@ -26,6 +29,19 @@ function normalizeEmployerRecord(input: Record<string, unknown>): EmployerReques
     : rawStatus === 'rejected'
       ? 'rejected'
       : 'pending';
+
+  const rawSkills = Array.isArray(input.desiredSkills) ? input.desiredSkills : [];
+  const desiredSkills: DesiredSkill[] = rawSkills
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const obj = entry as Record<string, unknown>;
+      return {
+        id: String(obj.id ?? ''),
+        name: String(obj.name ?? ''),
+        category: obj.category != null ? String(obj.category) : null,
+      };
+    })
+    .filter((s): s is DesiredSkill => s !== null && Boolean(s.name));
 
   return {
     id: String(input.id ?? `emp-${Date.now()}`),
@@ -37,6 +53,7 @@ function normalizeEmployerRecord(input: Record<string, unknown>): EmployerReques
     website: String(input.website ?? 'Not provided'),
     status,
     date: String(input.date ?? input.dateUpdated ?? new Date().toISOString().split('T')[0]),
+    desiredSkills,
   };
 }
 
@@ -199,11 +216,31 @@ export function AdminEmployerRequests() {
                     <div className="flex size-11 items-center justify-center rounded-xl bg-violet-100 shrink-0">
                       <Building2 className="size-5 text-violet-600" />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>{emp.company}</p>
                       <p className="text-gray-500 text-xs mt-0.5">{emp.industry}</p>
                       <p className="text-gray-400 text-xs mt-0.5">{emp.contact} · {emp.email}</p>
                       <p className="text-gray-300 text-xs">Applied: {formatDate(emp.date, { dateStyle: 'medium' })}</p>
+                      {emp.desiredSkills.length > 0 && (
+                        <div className="mt-2 flex items-start gap-1.5">
+                          <Sparkles className="size-3 text-[#166534] shrink-0 mt-1" />
+                          <div className="flex flex-wrap gap-1">
+                            {emp.desiredSkills.slice(0, 6).map((skill) => (
+                              <span
+                                key={skill.id}
+                                className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100"
+                                style={{ fontWeight: 500 }}>
+                                {skill.name}
+                              </span>
+                            ))}
+                            {emp.desiredSkills.length > 6 && (
+                              <span className="text-[10px] text-gray-400 px-1.5 py-0.5" style={{ fontWeight: 500 }}>
+                                +{emp.desiredSkills.length - 6} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -313,6 +350,46 @@ export function AdminEmployerRequests() {
                   </div>
                 </div>
               ))}
+
+              {/* Skills the employer is hiring for */}
+              <div className="rounded-xl bg-gray-50 px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="size-4 text-[#166534]" />
+                  <p className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
+                    Skills they're hiring for {reviewModal.desiredSkills.length > 0 && `(${reviewModal.desiredSkills.length})`}
+                  </p>
+                </div>
+                {reviewModal.desiredSkills.length === 0 ? (
+                  <p className="text-gray-400 text-xs italic">No skills specified — they'll see all candidates.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(() => {
+                      const groups: Record<string, DesiredSkill[]> = {};
+                      for (const skill of reviewModal.desiredSkills) {
+                        const key = skill.category ?? 'Uncategorized';
+                        (groups[key] ??= []).push(skill);
+                      }
+                      return Object.keys(groups).sort().map((cat) => (
+                        <div key={cat}>
+                          <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1" style={{ fontWeight: 600 }}>
+                            {cat}
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {groups[cat].map((skill) => (
+                              <span
+                                key={skill.id}
+                                className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-100"
+                                style={{ fontWeight: 500 }}>
+                                {skill.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
               <button onClick={() => setReviewModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm transition" style={{ fontWeight: 500 }}>

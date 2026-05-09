@@ -28,6 +28,7 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
   employer: [
     { label: 'Dashboard', path: '/employer/dashboard', icon: LayoutDashboard },
     { label: 'Verify Employment', path: '/employer/verify', icon: Search },
+    { label: 'View Graduates', path: '/employer/graduates', icon: UserCheck },
   ],
   admin: [
     { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
