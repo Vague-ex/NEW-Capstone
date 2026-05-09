@@ -86,11 +86,66 @@ class Region(models.Model):
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 	code = models.CharField(max_length=40, unique=True)
 	name = models.CharField(max_length=120, unique=True)
+	# PSGC region identifier (10-digit, padded). Nullable so existing rows can
+	# be reconciled by the seed command without losing them.
+	psgc_id = models.CharField(max_length=12, blank=True, db_index=True)
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
 		db_table = "tracer_regions"
 		ordering = ["name"]
+
+	def __str__(self):
+		return self.name
+
+
+class Province(models.Model):
+	"""Reference table for provinces, parented to a Region."""
+
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="provinces")
+	name = models.CharField(max_length=120)
+	psgc_id = models.CharField(max_length=12, unique=True)
+	is_active = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "tracer_provinces"
+		ordering = ["name"]
+		constraints = [
+			models.UniqueConstraint(fields=["region", "name"], name="uniq_province_region_name"),
+		]
+		indexes = [
+			models.Index(fields=["region", "name"]),
+		]
+
+	def __str__(self):
+		return self.name
+
+
+class CityMunicipality(models.Model):
+	"""Reference table for cities and municipalities.
+
+	`province` is nullable because NCR (Region 13) has no provinces — cities
+	such as Pateros sit directly under the region in the PSGC hierarchy.
+	"""
+
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	region = models.ForeignKey(Region, on_delete=models.CASCADE, related_name="cities")
+	province = models.ForeignKey(
+		Province, on_delete=models.CASCADE, related_name="cities", null=True, blank=True,
+	)
+	name = models.CharField(max_length=160)
+	psgc_id = models.CharField(max_length=12, unique=True)
+	is_city = models.BooleanField(default=False, help_text="True for city/submunicipality, False for municipality.")
+	is_active = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "tracer_city_municipalities"
+		ordering = ["name"]
+		indexes = [
+			models.Index(fields=["region", "name"]),
+			models.Index(fields=["province", "name"]),
+		]
 
 	def __str__(self):
 		return self.name

@@ -16,9 +16,11 @@ from rest_framework.views import APIView
 from users.models import AccountStatus, EmployerAccount, User
 
 from .models import (
+    CityMunicipality,
     EmploymentRecord,
     Industry,
     JobTitle,
+    Province,
     Region,
     Skill,
     SkillCategory,
@@ -179,7 +181,33 @@ def _serialize_region(r) -> dict:
         "id": str(r.id),
         "code": r.code,
         "name": r.name,
+        "psgc_id": r.psgc_id or "",
         "is_active": r.is_active,
+    }
+
+
+def _serialize_province(p: Province) -> dict:
+    return {
+        "id": str(p.id),
+        "region_id": str(p.region_id),
+        "region_name": p.region.name if p.region_id else None,
+        "name": p.name,
+        "psgc_id": p.psgc_id,
+        "is_active": p.is_active,
+    }
+
+
+def _serialize_city(c: CityMunicipality) -> dict:
+    return {
+        "id": str(c.id),
+        "region_id": str(c.region_id),
+        "region_name": c.region.name if c.region_id else None,
+        "province_id": str(c.province_id) if c.province_id else None,
+        "province_name": c.province.name if c.province_id else None,
+        "name": c.name,
+        "psgc_id": c.psgc_id,
+        "is_city": c.is_city,
+        "is_active": c.is_active,
     }
 
 
@@ -736,6 +764,159 @@ class RegionDetailView(APIView):
             return Response({"detail": "Region not found."}, status=status.HTTP_404_NOT_FOUND)
         region.is_active = False
         region.save(update_fields=["is_active"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Provinces ──────────────────────────────────────────────────────────────────
+
+
+class ProvinceListView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        qs = Province.objects.select_related("region").order_by("name")
+        if not str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}:
+            qs = qs.filter(is_active=True)
+        region_id = request.query_params.get("region")
+        if region_id:
+            qs = qs.filter(region_id=region_id)
+        return Response({"provinces": [_serialize_province(p) for p in qs]})
+
+    def post(self, request):
+        name = str(request.data.get("name") or "").strip()
+        region_id = request.data.get("region_id") or request.data.get("region")
+        psgc_id = str(request.data.get("psgc_id") or "").strip()
+        if not name or not region_id or not psgc_id:
+            return Response(
+                {"detail": "name, region_id, and psgc_id are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not Region.objects.filter(pk=region_id).exists():
+            return Response({"detail": "Region not found."}, status=status.HTTP_404_NOT_FOUND)
+        if Province.objects.filter(psgc_id=psgc_id).exists():
+            return Response({"detail": "Province with that psgc_id already exists."}, status=status.HTTP_409_CONFLICT)
+        province = Province.objects.create(name=name, region_id=region_id, psgc_id=psgc_id)
+        return Response({"province": _serialize_province(province)}, status=status.HTTP_201_CREATED)
+
+
+class ProvinceDetailView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, pk):
+        try:
+            province = Province.objects.select_related("region").get(pk=pk)
+        except Province.DoesNotExist:
+            return Response({"detail": "Province not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()
+            if not name:
+                return Response({"detail": "name cannot be blank."}, status=status.HTTP_400_BAD_REQUEST)
+            province.name = name
+        if "region_id" in request.data and request.data.get("region_id"):
+            province.region_id = request.data.get("region_id")
+        if "is_active" in request.data:
+            province.is_active = bool(request.data.get("is_active"))
+
+        province.save()
+        return Response({"province": _serialize_province(province)})
+
+    def delete(self, request, pk):
+        try:
+            province = Province.objects.get(pk=pk)
+        except Province.DoesNotExist:
+            return Response({"detail": "Province not found."}, status=status.HTTP_404_NOT_FOUND)
+        province.is_active = False
+        province.save(update_fields=["is_active"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Cities / Municipalities ────────────────────────────────────────────────────
+
+
+class CityMunicipalityListView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        qs = CityMunicipality.objects.select_related("region", "province").order_by("name")
+        if not str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}:
+            qs = qs.filter(is_active=True)
+        province_id = request.query_params.get("province")
+        region_id = request.query_params.get("region")
+        if province_id:
+            qs = qs.filter(province_id=province_id)
+        if region_id:
+            qs = qs.filter(region_id=region_id)
+        return Response({"cities": [_serialize_city(c) for c in qs]})
+
+    def post(self, request):
+        name = str(request.data.get("name") or "").strip()
+        region_id = request.data.get("region_id") or request.data.get("region")
+        province_id = request.data.get("province_id") or request.data.get("province")
+        psgc_id = str(request.data.get("psgc_id") or "").strip()
+        is_city = bool(request.data.get("is_city", False))
+        if not name or not region_id or not psgc_id:
+            return Response(
+                {"detail": "name, region_id, and psgc_id are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not Region.objects.filter(pk=region_id).exists():
+            return Response({"detail": "Region not found."}, status=status.HTTP_404_NOT_FOUND)
+        if province_id and not Province.objects.filter(pk=province_id).exists():
+            return Response({"detail": "Province not found."}, status=status.HTTP_404_NOT_FOUND)
+        if CityMunicipality.objects.filter(psgc_id=psgc_id).exists():
+            return Response({"detail": "City/Municipality with that psgc_id already exists."}, status=status.HTTP_409_CONFLICT)
+        city = CityMunicipality.objects.create(
+            name=name,
+            region_id=region_id,
+            province_id=province_id or None,
+            psgc_id=psgc_id,
+            is_city=is_city,
+        )
+        return Response({"city": _serialize_city(city)}, status=status.HTTP_201_CREATED)
+
+
+class CityMunicipalityDetailView(APIView):
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, pk):
+        try:
+            city = CityMunicipality.objects.select_related("region", "province").get(pk=pk)
+        except CityMunicipality.DoesNotExist:
+            return Response({"detail": "City/Municipality not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()
+            if not name:
+                return Response({"detail": "name cannot be blank."}, status=status.HTTP_400_BAD_REQUEST)
+            city.name = name
+        if "region_id" in request.data and request.data.get("region_id"):
+            city.region_id = request.data.get("region_id")
+        if "province_id" in request.data:
+            city.province_id = request.data.get("province_id") or None
+        if "is_city" in request.data:
+            city.is_city = bool(request.data.get("is_city"))
+        if "is_active" in request.data:
+            city.is_active = bool(request.data.get("is_active"))
+
+        city.save()
+        return Response({"city": _serialize_city(city)})
+
+    def delete(self, request, pk):
+        try:
+            city = CityMunicipality.objects.get(pk=pk)
+        except CityMunicipality.DoesNotExist:
+            return Response({"detail": "City/Municipality not found."}, status=status.HTTP_404_NOT_FOUND)
+        city.is_active = False
+        city.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

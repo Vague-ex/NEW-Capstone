@@ -3,7 +3,13 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
 import { fetchAlumniAccountStatus, updateAlumniEmployment } from '../../app/api-client';
-import { useReferenceData } from '../../hooks/useReferenceData';
+import {
+  useReferenceData,
+  provincesApi,
+  citiesApi,
+  type ProvinceItem,
+  type CityMunicipalityItem,
+} from '../../hooks/useReferenceData';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
   MapPin, AlertTriangle, BookOpen,
@@ -133,6 +139,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     barangay: String(sd.barangay ?? ''),
     city_municipality: String(sd.city_municipality ?? ''),
     currentJobRegionId: String(sd.currentJobRegionId ?? sd.region_address ?? alumni.regionId ?? ''),
+    currentJobProvinceId: String(sd.currentJobProvinceId ?? ''),
+    currentJobCityId: String(sd.currentJobCityId ?? ''),
     zip_code: String(sd.zip_code ?? ''),
     country_address: String(sd.country_address ?? 'Philippines'),
 
@@ -144,6 +152,47 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Region → Province → CityMunicipality cascade. Lazy-loaded from the
+  // reference DB so admin reference-data CRUD changes propagate live.
+  const [provincesForRegion, setProvincesForRegion] = useState<ProvinceItem[]>([]);
+  const [citiesForLevel, setCitiesForLevel] = useState<CityMunicipalityItem[]>([]);
+
+  useEffect(() => {
+    if (!form.currentJobRegionId) {
+      setProvincesForRegion([]);
+      return;
+    }
+    let active = true;
+    void provincesApi
+      .list(form.currentJobRegionId)
+      .then(({ provinces }) => { if (active) setProvincesForRegion(provinces); })
+      .catch(() => { if (active) setProvincesForRegion([]); });
+    return () => { active = false; };
+  }, [form.currentJobRegionId]);
+
+  useEffect(() => {
+    if (!form.currentJobRegionId) {
+      setCitiesForLevel([]);
+      return;
+    }
+    let active = true;
+    if (form.currentJobProvinceId) {
+      void citiesApi
+        .list({ provinceId: form.currentJobProvinceId })
+        .then(({ cities }) => { if (active) setCitiesForLevel(cities); })
+        .catch(() => { if (active) setCitiesForLevel([]); });
+    } else if (provincesForRegion.length === 0) {
+      // Region has no provinces (NCR-style) → load region-direct cities.
+      void citiesApi
+        .list({ regionId: form.currentJobRegionId })
+        .then(({ cities }) => { if (active) setCitiesForLevel(cities); })
+        .catch(() => { if (active) setCitiesForLevel([]); });
+    } else {
+      setCitiesForLevel([]);
+    }
+    return () => { active = false; };
+  }, [form.currentJobRegionId, form.currentJobProvinceId, provincesForRegion]);
   const [saveError, setSaveError] = useState('');
   const [employerLinkStatus, setEmployerLinkStatus] = useState('');
 
@@ -760,42 +809,112 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   value={form.barangay} onChange={e => setF('barangay', e.target.value)} className={inputCls} />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <FieldLabel required>City / Municipality</FieldLabel>
-                  <input type="text" placeholder="e.g. Talisay City"
-                    value={form.city_municipality} onChange={e => setF('city_municipality', e.target.value)} className={inputCls} />
-                </div>
-                <div>
-                  <FieldLabel>ZIP Code (optional)</FieldLabel>
-                  <input
-                    type="text"
-                    inputMode={form.currentJobLocation === 'Local (Philippines)' ? 'numeric' : 'text'}
-                    placeholder={form.currentJobLocation === 'Local (Philippines)' ? 'e.g. 6115' : 'e.g. 90210'}
-                    value={form.zip_code}
-                    onChange={e => {
-                      const isLocal = form.currentJobLocation === 'Local (Philippines)';
-                      const next = isLocal
-                        ? e.target.value.replace(/\D/g, '').slice(0, 4)
-                        : e.target.value.slice(0, 10);
-                      setF('zip_code', next);
-                    }}
-                    className={inputCls}
-                  />
-                  {form.currentJobLocation === 'Local (Philippines)' && (
-                    <p className="text-gray-400 text-xs mt-1">PH ZIP must be exactly 4 digits.</p>
-                  )}
-                </div>
-              </div>
-
+              {/* Region → Province → City cascade (sourced from the seeded
+                  PSGC reference tables; admin-settings is the source of truth). */}
               <div>
                 <FieldLabel required>Region</FieldLabel>
-                <select value={form.currentJobRegionId} onChange={e => setF('currentJobRegionId', e.target.value)} className={inputCls}>
+                <select
+                  value={form.currentJobRegionId}
+                  onChange={e =>
+                    setForm(f => ({
+                      ...f,
+                      currentJobRegionId: e.target.value,
+                      currentJobProvinceId: '',
+                      currentJobCityId: '',
+                      city_municipality: '',
+                    }))
+                  }
+                  className={inputCls}
+                >
                   <option value="">Select region...</option>
                   {referenceData.regions.map(region => (
                     <option key={region.id} value={region.id}>{region.code} — {region.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel>Province</FieldLabel>
+                  <select
+                    value={form.currentJobProvinceId}
+                    onChange={e =>
+                      setForm(f => ({
+                        ...f,
+                        currentJobProvinceId: e.target.value,
+                        currentJobCityId: '',
+                        city_municipality: '',
+                      }))
+                    }
+                    disabled={!form.currentJobRegionId || provincesForRegion.length === 0}
+                    className={inputCls}
+                  >
+                    <option value="">
+                      {!form.currentJobRegionId
+                        ? 'Pick a region first'
+                        : provincesForRegion.length === 0
+                          ? 'No provinces for this region'
+                          : 'Select province...'}
+                    </option>
+                    {provincesForRegion.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel required>City / Municipality</FieldLabel>
+                  <select
+                    value={form.currentJobCityId}
+                    onChange={e => {
+                      const city = citiesForLevel.find(c => c.id === e.target.value);
+                      setForm(f => ({
+                        ...f,
+                        currentJobCityId: e.target.value,
+                        city_municipality: city?.name ?? '',
+                      }));
+                    }}
+                    disabled={
+                      !form.currentJobRegionId
+                      || (provincesForRegion.length > 0 && !form.currentJobProvinceId)
+                      || citiesForLevel.length === 0
+                    }
+                    className={inputCls}
+                  >
+                    <option value="">
+                      {!form.currentJobRegionId
+                        ? 'Pick a region first'
+                        : provincesForRegion.length > 0 && !form.currentJobProvinceId
+                          ? 'Pick a province first'
+                          : citiesForLevel.length === 0
+                            ? 'Loading cities...'
+                            : 'Select city/municipality...'}
+                    </option>
+                    {citiesForLevel.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}{c.is_city ? ' (City)' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel>ZIP Code (optional)</FieldLabel>
+                <input
+                  type="text"
+                  inputMode={form.currentJobLocation === 'Local (Philippines)' ? 'numeric' : 'text'}
+                  placeholder={form.currentJobLocation === 'Local (Philippines)' ? 'e.g. 6115' : 'e.g. 90210'}
+                  value={form.zip_code}
+                  onChange={e => {
+                    const isLocal = form.currentJobLocation === 'Local (Philippines)';
+                    const next = isLocal
+                      ? e.target.value.replace(/\D/g, '').slice(0, 4)
+                      : e.target.value.slice(0, 10);
+                    setF('zip_code', next);
+                  }}
+                  className={inputCls}
+                />
+                {form.currentJobLocation === 'Local (Philippines)' && (
+                  <p className="text-gray-400 text-xs mt-1">PH ZIP must be exactly 4 digits.</p>
+                )}
               </div>
 
               <div>

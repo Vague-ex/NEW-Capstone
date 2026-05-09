@@ -39,6 +39,28 @@ export interface RegionItem {
     id: string;
     code: string;
     name: string;
+    psgc_id?: string;
+    is_active: boolean;
+}
+
+export interface ProvinceItem {
+    id: string;
+    region_id: string;
+    region_name: string | null;
+    name: string;
+    psgc_id: string;
+    is_active: boolean;
+}
+
+export interface CityMunicipalityItem {
+    id: string;
+    region_id: string;
+    region_name: string | null;
+    province_id: string | null;
+    province_name: string | null;
+    name: string;
+    psgc_id: string;
+    is_city: boolean;
     is_active: boolean;
 }
 
@@ -191,4 +213,36 @@ export const regionsApi = {
     update: (id: string, patch: Partial<RegionItem>) =>
         apiRequest(`/api/reference/regions/${id}/`, 'PATCH', patch) as Promise<{ region: RegionItem }>,
     remove: (id: string) => apiRequest(`/api/reference/regions/${id}/`, 'DELETE'),
+};
+
+// Provinces (parented to a Region)
+export const provincesApi = {
+    list: (regionId?: string) => {
+        const qs = regionId ? `?region=${encodeURIComponent(regionId)}` : '';
+        return apiRequest(`/api/reference/provinces/${qs}`, 'GET') as Promise<{ provinces: ProvinceItem[] }>;
+    },
+    create: (name: string, region_id: string, psgc_id: string) =>
+        apiRequest('/api/reference/provinces/', 'POST', { name, region_id, psgc_id }) as Promise<{ province: ProvinceItem }>,
+    update: (id: string, patch: Partial<ProvinceItem & { region_id?: string }>) =>
+        apiRequest(`/api/reference/provinces/${id}/`, 'PATCH', patch) as Promise<{ province: ProvinceItem }>,
+    remove: (id: string) => apiRequest(`/api/reference/provinces/${id}/`, 'DELETE'),
+};
+
+// Cities / Municipalities (parented to Region + optional Province)
+export const citiesApi = {
+    list: (params?: { provinceId?: string; regionId?: string }) => {
+        const search = new URLSearchParams();
+        if (params?.provinceId) search.set('province', params.provinceId);
+        if (params?.regionId) search.set('region', params.regionId);
+        const qs = search.toString();
+        return apiRequest(
+            `/api/reference/cities/${qs ? `?${qs}` : ''}`,
+            'GET',
+        ) as Promise<{ cities: CityMunicipalityItem[] }>;
+    },
+    create: (payload: { name: string; region_id: string; province_id?: string | null; psgc_id: string; is_city?: boolean }) =>
+        apiRequest('/api/reference/cities/', 'POST', payload) as Promise<{ city: CityMunicipalityItem }>,
+    update: (id: string, patch: Partial<CityMunicipalityItem & { region_id?: string; province_id?: string | null }>) =>
+        apiRequest(`/api/reference/cities/${id}/`, 'PATCH', patch) as Promise<{ city: CityMunicipalityItem }>,
+    remove: (id: string) => apiRequest(`/api/reference/cities/${id}/`, 'DELETE'),
 };

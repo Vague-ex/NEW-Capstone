@@ -8,12 +8,16 @@ import {
   industriesApi,
   jobTitlesApi,
   regionsApi,
+  provincesApi,
+  citiesApi,
   skillCategoriesApi,
   skillsApi,
   useReferenceData,
   type IndustryItem,
   type JobTitleItem,
   type RegionItem,
+  type ProvinceItem,
+  type CityMunicipalityItem,
   type SkillCategoryItem,
   type SkillItem,
 } from '../../hooks/useReferenceData';
@@ -735,12 +739,12 @@ export function AdminSettings() {
             onDeleteJob={removeJobTitle}
           />
         ) : tab === 'regions' ? (
-          <RegionsView
+          <LocationsView
             regions={regions}
             search={search}
-            onAdd={addRegion}
-            onRename={renameRegion}
-            onDelete={removeRegion}
+            onAddRegion={addRegion}
+            onRenameRegion={renameRegion}
+            onDeleteRegion={removeRegion}
           />
         ) : (
           <UsersView search={search} onCountChange={setAdminCount} />
@@ -1256,6 +1260,429 @@ function JobsView({
 }
 
 // ── Regions tab ─────────────────────────────────────────────────────────────
+// ── Locations parent view (Regions / Provinces / Cities sub-tabs) ────────────
+
+type LocationsSubTab = 'regions' | 'provinces' | 'cities';
+
+function LocationsView({
+  regions,
+  search,
+  onAddRegion,
+  onRenameRegion,
+  onDeleteRegion,
+}: {
+  regions: RegionItem[];
+  search: string;
+  onAddRegion: (name: string, code?: string) => Promise<void>;
+  onRenameRegion: (id: string, name: string) => Promise<void>;
+  onDeleteRegion: (id: string) => Promise<void>;
+}) {
+  const [sub, setSub] = useState<LocationsSubTab>('regions');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-1.5">
+        {(
+          [
+            { id: 'regions', label: 'Regions' },
+            { id: 'provinces', label: 'Provinces' },
+            { id: 'cities', label: 'Cities / Municipalities' },
+          ] as const
+        ).map(({ id, label }) => {
+          const active = sub === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSub(id)}
+              className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                active
+                  ? 'bg-[#15803d] border-[#15803d] text-white'
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+              style={{ fontWeight: active ? 600 : 500 }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {sub === 'regions' && (
+        <RegionsView
+          regions={regions}
+          search={search}
+          onAdd={onAddRegion}
+          onRename={onRenameRegion}
+          onDelete={onDeleteRegion}
+        />
+      )}
+      {sub === 'provinces' && <ProvincesView regions={regions} search={search} />}
+      {sub === 'cities' && <CitiesView regions={regions} search={search} />}
+    </div>
+  );
+}
+
+function ProvincesView({ regions, search }: { regions: RegionItem[]; search: string }) {
+  const [filterRegionId, setFilterRegionId] = useState<string>('');
+  const [items, setItems] = useState<ProvinceItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPsgc, setNewPsgc] = useState('');
+
+  const load = async () => {
+    if (!filterRegionId) {
+      setItems([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const { provinces } = await provincesApi.list(filterRegionId);
+      setItems(provinces);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load provinces.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filterRegionId]);
+
+  const handleAdd = async () => {
+    if (!filterRegionId || !newName.trim() || !newPsgc.trim()) {
+      setError('Pick a region, then enter a province name and PSGC ID.');
+      return;
+    }
+    setAdding(true);
+    setError(null);
+    try {
+      await provincesApi.create(newName.trim(), filterRegionId, newPsgc.trim());
+      setNewName('');
+      setNewPsgc('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed.');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleRename = async (id: string, name: string) => {
+    try {
+      await provincesApi.update(id, { name });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rename failed.');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await provincesApi.remove(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed.');
+    }
+  };
+
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? items.filter((p) => p.name.toLowerCase().includes(q) || p.psgc_id.includes(q))
+    : items;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
+      <div className="flex items-center gap-2 mb-4">
+        <MapPin className="size-4 text-[#1B3A6B]" />
+        <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Provinces</h3>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" style={{ fontWeight: 600 }}>
+          {visible.length}
+        </span>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>
+          Filter by region
+        </label>
+        <select
+          value={filterRegionId}
+          onChange={(e) => setFilterRegionId(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+        >
+          <option value="">— Pick a region to load its provinces —</option>
+          {regions.map((r) => (
+            <option key={r.id} value={r.id}>{r.code} — {r.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {filterRegionId && (
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input
+            type="text"
+            placeholder="Province name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm sm:col-span-1"
+          />
+          <input
+            type="text"
+            placeholder="PSGC ID (10 digits)"
+            value={newPsgc}
+            onChange={(e) => setNewPsgc(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono sm:col-span-1"
+          />
+          <button
+            type="button"
+            onClick={() => void handleAdd()}
+            disabled={adding}
+            className="px-3 py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-sm transition disabled:opacity-60"
+            style={{ fontWeight: 600 }}
+          >
+            {adding ? 'Adding…' : '+ Add Province'}
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
+      )}
+
+      <div className="space-y-0.5">
+        {!filterRegionId ? (
+          <EmptyState message="Pick a region above to browse and edit its provinces." />
+        ) : loading ? (
+          <p className="text-gray-400 text-sm text-center py-4">Loading provinces…</p>
+        ) : visible.length === 0 ? (
+          <EmptyState message={q ? 'No provinces match that search.' : 'No provinces in this region yet.'} />
+        ) : (
+          visible.map((p) => (
+            <ItemRow
+              key={p.id}
+              name={p.name}
+              badge={p.psgc_id}
+              badgeTone="navy"
+              onRename={(name) => handleRename(p.id, name)}
+              onDelete={() => handleDelete(p.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CitiesView({ regions, search }: { regions: RegionItem[]; search: string }) {
+  const [filterRegionId, setFilterRegionId] = useState<string>('');
+  const [filterProvinceId, setFilterProvinceId] = useState<string>('');
+  const [provincesInRegion, setProvincesInRegion] = useState<ProvinceItem[]>([]);
+  const [items, setItems] = useState<CityMunicipalityItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newPsgc, setNewPsgc] = useState('');
+  const [newIsCity, setNewIsCity] = useState(false);
+  const [adding, setAdding] = useState(false);
+
+  // Load provinces when region changes.
+  useEffect(() => {
+    setFilterProvinceId('');
+    if (!filterRegionId) {
+      setProvincesInRegion([]);
+      return;
+    }
+    let active = true;
+    void provincesApi
+      .list(filterRegionId)
+      .then(({ provinces }) => { if (active) setProvincesInRegion(provinces); })
+      .catch(() => { if (active) setProvincesInRegion([]); });
+    return () => { active = false; };
+  }, [filterRegionId]);
+
+  // Load cities for the active scope.
+  const load = async () => {
+    if (!filterRegionId) { setItems([]); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const { cities } = await citiesApi.list(
+        filterProvinceId ? { provinceId: filterProvinceId } : { regionId: filterRegionId },
+      );
+      setItems(cities);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load cities.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [filterRegionId, filterProvinceId]);
+
+  const handleAdd = async () => {
+    if (!filterRegionId || !newName.trim() || !newPsgc.trim()) {
+      setError('Pick a region (and optionally a province), then enter a name + PSGC ID.');
+      return;
+    }
+    setAdding(true);
+    setError(null);
+    try {
+      await citiesApi.create({
+        name: newName.trim(),
+        region_id: filterRegionId,
+        province_id: filterProvinceId || null,
+        psgc_id: newPsgc.trim(),
+        is_city: newIsCity,
+      });
+      setNewName('');
+      setNewPsgc('');
+      setNewIsCity(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed.');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleRename = async (id: string, name: string) => {
+    try {
+      await citiesApi.update(id, { name });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rename failed.');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await citiesApi.remove(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed.');
+    }
+  };
+
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? items.filter((c) => c.name.toLowerCase().includes(q) || c.psgc_id.includes(q))
+    : items;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
+      <div className="flex items-center gap-2 mb-4">
+        <MapPin className="size-4 text-[#1B3A6B]" />
+        <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Cities / Municipalities</h3>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" style={{ fontWeight: 600 }}>
+          {visible.length}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Region</label>
+          <select
+            value={filterRegionId}
+            onChange={(e) => setFilterRegionId(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+          >
+            <option value="">— Pick a region —</option>
+            {regions.map((r) => (
+              <option key={r.id} value={r.id}>{r.code} — {r.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Province (optional)</label>
+          <select
+            value={filterProvinceId}
+            onChange={(e) => setFilterProvinceId(e.target.value)}
+            disabled={!filterRegionId || provincesInRegion.length === 0}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-100"
+          >
+            <option value="">
+              {!filterRegionId
+                ? 'Pick a region first'
+                : provincesInRegion.length === 0
+                  ? 'No provinces in this region (NCR-style)'
+                  : 'All provinces in this region'}
+            </option>
+            {provincesInRegion.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {filterRegionId && (
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <input
+            type="text"
+            placeholder="City / Municipality name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            placeholder="PSGC ID"
+            value={newPsgc}
+            onChange={(e) => setNewPsgc(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
+          />
+          <div className="flex items-center gap-2 sm:col-span-1">
+            <label className="flex items-center gap-1.5 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={newIsCity}
+                onChange={(e) => setNewIsCity(e.target.checked)}
+                className="accent-[#15803d]"
+              />
+              City
+            </label>
+            <button
+              type="button"
+              onClick={() => void handleAdd()}
+              disabled={adding}
+              className="ml-auto px-3 py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-sm transition disabled:opacity-60"
+              style={{ fontWeight: 600 }}
+            >
+              {adding ? 'Adding…' : '+ Add'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
+      )}
+
+      <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
+        {!filterRegionId ? (
+          <EmptyState message="Pick a region (and optionally a province) to browse cities." />
+        ) : loading ? (
+          <p className="text-gray-400 text-sm text-center py-4">Loading…</p>
+        ) : visible.length === 0 ? (
+          <EmptyState message={q ? 'No cities match that search.' : 'No cities in this scope yet.'} />
+        ) : (
+          visible.map((c) => (
+            <ItemRow
+              key={c.id}
+              name={`${c.name}${c.is_city ? ' (City)' : ''}`}
+              badge={c.psgc_id}
+              badgeTone="navy"
+              onRename={(name) => handleRename(c.id, name)}
+              onDelete={() => handleDelete(c.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RegionsView({
   regions,
   search,

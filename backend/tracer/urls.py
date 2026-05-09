@@ -2,6 +2,8 @@ from django.urls import path
 
 from .api import (
     AdminAnalyticsPredictionsView,
+    CityMunicipalityDetailView,
+    CityMunicipalityListView,
     ComprehensiveSurveySubmissionView,
     EmployerCandidatesListView,
     EmployerVerifiableGraduateListView,
@@ -9,6 +11,8 @@ from .api import (
     IndustryListView,
     JobTitleDetailView,
     JobTitleListView,
+    ProvinceDetailView,
+    ProvinceListView,
     ReferenceDataView,
     RegionDetailView,
     RegionListView,
@@ -54,6 +58,14 @@ urlpatterns = [
     # Regions
     path("reference/regions/", RegionListView.as_view(), name="region-list"),
     path("reference/regions/<uuid:pk>/", RegionDetailView.as_view(), name="region-detail"),
+
+    # Provinces (parented to a Region)
+    path("reference/provinces/", ProvinceListView.as_view(), name="province-list"),
+    path("reference/provinces/<uuid:pk>/", ProvinceDetailView.as_view(), name="province-detail"),
+
+    # Cities / Municipalities (parented to Region + optional Province)
+    path("reference/cities/", CityMunicipalityListView.as_view(), name="city-list"),
+    path("reference/cities/<uuid:pk>/", CityMunicipalityDetailView.as_view(), name="city-detail"),
 
     # Employer verification tokens / decisions (DS7)
     path("verification/tokens/issue/", VerificationTokenIssueView.as_view(), name="verification-token-issue"),

@@ -13,7 +13,14 @@ import {
   Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
   AlertCircle, CheckCircle2, Code, Users, Loader,
 } from 'lucide-react';
-import { useReferenceData } from '../hooks/useReferenceData';
+import {
+  useReferenceData,
+  provincesApi,
+  citiesApi,
+  type RegionItem,
+  type ProvinceItem,
+  type CityMunicipalityItem,
+} from '../hooks/useReferenceData';
 
 // Types
 type EmploymentStep = 1 | 2 | 3 | 4 | 5 | 6;
@@ -105,11 +112,6 @@ const SOFT_SKILLS = [
   'Ability to Work Under Pressure',
   'Time Management',
 ];
-
-type PhCityEmp = { name: string; zip: string; barangays: string[] };
-type PhProvinceEmp = { name: string; cities: PhCityEmp[] };
-type PhRegionEmp = { name: string; provinces: PhProvinceEmp[] };
-type PhLocationsEmp = { regions: PhRegionEmp[] };
 
 const PHILIPPINE_REGIONS = [
   'NCR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B',
@@ -293,17 +295,71 @@ export default function RegisterAlumniEmployment({
   // Get available regions (from Supabase or fallback)
   const regions = referenceData?.regions?.map((r: any) => r.name) || PHILIPPINE_REGIONS;
 
-  // Philippines location JSON for cascading dropdowns
-  const [phLocations, setPhLocations] = useState<PhLocationsEmp | null>(null);
-  useEffect(() => {
-    fetch('/ph-locations.json').then(r => r.json()).then(setPhLocations).catch(() => {});
-  }, []);
-
+  // Cascading location dropdowns now sourced live from the reference DB
+  // (Region → Province → CityMunicipality). The legacy /ph-locations.json
+  // fallback is dropped — admin reference-data CRUD is the source of truth.
   const isPhilippinesWork = !form.country || form.country === 'Philippines';
-  const phRegionsWork = phLocations?.regions ?? [];
-  const phProvincesWork = phRegionsWork.find(r => r.name === form.region)?.provinces ?? [];
-  const phCitiesWork = phProvincesWork.find(p => p.name === form.province_work)?.cities ?? [];
-  const phBarangaysWork = phCitiesWork.find(c => c.name === form.city_municipality)?.barangays ?? [];
+  const apiRegions: RegionItem[] = referenceData?.regions ?? [];
+  const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
+  const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
+
+  // When the user picks a region by name, load that region's provinces.
+  useEffect(() => {
+    if (!isPhilippinesWork || !form.region) {
+      setApiProvinces([]);
+      return;
+    }
+    const region = apiRegions.find((r) => r.name === form.region);
+    if (!region) {
+      setApiProvinces([]);
+      return;
+    }
+    let active = true;
+    void provincesApi
+      .list(region.id)
+      .then(({ provinces }) => { if (active) setApiProvinces(provinces); })
+      .catch(() => { if (active) setApiProvinces([]); });
+    return () => { active = false; };
+  }, [form.region, apiRegions, isPhilippinesWork]);
+
+  // Cities load once region+province is picked. NCR and similar regions have
+  // no provinces in PSGC, so cities are filtered by region only in that case.
+  useEffect(() => {
+    if (!isPhilippinesWork || !form.region) {
+      setApiCities([]);
+      return;
+    }
+    const region = apiRegions.find((r) => r.name === form.region);
+    if (!region) {
+      setApiCities([]);
+      return;
+    }
+    let active = true;
+    if (form.province_work) {
+      const province = apiProvinces.find((p) => p.name === form.province_work);
+      if (!province) {
+        setApiCities([]);
+        return;
+      }
+      void citiesApi
+        .list({ provinceId: province.id })
+        .then(({ cities }) => { if (active) setApiCities(cities); })
+        .catch(() => { if (active) setApiCities([]); });
+    } else if (apiProvinces.length === 0) {
+      // Region has no provinces (NCR-style) → cities listed directly under region.
+      void citiesApi
+        .list({ regionId: region.id })
+        .then(({ cities }) => { if (active) setApiCities(cities); })
+        .catch(() => { if (active) setApiCities([]); });
+    } else {
+      setApiCities([]);
+    }
+    return () => { active = false; };
+  }, [form.region, form.province_work, apiRegions, apiProvinces, isPhilippinesWork]);
+
+  const phRegionsWork = apiRegions;
+  const phProvincesWork = apiProvinces;
+  const phCitiesWork = apiCities;
 
   // Dynamic skills from reference API (falls back to hardcoded)
   const technicalSkills: string[] = (() => {
@@ -889,40 +945,30 @@ export default function RegisterAlumniEmployment({
                   <select
                     value={form.city_municipality}
                     onChange={(e) => {
-                      const city = phCitiesWork.find(c => c.name === e.target.value);
-                      setForm({ ...form, city_municipality: e.target.value, barangay: '', zip_code: city?.zip ?? '' });
+                      // PSGC dataset has no ZIP column — user types it manually now.
+                      setForm({ ...form, city_municipality: e.target.value, barangay: '' });
                     }}
-                    disabled={!form.province_work}
+                    disabled={!form.province_work && phProvincesWork.length > 0}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
                   >
                     <option value="">Select City</option>
-                    {phCitiesWork.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    {phCitiesWork.map(c => <option key={c.id} value={c.name}>{c.name}{c.is_city ? ' (City)' : ''}</option>)}
                   </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
-                {phBarangaysWork.length > 0 ? (
-                  <select
-                    value={form.barangay}
-                    onChange={(e) => setForm({ ...form, barangay: e.target.value })}
-                    disabled={!form.city_municipality}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
-                  >
-                    <option value="">Select Barangay</option>
-                    {phBarangaysWork.map(b => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={form.barangay}
-                    onChange={(e) => setForm({ ...form, barangay: e.target.value })}
-                    placeholder={form.city_municipality ? 'Enter barangay' : 'Select a city first'}
-                    disabled={!form.city_municipality}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
-                  />
-                )}
+                {/* Barangay stays free-text — the PSGC dataset has 42K rows, too
+                    granular to dump in a dropdown. Type the name as-is. */}
+                <input
+                  type="text"
+                  value={form.barangay}
+                  onChange={(e) => setForm({ ...form, barangay: e.target.value })}
+                  placeholder={form.city_municipality ? 'Enter barangay' : 'Select a city first'}
+                  disabled={!form.city_municipality}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                />
               </div>
             </>
           ) : (
