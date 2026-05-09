@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import Image from 'next/image';
 import {
   Building2, Mail, Lock, Eye, EyeOff, AlertCircle, ArrowRight,
   CheckCircle2, Clock, GraduationCap, Globe, User, Phone,
-  Briefcase, ArrowLeft,
+  Briefcase, ArrowLeft, Sparkles, Heart,
 } from 'lucide-react';
 import {
   ApiClientError,
@@ -12,7 +12,9 @@ import {
   employerLogin,
   registerEmployer,
 } from '../../app/api-client';
-import { useReferenceData } from '../../hooks/useReferenceData';
+import { useReferenceData, type SkillItem } from '../../hooks/useReferenceData';
+
+const SOFT_SKILL_PATTERN = /soft|communication|interpersonal|behaviou?ral|attitude/i;
 
 type View = 'landing' | 'login' | 'register' | 'pending';
 const schoolLogo = '/CHMSULogo.png';
@@ -262,11 +264,36 @@ function RegisterView({
 }) {
   const [form, setForm] = useState({
     companyName: '', industry: '', website: '',
-    contactName: '', position: '', email: '', phone: '',
+    contactName: '', position: '', email: '', phone: '', phoneCountryCode: '+63',
     password: '', confirmPassword: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Live skill list for the "Skills you're hiring for" chip selectors.
+  const { data: referenceData, loading: loadingReferenceData } = useReferenceData();
+  const [desiredTechSkillIds, setDesiredTechSkillIds] = useState<string[]>([]);
+  const [desiredSoftSkillIds, setDesiredSoftSkillIds] = useState<string[]>([]);
+
+  const { softSkills, technicalSkills } = useMemo(() => {
+    const soft: SkillItem[] = [];
+    const technical: SkillItem[] = [];
+    for (const skill of referenceData.skills) {
+      if (!skill.is_active) continue;
+      const cat = skill.category_name ?? '';
+      if (SOFT_SKILL_PATTERN.test(cat) || SOFT_SKILL_PATTERN.test(skill.name)) {
+        soft.push(skill);
+      } else {
+        technical.push(skill);
+      }
+    }
+    return { softSkills: soft, technicalSkills: technical };
+  }, [referenceData.skills]);
+
+  const toggleSkill = (id: string, group: 'tech' | 'soft') => {
+    const setter = group === 'tech' ? setDesiredTechSkillIds : setDesiredSoftSkillIds;
+    setter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -280,12 +307,29 @@ function RegisterView({
     if (!form.companyName || !form.contactName || !form.email || !form.industry) {
       setError('Please fill in all required fields.'); return;
     }
+    // Phone is optional; if filled, validate same as alumni: PH = 9XXXXXXXXX (10) or
+    // 09XXXXXXXXX (11); else 6–15 digits.
+    if (form.phone.trim()) {
+      const phoneDigits = form.phone.replace(/\D/g, '');
+      if (form.phoneCountryCode === '+63') {
+        const normalized = phoneDigits.startsWith('0') ? phoneDigits.slice(1) : phoneDigits;
+        if (normalized.length !== 10 || !normalized.startsWith('9')) {
+          setError('Philippine phone numbers must start with 9 or 09 (e.g. 9171234567 or 09171234567).');
+          return;
+        }
+      } else if (phoneDigits.length < 6 || phoneDigits.length > 15) {
+        setError('Please enter a valid phone number (6–15 digits).');
+        return;
+      }
+    }
     if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
 
     setIsLoading(true);
 
     try {
+      const desiredSkillIds = [...desiredTechSkillIds, ...desiredSoftSkillIds];
+      const fullPhone = form.phone.trim() ? `${form.phoneCountryCode}${form.phone}` : '';
       const response = await registerEmployer({
         company_name: form.companyName,
         industry: form.industry,
@@ -293,9 +337,11 @@ function RegisterView({
         contact_name: form.contactName,
         position: form.position,
         credential_email: form.email,
-        phone: form.phone,
+        phone: fullPhone,
+        phone_country_code: form.phoneCountryCode,
         password: form.password,
         confirm_password: form.confirmPassword,
+        desired_skill_ids: JSON.stringify(desiredSkillIds),
       });
 
       const payload = (response.employer ?? {}) as Record<string, unknown>;
@@ -406,9 +452,38 @@ function RegisterView({
             </div>
             <div>
               <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Phone</label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="phone" type="tel" value={form.phone} onChange={handleChange} placeholder="09XXXXXXXXX" className={iCls} />
+              <div className="flex gap-2">
+                <select
+                  name="phoneCountryCode"
+                  value={form.phoneCountryCode}
+                  onChange={handleChange}
+                  className="px-2 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 outline-none transition"
+                >
+                  <option value="+63">+63 PH</option>
+                  <option value="+1">+1 US</option>
+                  <option value="+44">+44 UK</option>
+                  <option value="+61">+61 AU</option>
+                  <option value="+65">+65 SG</option>
+                  <option value="+60">+60 MY</option>
+                  <option value="+81">+81 JP</option>
+                  <option value="+82">+82 KR</option>
+                  <option value="+86">+86 CN</option>
+                  <option value="+971">+971 AE</option>
+                </select>
+                <div className="relative flex-1">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                  <input
+                    name="phone"
+                    type="tel"
+                    value={form.phone}
+                    maxLength={form.phoneCountryCode === '+63' ? 11 : 15}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))
+                    }
+                    placeholder={form.phoneCountryCode === '+63' ? '9XXXXXXXXX or 09XXXXXXXXX' : 'Phone number'}
+                    className={iCls}
+                  />
+                </div>
               </div>
             </div>
             <div className="col-span-2">
@@ -418,6 +493,91 @@ function RegisterView({
                 <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="you@company.com" className={iCls} />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Skills the employer is hiring for */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
+            <Sparkles className="size-4 text-[#166534]" /> Skills You're Hiring For
+          </h3>
+          <p className="text-gray-500 text-xs mb-4">
+            Pick the skills you want from CHMSU BSIS graduates. Optional — leave blank to see all candidates. Updates automatically when admins add new skills.
+          </p>
+
+          {/* Technical skills */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
+                Technical skills <span className="text-gray-400" style={{ fontWeight: 400 }}>(optional if your industry isn't IT-related)</span>
+              </p>
+              {desiredTechSkillIds.length > 0 && (
+                <span className="text-[11px] text-[#166534]" style={{ fontWeight: 600 }}>{desiredTechSkillIds.length} selected</span>
+              )}
+            </div>
+            {loadingReferenceData ? (
+              <p className="text-gray-400 text-xs">Loading skills…</p>
+            ) : technicalSkills.length === 0 ? (
+              <p className="text-gray-400 text-xs italic">No technical skills in the reference list yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {technicalSkills.map((skill) => {
+                  const selected = desiredTechSkillIds.includes(skill.id);
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => toggleSkill(skill.id, 'tech')}
+                      className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                        selected
+                          ? 'border-[#166534] bg-[#166534] text-white'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
+                      }`}
+                      style={{ fontWeight: 500 }}>
+                      {skill.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Soft skills */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-gray-700 text-xs flex items-center gap-1.5" style={{ fontWeight: 600 }}>
+                <Heart className="size-3.5 text-[#166534]" />
+                Soft skills
+              </p>
+              {desiredSoftSkillIds.length > 0 && (
+                <span className="text-[11px] text-[#166534]" style={{ fontWeight: 600 }}>{desiredSoftSkillIds.length} selected</span>
+              )}
+            </div>
+            {loadingReferenceData ? (
+              <p className="text-gray-400 text-xs">Loading skills…</p>
+            ) : softSkills.length === 0 ? (
+              <p className="text-gray-400 text-xs italic">No soft skills in the reference list yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {softSkills.map((skill) => {
+                  const selected = desiredSoftSkillIds.includes(skill.id);
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => toggleSkill(skill.id, 'soft')}
+                      className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                        selected
+                          ? 'border-[#166534] bg-[#166534] text-white'
+                          : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
+                      }`}
+                      style={{ fontWeight: 500 }}>
+                      {skill.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
