@@ -275,19 +275,23 @@ function RegisterView({
   const [desiredTechSkillIds, setDesiredTechSkillIds] = useState<string[]>([]);
   const [desiredSoftSkillIds, setDesiredSoftSkillIds] = useState<string[]>([]);
 
-  const { softSkills, technicalSkills } = useMemo(() => {
+  const { softSkills, technicalSkillsByCategory, technicalCount } = useMemo(() => {
     const soft: SkillItem[] = [];
-    const technical: SkillItem[] = [];
+    const techGroups: Record<string, SkillItem[]> = {};
+    let total = 0;
     for (const skill of referenceData.skills) {
       if (!skill.is_active) continue;
       const cat = skill.category_name ?? '';
       if (SOFT_SKILL_PATTERN.test(cat) || SOFT_SKILL_PATTERN.test(skill.name)) {
         soft.push(skill);
       } else {
-        technical.push(skill);
+        const groupKey = cat || 'Other';
+        if (!techGroups[groupKey]) techGroups[groupKey] = [];
+        techGroups[groupKey].push(skill);
+        total += 1;
       }
     }
-    return { softSkills: soft, technicalSkills: technical };
+    return { softSkills: soft, technicalSkillsByCategory: techGroups, technicalCount: total };
   }, [referenceData.skills]);
 
   const toggleSkill = (id: string, group: 'tech' | 'soft') => {
@@ -450,14 +454,14 @@ function RegisterView({
                 <input name="position" value={form.position} onChange={handleChange} placeholder="e.g. HR Manager" className={iCls} />
               </div>
             </div>
-            <div>
+            <div className="col-span-2">
               <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Phone</label>
               <div className="flex gap-2">
                 <select
                   name="phoneCountryCode"
                   value={form.phoneCountryCode}
                   onChange={handleChange}
-                  className="px-2 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 outline-none transition"
+                  className="shrink-0 px-2.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 outline-none transition"
                 >
                   <option value="+63">+63 PH</option>
                   <option value="+1">+1 US</option>
@@ -470,7 +474,7 @@ function RegisterView({
                   <option value="+86">+86 CN</option>
                   <option value="+971">+971 AE</option>
                 </select>
-                <div className="relative flex-1">
+                <div className="relative flex-1 min-w-0">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                   <input
                     name="phone"
@@ -517,27 +521,36 @@ function RegisterView({
             </div>
             {loadingReferenceData ? (
               <p className="text-gray-400 text-xs">Loading skills…</p>
-            ) : technicalSkills.length === 0 ? (
+            ) : technicalCount === 0 ? (
               <p className="text-gray-400 text-xs italic">No technical skills in the reference list yet.</p>
             ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {technicalSkills.map((skill) => {
-                  const selected = desiredTechSkillIds.includes(skill.id);
-                  return (
-                    <button
-                      key={skill.id}
-                      type="button"
-                      onClick={() => toggleSkill(skill.id, 'tech')}
-                      className={`px-3 py-1.5 rounded-full text-xs border transition ${
-                        selected
-                          ? 'border-[#166534] bg-[#166534] text-white'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
-                      }`}
-                      style={{ fontWeight: 500 }}>
-                      {skill.name}
-                    </button>
-                  );
-                })}
+              <div className="space-y-3">
+                {Object.keys(technicalSkillsByCategory).sort().map((categoryName) => (
+                  <div key={categoryName}>
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5" style={{ fontWeight: 600 }}>
+                      {categoryName}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {technicalSkillsByCategory[categoryName].map((skill) => {
+                        const selected = desiredTechSkillIds.includes(skill.id);
+                        return (
+                          <button
+                            key={skill.id}
+                            type="button"
+                            onClick={() => toggleSkill(skill.id, 'tech')}
+                            className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                              selected
+                                ? 'border-[#166534] bg-[#166534] text-white'
+                                : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
+                            }`}
+                            style={{ fontWeight: 500 }}>
+                            {skill.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

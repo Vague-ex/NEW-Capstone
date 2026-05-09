@@ -30,19 +30,23 @@ export function RegisterEmployer() {
   // Split the live skill list into soft vs technical groups based on the
   // category name. Falls back to "everything is technical" when categories
   // aren't seeded yet.
-  const { softSkills, technicalSkills } = useMemo(() => {
+  const { softSkills, technicalSkillsByCategory, technicalCount } = useMemo(() => {
     const soft: SkillItem[] = [];
-    const technical: SkillItem[] = [];
+    const techGroups: Record<string, SkillItem[]> = {};
+    let total = 0;
     for (const skill of referenceData.skills) {
       if (!skill.is_active) continue;
       const cat = skill.category_name ?? '';
       if (SOFT_SKILL_PATTERN.test(cat) || SOFT_SKILL_PATTERN.test(skill.name)) {
         soft.push(skill);
       } else {
-        technical.push(skill);
+        const groupKey = cat || 'Other';
+        if (!techGroups[groupKey]) techGroups[groupKey] = [];
+        techGroups[groupKey].push(skill);
+        total += 1;
       }
     }
-    return { softSkills: soft, technicalSkills: technical };
+    return { softSkills: soft, technicalSkillsByCategory: techGroups, technicalCount: total };
   }, [referenceData.skills]);
 
   const toggleSkill = (id: string, group: 'tech' | 'soft') => {
@@ -313,27 +317,36 @@ export function RegisterEmployer() {
                 </div>
                 {loadingReferenceData ? (
                   <p className="text-gray-400 text-xs">Loading skills…</p>
-                ) : technicalSkills.length === 0 ? (
+                ) : technicalCount === 0 ? (
                   <p className="text-gray-400 text-xs italic">No technical skills in the reference list yet.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {technicalSkills.map((skill) => {
-                      const selected = desiredTechSkillIds.includes(skill.id);
-                      return (
-                        <button
-                          key={skill.id}
-                          type="button"
-                          onClick={() => toggleSkill(skill.id, 'tech')}
-                          className={`px-3 py-1.5 rounded-full text-xs border transition ${
-                            selected
-                              ? 'border-[#166534] bg-[#166534] text-white'
-                              : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
-                          }`}
-                          style={{ fontWeight: 500 }}>
-                          {skill.name}
-                        </button>
-                      );
-                    })}
+                  <div className="space-y-3">
+                    {Object.keys(technicalSkillsByCategory).sort().map((categoryName) => (
+                      <div key={categoryName}>
+                        <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5" style={{ fontWeight: 600 }}>
+                          {categoryName}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {technicalSkillsByCategory[categoryName].map((skill) => {
+                            const selected = desiredTechSkillIds.includes(skill.id);
+                            return (
+                              <button
+                                key={skill.id}
+                                type="button"
+                                onClick={() => toggleSkill(skill.id, 'tech')}
+                                className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                                  selected
+                                    ? 'border-[#166534] bg-[#166534] text-white'
+                                    : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
+                                }`}
+                                style={{ fontWeight: 500 }}>
+                                {skill.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
