@@ -21,7 +21,7 @@ export function RegisterEmployer() {
 
   const [form, setForm] = useState({
     companyName: '', industry: '', website: '',
-    contactName: '', position: '', email: '', phone: '',
+    contactName: '', position: '', email: '', phone: '', phoneCountryCode: '+63',
     password: '', confirmPassword: '',
   });
   const [desiredTechSkillIds, setDesiredTechSkillIds] = useState<string[]>([]);
@@ -61,6 +61,21 @@ export function RegisterEmployer() {
     if (!form.companyName || !form.contactName || !form.email || !form.industry) {
       setError('Please fill in all required fields.'); return;
     }
+    // Phone is optional, but if filled it must follow the same shape as the
+    // alumni form: PH = 9XXXXXXXXX (10) or 09XXXXXXXXX (11); else 6–15 digits.
+    if (form.phone.trim()) {
+      const phoneDigits = form.phone.replace(/\D/g, '');
+      if (form.phoneCountryCode === '+63') {
+        const normalized = phoneDigits.startsWith('0') ? phoneDigits.slice(1) : phoneDigits;
+        if (normalized.length !== 10 || !normalized.startsWith('9')) {
+          setError('Philippine phone numbers must start with 9 or 09 (e.g. 9171234567 or 09171234567).');
+          return;
+        }
+      } else if (phoneDigits.length < 6 || phoneDigits.length > 15) {
+        setError('Please enter a valid phone number (6–15 digits).');
+        return;
+      }
+    }
     if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
 
@@ -68,6 +83,7 @@ export function RegisterEmployer() {
 
     try {
       const desiredSkillIds = [...desiredTechSkillIds, ...desiredSoftSkillIds];
+      const fullPhone = form.phone.trim() ? `${form.phoneCountryCode}${form.phone}` : '';
       const response = await registerEmployer({
         company_name: form.companyName,
         industry: form.industry,
@@ -75,7 +91,8 @@ export function RegisterEmployer() {
         contact_name: form.contactName,
         position: form.position,
         credential_email: form.email,
-        phone: form.phone,
+        phone: fullPhone,
+        phone_country_code: form.phoneCountryCode,
         password: form.password,
         confirm_password: form.confirmPassword,
         desired_skill_ids: JSON.stringify(desiredSkillIds),
@@ -238,10 +255,38 @@ export function RegisterEmployer() {
                   </div>
                 </Field>
                 <Field label="Phone Number">
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                    <input name="phone" type="tel" value={form.phone} onChange={handleChange}
-                      placeholder="09XXXXXXXXX" className={iconInputClass} />
+                  <div className="flex gap-2">
+                    <select
+                      name="phoneCountryCode"
+                      value={form.phoneCountryCode}
+                      onChange={handleChange}
+                      className="px-2 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 outline-none transition"
+                    >
+                      <option value="+63">+63 Philippines</option>
+                      <option value="+1">+1 United States</option>
+                      <option value="+44">+44 United Kingdom</option>
+                      <option value="+61">+61 Australia</option>
+                      <option value="+65">+65 Singapore</option>
+                      <option value="+60">+60 Malaysia</option>
+                      <option value="+81">+81 Japan</option>
+                      <option value="+82">+82 Korea</option>
+                      <option value="+86">+86 China</option>
+                      <option value="+971">+971 UAE</option>
+                    </select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                      <input
+                        name="phone"
+                        type="tel"
+                        value={form.phone}
+                        maxLength={form.phoneCountryCode === '+63' ? 11 : 15}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))
+                        }
+                        placeholder={form.phoneCountryCode === '+63' ? '9XXXXXXXXX or 09XXXXXXXXX' : 'Phone number'}
+                        className={iconInputClass}
+                      />
+                    </div>
                   </div>
                 </Field>
               </div>
