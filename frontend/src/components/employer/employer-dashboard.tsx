@@ -108,15 +108,13 @@ export function EmployerDashboard() {
     };
 
     void syncEmployerStatus();
-    const intervalId = window.setInterval(() => {
-      void syncEmployerStatus();
-    }, 30000);
+    // Refetch only on focus / visibilitychange — the 30s polling interval was
+    // causing visible flicker on the dashboard.
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
@@ -178,16 +176,13 @@ export function EmployerDashboard() {
     };
 
     void loadEmployerAlumni();
-    const intervalId = window.setInterval(() => {
-      void loadEmployerAlumni();
-    }, 30000);
-
+    // Refetch only on focus / visibilitychange — the 30s polling interval was
+    // causing visible flicker on the dashboard.
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
     };

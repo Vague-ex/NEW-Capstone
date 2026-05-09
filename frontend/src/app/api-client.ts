@@ -133,6 +133,7 @@ export interface EmployerAccountResponse {
     status?: string;
     accountStatus?: string;
     date?: string;
+    desiredSkills?: Array<{ id: string; name: string; category: string | null }>;
 }
 
 export interface EmployerVerifiableGraduateResponse {

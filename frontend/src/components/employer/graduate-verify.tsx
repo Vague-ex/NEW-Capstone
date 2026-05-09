@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { GRADUATION_YEARS } from '../../data/app-data';
 import {
@@ -179,15 +179,13 @@ export function GraduateVerify() {
     };
 
     void syncEmployerStatus();
-    const intervalId = window.setInterval(() => {
-      void syncEmployerStatus();
-    }, 30000);
+    // Refetch only on focus / visibilitychange — the 30s polling interval was
+    // causing visible flicker.
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       active = false;
-      window.clearInterval(intervalId);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
@@ -277,6 +275,15 @@ export function GraduateVerify() {
   const [verifiedJobTitleId, setVerifiedJobTitleId] = useState('');
   const [evalModalOpen, setEvalModalOpen] = useState(false);
   const [evaluationData, setEvaluationData] = useState<EmployerEvaluationPayload | null>(null);
+
+  // Smooth-scroll the selected graduate's detail card into view so employers
+  // don't have to manually scroll after clicking a card.
+  const detailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selectedGraduate && detailRef.current) {
+      detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedGraduate?.id]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,7 +548,7 @@ export function GraduateVerify() {
 
         {/* ── Selected Graduate Detail + Endorsement ───────────────────── */}
         {selectedGraduate && (
-          <div className="space-y-4">
+          <div ref={detailRef} className="space-y-4 scroll-mt-24">
             {/* Graduate detail card */}
             <div className="bg-white rounded-2xl border border-[#166534]/30 shadow-sm overflow-hidden">
               <div className="bg-[#166534]/5 border-b border-[#166534]/10 p-5">

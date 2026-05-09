@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Building2, ArrowLeft, CheckCircle2, AlertCircle,
-  Globe, Mail, Phone, User, Briefcase, Lock,
+  Globe, Mail, Phone, User, Briefcase, Lock, Sparkles, Heart,
 } from 'lucide-react';
 import {
   ApiClientError,
   EMPLOYER_ACCESS_TOKEN_KEY,
   registerEmployer,
 } from '../app/api-client';
-import { useReferenceData } from '../hooks/useReferenceData';
+import { useReferenceData, type SkillItem } from '../hooks/useReferenceData';
+
+const SOFT_SKILL_PATTERN = /soft|communication|interpersonal|behaviou?ral|attitude/i;
 
 export function RegisterEmployer() {
   const navigate = useNavigate();
@@ -22,6 +24,31 @@ export function RegisterEmployer() {
     contactName: '', position: '', email: '', phone: '',
     password: '', confirmPassword: '',
   });
+  const [desiredTechSkillIds, setDesiredTechSkillIds] = useState<string[]>([]);
+  const [desiredSoftSkillIds, setDesiredSoftSkillIds] = useState<string[]>([]);
+
+  // Split the live skill list into soft vs technical groups based on the
+  // category name. Falls back to "everything is technical" when categories
+  // aren't seeded yet.
+  const { softSkills, technicalSkills } = useMemo(() => {
+    const soft: SkillItem[] = [];
+    const technical: SkillItem[] = [];
+    for (const skill of referenceData.skills) {
+      if (!skill.is_active) continue;
+      const cat = skill.category_name ?? '';
+      if (SOFT_SKILL_PATTERN.test(cat) || SOFT_SKILL_PATTERN.test(skill.name)) {
+        soft.push(skill);
+      } else {
+        technical.push(skill);
+      }
+    }
+    return { softSkills: soft, technicalSkills: technical };
+  }, [referenceData.skills]);
+
+  const toggleSkill = (id: string, group: 'tech' | 'soft') => {
+    const setter = group === 'tech' ? setDesiredTechSkillIds : setDesiredSoftSkillIds;
+    setter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -40,6 +67,7 @@ export function RegisterEmployer() {
     setIsLoading(true);
 
     try {
+      const desiredSkillIds = [...desiredTechSkillIds, ...desiredSoftSkillIds];
       const response = await registerEmployer({
         company_name: form.companyName,
         industry: form.industry,
@@ -50,6 +78,7 @@ export function RegisterEmployer() {
         phone: form.phone,
         password: form.password,
         confirm_password: form.confirmPassword,
+        desired_skill_ids: JSON.stringify(desiredSkillIds),
       });
 
       const payload = (response.employer ?? {}) as Record<string, unknown>;
@@ -215,6 +244,91 @@ export function RegisterEmployer() {
                       placeholder="09XXXXXXXXX" className={iconInputClass} />
                   </div>
                 </Field>
+              </div>
+            </div>
+
+            {/* Skills the employer is hiring for */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
+                <Sparkles className="size-4 text-[#166534]" /> Skills You're Hiring For
+              </h3>
+              <p className="text-gray-500 text-xs mb-4">
+                Pick the skills you want from CHMSU BSIS graduates. Optional — leave blank to see all candidates. Updated automatically when admins add new skills.
+              </p>
+
+              {/* Technical skills */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
+                    Technical skills <span className="text-gray-400" style={{ fontWeight: 400 }}>(optional if your industry isn't IT-related)</span>
+                  </p>
+                  {desiredTechSkillIds.length > 0 && (
+                    <span className="text-[11px] text-[#166534]" style={{ fontWeight: 600 }}>{desiredTechSkillIds.length} selected</span>
+                  )}
+                </div>
+                {loadingReferenceData ? (
+                  <p className="text-gray-400 text-xs">Loading skills…</p>
+                ) : technicalSkills.length === 0 ? (
+                  <p className="text-gray-400 text-xs italic">No technical skills in the reference list yet.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {technicalSkills.map((skill) => {
+                      const selected = desiredTechSkillIds.includes(skill.id);
+                      return (
+                        <button
+                          key={skill.id}
+                          type="button"
+                          onClick={() => toggleSkill(skill.id, 'tech')}
+                          className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                            selected
+                              ? 'border-[#166534] bg-[#166534] text-white'
+                              : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
+                          }`}
+                          style={{ fontWeight: 500 }}>
+                          {skill.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Soft skills */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-gray-700 text-xs flex items-center gap-1.5" style={{ fontWeight: 600 }}>
+                    <Heart className="size-3.5 text-[#166534]" />
+                    Soft skills
+                  </p>
+                  {desiredSoftSkillIds.length > 0 && (
+                    <span className="text-[11px] text-[#166534]" style={{ fontWeight: 600 }}>{desiredSoftSkillIds.length} selected</span>
+                  )}
+                </div>
+                {loadingReferenceData ? (
+                  <p className="text-gray-400 text-xs">Loading skills…</p>
+                ) : softSkills.length === 0 ? (
+                  <p className="text-gray-400 text-xs italic">No soft skills in the reference list yet.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {softSkills.map((skill) => {
+                      const selected = desiredSoftSkillIds.includes(skill.id);
+                      return (
+                        <button
+                          key={skill.id}
+                          type="button"
+                          onClick={() => toggleSkill(skill.id, 'soft')}
+                          className={`px-3 py-1.5 rounded-full text-xs border transition ${
+                            selected
+                              ? 'border-[#166534] bg-[#166534] text-white'
+                              : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
+                          }`}
+                          style={{ fontWeight: 500 }}>
+                          {skill.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

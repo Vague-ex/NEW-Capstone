@@ -400,6 +400,14 @@ class EmployerAccount(models.Model):
         choices=AccountStatus.choices,
         default=AccountStatus.PENDING,
     )
+    # Skills the employer is hiring for. Pulled live from the Skill reference
+    # table so admin-added skills appear automatically in the employer-register
+    # form's chip selectors.
+    desired_skills = models.ManyToManyField(
+        "tracer.Skill",
+        related_name="employer_accounts_wanting",
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

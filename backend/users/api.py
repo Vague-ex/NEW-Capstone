@@ -935,6 +935,18 @@ def _employer_request_payload(account: EmployerAccount) -> dict:
     else:
         status_label = "pending"
 
+    try:
+        desired_skills = [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "category": s.category.name if s.category_id else None,
+            }
+            for s in account.desired_skills.select_related("category").filter(is_active=True)
+        ]
+    except Exception:  # pragma: no cover — defensive against missing M2M table during migration
+        desired_skills = []
+
     return {
         "id": str(account.id),
         "company": account.company_name,
@@ -950,6 +962,7 @@ def _employer_request_payload(account: EmployerAccount) -> dict:
         "accountStatus": status_value,
         "date": account.created_at.date().isoformat(),
         "dateUpdated": account.updated_at.date().isoformat(),
+        "desiredSkills": desired_skills,
     }
 
 
@@ -1620,6 +1633,18 @@ class EmployerRegisterView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        # Optional desired_skill_ids — JSON-encoded list of Skill UUIDs the
+        # employer wants in candidates. Silently drop invalid entries.
+        desired_skill_ids: list[str] = []
+        raw_desired = request.data.get("desired_skill_ids")
+        if raw_desired:
+            try:
+                parsed = json.loads(raw_desired) if isinstance(raw_desired, str) else raw_desired
+                if isinstance(parsed, list):
+                    desired_skill_ids = [str(x).strip() for x in parsed if str(x).strip()]
+            except (TypeError, json.JSONDecodeError):
+                desired_skill_ids = []
+
         with transaction.atomic():
             user = User.objects.create_user(
                 email=credential_email,
@@ -1638,6 +1663,9 @@ class EmployerRegisterView(APIView):
                 company_address=company_address,
                 account_status=AccountStatus.PENDING,
             )
+            if desired_skill_ids:
+                skills_qs = Skill.objects.filter(id__in=desired_skill_ids, is_active=True)
+                employer_account.desired_skills.set(skills_qs)
 
         access_token = _generate_employer_access_token(user.id)
 
