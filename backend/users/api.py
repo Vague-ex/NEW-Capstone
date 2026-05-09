@@ -2041,6 +2041,55 @@ class EmployerAccountStatusView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    def patch(self, request, employer_id):
+        """Allow a signed-in employer to update their own desired skills list."""
+        # Lazy import — avoids any module-load order coupling between apps.
+        from tracer.api import _require_employer
+        from tracer.models import Skill
+
+        token_account, error_response = _require_employer(request, allow_pending=True)
+        if error_response:
+            return error_response
+
+        if str(token_account.id) != str(employer_id):
+            return Response(
+                {"detail": "You can only update your own employer account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        raw = request.data.get("desired_skill_ids")
+        if raw is None:
+            return Response(
+                {"detail": "desired_skill_ids is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                return Response(
+                    {"detail": "desired_skill_ids must be a JSON list of UUIDs."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            parsed = raw
+        if not isinstance(parsed, list):
+            return Response(
+                {"detail": "desired_skill_ids must be a list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        clean_ids = [str(x).strip() for x in parsed if str(x).strip()]
+        skills_qs = Skill.objects.filter(id__in=clean_ids, is_active=True)
+        token_account.desired_skills.set(skills_qs)
+
+        return Response(
+            {
+                "employer": _employer_request_payload(token_account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class PendingAlumniListView(APIView):
     parser_classes = [JSONParser]

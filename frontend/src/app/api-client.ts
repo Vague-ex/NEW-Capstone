@@ -333,6 +333,20 @@ export async function fetchEmployerAccountStatus(
     return (data?.employer ?? data ?? {}) as EmployerAccountResponse;
 }
 
+export async function updateEmployerDesiredSkills(
+    employerId: string,
+    skillIds: string[],
+): Promise<EmployerAccountResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/auth/employer/account/${employerId}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...withEmployerAuthHeaders() },
+        body: JSON.stringify({ desired_skill_ids: skillIds }),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return (data?.employer ?? data ?? {}) as EmployerAccountResponse;
+}
+
 export async function updateAlumniEmployment(
     alumniId: string,
     payload: {
