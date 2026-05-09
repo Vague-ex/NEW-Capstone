@@ -26,6 +26,7 @@ export function RegisterEmployer() {
   });
   const [desiredTechSkillIds, setDesiredTechSkillIds] = useState<string[]>([]);
   const [desiredSoftSkillIds, setDesiredSoftSkillIds] = useState<string[]>([]);
+  const [activeTechCategory, setActiveTechCategory] = useState<string | null>(null);
 
   // Split the live skill list into soft vs technical groups based on the
   // category name. Falls back to "everything is technical" when categories
@@ -320,14 +321,44 @@ export function RegisterEmployer() {
                 ) : technicalCount === 0 ? (
                   <p className="text-gray-400 text-xs italic">No technical skills in the reference list yet.</p>
                 ) : (
-                  <div className="space-y-3">
-                    {Object.keys(technicalSkillsByCategory).sort().map((categoryName) => (
-                      <div key={categoryName}>
-                        <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-1.5" style={{ fontWeight: 600 }}>
-                          {categoryName}
+                  <div>
+                    {/* Category tabs */}
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {Object.keys(technicalSkillsByCategory).sort().map((categoryName) => {
+                        const selectedInCategory = technicalSkillsByCategory[categoryName].filter(
+                          (s) => desiredTechSkillIds.includes(s.id),
+                        ).length;
+                        const isActive = activeTechCategory === categoryName;
+                        return (
+                          <button
+                            key={categoryName}
+                            type="button"
+                            onClick={() => setActiveTechCategory(isActive ? null : categoryName)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${
+                              isActive
+                                ? 'bg-[#166534] border-[#166534] text-white'
+                                : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
+                            style={{ fontWeight: isActive ? 600 : 400 }}>
+                            {categoryName}
+                            {selectedInCategory > 0 && (
+                              <span className={`text-[10px] px-1.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-[#166534]/10 text-[#166534]'}`} style={{ fontWeight: 600 }}>
+                                {selectedInCategory}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Skills for the active category */}
+                    {activeTechCategory && technicalSkillsByCategory[activeTechCategory] ? (
+                      <div className="rounded-xl bg-gray-50 border border-gray-100 p-3">
+                        <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-2" style={{ fontWeight: 600 }}>
+                          {activeTechCategory}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
-                          {technicalSkillsByCategory[categoryName].map((skill) => {
+                          {technicalSkillsByCategory[activeTechCategory].map((skill) => {
                             const selected = desiredTechSkillIds.includes(skill.id);
                             return (
                               <button
@@ -346,7 +377,9 @@ export function RegisterEmployer() {
                           })}
                         </div>
                       </div>
-                    ))}
+                    ) : (
+                      <p className="text-gray-400 text-xs text-center py-3">Click a category above to browse skills</p>
+                    )}
                   </div>
                 )}
               </div>
