@@ -15,23 +15,26 @@ INDUSTRIES = [
 ]
 
 REGIONS = [
+    # Codes match seed_locations; names are the PSGC-official labels so that
+    # seed_locations.py reconciliation finds them by direct name-match and
+    # stamps the correct psgc_id instead of creating duplicate rows.
     ("NCR", "National Capital Region"),
     ("CAR", "Cordillera Administrative Region"),
-    ("R1", "Region I - Ilocos Region"),
-    ("R2", "Region II - Cagayan Valley"),
-    ("R3", "Region III - Central Luzon"),
-    ("R4A", "Region IV-A - CALABARZON"),
-    ("R4B", "Region IV-B - MIMAROPA"),
-    ("R5", "Region V - Bicol Region"),
-    ("R6", "Region VI - Western Visayas"),
-    ("R7", "Region VII - Central Visayas"),
-    ("R8", "Region VIII - Eastern Visayas"),
-    ("R9", "Region IX - Zamboanga Peninsula"),
-    ("R10", "Region X - Northern Mindanao"),
-    ("R11", "Region XI - Davao Region"),
-    ("R12", "Region XII - SOCCSKSARGEN"),
-    ("R13", "Region XIII - Caraga"),
-    ("BARMM", "Bangsamoro Autonomous Region in Muslim Mindanao"),
+    ("R1", "Ilocos Region"),
+    ("R2", "Cagayan Valley"),
+    ("R3", "Central Luzon"),
+    ("R4A", "CALABARZON"),
+    ("R4B", "Mimaropa Region"),
+    ("R5", "Bicol Region"),
+    ("R6", "Western Visayas"),
+    ("R7", "Central Visayas"),
+    ("R8", "Eastern Visayas"),
+    ("R9", "Zamboanga Peninsula"),
+    ("R10", "Northern Mindanao"),
+    ("R11", "Davao Region"),
+    ("R12", "SOCCSKSARGEN"),
+    ("R13", "Caraga"),
+    ("BARMM", "Bangsamoro Autonomous Region In Muslim Mindanao"),
 ]
 
 SKILLS_BY_CATEGORY = {

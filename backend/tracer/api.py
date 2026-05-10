@@ -1396,7 +1396,15 @@ class ReferenceDataView(APIView):
         categories = list(SkillCategory.objects.filter(is_active=True).order_by("name"))
         industries = list(Industry.objects.filter(is_active=True).order_by("name"))
         job_titles = list(JobTitle.objects.select_related("industry").filter(is_active=True).order_by("name"))
-        regions = list(Region.objects.filter(is_active=True).order_by("name"))
+        # Only expose regions that have a PSGC identifier — these are the ones
+        # seeded by seed_locations and can drive the Province → City cascade.
+        # Legacy rows created by seed_reference_data (psgc_id="") are hidden
+        # here; they may still be used internally by FK references.
+        regions = list(
+            Region.objects.filter(is_active=True)
+            .exclude(psgc_id="")
+            .order_by("name")
+        )
 
         return Response({
             "skills": [_serialize_skill(s) for s in skills],

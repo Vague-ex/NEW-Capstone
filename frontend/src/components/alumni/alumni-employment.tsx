@@ -32,21 +32,6 @@ function RadioOption({ label, value, current, onSelect }: {
   );
 }
 
-function CheckOption({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
-  return (
-    <label className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm cursor-pointer transition select-none ${checked ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}>
-      <div className={`size-4 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'border-[#166534] bg-[#166534]' : 'border-gray-300'}`}>
-        {checked && (
-          <svg className="size-2.5 text-white" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </div>
-      <input type="checkbox" className="hidden" checked={checked} onChange={onChange} />
-      {label}
-    </label>
-  );
-}
 
 function FieldLabel({ children, required = false }: { children: React.ReactNode; required?: boolean }) {
   return (
@@ -141,6 +126,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     currentJobRegionId: String(sd.currentJobRegionId ?? sd.region_address ?? alumni.regionId ?? ''),
     currentJobProvinceId: String(sd.currentJobProvinceId ?? ''),
     currentJobCityId: String(sd.currentJobCityId ?? ''),
+    province_address: String(sd.province_address ?? ''),
     zip_code: String(sd.zip_code ?? ''),
     country_address: String(sd.country_address ?? 'Philippines'),
 
@@ -360,6 +346,64 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCurrentlyEmployed]);
 
+  // Auto-pin the map from the chosen city. Forward-geocodes via Nominatim
+  // when the city/region/province changes — only fires when the user hasn't
+  // already manually placed the pin (workLat/workLng could already be set
+  // from prior session data; we still rough-pin if the city changes).
+  useEffect(() => {
+    if (!isCurrentlyEmployed) return;
+    if (!form.city_municipality) return;
+    if (!workLeafletMapRef.current || !workMarkerRef.current) return;
+
+    const isLocal = form.currentJobLocation !== 'Abroad / Remote Foreign Employer';
+    const parts: string[] = [form.city_municipality];
+    if (isLocal) {
+      const province = provincesForRegion.find(p => p.id === form.currentJobProvinceId)?.name;
+      if (province) parts.push(province);
+      parts.push('Philippines');
+    } else if (form.country_address) {
+      parts.push(form.country_address);
+    }
+    const query = parts.filter(Boolean).join(', ');
+    if (!query) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+        { signal: controller.signal, headers: { 'Accept-Language': 'en' } },
+      )
+        .then(r => r.json())
+        .then((results: Array<{ lat: string; lon: string }>) => {
+          if (!Array.isArray(results) || results.length === 0) return;
+          const lat = Number(results[0].lat);
+          const lng = Number(results[0].lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          setWorkLat(lat);
+          setWorkLng(lng);
+          const marker = workMarkerRef.current as { setLatLng: (ll: [number, number]) => void };
+          marker.setLatLng([lat, lng]);
+          const map = workLeafletMapRef.current as {
+            setView: (ll: [number, number], z: number) => void;
+          };
+          map.setView([lat, lng], 13);
+        })
+        .catch(() => { /* abort or network — silent */ });
+    }, 500); // small debounce so fast cascade clicks don't spam Nominatim
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    form.city_municipality,
+    form.currentJobProvinceId,
+    form.currentJobLocation,
+    form.country_address,
+    isCurrentlyEmployed,
+  ]);
+
   // ── Save ─────────────────────────────────────────────────────────────────────
 
   const handleSave = async (e: React.FormEvent) => {
@@ -456,7 +500,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   return (
     <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey — Employment Record">
-      <div className="max-w-3xl mx-auto space-y-5 pb-28">
+      <div className="max-w-3xl lg:max-w-5xl mx-auto space-y-5 pb-28">
 
         {retrackingMode && (
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
@@ -518,11 +562,14 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
         <form onSubmit={handleSave} className="space-y-5">
 
           {/* ── Section 4: Academic & Pre-Employment ─────────────────────────── */}
+          {/* On large screens, Academic + Employment Status sit side-by-side */}
+          <div className="lg:grid lg:grid-cols-2 lg:gap-5 space-y-5 lg:space-y-0">
+
           <SectionCard icon={BookOpen} title="Part III — Academic & Pre-Employment Profile">
 
             <div>
               <FieldLabel>1. General Average Range during BSIS</FieldLabel>
-              <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-2">
                 {['95 - 100', '90 - 94', '85 - 89', '80 - 84', '75 - 79', 'Below 75', "I don't remember"].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.general_average_range} onSelect={v => setF('general_average_range', v)} />
                 ))}
@@ -531,7 +578,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
             <div>
               <FieldLabel>2. Academic Honors Received at Graduation</FieldLabel>
-              <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {['Summa Cum Laude', 'Magna Cum Laude', 'Cum Laude', 'No Academic Honors'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.academic_honors} onSelect={v => setF('academic_honors', v)} />
                 ))}
@@ -549,7 +596,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
             <div>
               <FieldLabel>4. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
-              <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {['Yes, directly related', 'Somewhat related', 'Not related', 'Have not secured a job yet / Not applicable'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.ojt_relevance} onSelect={v => setF('ojt_relevance', v)} />
                 ))}
@@ -567,7 +614,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
             <div>
               <FieldLabel>6. English communication skills</FieldLabel>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {[
                   'Basic (simple conversations only)',
                   'Conversational (can handle daily work communication)',
@@ -583,7 +630,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           <SectionCard icon={Briefcase} title="Part IV — Current Employment Status">
             <div>
               <FieldLabel required>Are you presently employed?</FieldLabel>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {EMPLOYMENT_STATUS_OPTIONS.map(opt => (
                   <RadioOption key={opt.value} label={opt.label} value={opt.value}
                     current={form.employment_status} onSelect={v => setF('employment_status', v)} />
@@ -592,13 +639,17 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             </div>
           </SectionCard>
 
+          </div>{/* end lg:grid for Part III + IV */}
+
           {/* ── Section 6: First Job ─────────────────────────────────────────── */}
           {!isNeverEmployed && form.employment_status && (
             <SectionCard icon={Clock} title="Part V — First Job Details">
+              <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 space-y-5 lg:space-y-0">
+              <div className="space-y-5">
 
               <div>
                 <FieldLabel>1. How long did it take to land your FIRST job after graduation?</FieldLabel>
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {['Within 1 month', '1 - 3 months', '3 - 6 months', '6 months to 1 year', '1 - 2 years', 'More than 2 years'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.timeToHire} onSelect={v => setF('timeToHire', v)} />
                   ))}
@@ -607,7 +658,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>2. Employment Sector of FIRST JOB</FieldLabel>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {['Government', 'Private', 'Entrepreneurial / Freelance / Self-Employed'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.firstJobSector} onSelect={v => setF('firstJobSector', v)} />
                   ))}
@@ -616,7 +667,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>3. Employment Status of FIRST JOB</FieldLabel>
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                   {['Regular/Permanent', 'Probationary', 'Contractual/Casual/Job Order', 'Self-Employed / Freelance'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.firstJobStatus} onSelect={v => setF('firstJobStatus', v)} />
                   ))}
@@ -629,9 +680,12 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   value={form.firstJobTitle} onChange={e => setF('firstJobTitle', e.target.value)} className={inputCls} />
               </div>
 
+              </div>{/* end left column */}
+              <div className="space-y-5">
+
               <div>
                 <FieldLabel>5. Is/Was your FIRST JOB related to your BSIS degree?</FieldLabel>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {['Yes, directly related (IT/IS role)', 'Somewhat related (uses some IT skills)', 'Not related (different field)'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.firstJobRelated} onSelect={v => setF('firstJobRelated', v)} />
                   ))}
@@ -641,7 +695,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               {(form.firstJobRelated === 'Somewhat related (uses some IT skills)' || form.firstJobRelated === 'Not related (different field)') && (
                 <div>
                   <FieldLabel>6. Primary reason for accepting unrelated/semi-related job</FieldLabel>
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     {['Salary & Benefits', 'Career Challenge/Advancement', 'Proximity to Residence',
                       'Lack of related job openings at the time', 'Family/Peer influence', 'Others'].map(opt => (
                         <RadioOption key={opt} label={opt} value={opt} current={form.firstJobUnrelatedReason} onSelect={v => setF('firstJobUnrelatedReason', v)} />
@@ -657,7 +711,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>7. How long did you stay in your FIRST JOB?</FieldLabel>
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {['Less than 3 months', '3 - 6 months', '6 months to 1 year', '1 - 2 years', 'More than 2 years', 'Currently in first job'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.jobRetention} onSelect={v => setF('jobRetention', v)} />
                   ))}
@@ -666,7 +720,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>8. Approximately how many job applications before your FIRST job offer?</FieldLabel>
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {['1 - 5 applications', '6 - 15 applications', '16 - 30 applications', '31+ applications'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.jobApplications} onSelect={v => setF('jobApplications', v)} />
                   ))}
@@ -675,7 +729,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>9. Where did you find your first job opening?</FieldLabel>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {[
                     'Online Job Portal (JobStreet, LinkedIn, etc.)',
                     'CHMSU Career Orientation / Job Fair',
@@ -694,16 +748,22 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                     className={`${inputCls} mt-2`} />
                 )}
               </div>
+
+              </div>{/* end right column */}
+              </div>{/* end lg:grid First Job */}
             </SectionCard>
           )}
 
           {/* ── Section 7: Current Job ───────────────────────────────────────── */}
           {isCurrentlyEmployed && (
             <SectionCard icon={Building2} title="Part VI — Current / Most Recent Job Details">
+              {/* Desktop: 2-column grid for compact layout */}
+              <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 space-y-5 lg:space-y-0">
+              <div className="space-y-5">
 
               <div>
                 <FieldLabel>1. Employment Sector of CURRENT/MOST RECENT JOB</FieldLabel>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {['Government', 'Private', 'Entrepreneurial / Freelance / Self-Employed'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.currentJobSector} onSelect={v => setF('currentJobSector', v)} />
                   ))}
@@ -741,9 +801,12 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 </div>
               </div>
 
+              </div>{/* end left column */}
+              <div className="space-y-5">
+
               <div>
                 <FieldLabel>4. Is your CURRENT job related to your BSIS degree?</FieldLabel>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {['Yes, directly related (IT/IS role)', 'Somewhat related (uses some IT skills)', 'Not related (different field)', 'Not applicable'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.currentJobRelated} onSelect={v => setF('currentJobRelated', v)} />
                   ))}
@@ -752,7 +815,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>5. Location Type</FieldLabel>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {['Local (Philippines)', 'Abroad / Remote Foreign Employer'].map(opt => (
                     <RadioOption
                       key={opt}
@@ -789,199 +852,266 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 </div>
                 <p className="mt-2 break-all text-[11px] text-emerald-700">{employerPortalLink}</p>
               </div>
+
+              </div>{/* end right column */}
+              </div>{/* end lg:grid Current Job */}
             </SectionCard>
           )}
 
           {/* ── Section 8: Work Address ──────────────────────────────────────── */}
-          {isCurrentlyEmployed && (
+          {isCurrentlyEmployed && (() => {
+            const isLocal = form.currentJobLocation !== 'Abroad / Remote Foreign Employer';
+            return (
             <SectionCard icon={MapPin} title="Part VII — Work Address for Mapping">
-              <p className="text-gray-400 text-xs -mt-2">For employment distribution mapping — company name kept confidential.</p>
+              <p className="text-gray-400 text-xs -mt-2">
+                For employment distribution mapping — company name stays confidential.
+                {isLocal
+                  ? ' Pick the closest match; you can fine-tune the pin on the map below.'
+                  : ' Type your foreign-country workplace details.'}
+              </p>
 
-              <div>
-                <FieldLabel>Street Address / Building / Unit (optional)</FieldLabel>
-                <input type="text" placeholder="e.g. 123 Rizal St., Floor 4"
-                  value={form.street_address} onChange={e => setF('street_address', e.target.value)} className={inputCls} />
-              </div>
+              {/* Desktop: address fields left, map right. Mobile: stacked. */}
+              <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-4 lg:space-y-0">
 
-              <div>
-                <FieldLabel>Barangay (optional)</FieldLabel>
-                <input type="text" placeholder="Barangay name"
-                  value={form.barangay} onChange={e => setF('barangay', e.target.value)} className={inputCls} />
-              </div>
+                {/* ── Left column: all address inputs ─────────────── */}
+                <div className="space-y-4">
 
-              {/* Region → Province → City cascade (sourced from the seeded
-                  PSGC reference tables; admin-settings is the source of truth). */}
-              <div>
-                <FieldLabel required>Region</FieldLabel>
-                <select
-                  value={form.currentJobRegionId}
-                  onChange={e =>
-                    setForm(f => ({
-                      ...f,
-                      currentJobRegionId: e.target.value,
-                      currentJobProvinceId: '',
-                      currentJobCityId: '',
-                      city_municipality: '',
-                    }))
-                  }
-                  className={inputCls}
-                >
-                  <option value="">Select region...</option>
-                  {referenceData.regions.map(region => (
-                    <option key={region.id} value={region.id}>{region.code} — {region.name}</option>
-                  ))}
-                </select>
-              </div>
+                  {/* Street + Sub-locality row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>Street, Building, or Unit</FieldLabel>
+                      <input
+                        type="text"
+                        placeholder="e.g. 123 Rizal St., Floor 4"
+                        value={form.street_address}
+                        onChange={e => setF('street_address', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>{isLocal ? 'Barangay / Sub-locality' : 'Neighborhood / Sub-locality'}</FieldLabel>
+                      <input
+                        type="text"
+                        placeholder={isLocal ? 'e.g. Brgy. Zone 1, or skip if unsure' : 'e.g. Shibuya, Brooklyn, Notting Hill'}
+                        value={form.barangay}
+                        onChange={e => setF('barangay', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <FieldLabel>Province</FieldLabel>
-                  <select
-                    value={form.currentJobProvinceId}
-                    onChange={e =>
-                      setForm(f => ({
-                        ...f,
-                        currentJobProvinceId: e.target.value,
-                        currentJobCityId: '',
-                        city_municipality: '',
-                      }))
-                    }
-                    disabled={!form.currentJobRegionId || provincesForRegion.length === 0}
-                    className={inputCls}
-                  >
-                    <option value="">
-                      {!form.currentJobRegionId
-                        ? 'Pick a region first'
-                        : provincesForRegion.length === 0
-                          ? 'No provinces for this region'
-                          : 'Select province...'}
-                    </option>
-                    {provincesForRegion.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel required>City / Municipality</FieldLabel>
-                  <select
-                    value={form.currentJobCityId}
-                    onChange={e => {
-                      const city = citiesForLevel.find(c => c.id === e.target.value);
-                      setForm(f => ({
-                        ...f,
-                        currentJobCityId: e.target.value,
-                        city_municipality: city?.name ?? '',
-                      }));
-                    }}
-                    disabled={
-                      !form.currentJobRegionId
-                      || (provincesForRegion.length > 0 && !form.currentJobProvinceId)
-                      || citiesForLevel.length === 0
-                    }
-                    className={inputCls}
-                  >
-                    <option value="">
-                      {!form.currentJobRegionId
-                        ? 'Pick a region first'
-                        : provincesForRegion.length > 0 && !form.currentJobProvinceId
-                          ? 'Pick a province first'
-                          : citiesForLevel.length === 0
-                            ? 'Loading cities...'
-                            : 'Select city/municipality...'}
-                    </option>
-                    {citiesForLevel.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}{c.is_city ? ' (City)' : ''}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <FieldLabel>ZIP Code (optional)</FieldLabel>
-                <input
-                  type="text"
-                  inputMode={form.currentJobLocation === 'Local (Philippines)' ? 'numeric' : 'text'}
-                  placeholder={form.currentJobLocation === 'Local (Philippines)' ? 'e.g. 6115' : 'e.g. 90210'}
-                  value={form.zip_code}
-                  onChange={e => {
-                    const isLocal = form.currentJobLocation === 'Local (Philippines)';
-                    const next = isLocal
-                      ? e.target.value.replace(/\D/g, '').slice(0, 4)
-                      : e.target.value.slice(0, 10);
-                    setF('zip_code', next);
-                  }}
-                  className={inputCls}
-                />
-                {form.currentJobLocation === 'Local (Philippines)' && (
-                  <p className="text-gray-400 text-xs mt-1">PH ZIP must be exactly 4 digits.</p>
-                )}
-              </div>
-
-              <div>
-                <FieldLabel required>Country</FieldLabel>
-                {form.currentJobLocation === 'Local (Philippines)' ? (
-                  <select
-                    value="Philippines"
-                    disabled
-                    className={`${inputCls} bg-gray-100 text-gray-700 cursor-not-allowed`}
-                  >
-                    <option value="Philippines">Philippines</option>
-                  </select>
-                ) : (
-                  <select
-                    value={form.country_address === 'Philippines' ? '' : form.country_address}
-                    onChange={e => setF('country_address', e.target.value)}
-                    className={inputCls}
-                  >
-                    <option value="" disabled>Select country</option>
-                    <optgroup label="ASEAN">
-                      <option>Indonesia</option><option>Malaysia</option><option>Singapore</option>
-                      <option>Thailand</option><option>Vietnam</option><option>Myanmar</option>
-                      <option>Cambodia</option><option>Laos</option><option>Brunei</option><option>Timor-Leste</option>
-                    </optgroup>
-                    <optgroup label="East Asia">
-                      <option>Japan</option><option>South Korea</option><option>China</option>
-                      <option>Hong Kong</option><option>Taiwan</option>
-                    </optgroup>
-                    <optgroup label="Middle East">
-                      <option>Saudi Arabia</option><option>United Arab Emirates</option><option>Qatar</option>
-                      <option>Kuwait</option><option>Bahrain</option><option>Oman</option>
-                    </optgroup>
-                    <optgroup label="Oceania">
-                      <option>Australia</option><option>New Zealand</option>
-                    </optgroup>
-                    <optgroup label="Americas &amp; Europe">
-                      <option>United States</option><option>Canada</option><option>United Kingdom</option>
-                      <option>Germany</option><option>Italy</option><option>Spain</option>
-                    </optgroup>
-                    <optgroup label="Other"><option>Other</option></optgroup>
-                  </select>
-                )}
-                <p className="text-gray-400 text-xs mt-1">
-                  {form.currentJobLocation === 'Local (Philippines)'
-                    ? 'Locked to Philippines based on your location type.'
-                    : 'Pick the country where your workplace is located.'}
-                </p>
-              </div>
-
-              {/* Work location map pin */}
-              <div>
-                <FieldLabel>Exact Workplace Location (Pin)</FieldLabel>
-                <div
-                  ref={workMapContainerRef}
-                  style={{ height: 250, borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
-                />
-                <p className="text-gray-500 text-xs mt-2">
-                  Drag the pin or tap anywhere on the map to mark your exact workplace. City / Municipality auto-fills.
-                  {workLat != null && workLng != null && (
-                    <span className="ml-1 text-[#166534]" style={{ fontWeight: 600 }}>
-                      ✓ Pin set ({workLat.toFixed(4)}, {workLng.toFixed(4)})
-                    </span>
+                  {isLocal ? (
+                    <>
+                      {/* Region → Province → City cascade — only shown for PH addresses.
+                          Sourced from the seeded PSGC reference tables; admin-settings
+                          is the source of truth. Backend only returns regions that have
+                          a valid PSGC ID, so no psgc_id filter needed here. */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <FieldLabel required>Region</FieldLabel>
+                          <select
+                            value={form.currentJobRegionId}
+                            onChange={e =>
+                              setForm(f => ({
+                                ...f,
+                                currentJobRegionId: e.target.value,
+                                currentJobProvinceId: '',
+                                currentJobCityId: '',
+                                city_municipality: '',
+                              }))
+                            }
+                            className={inputCls}
+                          >
+                            <option value="">Select region...</option>
+                            {/* Deduplicate by name as a safety net */}
+                            {Array.from(
+                              new Map(referenceData.regions.map(r => [r.name, r])).values()
+                            )
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map(region => (
+                                <option key={region.id} value={region.id}>{region.name}</option>
+                              ))}
+                          </select>
+                        </div>
+                        <div>
+                          <FieldLabel>Province</FieldLabel>
+                          <select
+                            value={form.currentJobProvinceId}
+                            onChange={e =>
+                              setForm(f => ({
+                                ...f,
+                                currentJobProvinceId: e.target.value,
+                                currentJobCityId: '',
+                                city_municipality: '',
+                              }))
+                            }
+                            disabled={!form.currentJobRegionId || provincesForRegion.length === 0}
+                            className={inputCls}
+                          >
+                            <option value="">
+                              {!form.currentJobRegionId
+                                ? 'Pick a region first'
+                                : provincesForRegion.length === 0
+                                  ? 'No provinces (NCR-style)'
+                                  : 'Select province...'}
+                            </option>
+                            {provincesForRegion.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <FieldLabel required>City / Municipality</FieldLabel>
+                          <select
+                            value={form.currentJobCityId}
+                            onChange={e => {
+                              const city = citiesForLevel.find(c => c.id === e.target.value);
+                              setForm(f => ({
+                                ...f,
+                                currentJobCityId: e.target.value,
+                                city_municipality: city?.name ?? '',
+                              }));
+                            }}
+                            disabled={
+                              !form.currentJobRegionId
+                              || (provincesForRegion.length > 0 && !form.currentJobProvinceId)
+                              || citiesForLevel.length === 0
+                            }
+                            className={inputCls}
+                          >
+                            <option value="">
+                              {!form.currentJobRegionId
+                                ? 'Pick a region first'
+                                : provincesForRegion.length > 0 && !form.currentJobProvinceId
+                                  ? 'Pick a province first'
+                                  : citiesForLevel.length === 0
+                                    ? 'Loading cities...'
+                                    : 'Select city/municipality...'}
+                            </option>
+                            {citiesForLevel.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}{c.is_city ? ' (City)' : ''}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* Abroad — flat text inputs; PSGC cascade doesn't apply. */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <FieldLabel required>City / Locality</FieldLabel>
+                        <input
+                          type="text"
+                          placeholder="e.g. Tokyo, San Francisco, Dubai"
+                          value={form.city_municipality}
+                          onChange={e => setF('city_municipality', e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div>
+                        <FieldLabel>State / Province / Prefecture</FieldLabel>
+                        <input
+                          type="text"
+                          placeholder="e.g. Tokyo Metropolis, California"
+                          value={form.province_address ?? ''}
+                          onChange={e => setForm(f => ({ ...f, province_address: e.target.value }))}
+                          className={inputCls}
+                        />
+                      </div>
+                    </div>
                   )}
-                </p>
-              </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>{isLocal ? 'ZIP Code' : 'Postal Code'}</FieldLabel>
+                      <input
+                        type="text"
+                        inputMode={isLocal ? 'numeric' : 'text'}
+                        placeholder={isLocal ? 'e.g. 6115' : 'e.g. 90210, M5V 3L9'}
+                        value={form.zip_code}
+                        onChange={e => {
+                          const next = isLocal
+                            ? e.target.value.replace(/\D/g, '').slice(0, 4)
+                            : e.target.value.slice(0, 10);
+                          setF('zip_code', next);
+                        }}
+                        className={inputCls}
+                      />
+                      {isLocal && (
+                        <p className="text-gray-400 text-xs mt-1">Philippine ZIP is 4 digits.</p>
+                      )}
+                    </div>
+                    <div>
+                      <FieldLabel required>Country</FieldLabel>
+                      {form.currentJobLocation === 'Local (Philippines)' ? (
+                        <select
+                          value="Philippines"
+                          disabled
+                          className={`${inputCls} bg-gray-100 text-gray-700 cursor-not-allowed`}
+                        >
+                          <option value="Philippines">Philippines</option>
+                        </select>
+                      ) : (
+                        <select
+                          value={form.country_address === 'Philippines' ? '' : form.country_address}
+                          onChange={e => setF('country_address', e.target.value)}
+                          className={inputCls}
+                        >
+                          <option value="" disabled>Select country</option>
+                          <optgroup label="ASEAN">
+                            <option>Indonesia</option><option>Malaysia</option><option>Singapore</option>
+                            <option>Thailand</option><option>Vietnam</option><option>Myanmar</option>
+                            <option>Cambodia</option><option>Laos</option><option>Brunei</option><option>Timor-Leste</option>
+                          </optgroup>
+                          <optgroup label="East Asia">
+                            <option>Japan</option><option>South Korea</option><option>China</option>
+                            <option>Hong Kong</option><option>Taiwan</option>
+                          </optgroup>
+                          <optgroup label="Middle East">
+                            <option>Saudi Arabia</option><option>United Arab Emirates</option><option>Qatar</option>
+                            <option>Kuwait</option><option>Bahrain</option><option>Oman</option>
+                          </optgroup>
+                          <optgroup label="Oceania">
+                            <option>Australia</option><option>New Zealand</option>
+                          </optgroup>
+                          <optgroup label="Americas &amp; Europe">
+                            <option>United States</option><option>Canada</option><option>United Kingdom</option>
+                            <option>Germany</option><option>Italy</option><option>Spain</option>
+                          </optgroup>
+                          <optgroup label="Other"><option>Other</option></optgroup>
+                        </select>
+                      )}
+                      <p className="text-gray-400 text-xs mt-1">
+                        {form.currentJobLocation === 'Local (Philippines)'
+                          ? 'Locked to Philippines.'
+                          : 'Country where your workplace is located.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>{/* end left address column */}
+
+                {/* ── Right column: interactive map pin ───────────── */}
+                <div className="flex flex-col">
+                  <FieldLabel>Exact Workplace Location (Pin)</FieldLabel>
+                  <div
+                    ref={workMapContainerRef}
+                    className="flex-1 min-h-[280px] lg:min-h-[360px]"
+                    style={{ borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
+                  />
+                  <p className="text-gray-500 text-xs mt-2">
+                    Selecting a city auto-pans the map. Drag the pin or tap anywhere to fine-tune.
+                    {workLat != null && workLng != null && (
+                      <span className="ml-1 text-[#166534]" style={{ fontWeight: 600 }}>
+                        ✓ Pin set ({workLat.toFixed(4)}, {workLng.toFixed(4)})
+                      </span>
+                    )}
+                  </p>
+                </div>
+
+              </div>{/* end lg:grid address+map */}
             </SectionCard>
-          )}
+            );
+          })()}
 
           {/* ── Skills moved to "My Skills" page ──────────────────────────────
               Part VIII (Competency & Skills Assessment) lives on alumni-skills.tsx.

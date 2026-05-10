@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
+import NextImage from "next/image";
 import {
   GraduationCap, ArrowRight, ArrowLeft, Eye, EyeOff,
   AlertCircle, Mail, Camera, Video,
@@ -318,7 +319,7 @@ export function LoginPage() {
         {/* Logo + name */}
         <div className="relative flex items-center gap-3 mb-6">
           <div className="flex size-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm border border-white/20 shrink-0">
-            <img src={schoolLogo} alt="CHMSU Logo" className="size-11 rounded-xl object-cover" />
+            <NextImage src={schoolLogo} alt="CHMSU Logo" width={44} height={44} className="size-11 rounded-xl object-cover" />
           </div>
           <div>
             <h1 className="text-white" style={{ fontWeight: 800, fontSize: "1.35rem", lineHeight: 1.2 }}>CHMSU Talisay</h1>
@@ -344,7 +345,7 @@ export function LoginPage() {
 
         <div className="relative">
           <div className="flex size-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm border border-white/20 mb-6">
-            <img src={schoolLogo} alt="CHMSU Logo" className="size-12 rounded-xl object-cover" />
+            <NextImage src={schoolLogo} alt="CHMSU Logo" width={48} height={48} className="size-12 rounded-xl object-cover" />
           </div>
           <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: "1.7rem", lineHeight: 1.2 }}>
             CHMSU Talisay
@@ -377,7 +378,7 @@ export function LoginPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 lg:p-0 lg:bg-transparent lg:shadow-none lg:border-0">
             {/* Mobile Logo */}
             <div className="lg:hidden flex items-center gap-3 mb-8">
-              <img src={schoolLogo} alt="CHMSU Logo" className="size-10 rounded-full object-cover" />
+              <NextImage src={schoolLogo} alt="CHMSU Logo" width={40} height={40} className="size-10 rounded-full object-cover" />
               <div>
                 <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>CHMSU Talisay</p>
                 <p className="text-gray-500 text-xs">BSIS Graduate Tracer</p>

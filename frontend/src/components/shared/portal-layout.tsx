@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
+import Image from 'next/image';
 import {
   GraduationCap, LayoutDashboard, LogOut,
   Building2, Search, BarChart2, Map, Upload,
@@ -238,9 +239,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       {/* Logo */}
       <div className={`p-5 bg-gradient-to-b ${config.color} border-b border-white/10`}>
         <div className="flex items-center gap-3">
-          <img
+          <Image
             src={schoolLogo}
             alt="CHMSU Logo"
+            width={36}
+            height={36}
             className="size-9 rounded-full object-cover shrink-0 bg-white p-0.5"
           />
           <div className="min-w-0">
@@ -277,7 +280,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                 </span>
               )}
               {item.path === '/admin/employers' && pendingEmployerCount > 0 && !isActive && (
-                <span className="flex size-4 items-center justify-center rounded-full bg-blue-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
+                <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
                   {pendingEmployerCount}
                 </span>
               )}

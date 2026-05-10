@@ -277,13 +277,17 @@ export function GraduateVerify() {
   const [evaluationData, setEvaluationData] = useState<EmployerEvaluationPayload | null>(null);
 
   // Smooth-scroll the selected graduate's detail card into view so employers
-  // don't have to manually scroll after clicking a card.
+  // don't have to manually scroll after clicking a card. We intentionally key
+  // off the id only — the full graduate object identity changes on every
+  // render but the scroll behaviour should fire only when the *selection*
+  // changes.
   const detailRef = useRef<HTMLDivElement>(null);
+  const selectedGraduateId = selectedGraduate?.id;
   useEffect(() => {
-    if (selectedGraduate && detailRef.current) {
+    if (selectedGraduateId && detailRef.current) {
       detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-  }, [selectedGraduate?.id]);
+  }, [selectedGraduateId]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
