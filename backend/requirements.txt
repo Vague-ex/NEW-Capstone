@@ -10,3 +10,4 @@ opencv-python-headless==4.13.0.92
 python-dotenv==1.0.0
 requests==2.31.0
 gunicorn==21.2.0
+barangay==2026.1.13.0

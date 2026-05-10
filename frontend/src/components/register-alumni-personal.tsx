@@ -4,7 +4,7 @@
  * Steps: 1-4 + Biometrics
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle,
@@ -18,6 +18,14 @@ import {
   extractFaceDescriptorFromDataUrl,
 } from '../app/modern-face-descriptor';
 import { API_BASE_URL } from '../app/api-client';
+import {
+  useReferenceData,
+  provincesApi,
+  citiesApi,
+  type RegionItem,
+  type ProvinceItem,
+  type CityMunicipalityItem,
+} from '../hooks/useReferenceData';
 
 //  Types
 
@@ -39,6 +47,8 @@ export interface PersonalFormData {
   mobile: string;
   mobileCountryCode: string;
   facebook: string;
+  homeIsAbroad: boolean;
+  homeCountry: string;
   region: string;
   province: string;
   city: string;
@@ -85,6 +95,34 @@ const SHOT_INSTRUCTIONS = [
 
 const FACE_BLUR_THRESHOLD = 360;
 
+const FACEBOOK_HOSTS = new Set([
+  'facebook.com',
+  'www.facebook.com',
+  'm.facebook.com',
+  'web.facebook.com',
+  'l.facebook.com',
+  'fb.com',
+  'www.fb.com',
+  'fb.me',
+]);
+
+/**
+ * Validate that a URL points to Facebook. Empty input is treated as valid here
+ * (the field is optional); call sites enforce required-ness separately.
+ */
+export function isValidFacebookUrl(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return true;
+  let url: URL;
+  try {
+    // Tolerate users pasting "facebook.com/foo" without a scheme.
+    url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  } catch {
+    return false;
+  }
+  return FACEBOOK_HOSTS.has(url.hostname.toLowerCase());
+}
+
 type PhCity = { name: string; zip: string; barangays: string[] };
 type PhProvince = { name: string; cities: PhCity[] };
 type PhRegion = { name: string; provinces: PhProvince[] };
@@ -103,6 +141,8 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   mobile: '',
   mobileCountryCode: '+63',
   facebook: '',
+  homeIsAbroad: false,
+  homeCountry: 'Philippines',
   region: '',
   province: '',
   city: '',
@@ -227,6 +267,19 @@ export default function RegisterAlumniPersonal({
 
   useEffect(() => { return () => stopCamera(); }, []);
 
+  // Live cascading location data sourced from the reference API (same source
+  // of truth used by the employment form / admin reference-data CRUD).
+  const { data: referenceData } = useReferenceData();
+  const apiRegions: RegionItem[] = useMemo(() => {
+    const list = referenceData?.regions ?? [];
+    // Safety-net dedup by display name in case legacy seed rows remain.
+    return Array.from(new Map(list.map(r => [r.name, r])).values());
+  }, [referenceData]);
+  const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
+  const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
+
+  // Legacy ph-locations.json kept only as a barangay fallback; barangays are
+  // not yet exposed in the reference API.
   const [phLocations, setPhLocations] = useState<PhLocations | null>(null);
   useEffect(() => {
     fetch('/ph-locations.json').then(r => r.json()).then(setPhLocations).catch(() => {});
@@ -260,11 +313,48 @@ export default function RegisterAlumniPersonal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.firstName, form.familyName, form.graduationYear]);
 
-  // Derived cascading location data
-  const phRegions = phLocations?.regions ?? [];
-  const phProvinces = phRegions.find(r => r.name === form.region)?.provinces ?? [];
-  const phCities = phProvinces.find(p => p.name === form.province)?.cities ?? [];
-  const phBarangays = phCities.find(c => c.name === form.city)?.barangays ?? [];
+  // PH path: load provinces when region changes; load cities when province (or
+  // region with no provinces, e.g. NCR) changes. Mirrors register-alumni-employment.tsx.
+  useEffect(() => {
+    if (form.homeIsAbroad || !form.region) { setApiProvinces([]); return; }
+    const region = apiRegions.find(r => r.name === form.region);
+    if (!region) { setApiProvinces([]); return; }
+    let active = true;
+    void provincesApi
+      .list(region.id)
+      .then(({ provinces }) => { if (active) setApiProvinces(provinces); })
+      .catch(() => { if (active) setApiProvinces([]); });
+    return () => { active = false; };
+  }, [form.homeIsAbroad, form.region, apiRegions]);
+
+  useEffect(() => {
+    if (form.homeIsAbroad || !form.region) { setApiCities([]); return; }
+    const region = apiRegions.find(r => r.name === form.region);
+    if (!region) { setApiCities([]); return; }
+    let active = true;
+    if (form.province) {
+      const province = apiProvinces.find(p => p.name === form.province);
+      if (!province) { setApiCities([]); return; }
+      void citiesApi
+        .list({ provinceId: province.id })
+        .then(({ cities }) => { if (active) setApiCities(cities); })
+        .catch(() => { if (active) setApiCities([]); });
+    } else if (apiProvinces.length === 0) {
+      void citiesApi
+        .list({ regionId: region.id })
+        .then(({ cities }) => { if (active) setApiCities(cities); })
+        .catch(() => { if (active) setApiCities([]); });
+    } else {
+      setApiCities([]);
+    }
+    return () => { active = false; };
+  }, [form.homeIsAbroad, form.region, form.province, apiRegions, apiProvinces]);
+
+  // Barangay fallback uses the legacy JSON (not yet in reference API).
+  const phLegacyRegions = phLocations?.regions ?? [];
+  const phLegacyProvinces = phLegacyRegions.find(r => r.name === form.region)?.provinces ?? [];
+  const phLegacyCities = phLegacyProvinces.find(p => p.name === form.province)?.cities ?? [];
+  const phBarangays = phLegacyCities.find(c => c.name === form.city)?.barangays ?? [];
 
   const inputCls = 'w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500';
 
@@ -330,17 +420,36 @@ export default function RegisterAlumniPersonal({
         setStepError('Please enter a valid mobile number (6–15 digits).');
         return false;
       }
-      if (!form.region) {
-        setStepError('Region is required.');
+      if (form.facebook.trim() && !isValidFacebookUrl(form.facebook)) {
+        setStepError('Facebook URL must be a facebook.com, fb.com, or fb.me link.');
         return false;
       }
-      if (!form.province) {
-        setStepError('Province is required.');
-        return false;
-      }
-      if (!form.city) {
-        setStepError('City / Municipality is required.');
-        return false;
+      if (form.homeIsAbroad) {
+        if (!form.homeCountry.trim()) {
+          setStepError('Country is required.');
+          return false;
+        }
+        if (!form.region.trim()) {
+          setStepError('State / Region is required.');
+          return false;
+        }
+        if (!form.city.trim()) {
+          setStepError('City is required.');
+          return false;
+        }
+      } else {
+        if (!form.region) {
+          setStepError('Region is required.');
+          return false;
+        }
+        if (apiProvinces.length > 0 && !form.province) {
+          setStepError('Province is required.');
+          return false;
+        }
+        if (!form.city) {
+          setStepError('City / Municipality is required.');
+          return false;
+        }
       }
     }
     if (step === 3) {
@@ -773,18 +882,36 @@ export default function RegisterAlumniPersonal({
                       <option value="+86">+86 China</option>
                       <option value="+971">+971 UAE</option>
                     </select>
-                    <div className="relative flex-1">
-                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                      <input
-                        type="tel"
-                        placeholder={form.mobileCountryCode === '+63' ? '9XXXXXXXXX or 09XXXXXXXXX' : 'Mobile number'}
-                        value={form.mobile}
-                        maxLength={form.mobileCountryCode === '+63' ? 11 : 15}
-                        onChange={(e) => setF('mobile', e.target.value.replace(/\D/g, ''))}
-                        className={`${inputCls} pl-10`}
-                      />
+                    <div className="relative flex-1 flex items-stretch">
+                      {form.mobileCountryCode === '+63' && (
+                        <span className="inline-flex items-center px-2.5 border border-r-0 border-gray-200 rounded-l-lg bg-gray-50 text-gray-600 text-sm font-medium select-none">
+                          +63
+                        </span>
+                      )}
+                      <div className="relative flex-1">
+                        <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                        <input
+                          type="tel"
+                          placeholder={form.mobileCountryCode === '+63' ? '9XX XXX XXXX' : 'Mobile number'}
+                          value={form.mobile}
+                          maxLength={form.mobileCountryCode === '+63' ? 10 : 15}
+                          onChange={(e) => {
+                            let digits = e.target.value.replace(/\D/g, '');
+                            if (form.mobileCountryCode === '+63' && digits.startsWith('0')) {
+                              digits = digits.replace(/^0+/, '');
+                            }
+                            setF('mobile', digits);
+                          }}
+                          className={`${inputCls} pl-10 ${form.mobileCountryCode === '+63' ? 'rounded-l-none' : ''}`}
+                        />
+                      </div>
                     </div>
                   </div>
+                  {form.mobileCountryCode === '+63' && (
+                    <p className="mt-1.5 text-[11px] text-gray-500">
+                      Enter a 10-digit Philippine mobile number; we&apos;ll prefix +63 automatically.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -798,83 +925,184 @@ export default function RegisterAlumniPersonal({
                     onChange={(e) => setF('facebook', e.target.value)}
                     className={inputCls}
                   />
-                </div>
-
-                {/* Cascading location: Region → Province → City → Barangay */}
-                <div>
-                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Region *
-                  </label>
-                  <select
-                    value={form.region}
-                    onChange={(e) => { setF('region', e.target.value); setF('province', ''); setF('city', ''); setF('barangay', ''); }}
-                    className={inputCls}
-                  >
-                    <option value="">Select Region</option>
-                    {phRegions.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Province *
-                    </label>
-                    <select
-                      value={form.province}
-                      onChange={(e) => { setF('province', e.target.value); setF('city', ''); setF('barangay', ''); }}
-                      disabled={!form.region}
-                      className={inputCls}
-                    >
-                      <option value="">Select Province</option>
-                      {phProvinces.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      City / Municipality *
-                    </label>
-                    <select
-                      value={form.city}
-                      onChange={(e) => {
-                        const city = phCities.find(c => c.name === e.target.value);
-                        setF('city', e.target.value);
-                        setF('barangay', '');
-                      }}
-                      disabled={!form.province}
-                      className={inputCls}
-                    >
-                      <option value="">Select City</option>
-                      {phCities.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Barangay <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  {phBarangays.length > 0 ? (
-                    <select
-                      value={form.barangay}
-                      onChange={(e) => setF('barangay', e.target.value)}
-                      disabled={!form.city}
-                      className={inputCls}
-                    >
-                      <option value="">Select Barangay</option>
-                      {phBarangays.map(b => <option key={b} value={b}>{b}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      placeholder={form.city ? 'Enter barangay' : 'Select a city first'}
-                      value={form.barangay}
-                      onChange={(e) => setF('barangay', e.target.value)}
-                      disabled={!form.city}
-                      className={inputCls}
-                    />
+                  {form.facebook.trim().length > 0 && !isValidFacebookUrl(form.facebook) && (
+                    <p className="mt-1.5 text-[11px] text-red-600">
+                      Please paste a Facebook profile link (facebook.com, fb.com, or fb.me).
+                    </p>
                   )}
                 </div>
+
+                {/* Home address — toggle between Philippines (cascading dropdowns) and Outside Philippines (free-text) */}
+                <div>
+                  <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                    Home Address Location
+                  </label>
+                  <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5" role="tablist">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForm(f => ({ ...f, homeIsAbroad: false, homeCountry: 'Philippines' }));
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-md transition ${!form.homeIsAbroad ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Philippines
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForm(f => ({ ...f, homeIsAbroad: true, region: '', province: '', city: '', barangay: '', homeCountry: f.homeCountry === 'Philippines' ? '' : f.homeCountry }));
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-md transition ${form.homeIsAbroad ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                    >
+                      Outside Philippines
+                    </button>
+                  </div>
+                </div>
+
+                {!form.homeIsAbroad && (
+                  <>
+                    {/* Cascading PH location: Region → Province → City → Barangay */}
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                        Region *
+                      </label>
+                      <select
+                        value={form.region}
+                        onChange={(e) => { setF('region', e.target.value); setF('province', ''); setF('city', ''); setF('barangay', ''); }}
+                        className={inputCls}
+                      >
+                        <option value="">Select Region</option>
+                        {apiRegions.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                          Province *
+                        </label>
+                        <select
+                          value={form.province}
+                          onChange={(e) => { setF('province', e.target.value); setF('city', ''); setF('barangay', ''); }}
+                          disabled={!form.region || apiProvinces.length === 0}
+                          className={inputCls}
+                        >
+                          <option value="">{apiProvinces.length === 0 && form.region ? 'No provinces (pick city below)' : 'Select Province'}</option>
+                          {apiProvinces.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                          City / Municipality *
+                        </label>
+                        <select
+                          value={form.city}
+                          onChange={(e) => { setF('city', e.target.value); setF('barangay', ''); }}
+                          disabled={!form.region || apiCities.length === 0}
+                          className={inputCls}
+                        >
+                          <option value="">Select City</option>
+                          {apiCities.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                        Barangay <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      {phBarangays.length > 0 ? (
+                        <select
+                          value={form.barangay}
+                          onChange={(e) => setF('barangay', e.target.value)}
+                          disabled={!form.city}
+                          className={inputCls}
+                        >
+                          <option value="">Select Barangay</option>
+                          {phBarangays.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          placeholder={form.city ? 'Enter barangay' : 'Select a city first'}
+                          value={form.barangay}
+                          onChange={(e) => setF('barangay', e.target.value)}
+                          disabled={!form.city}
+                          className={inputCls}
+                        />
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {form.homeIsAbroad && (
+                  <>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                        Country *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. United Arab Emirates"
+                        value={form.homeCountry}
+                        onChange={(e) => setF('homeCountry', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                          State / Region *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="State or region"
+                          value={form.region}
+                          onChange={(e) => setF('region', e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                          Province / County
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Province or county (optional)"
+                          value={form.province}
+                          onChange={(e) => setF('province', e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                          City *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="City"
+                          value={form.city}
+                          onChange={(e) => setF('city', e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
+                          Street / Postal Code
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Street, ZIP / postal code"
+                          value={form.barangay}
+                          onChange={(e) => setF('barangay', e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <NavButtons onBack={prevPersonalStep} onNext={nextPersonalStep} />

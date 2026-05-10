@@ -644,7 +644,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           {/* ── Section 6: First Job ─────────────────────────────────────────── */}
           {!isNeverEmployed && form.employment_status && (
             <SectionCard icon={Clock} title="Part V — First Job Details">
-              <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 space-y-5 lg:space-y-0">
+              <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 lg:items-start space-y-5 lg:space-y-0">
               <div className="space-y-5">
 
               <div>
@@ -680,9 +680,6 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   value={form.firstJobTitle} onChange={e => setF('firstJobTitle', e.target.value)} className={inputCls} />
               </div>
 
-              </div>{/* end left column */}
-              <div className="space-y-5">
-
               <div>
                 <FieldLabel>5. Is/Was your FIRST JOB related to your BSIS degree?</FieldLabel>
                 <div className="space-y-1.5">
@@ -691,6 +688,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   ))}
                 </div>
               </div>
+
+              </div>{/* end left column */}
+              <div className="space-y-5">
 
               {(form.firstJobRelated === 'Somewhat related (uses some IT skills)' || form.firstJobRelated === 'Not related (different field)') && (
                 <div>
@@ -772,23 +772,28 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>2. Current Occupation / Position</FieldLabel>
-                <select
-                  value={form.currentJobTitleId}
-                  onChange={e => {
-                    const id = e.target.value;
-                    const title = referenceData.job_titles.find(jt => jt.id === id);
-                    setForm(f => ({ ...f, currentJobTitleId: id, currentJobPosition: title ? title.name : f.currentJobPosition }));
-                    setSaved(false); setSaveError('');
-                  }}
-                  className={`${inputCls} mb-2`}
-                >
-                  <option value="">Select suggested job title (optional)</option>
-                  {referenceData.job_titles.map(jt => (
-                    <option key={jt.id} value={jt.id}>{jt.name}</option>
-                  ))}
-                </select>
-                <input type="text" placeholder="e.g. Systems Analyst"
-                  value={form.currentJobPosition} onChange={e => setF('currentJobPosition', e.target.value)} className={inputCls} />
+                <div className="border border-dashed border-gray-200 rounded-md p-3 space-y-2 bg-gray-50/40">
+                  <select
+                    value={form.currentJobTitleId}
+                    onChange={e => {
+                      const id = e.target.value;
+                      const title = referenceData.job_titles.find(jt => jt.id === id);
+                      setForm(f => ({ ...f, currentJobTitleId: id, currentJobPosition: title ? title.name : f.currentJobPosition }));
+                      setSaved(false); setSaveError('');
+                    }}
+                    className={inputCls}
+                  >
+                    <option value="">Pick a suggested job title (optional)</option>
+                    {referenceData.job_titles.map(jt => (
+                      <option key={jt.id} value={jt.id}>{jt.name}</option>
+                    ))}
+                  </select>
+                  <input type="text" placeholder="e.g. Systems Analyst"
+                    value={form.currentJobPosition} onChange={e => setF('currentJobPosition', e.target.value)} className={inputCls} />
+                  <p className="text-[11px] text-gray-500 leading-snug">
+                    Use the text box if your role isn't in the dropdown above, or to refine the selected title.
+                  </p>
+                </div>
               </div>
 
               <div>

@@ -231,6 +231,8 @@ export function RegisterAlumni() {
       payload.append('province', personalData.province);
       payload.append('city', personalData.city);
       payload.append('barangay', personalData.barangay || '');
+      payload.append('home_is_abroad', personalData.homeIsAbroad ? 'true' : 'false');
+      payload.append('home_country', personalData.homeCountry || (personalData.homeIsAbroad ? '' : 'Philippines'));
       payload.append('graduation_date', personalData.graduationDate || '');
       payload.append('graduation_year', personalData.graduationYear?.toString() || '');
       payload.append('scholarship', personalData.scholarship || '');
