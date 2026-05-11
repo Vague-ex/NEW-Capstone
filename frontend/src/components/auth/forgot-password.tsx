@@ -9,15 +9,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Mail, Lock, AlertCircle, CheckCircle2, X, RefreshCw, KeyRound } from 'lucide-react';
+import { Mail, Lock, AlertCircle, CheckCircle2, X, RefreshCw, KeyRound, ArrowLeft } from 'lucide-react';
 import {
+    forgotPasswordCheckCode,
     forgotPasswordRequest,
     forgotPasswordResend,
-    forgotPasswordVerify,
+    forgotPasswordSetPassword,
     type ForgotRole,
 } from '../../app/api-client';
 
-type Step = 'request' | 'verify' | 'done';
+type Step = 'request' | 'code' | 'password' | 'done';
 
 interface ForgotPasswordModalProps {
     open: boolean;
@@ -48,6 +49,7 @@ export default function ForgotPasswordModal({
     const [step, setStep] = useState<Step>('request');
     const [email, setEmail] = useState(initialEmail);
     const [code, setCode] = useState('');
+    const [resetTicket, setResetTicket] = useState('');
     const [password, setPassword] = useState('');
     const [confirm, setConfirm] = useState('');
     const [busy, setBusy] = useState(false);
@@ -55,6 +57,7 @@ export default function ForgotPasswordModal({
     const [info, setInfo] = useState('');
     const [codeRemaining, setCodeRemaining] = useState(0);
     const [resendRemaining, setResendRemaining] = useState(0);
+    const [ticketRemaining, setTicketRemaining] = useState(0);
     const [showPassword, setShowPassword] = useState(false);
     const tickRef = useRef<number | null>(null);
 
@@ -64,18 +67,20 @@ export default function ForgotPasswordModal({
         setStep('request');
         setEmail(initialEmail);
         setCode('');
+        setResetTicket('');
         setPassword('');
         setConfirm('');
         setError('');
         setInfo('');
         setCodeRemaining(0);
         setResendRemaining(0);
+        setTicketRemaining(0);
     }, [open, initialEmail]);
 
     // Countdown tick.
     useEffect(() => {
         if (!open) return;
-        if (codeRemaining <= 0 && resendRemaining <= 0) {
+        if (codeRemaining <= 0 && resendRemaining <= 0 && ticketRemaining <= 0) {
             if (tickRef.current) window.clearInterval(tickRef.current);
             tickRef.current = null;
             return;
@@ -83,18 +88,20 @@ export default function ForgotPasswordModal({
         tickRef.current = window.setInterval(() => {
             setCodeRemaining(prev => Math.max(0, prev - 1));
             setResendRemaining(prev => Math.max(0, prev - 1));
+            setTicketRemaining(prev => Math.max(0, prev - 1));
         }, 1000);
         return () => {
             if (tickRef.current) window.clearInterval(tickRef.current);
             tickRef.current = null;
         };
-    }, [open, codeRemaining, resendRemaining]);
+    }, [open, codeRemaining, resendRemaining, ticketRemaining]);
 
     const inputCls = 'w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500';
     const passOk = password.length >= 8;
     const passwordsMatch = password === confirm && passOk;
     const codeDigits = code.replace(/\D/g, '');
-    const canSubmitVerify = codeDigits.length === CODE_LENGTH && passOk && passwordsMatch && !busy;
+    const canSubmitCode = codeDigits.length === CODE_LENGTH && !busy;
+    const canSubmitPassword = passOk && passwordsMatch && !busy && resetTicket.length > 0;
 
     async function handleRequest() {
         if (!email || !email.includes('@')) {
@@ -107,7 +114,7 @@ export default function ForgotPasswordModal({
             setCodeRemaining(res.code_expires_in_seconds);
             setResendRemaining(res.resend_available_in_seconds);
             setInfo(res.message);
-            setStep('verify');
+            setStep('code');
         } catch (err) {
             setError((err as Error).message || 'Could not send the code. Try again.');
         } finally {
@@ -131,17 +138,19 @@ export default function ForgotPasswordModal({
         }
     }
 
-    async function handleVerify() {
-        if (!canSubmitVerify) return;
+    async function handleCheckCode() {
+        if (!canSubmitCode) return;
         setBusy(true); setError(''); setInfo('');
         try {
-            await forgotPasswordVerify(
+            const res = await forgotPasswordCheckCode(
                 email.trim().toLowerCase(),
                 role,
                 codeDigits,
-                password,
             );
-            setStep('done');
+            setResetTicket(res.reset_ticket);
+            setTicketRemaining(res.ticket_expires_in_seconds);
+            setInfo('Code accepted. Set your new password below.');
+            setStep('password');
         } catch (err) {
             const e = err as Error & { payload?: Record<string, unknown> };
             const lockoutSeconds = e.payload?.lockout_seconds as number | undefined;
@@ -158,10 +167,33 @@ export default function ForgotPasswordModal({
         }
     }
 
+    async function handleSetPassword() {
+        if (!canSubmitPassword) return;
+        setBusy(true); setError(''); setInfo('');
+        try {
+            await forgotPasswordSetPassword(resetTicket, password);
+            setStep('done');
+        } catch (err) {
+            const e = err as Error & { payload?: Record<string, unknown> };
+            const detail = (e.payload?.detail as string) || e.message;
+            // If the ticket expired, send the user back to the code step.
+            if (/ticket|expired|no longer valid/i.test(detail || '')) {
+                setError('The ticket expired. Please verify the code again.');
+                setResetTicket('');
+                setStep('code');
+                return;
+            }
+            setError(detail || 'Could not update password.');
+        } finally {
+            setBusy(false);
+        }
+    }
+
     const titleByStep = useMemo(() => ({
-        request: 'Reset your password',
-        verify:  'Enter the code we sent',
-        done:    'Password updated',
+        request:  'Reset your password',
+        code:     'Enter the code we sent',
+        password: 'Set a new password',
+        done:     'Password updated',
     }), []);
 
     if (!open) return null;
@@ -207,8 +239,7 @@ export default function ForgotPasswordModal({
                     {step === 'request' && (
                         <div className="space-y-3">
                             <p className="text-sm text-gray-700 leading-snug">
-                                Type your registered {role} email. We&apos;ll send a 12-digit
-                                code that expires in 15 minutes.
+                                {`Type your registered ${role} email. We'll send a 12-digit code that expires in 15 minutes.`}
                             </p>
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1.5">
@@ -237,10 +268,11 @@ export default function ForgotPasswordModal({
                         </div>
                     )}
 
-                    {step === 'verify' && (
+                    {step === 'code' && (
                         <div className="space-y-3">
                             <p className="text-sm text-gray-700 leading-snug">
-                                Code sent to <strong>{email}</strong>. Type the 12-digit code below.
+                                Code sent to <strong>{email}</strong>. Type the 12-digit code
+                                below. You will set your new password after the code is verified.
                             </p>
 
                             <div>
@@ -256,6 +288,7 @@ export default function ForgotPasswordModal({
                                     placeholder="XXX-XXX-XXX-XXX"
                                     className={`${inputCls} font-mono tracking-widest text-center text-base`}
                                     maxLength={15}
+                                    autoFocus
                                 />
                                 <div className="mt-1 flex items-center justify-between text-[11px] text-gray-500">
                                     <span>
@@ -277,6 +310,29 @@ export default function ForgotPasswordModal({
                                 </div>
                             </div>
 
+                            <button
+                                type="button"
+                                onClick={handleCheckCode}
+                                disabled={!canSubmitCode}
+                                className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-sm font-semibold rounded-lg py-2.5 transition"
+                            >
+                                {busy ? 'Verifying…' : 'Verify code'}
+                            </button>
+                        </div>
+                    )}
+
+                    {step === 'password' && (
+                        <div className="space-y-3">
+                            <p className="text-sm text-gray-700 leading-snug">
+                                Code verified. Set a new password for <strong>{email}</strong>.
+                                {ticketRemaining > 0 && (
+                                    <span className="block text-[11px] text-gray-500 mt-1">
+                                        Finish within {fmt(ticketRemaining)} or you will need to
+                                        verify the code again.
+                                    </span>
+                                )}
+                            </p>
+
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1.5">
                                     New password (8+ characters)
@@ -288,6 +344,7 @@ export default function ForgotPasswordModal({
                                         value={password}
                                         onChange={e => setPassword(e.target.value)}
                                         className={`${inputCls} pl-10`}
+                                        autoFocus
                                     />
                                 </div>
                             </div>
@@ -319,14 +376,23 @@ export default function ForgotPasswordModal({
                                 </div>
                             </div>
 
-                            <button
-                                type="button"
-                                onClick={handleVerify}
-                                disabled={!canSubmitVerify}
-                                className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-sm font-semibold rounded-lg py-2.5 transition"
-                            >
-                                {busy ? 'Verifying…' : 'Set new password'}
-                            </button>
+                            <div className="flex items-center gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => { setResetTicket(''); setStep('code'); setError(''); setInfo(''); }}
+                                    className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                    <ArrowLeft className="size-3" /> Back to code
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSetPassword}
+                                    disabled={!canSubmitPassword}
+                                    className="ml-auto bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-sm font-semibold rounded-lg px-5 py-2.5 transition"
+                                >
+                                    {busy ? 'Updating…' : 'Set new password'}
+                                </button>
+                            </div>
                         </div>
                     )}
 

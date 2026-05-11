@@ -330,6 +330,16 @@ export interface ForgotPasswordVerifyResponse {
     lockout_seconds?: number;
 }
 
+export interface ForgotPasswordCheckCodeResponse {
+    message: string;
+    reset_ticket: string;
+    ticket_expires_in_seconds: number;
+}
+
+export interface ForgotPasswordSetPasswordResponse {
+    message: string;
+}
+
 async function postJsonOrThrow<T>(url: string, body: unknown): Promise<T> {
     const response = await fetch(url, {
         method: 'POST',
@@ -374,6 +384,27 @@ export function forgotPasswordVerify(
     return postJsonOrThrow(
         `${API_BASE_URL}/api/auth/forgot-password/verify/`,
         { email, role, code, new_password: newPassword },
+    );
+}
+
+export function forgotPasswordCheckCode(
+    email: string,
+    role: ForgotRole,
+    code: string,
+): Promise<ForgotPasswordCheckCodeResponse> {
+    return postJsonOrThrow(
+        `${API_BASE_URL}/api/auth/forgot-password/check-code/`,
+        { email, role, code },
+    );
+}
+
+export function forgotPasswordSetPassword(
+    resetTicket: string,
+    newPassword: string,
+): Promise<ForgotPasswordSetPasswordResponse> {
+    return postJsonOrThrow(
+        `${API_BASE_URL}/api/auth/forgot-password/set-password/`,
+        { reset_ticket: resetTicket, new_password: newPassword },
     );
 }
 

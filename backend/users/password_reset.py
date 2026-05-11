@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from django.conf import settings
+from django.core import signing
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -24,6 +25,9 @@ from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+RESET_TICKET_SALT = "graduate-tracer.forgot-password"
+RESET_TICKET_MAX_AGE = 5 * 60  # 5 minutes between check-code and set-password
 
 from .models import (
     AccountStatus, AlumniAccount, EmployerAccount, PasswordResetCode, User,
@@ -291,6 +295,195 @@ class ForgotPasswordResendView(APIView):
         return ForgotPasswordRequestView().post(request)
 
 
+def _validate_code_or_response(*, email: str, role: str, code_in: str):
+    """
+    Shared code-validation logic. Returns (row, error_response).
+    On match: (row, None). On any failure: (None, Response).
+
+    Throttle counter is incremented on mismatch; on match the row's
+    attempt_count is also bumped so we keep tight bounds on guessing.
+    """
+    code_clean = "".join(ch for ch in code_in if ch.isdigit())
+
+    identifier = make_identifier(role, email)
+    locked, secs_left = is_locked_out(identifier)
+    if locked:
+        return None, Response(
+            {"detail": "Too many failed attempts. Try again later.",
+             "lockout_seconds": secs_left},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    row = (
+        PasswordResetCode.objects
+        .filter(email__iexact=email, role=role, used_at__isnull=True)
+        .order_by("-sent_at")
+        .first()
+    )
+    if not row or row.is_expired:
+        register_failed_attempt(identifier, role)
+        return None, Response(
+            {"detail": "Code is invalid or expired. Request a new one."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    max_attempts = int(settings.PASSWORD_RESET_MAX_ATTEMPTS)
+    row.attempt_count = (row.attempt_count or 0) + 1
+    if row.attempt_count > max_attempts:
+        row.used_at = timezone.now()
+        row.save(update_fields=["attempt_count", "used_at"])
+        register_failed_attempt(identifier, role)
+        return None, Response(
+            {"detail": "Too many wrong attempts on this code. Request a new one."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    row.save(update_fields=["attempt_count"])
+
+    if not constant_time_compare(_hash_code(code_clean), row.code_hash):
+        now_locked, lockout_secs = register_failed_attempt(identifier, role)
+        payload = {
+            "detail": "The code does not match. Please double-check and try again.",
+            "remaining_attempts": max(0, max_attempts - row.attempt_count),
+        }
+        if now_locked:
+            payload["lockout_seconds"] = lockout_secs
+            return None, Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return None, Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+    return row, None
+
+
+class ForgotPasswordCheckCodeView(APIView):
+    """
+    Step 2 of the flow. Validates the code and returns a short-lived
+    signed `reset_ticket` that the frontend uses to actually set the
+    new password. The code row stays unused so this view can be retried
+    if the next step fails for any reason, but the row's `attempt_count`
+    and the login throttle counters are both incremented per call so
+    brute force is still bounded.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip().lower()
+        role = (request.data.get("role") or "").strip().lower()
+        code_in = (request.data.get("code") or "").strip()
+
+        if role not in ALLOWED_ROLES:
+            return Response(
+                {"detail": "role must be 'graduate' or 'employer'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not email or not code_in:
+            return Response(
+                {"detail": "email and code are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        row, err = _validate_code_or_response(email=email, role=role, code_in=code_in)
+        if err:
+            return err
+
+        # Code is good. Issue a signed ticket that the next step consumes.
+        ticket = signing.dumps(
+            {
+                "row_id": str(row.id),
+                "email": email,
+                "role": role,
+                "code_hash": row.code_hash,
+            },
+            salt=RESET_TICKET_SALT,
+        )
+        return Response(
+            {
+                "message": "Code accepted. You can now set a new password.",
+                "reset_ticket": ticket,
+                "ticket_expires_in_seconds": RESET_TICKET_MAX_AGE,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ForgotPasswordSetPasswordView(APIView):
+    """
+    Step 3 of the flow. Consumes the `reset_ticket` issued by check-code
+    and sets the new password. The corresponding code row is marked used
+    so the same code cannot be replayed.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        ticket = (request.data.get("reset_ticket") or "").strip()
+        new_password = request.data.get("new_password") or ""
+
+        if not ticket or not new_password:
+            return Response(
+                {"detail": "reset_ticket and new_password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "Password must be at least 8 characters."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            payload = signing.loads(ticket, salt=RESET_TICKET_SALT, max_age=RESET_TICKET_MAX_AGE)
+        except signing.SignatureExpired:
+            return Response(
+                {"detail": "This reset ticket has expired. Please verify the code again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except signing.BadSignature:
+            return Response(
+                {"detail": "Invalid reset ticket."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = (payload.get("email") or "").strip().lower()
+        role = (payload.get("role") or "").strip().lower()
+        row_id = payload.get("row_id")
+        code_hash = payload.get("code_hash")
+        if role not in ALLOWED_ROLES or not email or not row_id:
+            return Response(
+                {"detail": "Invalid reset ticket."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        row = PasswordResetCode.objects.filter(id=row_id, email__iexact=email, role=role).first()
+        if not row or row.used_at is not None or row.is_expired or row.code_hash != code_hash:
+            return Response(
+                {"detail": "Code is no longer valid. Please request a new one."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = _find_user_for_reset(email, role)
+        if not user:
+            return Response(
+                {"detail": "Account no longer exists."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        row.used_at = timezone.now()
+        row.save(update_fields=["used_at"])
+
+        reset_attempts(make_identifier(role, email))
+
+        return Response(
+            {"message": "Password updated. You can now log in."},
+            status=status.HTTP_200_OK,
+        )
+
+
+# Back-compat alias so any cached frontend bundle that still calls
+# /verify/ continues to work for one release. New code uses the two
+# split views above.
 class ForgotPasswordVerifyView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -318,71 +511,21 @@ class ForgotPasswordVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Strip any visual grouping like dashes or spaces before comparing.
-        code_clean = "".join(ch for ch in code_in if ch.isdigit())
+        row, err = _validate_code_or_response(email=email, role=role, code_in=code_in)
+        if err:
+            return err
 
-        # Code-guess attempts feed the same throttle the login uses.
-        identifier = make_identifier(role, email)
-        locked, secs_left = is_locked_out(identifier)
-        if locked:
-            return Response(
-                {"detail": "Too many failed attempts. Try again later.",
-                 "lockout_seconds": secs_left},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        row = (
-            PasswordResetCode.objects
-            .filter(email__iexact=email, role=role, used_at__isnull=True)
-            .order_by("-sent_at")
-            .first()
-        )
-        if not row or row.is_expired:
-            register_failed_attempt(identifier, role)
-            return Response(
-                {"detail": "Code is invalid or expired. Request a new one."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        max_attempts = int(settings.PASSWORD_RESET_MAX_ATTEMPTS)
-        row.attempt_count = (row.attempt_count or 0) + 1
-        if row.attempt_count > max_attempts:
-            row.used_at = timezone.now()
-            row.save(update_fields=["attempt_count", "used_at"])
-            register_failed_attempt(identifier, role)
-            return Response(
-                {"detail": "Too many wrong attempts on this code. Request a new one."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        row.save(update_fields=["attempt_count"])
-
-        if not constant_time_compare(_hash_code(code_clean), row.code_hash):
-            now_locked, lockout_secs = register_failed_attempt(identifier, role)
-            payload = {
-                "detail": "The code does not match. Please double-check and try again.",
-                "remaining_attempts": max(0, max_attempts - row.attempt_count),
-            }
-            if now_locked:
-                payload["lockout_seconds"] = lockout_secs
-                return Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
-
-        # Match. Set the new password on the user.
         user = _find_user_for_reset(email, role)
         if not user:
-            # Edge case: user was deleted between request and verify.
             return Response(
                 {"detail": "Account no longer exists."},
                 status=status.HTTP_404_NOT_FOUND,
             )
         user.set_password(new_password)
         user.save(update_fields=["password"])
-
         row.used_at = timezone.now()
         row.save(update_fields=["used_at"])
-
-        # Successful reset clears any lockout on the same identifier.
-        reset_attempts(identifier)
+        reset_attempts(make_identifier(role, email))
 
         return Response(
             {"message": "Password updated. You can now log in."},

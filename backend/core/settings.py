@@ -265,6 +265,13 @@ _default_email_backend = (
 )
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", _default_email_backend)
 
+# Public URL of the deployed graduate-facing frontend (Vercel). Used as the
+# call-to-action link in transactional emails (e.g. retracking reminder).
+GRADUATE_LOGIN_URL = os.getenv(
+    "GRADUATE_LOGIN_URL",
+    "https://chmsu-alumni-gradtracer.vercel.app/",
+)
+
 # Password reset code policy (used by users/api.py forgot-password views).
 PASSWORD_RESET_CODE_TTL_SECONDS         = _env_int("PASSWORD_RESET_CODE_TTL_SECONDS", 900)
 PASSWORD_RESET_RESEND_COOLDOWN_SECONDS  = _env_int("PASSWORD_RESET_RESEND_COOLDOWN_SECONDS", 60)

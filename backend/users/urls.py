@@ -29,8 +29,10 @@ from .api import DebugAccountListView, DebugAccountDeleteView
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 from .password_reset import (
+    ForgotPasswordCheckCodeView,
     ForgotPasswordRequestView,
     ForgotPasswordResendView,
+    ForgotPasswordSetPasswordView,
     ForgotPasswordVerifyView,
 )
 
@@ -56,6 +58,16 @@ urlpatterns = [
         "auth/forgot-password/resend/",
         ForgotPasswordResendView.as_view(),
         name="forgot-password-resend",
+    ),
+    path(
+        "auth/forgot-password/check-code/",
+        ForgotPasswordCheckCodeView.as_view(),
+        name="forgot-password-check-code",
+    ),
+    path(
+        "auth/forgot-password/set-password/",
+        ForgotPasswordSetPasswordView.as_view(),
+        name="forgot-password-set-password",
     ),
     path(
         "auth/forgot-password/verify/",
