@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import Image from 'next/image';
 import {
@@ -12,6 +12,7 @@ import {
   employerLogin,
   registerEmployer,
 } from '../../app/api-client';
+import ForgotPasswordModal from '../auth/forgot-password';
 import { useReferenceData, type SkillItem } from '../../hooks/useReferenceData';
 
 const SOFT_SKILL_PATTERN = /soft|communication|interpersonal|behaviou?ral|attitude/i;
@@ -153,10 +154,24 @@ function LoginView({ onBack, navigate }: { onBack: () => void; navigate: (path: 
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const id = window.setInterval(() => {
+      setLockoutSeconds(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [lockoutSeconds]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (lockoutSeconds > 0) {
+      setError(`Too many failed attempts. Try again in ${lockoutSeconds}s.`);
+      return;
+    }
     if (!email.trim() || !password.trim()) { setError('Please enter your credential email and password.'); return; }
     setIsLoading(true);
 
@@ -184,7 +199,12 @@ function LoginView({ onBack, navigate }: { onBack: () => void; navigate: (path: 
       navigate('/employer/dashboard');
     } catch (err) {
       if (err instanceof ApiClientError) {
-        if (err.status === 403) {
+        const payload = err.payload as Record<string, unknown> | undefined;
+        const secs = Number(payload?.lockout_seconds ?? 0);
+        if (err.status === 429 || (err.status === 401 && secs > 0)) {
+          if (secs > 0) setLockoutSeconds(secs);
+          setError(`Too many failed attempts. Try again in ${secs || 'a few'}s.`);
+        } else if (err.status === 403) {
           setError(err.message || 'Your employer account cannot access the portal at this time.');
         } else if (err.status === 401) {
           setError('Incorrect credentials. Please try again.');
@@ -239,15 +259,34 @@ function LoginView({ onBack, navigate }: { onBack: () => void; navigate: (path: 
             </button>
           </div>
         </div>
-        <button type="submit" disabled={isLoading || !email.trim() || !password.trim()}
+        <div className="flex items-center justify-end -mt-2">
+          <button
+            type="button"
+            onClick={() => setForgotOpen(true)}
+            className="text-xs text-[#166534] hover:underline"
+            style={{ fontWeight: 600 }}
+          >
+            Forgot password?
+          </button>
+        </div>
+        <button type="submit" disabled={isLoading || lockoutSeconds > 0 || !email.trim() || !password.trim()}
           className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
           style={{ fontWeight: 600 }}>
-          {isLoading
-            ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Signing in…</>
-            : <>Sign In <ArrowRight className="size-4" /></>
+          {lockoutSeconds > 0
+            ? <>Locked. Try again in {lockoutSeconds}s</>
+            : isLoading
+              ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Signing in…</>
+              : <>Sign In <ArrowRight className="size-4" /></>
           }
         </button>
       </form>
+
+      <ForgotPasswordModal
+        open={forgotOpen}
+        role="employer"
+        initialEmail={email}
+        onClose={() => setForgotOpen(false)}
+      />
     </div>
   );
 }

@@ -312,6 +312,72 @@ export async function registerEmployer(
 }
 
 // ---------------------------------------------------------------------------
+// Forgot password (Gmail SMTP backend)
+// ---------------------------------------------------------------------------
+
+export type ForgotRole = 'graduate' | 'employer';
+
+export interface ForgotPasswordRequestResponse {
+    message: string;
+    resend_available_in_seconds: number;
+    code_expires_in_seconds: number;
+}
+
+export interface ForgotPasswordVerifyResponse {
+    message?: string;
+    detail?: string;
+    remaining_attempts?: number;
+    lockout_seconds?: number;
+}
+
+async function postJsonOrThrow<T>(url: string, body: unknown): Promise<T> {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        let payload: Record<string, unknown> = {};
+        try { payload = (await response.json()) as Record<string, unknown>; } catch { /* ignore */ }
+        const err = new Error(
+            (payload.detail as string)
+            || (payload.message as string)
+            || `Request failed (${response.status}).`,
+        ) as Error & { status?: number; payload?: Record<string, unknown> };
+        err.status = response.status;
+        err.payload = payload;
+        throw err;
+    }
+    return response.json() as Promise<T>;
+}
+
+export function forgotPasswordRequest(
+    email: string,
+    role: ForgotRole,
+): Promise<ForgotPasswordRequestResponse> {
+    return postJsonOrThrow(`${API_BASE_URL}/api/auth/forgot-password/request/`, { email, role });
+}
+
+export function forgotPasswordResend(
+    email: string,
+    role: ForgotRole,
+): Promise<ForgotPasswordRequestResponse> {
+    return postJsonOrThrow(`${API_BASE_URL}/api/auth/forgot-password/resend/`, { email, role });
+}
+
+export function forgotPasswordVerify(
+    email: string,
+    role: ForgotRole,
+    code: string,
+    newPassword: string,
+): Promise<ForgotPasswordVerifyResponse> {
+    return postJsonOrThrow(
+        `${API_BASE_URL}/api/auth/forgot-password/verify/`,
+        { email, role, code, new_password: newPassword },
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Alumni endpoints
 // ---------------------------------------------------------------------------
 

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Please update your employment record</title>
+</head>
+<body style="margin:0;padding:0;background:#F1F5F9;font-family:Segoe UI,Arial,Helvetica,sans-serif;color:#0F172A;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F1F5F9;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0"
+               style="max-width:600px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;
+                      box-shadow:0 6px 24px rgba(15,23,42,0.08);border:1px solid #E2E8F0;">
+          <!-- Header -->
+          <tr>
+            <td style="background:#166534;padding:20px 28px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td valign="middle" style="width:64px;">
+                    <img src="cid:{{ logo_cid }}" alt="CHMSU Logo" width="56" height="56"
+                         style="display:block;border:0;outline:none;">
+                  </td>
+                  <td valign="middle" style="padding-left:16px;color:#FFFFFF;">
+                    <div style="font-size:16px;font-weight:700;line-height:1.2;">Carlos Hilado Memorial State University</div>
+                    <div style="font-size:13px;opacity:0.85;margin-top:2px;">Graduate Tracer System</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Title -->
+          <tr>
+            <td style="padding:28px 32px 8px 32px;">
+              <div style="font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:#166534;font-weight:700;">
+                Employment update reminder
+              </div>
+              <h1 style="margin:6px 0 0;font-size:22px;line-height:1.3;color:#0F172A;">
+                It is time to refresh your employment record
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:12px 32px 0 32px;font-size:15px;line-height:1.6;color:#0F172A;">
+              <p style="margin:0 0 12px;">Hi {{ first_name|default:"there" }},</p>
+              <p style="margin:0 0 16px;">
+                Your employment record on the CHMSU Graduate Tracer System
+                has not been updated in over <strong>two years</strong>. Please
+                sign in and re-complete the short employment form so we can
+                keep your record current.
+              </p>
+              <p style="margin:0 0 16px;">
+                Updating takes only a few minutes and helps the BSIS Program
+                track post-graduation outcomes and plan future curricula.
+              </p>
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          <tr>
+            <td style="padding:8px 32px 8px 32px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td align="center" style="padding:8px 0;">
+                    <a href="{{ login_url }}"
+                       style="display:inline-block;background:#166534;color:#FFFFFF;text-decoration:none;
+                              font-weight:600;font-size:14px;padding:12px 24px;border-radius:10px;">
+                      Sign in to update
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Help text -->
+          <tr>
+            <td style="padding:18px 32px 4px 32px;font-size:14px;line-height:1.6;color:#475569;">
+              <p style="margin:0 0 10px;">
+                If you have already updated your record recently, you can
+                ignore this email. The reminder is sent automatically when
+                the system sees a record older than 730 days.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr><td style="padding:18px 32px 0 32px;"><hr style="border:none;border-top:1px solid #E2E8F0;margin:0;"></td></tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:18px 32px 28px 32px;font-size:12px;line-height:1.6;color:#475569;">
+              <strong style="color:#14532D;">CHMSU BSIS Program</strong> &middot; Graduate Tracer System<br>
+              Carlos Hilado Memorial State University &middot; Talisay Campus, Negros Occidental<br>
+              This is an automated message. Please do not reply to this email.
+            </td>
+          </tr>
+        </table>
+
+        <div style="font-size:11px;color:#94A3B8;margin-top:14px;">
+          &copy; Carlos Hilado Memorial State University &middot; Graduate Tracer System
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

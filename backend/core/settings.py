@@ -121,7 +121,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "users" / "email_templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -241,3 +241,41 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Email (Gmail SMTP for password reset codes).
+# In DEBUG with no EMAIL_HOST_USER set, fall back to console backend so
+# devs see the email body in the runserver log instead of needing real SMTP.
+EMAIL_HOST          = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT          = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS       = _env_bool("EMAIL_USE_TLS", True)
+EMAIL_USE_SSL       = _env_bool("EMAIL_USE_SSL", False)
+EMAIL_HOST_USER     = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL  = os.getenv(
+    "DEFAULT_FROM_EMAIL",
+    f"CHMSU Graduate Tracer <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "noreply@example.com",
+)
+EMAIL_TIMEOUT       = int(os.getenv("EMAIL_TIMEOUT", "30"))
+
+_default_email_backend = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST_USER
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", _default_email_backend)
+
+# Password reset code policy (used by users/api.py forgot-password views).
+PASSWORD_RESET_CODE_TTL_SECONDS         = _env_int("PASSWORD_RESET_CODE_TTL_SECONDS", 900)
+PASSWORD_RESET_RESEND_COOLDOWN_SECONDS  = _env_int("PASSWORD_RESET_RESEND_COOLDOWN_SECONDS", 60)
+PASSWORD_RESET_CODE_LENGTH              = _env_int("PASSWORD_RESET_CODE_LENGTH", 12)
+PASSWORD_RESET_MAX_ATTEMPTS             = _env_int("PASSWORD_RESET_MAX_ATTEMPTS", 5)
+
+# Login throttle policy (used by users/throttling.py).
+LOGIN_THROTTLE_FAIL_LIMIT      = _env_int("LOGIN_THROTTLE_FAIL_LIMIT", 5)
+LOGIN_THROTTLE_BACKOFF_SECONDS = [
+    int(s) for s in _env_list("LOGIN_THROTTLE_BACKOFF_SECONDS", "15,30,60,120,300,600")
+    if s.strip().isdigit()
+]
+if not LOGIN_THROTTLE_BACKOFF_SECONDS:
+    LOGIN_THROTTLE_BACKOFF_SECONDS = [15, 30, 60, 120, 300, 600]

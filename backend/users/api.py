@@ -21,6 +21,12 @@ from .models import (
     EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, User,
 )
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
+from .throttling import (
+    is_locked_out as throttle_is_locked_out,
+    make_identifier as throttle_identifier,
+    register_failed_attempt as throttle_register_fail,
+    reset_attempts as throttle_reset,
+)
 from tracer.models import (
     AlumniSkill, CompetencyProfile, EmploymentProfile,
     Skill, SkillCategory, WorkAddress,
@@ -991,12 +997,23 @@ class AdminLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        throttle_id = throttle_identifier("admin", email)
+        locked, secs_left = throttle_is_locked_out(throttle_id)
+        if locked:
+            return Response(
+                {"detail": "Too many failed attempts. Try again later.",
+                 "lockout_seconds": secs_left},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         user, auth_error = _authenticate_by_email_specific(email=email, password=password)
         if not user:
-            return Response(
-                {"detail": auth_error},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+            now_locked, lockout_secs = throttle_register_fail(throttle_id, "admin")
+            payload = {"detail": auth_error}
+            if now_locked:
+                payload["lockout_seconds"] = lockout_secs
+                return Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(payload, status=status.HTTP_401_UNAUTHORIZED)
 
         if not (user.role == User.Role.ADMIN or user.is_staff):
             return Response(
@@ -1004,6 +1021,7 @@ class AdminLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        throttle_reset(throttle_id)
         return Response(
             {
                 "message": "Admin login successful.",
@@ -1704,12 +1722,23 @@ class EmployerLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        throttle_id = throttle_identifier("employer", credential_email)
+        locked, secs_left = throttle_is_locked_out(throttle_id)
+        if locked:
+            return Response(
+                {"detail": "Too many failed attempts. Try again later.",
+                 "lockout_seconds": secs_left},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         user = _authenticate_by_email(email=credential_email, password=password)
         if not user:
-            return Response(
-                {"detail": "Invalid credential email or password."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+            now_locked, lockout_secs = throttle_register_fail(throttle_id, "employer")
+            payload = {"detail": "Invalid credential email or password."}
+            if now_locked:
+                payload["lockout_seconds"] = lockout_secs
+                return Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(payload, status=status.HTTP_401_UNAUTHORIZED)
 
         if user.role != User.Role.EMPLOYER:
             return Response(
@@ -1731,6 +1760,7 @@ class EmployerLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        throttle_reset(throttle_id)
         access_token = _generate_employer_access_token(user.id)
 
         return Response(
@@ -1769,12 +1799,23 @@ class AlumniLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        throttle_id = throttle_identifier("graduate", email)
+        locked, secs_left = throttle_is_locked_out(throttle_id)
+        if locked:
+            return Response(
+                {"detail": "Too many failed attempts. Try again later.",
+                 "lockout_seconds": secs_left},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         user, auth_error = _authenticate_by_email_specific(email=email, password=password)
         if not user:
-            return Response(
-                {"detail": auth_error},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+            now_locked, lockout_secs = throttle_register_fail(throttle_id, "graduate")
+            payload = {"detail": auth_error}
+            if now_locked:
+                payload["lockout_seconds"] = lockout_secs
+                return Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response(payload, status=status.HTTP_401_UNAUTHORIZED)
 
         if user.role != User.Role.ALUMNI:
             return Response(
@@ -1909,6 +1950,7 @@ class AlumniLoginView(APIView):
         except (OperationalError, DatabaseError):  # pragma: no cover - audit is best-effort
             pass
 
+        throttle_reset(throttle_id)
         return Response(
             {
                 "message": "Graduate login successful.",

@@ -7,6 +7,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { ADMIN_ACCESS_TOKEN_KEY, API_BASE_URL, adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
+import ForgotPasswordModal from "./auth/forgot-password";
 import {
   ensureModernFaceModelsLoaded,
   extractFaceDescriptorFromDataUrl,
@@ -86,6 +87,8 @@ export function LoginPage() {
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
@@ -141,9 +144,22 @@ export function LoginPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOn, scanStage, faceAuthBusy]); // runGraduateFaceAuthentication omitted — credential/password stable during scan phase
 
+  // Tick the lockout countdown each second so the button text refreshes.
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const id = window.setInterval(() => {
+      setLockoutSeconds(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [lockoutSeconds]);
+
   const handlePasswordNext = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(""); setEmailError(""); setPasswordError("");
+    if (lockoutSeconds > 0) {
+      setError(`Too many failed attempts. Try again in ${lockoutSeconds}s.`);
+      return;
+    }
     if (!credential.trim() || !credential.includes("@")) {
       setEmailError("Please enter a valid email address.");
       return;
@@ -173,8 +189,25 @@ export function LoginPage() {
         return;
       }
 
+      if (err instanceof ApiClientError && err.status === 429) {
+        const payload = err.payload as Record<string, unknown> | undefined;
+        const secs = Number(payload?.lockout_seconds ?? 0);
+        if (secs > 0) setLockoutSeconds(secs);
+        setError(`Too many failed attempts. Try again in ${secs || "a few"}s.`);
+        setIsLoading(false);
+        return;
+      }
+
       if (err instanceof ApiClientError && err.status === 401) {
         const msg = err.message ?? "";
+        const payload = err.payload as Record<string, unknown> | undefined;
+        const secs = Number(payload?.lockout_seconds ?? 0);
+        if (secs > 0) {
+          setLockoutSeconds(secs);
+          setError(`Too many failed attempts. Try again in ${secs}s.`);
+          setIsLoading(false);
+          return;
+        }
         if (/not recognized/i.test(msg)) {
           setEmailError(msg);
         } else {
@@ -435,21 +468,40 @@ export function LoginPage() {
                       </button>
                     </div>
                     {passwordError && <p className="text-red-500 text-xs mt-1.5">{passwordError}</p>}
+                    <div className="mt-2 flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setForgotOpen(true)}
+                        className="text-xs text-[#166534] hover:underline"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={isLoading || !credential.trim() || !password.trim()}
+                    disabled={isLoading || lockoutSeconds > 0 || !credential.trim() || !password.trim()}
                     className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
                     style={{ fontWeight: 600 }}
                   >
-                    {isLoading ? (
+                    {lockoutSeconds > 0 ? (
+                      <>Locked. Try again in {lockoutSeconds}s</>
+                    ) : isLoading ? (
                       <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying…</>
                     ) : (
                       <>Sign In <ArrowRight className="size-4" /></>
                     )}
                   </button>
                 </form>
+
+                <ForgotPasswordModal
+                  open={forgotOpen}
+                  role="graduate"
+                  initialEmail={credential}
+                  onClose={() => setForgotOpen(false)}
+                />
 
                 <p className="text-center text-gray-400 text-xs mt-5">
                   Employer?{" "}

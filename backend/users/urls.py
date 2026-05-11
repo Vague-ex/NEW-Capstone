@@ -28,6 +28,12 @@ from .api import (
 from .api import DebugAccountListView, DebugAccountDeleteView
 # endregion DEBUG-ONLY:CurrenChanDebug
 
+from .password_reset import (
+    ForgotPasswordRequestView,
+    ForgotPasswordResendView,
+    ForgotPasswordVerifyView,
+)
+
 urlpatterns = [
     path("auth/admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path("auth/alumni/register/", AlumniRegisterView.as_view(), name="alumni-register"),
@@ -41,6 +47,21 @@ urlpatterns = [
     ),
     path("auth/employer/register/", EmployerRegisterView.as_view(), name="employer-register"),
     path("auth/employer/login/", EmployerLoginView.as_view(), name="employer-login"),
+    path(
+        "auth/forgot-password/request/",
+        ForgotPasswordRequestView.as_view(),
+        name="forgot-password-request",
+    ),
+    path(
+        "auth/forgot-password/resend/",
+        ForgotPasswordResendView.as_view(),
+        name="forgot-password-resend",
+    ),
+    path(
+        "auth/forgot-password/verify/",
+        ForgotPasswordVerifyView.as_view(),
+        name="forgot-password-verify",
+    ),
     path(
         "auth/employer/account/<uuid:employer_id>/",
         EmployerAccountStatusView.as_view(),

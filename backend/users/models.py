@@ -460,3 +460,72 @@ class AdminCredential(models.Model):
 
     def __str__(self):
         return self.admin_email
+
+class PasswordResetCode(models.Model):
+    """
+    DS10: Password Reset Codes.
+
+    One row per request. Stores only the sha256 hash of the code, never
+    the plaintext. The row is keyed on (email, role) so the same email
+    can hold reset codes for Graduate and Employer independently.
+    """
+
+    ROLE_GRADUATE = "graduate"
+    ROLE_EMPLOYER = "employer"
+    ROLE_CHOICES = [
+        (ROLE_GRADUATE, "Graduate"),
+        (ROLE_EMPLOYER, "Employer"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(db_index=True)
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES)
+    code_hash = models.CharField(max_length=128)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+    request_ip = models.GenericIPAddressField(null=True, blank=True)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "users_password_reset_codes"
+        indexes = [
+            models.Index(fields=["email", "role", "used_at"]),
+            models.Index(fields=["sent_at"]),
+        ]
+        ordering = ["-sent_at"]
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_usable(self) -> bool:
+        return self.used_at is None and not self.is_expired
+
+    def __str__(self):
+        return f"reset({self.role}:{self.email})"
+
+
+class LoginAttemptThrottle(models.Model):
+    """
+    DS11: Login Throttle.
+
+    One row per (role + email) identifier. Tracks consecutive failed
+    login attempts and the active lockout (if any). Reset to zero on
+    successful login.
+    """
+
+    identifier = models.CharField(max_length=320, unique=True, db_index=True)
+    role = models.CharField(max_length=10)
+    failed_count = models.PositiveIntegerField(default=0)
+    last_failed_at = models.DateTimeField(null=True, blank=True)
+    lockout_until = models.DateTimeField(null=True, blank=True)
+    lockout_tier = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "users_login_attempt_throttle"
+
+    def __str__(self):
+        return f"throttle({self.identifier}) fails={self.failed_count} tier={self.lockout_tier}"
