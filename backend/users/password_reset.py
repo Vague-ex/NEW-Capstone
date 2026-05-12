@@ -30,7 +30,8 @@ RESET_TICKET_SALT = "graduate-tracer.forgot-password"
 RESET_TICKET_MAX_AGE = 5 * 60  # 5 minutes between check-code and set-password
 
 from .models import (
-    AccountStatus, AlumniAccount, EmployerAccount, PasswordResetCode, User,
+    AccountStatus, AdminCredential, AlumniAccount, EmployerAccount,
+    PasswordResetCode, User,
 )
 from .throttling import (
     is_locked_out, make_identifier, register_failed_attempt, reset_attempts,
@@ -41,7 +42,11 @@ LOGGER = logging.getLogger(__name__)
 
 ROLE_GRADUATE = PasswordResetCode.ROLE_GRADUATE
 ROLE_EMPLOYER = PasswordResetCode.ROLE_EMPLOYER
-ALLOWED_ROLES = {ROLE_GRADUATE, ROLE_EMPLOYER}
+ROLE_ADMIN = PasswordResetCode.ROLE_ADMIN
+ALLOWED_ROLES = {ROLE_GRADUATE, ROLE_EMPLOYER, ROLE_ADMIN}
+# Order matters for auto-detect: scan graduate first (most common), then
+# employer, then admin.
+ROLE_DETECT_ORDER = [ROLE_GRADUATE, ROLE_EMPLOYER, ROLE_ADMIN]
 
 LOGO_PATH = Path(__file__).resolve().parent / "email_templates" / "chmsu-logo.png"
 
@@ -85,18 +90,61 @@ def _find_user_for_reset(email: str, role: str) -> Optional[User]:
             return None
         return user
 
-    # Employer
-    employer = (
-        EmployerAccount.objects
+    if role == ROLE_EMPLOYER:
+        employer = (
+            EmployerAccount.objects
+            .select_related("user")
+            .filter(company_email__iexact=email)
+            .first()
+        )
+        # Some employer users may also be looked up by the auth User row's
+        # email (the registration flow copies it). Fall back when needed.
+        if not employer:
+            return User.objects.filter(email__iexact=email, role=User.Role.EMPLOYER).first()
+        if not employer.user:
+            return None
+        if employer.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
+            return None
+        return employer.user
+
+    # Admin
+    admin = (
+        AdminCredential.objects
         .select_related("user")
-        .filter(company_email__iexact=email)
+        .filter(admin_email__iexact=email, is_active=True)
         .first()
     )
-    if not employer or not employer.user:
+    if not admin:
+        # Fallback: lookup the auth User row directly (admin_email and
+        # user.email should match in normal setups).
+        user = User.objects.filter(email__iexact=email, role=User.Role.ADMIN).first()
+        return user
+    if not admin.user:
         return None
-    if employer.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
-        return None
-    return employer.user
+    return admin.user
+
+
+def _resolve_user_and_role(email: str, role_hint: Optional[str] = None) -> tuple[Optional[User], Optional[str]]:
+    """
+    Resolve (user, role) for a reset request.
+
+    If `role_hint` is supplied, scope the lookup to that role. Otherwise
+    scan graduate -> employer -> admin in order and return the first
+    match. Returns (None, None) when nothing matches.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return None, None
+
+    if role_hint and role_hint in ALLOWED_ROLES:
+        user = _find_user_for_reset(email, role_hint)
+        return (user, role_hint) if user else (None, None)
+
+    for candidate in ROLE_DETECT_ORDER:
+        user = _find_user_for_reset(email, candidate)
+        if user:
+            return user, candidate
+    return None, None
 
 
 def _get_first_name(user: User, role: str) -> str:
@@ -111,6 +159,9 @@ def _get_first_name(user: User, role: str) -> str:
             return (user.employer_account.contact_name or "").split(" ")[0] or "there"
         except Exception:
             return "there"
+    if role == ROLE_ADMIN:
+        # Admin records don't carry a personal name; use the email prefix.
+        return (user.email or "").split("@")[0] or "there"
     return "there"
 
 
@@ -255,34 +306,50 @@ class ForgotPasswordRequestView(APIView):
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
-        role = (request.data.get("role") or "").strip().lower()
+        role_hint = (request.data.get("role") or "").strip().lower() or None
 
-        if role not in ALLOWED_ROLES:
-            return Response(
-                {"detail": "role must be 'graduate' or 'employer'."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         if not email or "@" not in email:
             return Response(
                 {"detail": "A valid email is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        user = _find_user_for_reset(email, role)
-        # Anti-enumeration: respond with the same shape whether or not
-        # the email is registered. Only send the email if a user exists.
-        if user:
-            _row, err = _issue_code_and_send(
-                user=user,
-                email_normalized=email,
-                role=role,
-                request_ip=_client_ip(request),
+        if role_hint and role_hint not in ALLOWED_ROLES:
+            return Response(
+                {"detail": "role must be 'graduate', 'employer', or 'admin'."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if err:
-                # Internal error sending email. We do not leak details.
-                LOGGER.warning("Issue/send returned soft error: %s", err)
 
-        return Response(_generic_success(), status=status.HTTP_200_OK)
+        user, role = _resolve_user_and_role(email, role_hint)
+        if not user or not role:
+            # Internal system: surface a clear "no account found" message
+            # rather than the silent anti-enumeration response. The system
+            # is gated by an institutional master list, so enumeration risk
+            # is already bounded.
+            return Response(
+                {"detail": "No account is registered with that email."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        _row, err = _issue_code_and_send(
+            user=user,
+            email_normalized=email,
+            role=role,
+            request_ip=_client_ip(request),
+        )
+        if err:
+            return Response(
+                {"detail": err},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                **_generic_success(),
+                "role": role,
+                "message": f"A reset code was sent to {email}.",
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ForgotPasswordResendView(APIView):
@@ -295,17 +362,23 @@ class ForgotPasswordResendView(APIView):
         return ForgotPasswordRequestView().post(request)
 
 
-def _validate_code_or_response(*, email: str, role: str, code_in: str):
+def _validate_code_or_response(*, email: str, role: Optional[str], code_in: str):
     """
     Shared code-validation logic. Returns (row, error_response).
     On match: (row, None). On any failure: (None, Response).
 
-    Throttle counter is incremented on mismatch; on match the row's
-    attempt_count is also bumped so we keep tight bounds on guessing.
+    If `role` is None, find the latest unused code row for the email
+    across any role and use that row's role for throttle bookkeeping.
     """
     code_clean = "".join(ch for ch in code_in if ch.isdigit())
 
-    identifier = make_identifier(role, email)
+    row_q = PasswordResetCode.objects.filter(email__iexact=email, used_at__isnull=True)
+    if role:
+        row_q = row_q.filter(role=role)
+    row = row_q.order_by("-sent_at").first()
+
+    effective_role = role or (row.role if row else ROLE_GRADUATE)
+    identifier = make_identifier(effective_role, email)
     locked, secs_left = is_locked_out(identifier)
     if locked:
         return None, Response(
@@ -313,13 +386,6 @@ def _validate_code_or_response(*, email: str, role: str, code_in: str):
              "lockout_seconds": secs_left},
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
-
-    row = (
-        PasswordResetCode.objects
-        .filter(email__iexact=email, role=role, used_at__isnull=True)
-        .order_by("-sent_at")
-        .first()
-    )
     if not row or row.is_expired:
         register_failed_attempt(identifier, role)
         return None, Response(
@@ -368,12 +434,12 @@ class ForgotPasswordCheckCodeView(APIView):
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
-        role = (request.data.get("role") or "").strip().lower()
+        role_hint = (request.data.get("role") or "").strip().lower() or None
         code_in = (request.data.get("code") or "").strip()
 
-        if role not in ALLOWED_ROLES:
+        if role_hint and role_hint not in ALLOWED_ROLES:
             return Response(
-                {"detail": "role must be 'graduate' or 'employer'."},
+                {"detail": "role must be 'graduate', 'employer', or 'admin'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not email or not code_in:
@@ -382,16 +448,17 @@ class ForgotPasswordCheckCodeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        row, err = _validate_code_or_response(email=email, role=role, code_in=code_in)
+        row, err = _validate_code_or_response(email=email, role=role_hint, code_in=code_in)
         if err:
             return err
 
         # Code is good. Issue a signed ticket that the next step consumes.
+        # Role is read from the row to support the auto-detect flow.
         ticket = signing.dumps(
             {
                 "row_id": str(row.id),
                 "email": email,
-                "role": role,
+                "role": row.role,
                 "code_hash": row.code_hash,
             },
             salt=RESET_TICKET_SALT,
@@ -401,6 +468,7 @@ class ForgotPasswordCheckCodeView(APIView):
                 "message": "Code accepted. You can now set a new password.",
                 "reset_ticket": ticket,
                 "ticket_expires_in_seconds": RESET_TICKET_MAX_AGE,
+                "role": row.role,
             },
             status=status.HTTP_200_OK,
         )
@@ -491,13 +559,13 @@ class ForgotPasswordVerifyView(APIView):
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
-        role = (request.data.get("role") or "").strip().lower()
+        role_hint = (request.data.get("role") or "").strip().lower() or None
         code_in = (request.data.get("code") or "").strip()
         new_password = request.data.get("new_password") or ""
 
-        if role not in ALLOWED_ROLES:
+        if role_hint and role_hint not in ALLOWED_ROLES:
             return Response(
-                {"detail": "role must be 'graduate' or 'employer'."},
+                {"detail": "role must be 'graduate', 'employer', or 'admin'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not email or not code_in or not new_password:
@@ -511,11 +579,11 @@ class ForgotPasswordVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        row, err = _validate_code_or_response(email=email, role=role, code_in=code_in)
+        row, err = _validate_code_or_response(email=email, role=role_hint, code_in=code_in)
         if err:
             return err
 
-        user = _find_user_for_reset(email, role)
+        user = _find_user_for_reset(email, row.role)
         if not user:
             return Response(
                 {"detail": "Account no longer exists."},
@@ -525,7 +593,7 @@ class ForgotPasswordVerifyView(APIView):
         user.save(update_fields=["password"])
         row.used_at = timezone.now()
         row.save(update_fields=["used_at"])
-        reset_attempts(make_identifier(role, email))
+        reset_attempts(make_identifier(row.role, email))
 
         return Response(
             {"message": "Password updated. You can now log in."},

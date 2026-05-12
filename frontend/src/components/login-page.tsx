@@ -498,7 +498,6 @@ export function LoginPage() {
 
                 <ForgotPasswordModal
                   open={forgotOpen}
-                  role="graduate"
                   initialEmail={credential}
                   onClose={() => setForgotOpen(false)}
                 />

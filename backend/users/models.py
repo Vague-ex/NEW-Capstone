@@ -472,9 +472,11 @@ class PasswordResetCode(models.Model):
 
     ROLE_GRADUATE = "graduate"
     ROLE_EMPLOYER = "employer"
+    ROLE_ADMIN = "admin"
     ROLE_CHOICES = [
         (ROLE_GRADUATE, "Graduate"),
         (ROLE_EMPLOYER, "Employer"),
+        (ROLE_ADMIN, "Admin"),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

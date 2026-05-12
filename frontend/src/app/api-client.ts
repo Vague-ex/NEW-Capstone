@@ -315,12 +315,14 @@ export async function registerEmployer(
 // Forgot password (Gmail SMTP backend)
 // ---------------------------------------------------------------------------
 
-export type ForgotRole = 'graduate' | 'employer';
+export type ForgotRole = 'graduate' | 'employer' | 'admin';
 
 export interface ForgotPasswordRequestResponse {
     message: string;
     resend_available_in_seconds: number;
     code_expires_in_seconds: number;
+    /** Role that the backend resolved from the email (set when auto-detect was used). */
+    role?: ForgotRole;
 }
 
 export interface ForgotPasswordVerifyResponse {
@@ -334,6 +336,7 @@ export interface ForgotPasswordCheckCodeResponse {
     message: string;
     reset_ticket: string;
     ticket_expires_in_seconds: number;
+    role?: ForgotRole;
 }
 
 export interface ForgotPasswordSetPasswordResponse {
@@ -363,38 +366,46 @@ async function postJsonOrThrow<T>(url: string, body: unknown): Promise<T> {
 
 export function forgotPasswordRequest(
     email: string,
-    role: ForgotRole,
+    role?: ForgotRole,
 ): Promise<ForgotPasswordRequestResponse> {
-    return postJsonOrThrow(`${API_BASE_URL}/api/auth/forgot-password/request/`, { email, role });
+    const body: Record<string, string> = { email };
+    if (role) body.role = role;
+    return postJsonOrThrow(`${API_BASE_URL}/api/auth/forgot-password/request/`, body);
 }
 
 export function forgotPasswordResend(
     email: string,
-    role: ForgotRole,
+    role?: ForgotRole,
 ): Promise<ForgotPasswordRequestResponse> {
-    return postJsonOrThrow(`${API_BASE_URL}/api/auth/forgot-password/resend/`, { email, role });
+    const body: Record<string, string> = { email };
+    if (role) body.role = role;
+    return postJsonOrThrow(`${API_BASE_URL}/api/auth/forgot-password/resend/`, body);
 }
 
 export function forgotPasswordVerify(
     email: string,
-    role: ForgotRole,
+    role: ForgotRole | undefined,
     code: string,
     newPassword: string,
 ): Promise<ForgotPasswordVerifyResponse> {
+    const body: Record<string, string> = { email, code, new_password: newPassword };
+    if (role) body.role = role;
     return postJsonOrThrow(
         `${API_BASE_URL}/api/auth/forgot-password/verify/`,
-        { email, role, code, new_password: newPassword },
+        body,
     );
 }
 
 export function forgotPasswordCheckCode(
     email: string,
-    role: ForgotRole,
+    role: ForgotRole | undefined,
     code: string,
 ): Promise<ForgotPasswordCheckCodeResponse> {
+    const body: Record<string, string> = { email, code };
+    if (role) body.role = role;
     return postJsonOrThrow(
         `${API_BASE_URL}/api/auth/forgot-password/check-code/`,
-        { email, role, code },
+        body,
     );
 }
 

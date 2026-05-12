@@ -22,7 +22,12 @@ type Step = 'request' | 'code' | 'password' | 'done';
 
 interface ForgotPasswordModalProps {
     open: boolean;
-    role: ForgotRole;
+    /**
+     * Optional scope hint. Pass "employer" from the employer portal to
+     * restrict the lookup. Leave undefined on the unified login page so
+     * the backend auto-detects across graduate, employer, and admin.
+     */
+    role?: ForgotRole;
     initialEmail?: string;
     onClose: () => void;
 }
@@ -59,6 +64,8 @@ export default function ForgotPasswordModal({
     const [resendRemaining, setResendRemaining] = useState(0);
     const [ticketRemaining, setTicketRemaining] = useState(0);
     const [showPassword, setShowPassword] = useState(false);
+    /** Role resolved by the backend (used for resend after auto-detect). */
+    const [resolvedRole, setResolvedRole] = useState<ForgotRole | undefined>(role);
     const tickRef = useRef<number | null>(null);
 
     // Reset state every time the modal opens.
@@ -75,7 +82,8 @@ export default function ForgotPasswordModal({
         setCodeRemaining(0);
         setResendRemaining(0);
         setTicketRemaining(0);
-    }, [open, initialEmail]);
+        setResolvedRole(role);
+    }, [open, initialEmail, role]);
 
     // Countdown tick.
     useEffect(() => {
@@ -113,10 +121,16 @@ export default function ForgotPasswordModal({
             const res = await forgotPasswordRequest(email.trim().toLowerCase(), role);
             setCodeRemaining(res.code_expires_in_seconds);
             setResendRemaining(res.resend_available_in_seconds);
+            if (res.role) setResolvedRole(res.role);
             setInfo(res.message);
             setStep('code');
         } catch (err) {
-            setError((err as Error).message || 'Could not send the code. Try again.');
+            const e = err as Error & { status?: number };
+            if (e.status === 404) {
+                setError('No account is registered with that email.');
+            } else {
+                setError(e.message || 'Could not send the code. Try again.');
+            }
         } finally {
             setBusy(false);
         }
@@ -126,9 +140,10 @@ export default function ForgotPasswordModal({
         if (resendRemaining > 0 || busy) return;
         setBusy(true); setError(''); setInfo('');
         try {
-            const res = await forgotPasswordResend(email.trim().toLowerCase(), role);
+            const res = await forgotPasswordResend(email.trim().toLowerCase(), resolvedRole ?? role);
             setCodeRemaining(res.code_expires_in_seconds);
             setResendRemaining(res.resend_available_in_seconds);
+            if (res.role) setResolvedRole(res.role);
             setInfo('A new code is on the way.');
             setCode('');
         } catch (err) {
@@ -144,11 +159,12 @@ export default function ForgotPasswordModal({
         try {
             const res = await forgotPasswordCheckCode(
                 email.trim().toLowerCase(),
-                role,
+                resolvedRole ?? role,
                 codeDigits,
             );
             setResetTicket(res.reset_ticket);
             setTicketRemaining(res.ticket_expires_in_seconds);
+            if (res.role) setResolvedRole(res.role);
             setInfo('Code accepted. Set your new password below.');
             setStep('password');
         } catch (err) {
@@ -239,7 +255,7 @@ export default function ForgotPasswordModal({
                     {step === 'request' && (
                         <div className="space-y-3">
                             <p className="text-sm text-gray-700 leading-snug">
-                                {`Type your registered ${role} email. We'll send a 12-digit code that expires in 15 minutes.`}
+                                {`Type your registered ${role ?? 'account'} email. We'll send a 12-digit code that expires in 15 minutes.`}
                             </p>
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1.5">
