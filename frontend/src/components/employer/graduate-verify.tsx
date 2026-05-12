@@ -401,7 +401,7 @@ export function GraduateVerify() {
             <div>
               <p className="text-white text-sm" style={{ fontWeight: 700 }}>Secure Graduate Verification</p>
               <p className="text-green-200 text-xs mt-0.5 leading-relaxed">
-                Search by name to verify a CHMSU Talisay BSIS graduate. Graduates who listed
+                Search by name to verify a Carlos Hilado Memorial State University BSIS graduate. Graduates who listed
                 <span className="text-white" style={{ fontWeight: 600 }}> {employerCompany} </span>
                 in their employment survey are shown automatically below.
               </p>
@@ -566,7 +566,7 @@ export function GraduateVerify() {
                         </p>
                         <StatusBadge status={selectedGraduate.employmentStatus} />
                       </div>
-                      <p className="text-gray-500 text-xs">BSIS Batch {selectedGraduate.graduationYear} · CHMSU Talisay</p>
+                      <p className="text-gray-500 text-xs">BSIS Batch {selectedGraduate.graduationYear} · Carlos Hilado Memorial State University</p>
                       {selectedGraduate.verificationStatus === 'verified' && (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700 mt-1" style={{ fontWeight: 500 }}>
                           <CheckCircle2 className="size-3.5" /> Identity Verified by BSIS Admin
@@ -585,7 +585,7 @@ export function GraduateVerify() {
                 <div className="flex items-center gap-2">
                   <Shield className="size-4 text-gray-400 shrink-0" />
                   <p className="text-gray-700 text-sm">
-                    <span style={{ fontWeight: 600 }}>BSIS Graduate — Verified</span> on CHMSU Talisay official records
+                    <span style={{ fontWeight: 600 }}>BSIS Graduate — Verified</span> on Carlos Hilado Memorial State University official records
                   </p>
                 </div>
                 {selectedGraduate.jobTitle && selectedGraduate.company && (

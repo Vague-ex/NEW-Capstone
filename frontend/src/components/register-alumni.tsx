@@ -312,7 +312,7 @@ export function RegisterAlumni() {
           </div>
           <div>
             <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
-            <p className="text-gray-400 text-xs">CHMSU Talisay · BSIS Graduate Tracer System</p>
+            <p className="text-gray-400 text-xs">Carlos Hilado Memorial State University · BSIS Graduate Tracer System</p>
           </div>
         </div>
         <div className="flex-1 flex flex-col items-center px-4 py-8">

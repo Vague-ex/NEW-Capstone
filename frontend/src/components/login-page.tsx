@@ -351,11 +351,9 @@ export function LoginPage() {
 
         {/* Logo + name */}
         <div className="relative flex items-center gap-3 mb-6">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm border border-white/20 shrink-0">
-            <NextImage src={schoolLogo} alt="CHMSU Logo" width={44} height={44} className="size-11 rounded-xl object-cover" />
-          </div>
+          <NextImage src={schoolLogo} alt="CHMSU Logo" width={56} height={56} className="size-14 object-contain shrink-0" />
           <div>
-            <h1 className="text-white" style={{ fontWeight: 800, fontSize: "1.35rem", lineHeight: 1.2 }}>CHMSU Talisay</h1>
+            <h1 className="text-white" style={{ fontWeight: 800, fontSize: "1.05rem", lineHeight: 1.15 }}>Carlos Hilado Memorial State University</h1>
             <p className="text-white/60 text-xs mt-0.5">BSIS Graduate Tracer System</p>
           </div>
         </div>
@@ -377,11 +375,9 @@ export function LoginPage() {
         <div className="absolute top-0 left-0 w-48 h-48 rounded-full bg-white/5 blur-3xl" />
 
         <div className="relative">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm border border-white/20 mb-6">
-            <NextImage src={schoolLogo} alt="CHMSU Logo" width={48} height={48} className="size-12 rounded-xl object-cover" />
-          </div>
-          <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: "1.7rem", lineHeight: 1.2 }}>
-            CHMSU Talisay
+          <NextImage src={schoolLogo} alt="CHMSU Logo" width={88} height={88} className="size-22 object-contain mb-5" />
+          <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: "1.5rem", lineHeight: 1.2 }}>
+            Carlos Hilado Memorial State University
           </h1>
           <p className="text-white/70 text-sm">BSIS Graduate Tracer System</p>
         </div>
@@ -411,9 +407,9 @@ export function LoginPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 lg:p-0 lg:bg-transparent lg:shadow-none lg:border-0">
             {/* Mobile Logo */}
             <div className="lg:hidden flex items-center gap-3 mb-8">
-              <NextImage src={schoolLogo} alt="CHMSU Logo" width={40} height={40} className="size-10 rounded-full object-cover" />
+              <NextImage src={schoolLogo} alt="CHMSU Logo" width={44} height={44} className="size-11 object-contain shrink-0" />
               <div>
-                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>CHMSU Talisay</p>
+                <p className="text-gray-900 text-sm leading-tight" style={{ fontWeight: 700 }}>Carlos Hilado Memorial State University</p>
                 <p className="text-gray-500 text-xs">BSIS Graduate Tracer</p>
               </div>
             </div>

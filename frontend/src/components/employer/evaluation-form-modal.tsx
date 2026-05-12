@@ -173,7 +173,7 @@ export function EvaluationFormModal({
                 Confidential — RA 10173 (Data Privacy Act of 2012)
               </p>
               <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
-                Your responses are released only to the CHMSU Talisay BSIS Program for aggregate batch reporting. The graduate will not see your name, ratings, or open-ended answers. Personal evaluator details are stored solely for record verification.
+                Your responses are released only to the Carlos Hilado Memorial State University BSIS Program for aggregate batch reporting. The graduate will not see your name, ratings, or open-ended answers. Personal evaluator details are stored solely for record verification.
               </p>
             </div>
           </div>

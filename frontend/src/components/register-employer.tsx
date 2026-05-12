@@ -159,7 +159,7 @@ export function RegisterEmployer() {
           </div>
           <div>
             <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Employer Registration</p>
-            <p className="text-gray-400 text-xs">CHMSU Talisay · Graduate Tracer System</p>
+            <p className="text-gray-400 text-xs">Carlos Hilado Memorial State University · Graduate Tracer System</p>
           </div>
         </div>
       </div>

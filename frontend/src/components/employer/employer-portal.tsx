@@ -38,13 +38,11 @@ export function EmployerPortal() {
         <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full bg-white/5 blur-3xl" />
 
         <div className="relative">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-white/15 border border-white/20 mb-6">
-            <Image src={schoolLogo} alt="CHMSU Logo" width={28} height={28} className="rounded-lg object-cover" priority />
-          </div>
-          <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1.2 }}>
-            Employer Portal
+          <Image src={schoolLogo} alt="CHMSU Logo" width={88} height={88} className="size-22 object-contain mb-5" priority />
+          <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: '1.4rem', lineHeight: 1.2 }}>
+            Carlos Hilado Memorial State University
           </h1>
-          <p className="text-green-300 text-sm">CHMSU BSIS Graduate Tracer System</p>
+          <p className="text-green-300 text-sm">BSIS Graduate Tracer System &middot; Employer Portal</p>
         </div>
 
         <div className="relative space-y-4">
@@ -82,12 +80,10 @@ export function EmployerPortal() {
 
           {/* Mobile header */}
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-[#166534] overflow-hidden">
-              <Image src={schoolLogo} alt="CHMSU Logo" width={30} height={30} className="rounded-md object-cover" priority />
-            </div>
+            <Image src={schoolLogo} alt="CHMSU Logo" width={44} height={44} className="size-11 object-contain shrink-0" priority />
             <div>
-              <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>CHMSU Employer Portal</p>
-              <p className="text-gray-500 text-xs">Graduate Tracer System</p>
+              <p className="text-gray-900 text-sm leading-tight" style={{ fontWeight: 700 }}>Carlos Hilado Memorial State University</p>
+              <p className="text-gray-500 text-xs">Graduate Tracer &middot; Employer</p>
             </div>
           </div>
 

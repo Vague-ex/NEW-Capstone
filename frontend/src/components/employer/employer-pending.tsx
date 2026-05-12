@@ -89,7 +89,7 @@ export function EmployerPending() {
           </div>
         </div>
 
-        <p className="text-center text-gray-500 text-xs mt-4">CHMSU Talisay · BSIS Graduate Tracer System</p>
+        <p className="text-center text-gray-500 text-xs mt-4">Carlos Hilado Memorial State University · BSIS Graduate Tracer System</p>
       </div>
     </div>
   );

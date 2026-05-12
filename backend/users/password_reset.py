@@ -262,7 +262,18 @@ def _issue_code_and_send(
             code=code,
         )
     except Exception as exc:
-        LOGGER.exception("Failed to send password reset email: %s", exc)
+        # Log with full traceback AND the type so the operator can spot
+        # SMTPAuthenticationError vs SMTPConnectError vs socket timeout
+        # in the Render logs without digging.
+        LOGGER.exception(
+            "Password reset email send failed | host=%s port=%s tls=%s user=%s exc_type=%s msg=%s",
+            getattr(settings, "EMAIL_HOST", "?"),
+            getattr(settings, "EMAIL_PORT", "?"),
+            getattr(settings, "EMAIL_USE_TLS", "?"),
+            getattr(settings, "EMAIL_HOST_USER", "?"),
+            type(exc).__name__,
+            str(exc),
+        )
         # Mark the row used so the user can request a fresh attempt
         # immediately (we do not want them blocked by the cooldown when
         # the send failed for our side).

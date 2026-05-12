@@ -51,7 +51,7 @@ const ROLE_CONFIG = {
     logoutPath: '/',
     sessionKey: 'alumni_user',
     username: 'BSIS Graduate',
-    subtitle: 'CHMSU Talisay · BSIS',
+    subtitle: 'Carlos Hilado Memorial State University · BSIS',
   },
   employer: {
     label: 'Employer Portal',
@@ -242,13 +242,13 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
           <Image
             src={schoolLogo}
             alt="CHMSU Logo"
-            width={36}
-            height={36}
-            className="size-9 rounded-full object-cover shrink-0 bg-white p-0.5"
+            width={40}
+            height={40}
+            className="size-10 object-contain shrink-0"
           />
           <div className="min-w-0">
-            <p className="text-white text-sm truncate" style={{ fontWeight: 700 }}>CHMSU Talisay</p>
-            <p className="text-white/50 text-xs truncate">BSIS Graduate Tracer</p>
+            <p className="text-white text-sm leading-tight" style={{ fontWeight: 700 }}>Carlos Hilado Memorial State University</p>
+            <p className="text-white/50 text-xs truncate mt-0.5">BSIS Graduate Tracer</p>
           </div>
         </div>
       </div>

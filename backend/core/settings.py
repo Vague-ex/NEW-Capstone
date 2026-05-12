@@ -22,25 +22,38 @@ def _load_local_env(env_path: Path):
         os.environ.setdefault(key, value)
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
+def _env_str(name: str, default: str = "") -> str:
+    """Read an env var, strip whitespace and one optional pair of surrounding quotes.
+    Defensive against Render/Heroku-style env panels where users may
+    accidentally type their value wrapped in quotes."""
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    return value
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = _env_str(name)
+    if value == "":
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
 
 
 def _env_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
+    value = _env_str(name)
+    if value == "":
         return default
     try:
-        return int(value.strip())
+        return int(value)
     except (TypeError, ValueError):
         return default
 
 
 def _env_list(name: str, default: str = "") -> list[str]:
-    value = os.getenv(name, default)
+    value = _env_str(name) or default
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
@@ -246,31 +259,27 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Email (Gmail SMTP for password reset codes).
 # In DEBUG with no EMAIL_HOST_USER set, fall back to console backend so
 # devs see the email body in the runserver log instead of needing real SMTP.
-EMAIL_HOST          = os.getenv("EMAIL_HOST", "smtp.gmail.com")
-EMAIL_PORT          = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST          = _env_str("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT          = _env_int("EMAIL_PORT", 587)
 EMAIL_USE_TLS       = _env_bool("EMAIL_USE_TLS", True)
 EMAIL_USE_SSL       = _env_bool("EMAIL_USE_SSL", False)
-EMAIL_HOST_USER     = os.getenv("EMAIL_HOST_USER", "")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL  = os.getenv(
-    "DEFAULT_FROM_EMAIL",
-    f"CHMSU Graduate Tracer <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "noreply@example.com",
+EMAIL_HOST_USER     = _env_str("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = _env_str("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL  = _env_str("DEFAULT_FROM_EMAIL") or (
+    f"CHMSU Graduate Tracer <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "noreply@example.com"
 )
-EMAIL_TIMEOUT       = int(os.getenv("EMAIL_TIMEOUT", "30"))
+EMAIL_TIMEOUT       = _env_int("EMAIL_TIMEOUT", 30)
 
 _default_email_backend = (
     "django.core.mail.backends.smtp.EmailBackend"
     if EMAIL_HOST_USER
     else "django.core.mail.backends.console.EmailBackend"
 )
-EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", _default_email_backend)
+EMAIL_BACKEND = _env_str("EMAIL_BACKEND") or _default_email_backend
 
 # Public URL of the deployed graduate-facing frontend (Vercel). Used as the
 # call-to-action link in transactional emails (e.g. retracking reminder).
-GRADUATE_LOGIN_URL = os.getenv(
-    "GRADUATE_LOGIN_URL",
-    "https://chmsu-alumni-gradtracer.vercel.app/",
-)
+GRADUATE_LOGIN_URL = _env_str("GRADUATE_LOGIN_URL") or "https://chmsu-alumni-gradtracer.vercel.app/"
 
 # Password reset code policy (used by users/api.py forgot-password views).
 PASSWORD_RESET_CODE_TTL_SECONDS         = _env_int("PASSWORD_RESET_CODE_TTL_SECONDS", 900)
