@@ -10,14 +10,10 @@ import hashlib
 import logging
 import secrets
 from datetime import timedelta
-from email.mime.image import MIMEImage
-from pathlib import Path
 from typing import Optional, Tuple
 
 from django.conf import settings
 from django.core import signing
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from rest_framework import status
@@ -25,6 +21,8 @@ from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from .email_send import send_branded_email
 
 RESET_TICKET_SALT = "graduate-tracer.forgot-password"
 RESET_TICKET_MAX_AGE = 5 * 60  # 5 minutes between check-code and set-password
@@ -47,9 +45,6 @@ ALLOWED_ROLES = {ROLE_GRADUATE, ROLE_EMPLOYER, ROLE_ADMIN}
 # Order matters for auto-detect: scan graduate first (most common), then
 # employer, then admin.
 ROLE_DETECT_ORDER = [ROLE_GRADUATE, ROLE_EMPLOYER, ROLE_ADMIN]
-
-LOGO_PATH = Path(__file__).resolve().parent / "email_templates" / "chmsu-logo.png"
-
 
 # ---------- code generation / hashing ----------
 
@@ -169,46 +164,28 @@ def _get_first_name(user: User, role: str) -> str:
 
 def _send_reset_email(*, to_email: str, role: str, first_name: str, code: str) -> None:
     """
-    Send the styled password reset email with the CHMSU logo inlined by
-    Content-ID. Raises on transport error so the caller can decide how
-    to react.
+    Send the styled password reset email. The transport is chosen by
+    `send_branded_email`: Resend HTTPS API when `RESEND_API_KEY` is set
+    (required on Render), otherwise Django's SMTP backend.
+
+    Raises on transport error so the caller can mark the row as needing
+    a retry and log the cause.
     """
     ttl_minutes = int(round(settings.PASSWORD_RESET_CODE_TTL_SECONDS / 60))
-    code_pretty = _format_code(code)
-    logo_cid = "chmsu-logo"
-    role_display = "graduate" if role == ROLE_GRADUATE else "employer"
-
-    context = {
-        "first_name": first_name,
-        "code_pretty": code_pretty,
-        "ttl_minutes": ttl_minutes,
-        "role_display": role_display,
-        "logo_cid": logo_cid,
-    }
-    html_body = render_to_string("password_reset.html", context)
-    text_body = render_to_string("password_reset.txt", context)
-
-    subject = "Your CHMSU Graduate Tracer password reset code"
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=text_body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[to_email],
+    role_display = "graduate" if role == ROLE_GRADUATE else (
+        "employer" if role == ROLE_EMPLOYER else "admin"
     )
-    msg.attach_alternative(html_body, "text/html")
-    msg.mixed_subtype = "related"
-
-    # Inline the CHMSU logo if the asset exists.
-    if LOGO_PATH.is_file():
-        with LOGO_PATH.open("rb") as f:
-            image = MIMEImage(f.read(), _subtype="png")
-        image.add_header("Content-ID", f"<{logo_cid}>")
-        image.add_header("Content-Disposition", "inline", filename="chmsu-logo.png")
-        msg.attach(image)
-    else:
-        LOGGER.warning("CHMSU logo not found at %s; email will render without it.", LOGO_PATH)
-
-    msg.send(fail_silently=False)
+    send_branded_email(
+        to_email=to_email,
+        subject="Your CHMSU Graduate Tracer password reset code",
+        template_base="password_reset",
+        context={
+            "first_name": first_name,
+            "code_pretty": _format_code(code),
+            "ttl_minutes": ttl_minutes,
+            "role_display": role_display,
+        },
+    )
 
 
 # ---------- core flow used by request + resend ----------

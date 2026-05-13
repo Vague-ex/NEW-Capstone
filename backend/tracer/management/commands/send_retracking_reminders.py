@@ -6,17 +6,14 @@ Run daily (e.g. via cron):
 
 import logging
 from datetime import timedelta
-from email.mime.image import MIMEImage
-from pathlib import Path
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.core.management.base import BaseCommand
 from django.db.models import Max
-from django.template.loader import render_to_string
 from django.utils import timezone
 
 from tracer.models import EmploymentProfile
+from users.email_send import send_branded_email
 from users.models import AlumniAccount
 
 
@@ -24,39 +21,20 @@ LOGGER = logging.getLogger(__name__)
 
 REMINDER_AT_DAYS = 730  # 2 years
 REMINDER_COOLDOWN_DAYS = 30
-LOGO_PATH = Path(settings.BASE_DIR) / "users" / "email_templates" / "chmsu-logo.png"
 
 
 def _send_retracking_email(*, to_email: str, first_name: str, login_url: str, from_email=None) -> None:
-    """Send the CHMSU-branded retracking reminder (HTML + plain text + inline logo)."""
-    logo_cid = "chmsu-logo"
-    context = {
-        "first_name": first_name,
-        "login_url": login_url,
-        "logo_cid": logo_cid,
-    }
-    html_body = render_to_string("retracking_reminder.html", context)
-    text_body = render_to_string("retracking_reminder.txt", context)
-
-    msg = EmailMultiAlternatives(
+    """Send the CHMSU-branded retracking reminder via the shared helper."""
+    send_branded_email(
+        to_email=to_email,
         subject="CHMSU Graduate Tracer: please update your employment record",
-        body=text_body,
-        from_email=from_email or settings.DEFAULT_FROM_EMAIL,
-        to=[to_email],
+        template_base="retracking_reminder",
+        context={
+            "first_name": first_name,
+            "login_url": login_url,
+        },
+        from_email=from_email,
     )
-    msg.attach_alternative(html_body, "text/html")
-    msg.mixed_subtype = "related"
-
-    if LOGO_PATH.is_file():
-        with LOGO_PATH.open("rb") as f:
-            image = MIMEImage(f.read(), _subtype="png")
-        image.add_header("Content-ID", f"<{logo_cid}>")
-        image.add_header("Content-Disposition", "inline", filename="chmsu-logo.png")
-        msg.attach(image)
-    else:
-        LOGGER.warning("CHMSU logo not found at %s; email will render without it.", LOGO_PATH)
-
-    msg.send(fail_silently=False)
 
 
 class Command(BaseCommand):

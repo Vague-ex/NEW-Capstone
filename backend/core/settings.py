@@ -281,6 +281,20 @@ EMAIL_BACKEND = _env_str("EMAIL_BACKEND") or _default_email_backend
 # call-to-action link in transactional emails (e.g. retracking reminder).
 GRADUATE_LOGIN_URL = _env_str("GRADUATE_LOGIN_URL") or "https://chmsu-alumni-gradtracer.vercel.app/"
 
+# Resend HTTPS API (preferred on Render where outbound SMTP is blocked).
+# When RESEND_API_KEY is set, the email helper sends via Resend's HTTPS
+# API and ignores the SMTP backend. Leave blank to use the SMTP backend
+# defined above (good for local dev and self-hosted environments).
+RESEND_API_KEY = _env_str("RESEND_API_KEY")
+RESEND_FROM_EMAIL = _env_str("RESEND_FROM_EMAIL") or DEFAULT_FROM_EMAIL
+
+# Public URL to the CHMSU logo used in branded emails. Hosted on the
+# Vercel static bundle so the email client can fetch it without a CID
+# attachment (Resend HTTPS API does not support CID inline images well).
+EMAIL_LOGO_URL = _env_str("EMAIL_LOGO_URL") or (
+    GRADUATE_LOGIN_URL.rstrip("/") + "/CHMSULogo.png"
+)
+
 # Password reset code policy (used by users/api.py forgot-password views).
 PASSWORD_RESET_CODE_TTL_SECONDS         = _env_int("PASSWORD_RESET_CODE_TTL_SECONDS", 900)
 PASSWORD_RESET_RESEND_COOLDOWN_SECONDS  = _env_int("PASSWORD_RESET_RESEND_COOLDOWN_SECONDS", 60)
