@@ -202,7 +202,7 @@ class AlumniProfile(models.Model):
     middle_name = models.CharField(max_length=120, blank=True)
     last_name = models.CharField(max_length=120, blank=True)
     gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True)
-    birth_date = models.CharField(max_length=10, blank=True)  # stored as MM/DD from form
+    birth_date = models.CharField(max_length=10, blank=True)  # YYYY-MM (month + year). Legacy MM/DD rows tolerated.
     civil_status = models.CharField(max_length=20, choices=CIVIL_STATUS_CHOICES, blank=True)
     mobile = models.CharField(max_length=20, blank=True)
     facebook_url = models.URLField(max_length=500, blank=True)
@@ -210,7 +210,7 @@ class AlumniProfile(models.Model):
     province = models.CharField(max_length=120, blank=True)
 
     # Academic info
-    graduation_date = models.CharField(max_length=10, blank=True)  # stored as MM/DD from form
+    graduation_date = models.CharField(max_length=10, blank=True)  # YYYY-MM (month + year). Legacy MM/DD rows tolerated.
     graduation_year = models.PositiveSmallIntegerField(null=True, blank=True)
     scholarship = models.CharField(max_length=120, blank=True)
     highest_attainment = models.CharField(max_length=20, choices=ATTAINMENT_CHOICES, blank=True)

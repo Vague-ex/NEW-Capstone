@@ -838,10 +838,10 @@ export default function RegisterAlumniPersonal({
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Birth Date *
+                      Birth Date * <span className="text-gray-400 font-normal">(month &amp; year)</span>
                     </label>
                     <input
-                      type="date"
+                      type="month"
                       value={form.birthDate}
                       onChange={(e) => setF('birthDate', e.target.value)}
                       className={inputCls}
@@ -1128,14 +1128,17 @@ export default function RegisterAlumniPersonal({
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Date of Graduation (BSIS) *
+                    Date of Graduation (BSIS) * <span className="text-gray-400 font-normal">(month &amp; year)</span>
                   </label>
                   <input
-                    type="date"
+                    type="month"
                     value={form.graduationDate}
                     onChange={(e) => {
-                      setF('graduationDate', e.target.value);
-                      const year = new Date(e.target.value).getFullYear();
+                      const v = e.target.value;  // "YYYY-MM" from <input type="month">
+                      setF('graduationDate', v);
+                      // Year-only parse, timezone-safe. Empty string clears the year.
+                      const yearStr = v.slice(0, 4);
+                      const year = /^\d{4}$/.test(yearStr) ? Number(yearStr) : null;
                       setF('graduationYear', year);
                     }}
                     className={inputCls}

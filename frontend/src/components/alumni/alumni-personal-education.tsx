@@ -41,6 +41,21 @@ function CheckOption({ label, checked, onChange }: { label: string; checked: boo
 
 const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
 
+/**
+ * Normalize whatever shape is stored for a date into "YYYY-MM" so
+ * `<input type="month">` accepts it. Legacy MM/DD rows have no year so
+ * they fall back to blank, prompting the user to re-enter the date with
+ * a year — after which the save flow stores the modern YYYY-MM format.
+ */
+function toYearMonth(raw: unknown): string {
+    if (raw === null || raw === undefined) return '';
+    const s = String(raw).trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.slice(0, 7);
+    return '';
+}
+
 export function AlumniPersonalEducation() {
     const rawUser = sessionStorage.getItem('alumni_user');
     const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
@@ -56,13 +71,13 @@ export function AlumniPersonalEducation() {
         firstName: String(surveyData.firstName ?? ''),
         middleName: String(surveyData.middleName ?? ''),
         gender: String(surveyData.gender ?? ''),
-        birthDate: String(surveyData.birthDate ?? ''),
+        birthDate: toYearMonth(surveyData.birthDate ?? surveyData.birth_date),
         civilStatus: String(surveyData.civilStatus ?? ''),
         mobile: String(surveyData.mobile ?? alumni.phone ?? alumni.mobile ?? ''),
         facebook: String(surveyData.facebook ?? ''),
         city: String(surveyData.city ?? ''),
         province: String(surveyData.province ?? ''),
-        graduationDate: String(surveyData.graduationDate ?? ''),
+        graduationDate: toYearMonth(surveyData.graduationDate ?? surveyData.graduation_date),
         scholarship: String(surveyData.scholarship ?? ''),
         highestAttainment: String(surveyData.highestAttainment ?? ''),
         graduateSchool: String(surveyData.graduateSchool ?? ''),
@@ -208,8 +223,8 @@ export function AlumniPersonalEducation() {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date</label>
-                                    <input type="date" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
+                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date <span className="text-gray-400 font-normal">(month &amp; year)</span></label>
+                                    <input type="month" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
                                 </div>
                                 <div>
                                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Civil Status</label>
@@ -274,8 +289,8 @@ export function AlumniPersonalEducation() {
                             </div>
 
                             <div>
-                                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Date of Graduation *</label>
-                                <input type="date" value={form.graduationDate} onChange={(e) => setF('graduationDate', e.target.value)} className={inputCls} />
+                                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Date of Graduation * <span className="text-gray-400 font-normal">(month &amp; year)</span></label>
+                                <input type="month" value={form.graduationDate} onChange={(e) => setF('graduationDate', e.target.value)} className={inputCls} />
                             </div>
 
                             <div>

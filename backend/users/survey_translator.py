@@ -260,36 +260,72 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
     if sd.get("mobile") or sd.get("phone"):
         profile_updates["mobile"] = sd.get("mobile") or sd.get("phone") or ""
 
-    for key_src, key_dst in (
-        ("first_name", "first_name"),
-        ("middle_name", "middle_name"),
-        ("last_name", "last_name"),
-        ("gender", "gender"),
-        ("civil_status", "civil_status"),
-        ("birth_date", "birth_date"),
-        ("city", "city"),
-        ("province", "province"),
-        ("graduation_date", "graduation_date"),
-        ("scholarship", "scholarship"),
-        ("highest_attainment", "highest_attainment"),
-        ("graduate_school", "graduate_school"),
-        ("facebook_url", "facebook_url"),
-    ):
-        if sd.get(key_src) not in (None, ""):
-            profile_updates[key_dst] = sd[key_src]
+    # The edit-profile form on the frontend uses camelCase keys, while
+    # legacy registration payloads used snake_case. Accept both shapes
+    # so saves do not silently drop fields.
+    def _first(*keys):
+        for k in keys:
+            v = sd.get(k)
+            if v not in (None, ""):
+                return v
+        return None
 
-    # Academic encoded values (Section 3 of questionnaire)
-    if (val := _to_int(sd.get("general_average_range"))) is not None:
+    def _to_year_month(raw):
+        """Normalize incoming date strings to YYYY-MM. Accept YYYY-MM,
+        YYYY-MM-DD, or legacy MM/DD (returns "" for legacy because no
+        year information is recoverable)."""
+        if raw in (None, ""):
+            return ""
+        s = str(raw).strip()
+        if len(s) == 7 and s[4] == "-":
+            return s
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            return s[:7]
+        return ""
+
+    # (snake, camel, dst, is_date)
+    string_mapping = (
+        ("first_name",         "firstName",         "first_name",         False),
+        ("middle_name",        "middleName",        "middle_name",        False),
+        ("last_name",          "lastName",          "last_name",          False),
+        ("gender",             "gender",            "gender",             False),
+        ("civil_status",       "civilStatus",       "civil_status",       False),
+        ("birth_date",         "birthDate",         "birth_date",         True),
+        ("city",               "city",              "city",               False),
+        ("province",           "province",          "province",           False),
+        ("graduation_date",    "graduationDate",    "graduation_date",    True),
+        ("scholarship",        "scholarship",       "scholarship",        False),
+        ("highest_attainment", "highestAttainment", "highest_attainment", False),
+        ("graduate_school",    "graduateSchool",    "graduate_school",    False),
+        ("facebook_url",       "facebookUrl",       "facebook_url",       False),
+    )
+    for snake, camel, dst, is_date in string_mapping:
+        val = _first(snake, camel)
+        if val is None:
+            continue
+        if is_date:
+            val = _to_year_month(val)
+            if not val:
+                continue
+        profile_updates[dst] = val
+
+    # Academic encoded values (Section 3 of questionnaire). Accept both
+    # snake_case and camelCase shapes here too.
+    if (val := _to_int(_first("general_average_range", "generalAverageRange"))) is not None:
         profile_updates["general_average_range"] = val
-    if (val := _to_int(sd.get("academic_honors"))) is not None:
+    if (val := _to_int(_first("academic_honors", "academicHonors"))) is not None:
         profile_updates["academic_honors"] = val
-    if "prior_work_experience" in sd:
-        profile_updates["prior_work_experience"] = _to_bool(sd["prior_work_experience"])
-    if (val := _to_int(sd.get("ojt_relevance"))) is not None:
+    if "prior_work_experience" in sd or "priorWorkExperience" in sd:
+        profile_updates["prior_work_experience"] = _to_bool(
+            sd.get("prior_work_experience", sd.get("priorWorkExperience"))
+        )
+    if (val := _to_int(_first("ojt_relevance", "ojtRelevance"))) is not None:
         profile_updates["ojt_relevance"] = val
-    if "has_portfolio" in sd:
-        profile_updates["has_portfolio"] = _to_bool(sd["has_portfolio"])
-    if (val := _to_int(sd.get("english_proficiency"))) is not None:
+    if "has_portfolio" in sd or "hasPortfolio" in sd:
+        profile_updates["has_portfolio"] = _to_bool(
+            sd.get("has_portfolio", sd.get("hasPortfolio"))
+        )
+    if (val := _to_int(_first("english_proficiency", "englishProficiency"))) is not None:
         profile_updates["english_proficiency"] = val
 
     technical_skills = _split_skills(sd.get("technical_skills") or sd.get("skills"))
