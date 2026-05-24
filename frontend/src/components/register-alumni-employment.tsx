@@ -32,8 +32,6 @@ export interface EmploymentFormData {
   prior_work_experience: boolean;
   ojt_relevance: number | null;
   has_portfolio: boolean;
-  portfolio_url: string;
-  github_url: string;
 
   // Step 2: Employment Status
   employment_status: string;
@@ -125,8 +123,6 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   prior_work_experience: false,
   ojt_relevance: null,
   has_portfolio: false,
-  portfolio_url: '',
-  github_url: '',
   employment_status: '',
   time_to_hire_months: null,
   time_to_hire_raw: '',
@@ -385,23 +381,7 @@ export default function RegisterAlumniEmployment({
 
     switch (step) {
       case 1: // Academic Profile
-        if (form.has_portfolio) {
-          const urlPattern = /^https?:\/\/.+\..+/i;
-          const gh = form.github_url.trim();
-          const pf = form.portfolio_url.trim();
-          if (!gh && !pf) {
-            setStepError('Please add at least one URL (GitHub or portfolio), or change your answer to No.');
-            return false;
-          }
-          if (gh && !urlPattern.test(gh)) {
-            setStepError('GitHub URL must start with http:// or https:// and look like a real link.');
-            return false;
-          }
-          if (pf && !urlPattern.test(pf)) {
-            setStepError('Portfolio URL must start with http:// or https:// and look like a real link.');
-            return false;
-          }
-        }
+        // No extra validation needed once has_portfolio is just a yes/no.
         break;
       case 2: // Employment Status
         if (!form.employment_status) {
@@ -635,42 +615,10 @@ export default function RegisterAlumniEmployment({
                 label="No"
                 value={false}
                 current={form.has_portfolio}
-                onSelect={(v) => setForm({ ...form, has_portfolio: v, portfolio_url: '', github_url: '' })}
+                onSelect={(v) => setForm({ ...form, has_portfolio: v })}
               />
             </div>
           </div>
-
-          {form.has_portfolio && (
-            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-xs text-gray-700" style={{ fontWeight: 600 }}>
-                Add at least one link so employers can review your work
-              </p>
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-1.5">
-                  GitHub Profile <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://github.com/yourusername"
-                  value={form.github_url}
-                  onChange={(e) => setForm({ ...form, github_url: e.target.value.trim() })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-1.5">
-                  Portfolio Site <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://yourname.com"
-                  value={form.portfolio_url}
-                  onChange={(e) => setForm({ ...form, portfolio_url: e.target.value.trim() })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400"
-                />
-              </div>
-            </div>
-          )}
 
           <NavButtons onBack={prevStep} onNext={nextStep} />
         </div>

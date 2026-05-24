@@ -6,6 +6,7 @@ scikit-learn==1.5.2
 pandas==2.3.2
 numpy==2.0.2
 joblib==1.4.2
+matplotlib==3.9.2
 opencv-python-headless==4.13.0.92
 python-dotenv==1.0.0
 requests==2.31.0

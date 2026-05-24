@@ -93,7 +93,7 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
     ojt_relevance = int(np.clip(rng.choice([3, 2, 1, 0], p=[0.45, 0.30, 0.20, 0.05]), 0, 3))
     portfolio = int(rng.random() < (0.35 + 0.08 * batch_code + 0.1 * (grade_range >= 3)))
 
-    # Further-studies signal (replaces english_proficiency).
+    # Further-studies signal.
     # `completed_postgrad` skews older batches (more time elapsed) and high-GPA grads.
     # `pursuing_postgrad` is rarer; mutually exclusive with completed.
     completed_postgrad_p = 0.04 + 0.015 * batch_code + 0.04 * (grade_range >= 4)

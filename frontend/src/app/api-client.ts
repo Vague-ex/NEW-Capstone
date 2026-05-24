@@ -566,8 +566,6 @@ export interface EmployerCandidate {
     graduationYear: number | null;
     email: string;
     facebookUrl: string;
-    githubUrl: string;
-    portfolioUrl: string;
     skills: EmployerCandidateSkill[];
     matchedSkillIds: string[];
     matchCount: number;

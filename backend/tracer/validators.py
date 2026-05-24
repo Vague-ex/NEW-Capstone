@@ -31,7 +31,6 @@ class FieldValidationRules:
     GPA_RANGE_VALID = {0, 1, 2, 3, 4, 5}  # None allowed separately
     HONORS_VALID = {1, 2, 3, 4}
     OJT_RELEVANCE_VALID = {0, 1, 2, 3}
-    ENGLISH_PROFICIENCY_VALID = {1, 2, 3}
     JOB_APPLICATIONS_VALID = {1, 2, 3, 4}
 
     # Categorical Fields
@@ -247,17 +246,6 @@ class SurveyDataValidator:
                 })
             else:
                 self.field_completeness['ojt_relevance'] = True
-
-        # Validate English proficiency
-        if data.get('english_proficiency') is not None:
-            if data['english_proficiency'] not in FieldValidationRules.ENGLISH_PROFICIENCY_VALID:
-                self.errors.append({
-                    'section': 'academic_preemployment',
-                    'field': 'english_proficiency',
-                    'error': f"English proficiency {data['english_proficiency']} not in valid set {FieldValidationRules.ENGLISH_PROFICIENCY_VALID}"
-                })
-            else:
-                self.field_completeness['english_proficiency'] = True
 
     def _validate_employment_status(self, data: Dict):
         """Validate employment status"""

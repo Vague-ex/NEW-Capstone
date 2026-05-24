@@ -8,8 +8,8 @@ import {
 } from '../../app/api-client';
 import { useReferenceData, type SkillItem } from '../../hooks/useReferenceData';
 import {
-  Search, AlertTriangle, GraduationCap, Mail, Github,
-  Globe, Sparkles, Star, Filter, UserSearch, ExternalLink, Facebook,
+  Search, AlertTriangle, GraduationCap, Mail,
+  Sparkles, Star, Filter, UserSearch, ExternalLink, Facebook,
   Pencil, X, Check, Heart,
 } from 'lucide-react';
 
@@ -618,32 +618,8 @@ function CandidateCard({ candidate }: { candidate: EmployerCandidate }) {
             <Facebook className="size-3.5" /> Facebook <ExternalLink className="size-3 text-gray-300" />
           </a>
         )}
-        {candidate.githubUrl && (
-          <a
-            href={candidate.githubUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 hover:border-[#166534] hover:text-[#166534] transition"
-            style={{ fontWeight: 500 }}
-          >
-            <Github className="size-3.5" /> GitHub <ExternalLink className="size-3 text-gray-300" />
-          </a>
-        )}
-        {candidate.portfolioUrl && (
-          <a
-            href={candidate.portfolioUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 hover:border-[#166534] hover:text-[#166534] transition"
-            style={{ fontWeight: 500 }}
-          >
-            <Globe className="size-3.5" /> Portfolio <ExternalLink className="size-3 text-gray-300" />
-          </a>
-        )}
         {!candidate.email
-          && !candidate.facebookUrl
-          && !candidate.githubUrl
-          && !candidate.portfolioUrl && (
+          && !candidate.facebookUrl && (
           <p className="text-gray-400 text-xs italic">No contact links shared yet.</p>
         )}
       </div>

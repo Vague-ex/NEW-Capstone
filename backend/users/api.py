@@ -566,8 +566,6 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             view["ojt_relevance"] = prof.ojt_relevance
         if prof.has_portfolio is not None:
             view["has_portfolio"] = prof.has_portfolio
-        if prof.english_proficiency:
-            view["english_proficiency"] = prof.english_proficiency
 
     # ── EmploymentProfile ──────────────────────────────────────────────────────
     emp = _first_prefetched(account, "_prefetched_emp")
@@ -1260,8 +1258,6 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "prior_work_experience": survey_data.get("prior_work_experience", False),
         "ojt_relevance": survey_data.get("ojt_relevance"),
         "has_portfolio": survey_data.get("has_portfolio", False),
-        "portfolio_url": (str(survey_data.get("portfolio_url") or "")).strip()[:500],
-        "github_url": (str(survey_data.get("github_url") or "")).strip()[:500],
 
         # Skill counts (denormalized for ML regression model)
         "technical_skill_count": len(survey_data.get("technical_skills", [])),

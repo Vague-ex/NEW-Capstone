@@ -92,7 +92,10 @@ class GraduateMasterRecord(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     full_name = models.CharField(max_length=255)
     last_name = models.CharField(max_length=120)
-    birth_date = models.DateField()
+    # Optional. The masterlist match (_find_master_record) uses last_name +
+    # first_name + batch_year only, so birth_date is informational and
+    # nullable for CSV / manual-entry batch uploads that do not collect it.
+    birth_date = models.DateField(null=True, blank=True)
     batch_year = models.PositiveSmallIntegerField(db_index=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -266,18 +269,6 @@ class AlumniProfile(models.Model):
         help_text="OJT relevance to BSIS degree"
     )
     has_portfolio = models.BooleanField(default=False)
-    # Portfolio / GitHub URLs — populated only when has_portfolio=True. Both
-    # optional individually; the form requires at least one when has_portfolio
-    # is set (UI-side validation).
-    portfolio_url = models.URLField(max_length=500, blank=True)
-    github_url = models.URLField(max_length=500, blank=True)
-    # English Proficiency: 1=Basic, 2=Conversational, 3=Professional/Business
-    english_proficiency = models.IntegerField(
-        choices=[(1, 'Basic'), (2, 'Conversational'), (3, 'Professional/Business')],
-        null=True,
-        blank=True,
-        help_text="English proficiency level"
-    )
 
     # Skill Counts (Questionnaire Section 8) - denormalized for regression model
     technical_skill_count = models.IntegerField(

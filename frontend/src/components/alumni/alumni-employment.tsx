@@ -93,7 +93,6 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     prior_work_experience: String(sd.prior_work_experience ?? ''),
     ojt_relevance: String(sd.ojt_relevance ?? ''),
     has_portfolio: String(sd.has_portfolio ?? ''),
-    english_proficiency: String(sd.english_proficiency ?? ''),
 
     // Section 5: Employment Status
     employment_status: String(sd.employment_status ?? alumni.employmentStatus ?? ''),
@@ -612,18 +611,6 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               </div>
             </div>
 
-            <div>
-              <FieldLabel>6. English communication skills</FieldLabel>
-              <div className="space-y-1.5">
-                {[
-                  'Basic (simple conversations only)',
-                  'Conversational (can handle daily work communication)',
-                  'Professional/Business (can write reports, present, negotiate)',
-                ].map(opt => (
-                  <RadioOption key={opt} label={opt} value={opt} current={form.english_proficiency} onSelect={v => setF('english_proficiency', v)} />
-                ))}
-              </div>
-            </div>
           </SectionCard>
 
           {/* ── Section 5: Employment Status ─────────────────────────────────── */}

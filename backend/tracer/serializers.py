@@ -91,13 +91,6 @@ class AcademicPreEmploymentSerializer(serializers.Serializer):
         help_text="0=N/A, 1=Not related, 2=Somewhat, 3=Directly related"
     )
     has_portfolio = serializers.BooleanField(required=False, default=False)
-    english_proficiency = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        min_value=1,
-        max_value=3,
-        help_text="1=Basic, 2=Conversational, 3=Professional"
-    )
 
 
 class EmploymentStatusSerializer(serializers.Serializer):
@@ -343,7 +336,6 @@ class TrainingDataRowSerializer(serializers.Serializer):
     prior_work_experience = serializers.IntegerField()
     ojt_relevance = serializers.IntegerField(allow_null=True)
     has_portfolio = serializers.IntegerField()
-    english_proficiency = serializers.IntegerField(allow_null=True)
     job_applications_count = serializers.IntegerField(allow_null=True)
     job_source = serializers.IntegerField(allow_null=True)
     first_job_sector = serializers.IntegerField(allow_null=True)

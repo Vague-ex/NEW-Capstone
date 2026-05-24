@@ -325,8 +325,6 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
         profile_updates["has_portfolio"] = _to_bool(
             sd.get("has_portfolio", sd.get("hasPortfolio"))
         )
-    if (val := _to_int(_first("english_proficiency", "englishProficiency"))) is not None:
-        profile_updates["english_proficiency"] = val
 
     technical_skills = _split_skills(sd.get("technical_skills") or sd.get("skills"))
     soft_skills = _split_skills(sd.get("soft_skills"))

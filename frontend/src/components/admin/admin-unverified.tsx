@@ -25,7 +25,6 @@ type SurveyData = {
   academicHonors?: number;
   priorWorkExperience?: boolean;
   ojlRelevance?: number;
-  englishProficiency?: number;
 
   // Employment Status
   employmentStatus?: string;
@@ -120,7 +119,6 @@ function getSurveyData(a: AlumniRecord): SurveyData {
     academicHonors: typeof source.academic_honors === 'number' ? source.academic_honors : undefined,
     priorWorkExperience: typeof source.prior_work_experience === 'boolean' ? source.prior_work_experience : undefined,
     ojlRelevance: typeof source.ojt_relevance === 'number' ? source.ojt_relevance : undefined,
-    englishProficiency: typeof source.english_proficiency === 'number' ? source.english_proficiency : undefined,
 
     // Employment Status
     employmentStatus: typeof source.employment_status === 'string' ? source.employment_status : undefined,

@@ -309,7 +309,6 @@ class Command(BaseCommand):
             prior_work_experience=rng.random() < 0.45,
             ojt_relevance=rng.choice([2, 3, 3, 3]),
             has_portfolio=rng.random() < 0.55,
-            english_proficiency=rng.choice([2, 3, 3]),
             technical_skill_count=rng.randint(4, 10),
             soft_skill_count=rng.randint(3, 8),
             professional_certifications=[],

@@ -1165,8 +1165,6 @@ class EmployerCandidatesListView(APIView):
                 "graduationYear": graduation_year,
                 "email": alumni.user.email if alumni.user else "",
                 "facebookUrl": profile.facebook_url or "",
-                "githubUrl": getattr(profile, "github_url", "") or "",
-                "portfolioUrl": getattr(profile, "portfolio_url", "") or "",
                 "skills": skill_payload,
                 "matchedSkillIds": matched,
                 "matchCount": len(matched),
@@ -1497,7 +1495,6 @@ class ComprehensiveSurveySubmissionView(APIView):
                 profile.prior_work_experience = academic.get('prior_work_experience', False)
                 profile.ojt_relevance = academic.get('ojt_relevance')
                 profile.has_portfolio = academic.get('has_portfolio', False)
-                profile.english_proficiency = academic.get('english_proficiency')
 
                 # Skill counts
                 competency = data.get('competency_assessment', {})

@@ -4,8 +4,13 @@ Stage 3: Evaluate Trained Models
 Loads joblib artifacts + processed CSV and produces:
     - evaluation_report.json with per-target metrics
     - residual plot for time_to_hire
-    - confusion matrices for the three classifiers
-    - coefficient tables for any linear/logistic winners
+    - confusion matrix for the employment_status classifier
+    - coefficient tables for any linear / logistic winners
+
+Targets evaluated: time_to_hire (regression) and employment_status
+(classification). The bsis_related_* columns are displayed in the
+admin UI as observed values, not model outputs, so they are not
+evaluated here.
 """
 
 from __future__ import annotations
@@ -39,8 +44,6 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 TARGETS = {
     "time_to_hire": {"col": "time_to_hire_months", "task": "regression", "requires_employed": True},
     "employment_status": {"col": "employment_status", "task": "classification", "requires_employed": False},
-    "bsis_related_first_job": {"col": "bsis_related_job_first", "task": "classification", "requires_employed": True},
-    "bsis_related_current_job": {"col": "bsis_related_job_current", "task": "classification", "requires_employed": True},
 }
 
 NON_FEATURE = {"alumni_id", "batch", "time_to_hire_months", "employment_status",
