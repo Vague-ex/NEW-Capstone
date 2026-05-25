@@ -1,21 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import Image from 'next/image';
 import {
   Building2, Mail, Lock, Eye, EyeOff, AlertCircle, ArrowRight,
-  CheckCircle2, Clock, GraduationCap, Globe, User, Phone,
-  Briefcase, ArrowLeft, Sparkles, Heart,
+  CheckCircle2, Clock, GraduationCap, Briefcase, ArrowLeft,
 } from 'lucide-react';
 import {
   ApiClientError,
   EMPLOYER_ACCESS_TOKEN_KEY,
   employerLogin,
-  registerEmployer,
 } from '../../app/api-client';
 import ForgotPasswordModal from '../auth/forgot-password';
-import { useReferenceData, type SkillItem } from '../../hooks/useReferenceData';
-
-const SOFT_SKILL_PATTERN = /soft|communication|interpersonal|behaviou?ral|attitude/i;
+import { RegisterEmployer } from '../register-employer';
 
 type View = 'landing' | 'login' | 'register' | 'pending';
 const schoolLogo = '/CHMSULogo.png';
@@ -23,9 +19,14 @@ const schoolLogo = '/CHMSULogo.png';
 export function EmployerPortal() {
   const navigate = useNavigate();
   const [view, setView] = useState<View>('landing');
-  const { data: referenceData } = useReferenceData();
 
-  const industryOptions = referenceData.industries.map((industry) => industry.name);
+  // Registration uses the full-width standalone page (section cards, two-column
+  // layout, sticky save bar) instead of the narrow portal panel. This is the
+  // very same component served at /register/employer, so there is only one
+  // employer registration form to maintain.
+  if (view === 'register') {
+    return <RegisterEmployer onBack={() => setView('landing')} />;
+  }
 
   return (
     <div className="min-h-screen flex">
@@ -49,7 +50,7 @@ export function EmployerPortal() {
           {[
             { icon: CheckCircle2, title: 'Verify Graduates', desc: 'Confirm BSIS graduation and employment status of your candidates.' },
             { icon: Briefcase, title: 'Talent Insights', desc: 'View skills and employment data of alumni at your company.' },
-            { icon: Clock, title: 'Admin-Approved Access', desc: 'All requests are reviewed by the BSIS BSIS Admin.' },
+            { icon: Clock, title: 'Admin-Approved Access', desc: 'All requests are reviewed by the BSIS Admin.' },
           ].map(item => (
             <div key={item.title} className="flex items-start gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-white/10 shrink-0">
@@ -89,13 +90,6 @@ export function EmployerPortal() {
 
           {view === 'landing' && <LandingView onLogin={() => setView('login')} onRegister={() => setView('register')} />}
           {view === 'login' && <LoginView onBack={() => setView('landing')} navigate={navigate} />}
-          {view === 'register' && (
-            <RegisterView
-              onBack={() => setView('landing')}
-              navigate={navigate}
-              industryOptions={industryOptions}
-            />
-          )}
           {view === 'pending' && <PendingView navigate={navigate} />}
         </div>
       </div>
@@ -287,416 +281,6 @@ function LoginView({ onBack, navigate }: { onBack: () => void; navigate: (path: 
   );
 }
 
-// ── Register ──
-function RegisterView({
-  onBack,
-  navigate,
-  industryOptions,
-}: {
-  onBack: () => void;
-  navigate: (path: string) => void;
-  industryOptions: string[];
-}) {
-  const [form, setForm] = useState({
-    companyName: '', industry: '', website: '',
-    contactName: '', position: '', email: '', phone: '', phoneCountryCode: '+63',
-    password: '', confirmPassword: '',
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  // Live skill list for the "Skills you're hiring for" chip selectors.
-  const { data: referenceData, loading: loadingReferenceData } = useReferenceData();
-  const [desiredTechSkillIds, setDesiredTechSkillIds] = useState<string[]>([]);
-  const [desiredSoftSkillIds, setDesiredSoftSkillIds] = useState<string[]>([]);
-  const [activeTechCategory, setActiveTechCategory] = useState<string | null>(null);
-
-  const { softSkills, technicalSkillsByCategory, technicalCount } = useMemo(() => {
-    const soft: SkillItem[] = [];
-    const techGroups: Record<string, SkillItem[]> = {};
-    let total = 0;
-    for (const skill of referenceData.skills) {
-      if (!skill.is_active) continue;
-      const cat = skill.category_name ?? '';
-      if (SOFT_SKILL_PATTERN.test(cat) || SOFT_SKILL_PATTERN.test(skill.name)) {
-        soft.push(skill);
-      } else {
-        const groupKey = cat || 'Other';
-        if (!techGroups[groupKey]) techGroups[groupKey] = [];
-        techGroups[groupKey].push(skill);
-        total += 1;
-      }
-    }
-    return { softSkills: soft, technicalSkillsByCategory: techGroups, technicalCount: total };
-  }, [referenceData.skills]);
-
-  const toggleSkill = (id: string, group: 'tech' | 'soft') => {
-    const setter = group === 'tech' ? setDesiredTechSkillIds : setDesiredSoftSkillIds;
-    setter((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setForm(f => ({ ...f, [name]: value }));
-    setError('');
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (!form.companyName || !form.contactName || !form.email || !form.industry) {
-      setError('Please fill in all required fields.'); return;
-    }
-    // Phone is optional; if filled, validate same as alumni: PH = 9XXXXXXXXX (10) or
-    // 09XXXXXXXXX (11); else 6–15 digits.
-    if (form.phone.trim()) {
-      const phoneDigits = form.phone.replace(/\D/g, '');
-      if (form.phoneCountryCode === '+63') {
-        const normalized = phoneDigits.startsWith('0') ? phoneDigits.slice(1) : phoneDigits;
-        if (normalized.length !== 10 || !normalized.startsWith('9')) {
-          setError('Philippine phone numbers must start with 9 or 09 (e.g. 9171234567 or 09171234567).');
-          return;
-        }
-      } else if (phoneDigits.length < 6 || phoneDigits.length > 15) {
-        setError('Please enter a valid phone number (6–15 digits).');
-        return;
-      }
-    }
-    if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
-    if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
-
-    setIsLoading(true);
-
-    try {
-      const desiredSkillIds = [...desiredTechSkillIds, ...desiredSoftSkillIds];
-      const fullPhone = form.phone.trim() ? `${form.phoneCountryCode}${form.phone}` : '';
-      const response = await registerEmployer({
-        company_name: form.companyName,
-        industry: form.industry,
-        website: form.website,
-        contact_name: form.contactName,
-        position: form.position,
-        credential_email: form.email,
-        phone: fullPhone,
-        phone_country_code: form.phoneCountryCode,
-        password: form.password,
-        confirm_password: form.confirmPassword,
-        desired_skill_ids: JSON.stringify(desiredSkillIds),
-      });
-
-      const payload = (response.employer ?? {}) as Record<string, unknown>;
-      if (response.accessToken) {
-        sessionStorage.setItem(EMPLOYER_ACCESS_TOKEN_KEY, response.accessToken);
-      } else {
-        sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY);
-      }
-
-      const employerForSession = {
-        id: String(payload.id ?? `new-${Date.now()}`),
-        company: String(payload.company ?? form.companyName),
-        industry: String(payload.industry ?? form.industry),
-        contact: String(payload.contact ?? form.contactName),
-        email: String(payload.email ?? form.email),
-        status: String(payload.status ?? 'pending'),
-        date: String(payload.date ?? new Date().toISOString().split('T')[0]),
-      };
-
-      sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
-      navigate('/employer/dashboard');
-    } catch (err) {
-      if (err instanceof ApiClientError) {
-        setError(err.message);
-      } else {
-        setError('Unable to submit employer registration right now. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const inputCls = 'w-full rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
-  const iCls = 'w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white';
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
-          <ArrowLeft className="size-4 text-gray-600" />
-        </button>
-        <div>
-          <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Request Employer Access</h2>
-          <p className="text-gray-500 text-xs">Reviewed by the BSIS BSIS Admin</p>
-        </div>
-      </div>
-
-      {error && (
-        <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-lg p-3.5">
-          <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-red-700 text-sm">{error}</p>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Company Info */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Building2 className="size-4 text-[#166534]" /> Company
-          </h3>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Company Name <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="companyName" value={form.companyName} onChange={handleChange} placeholder="e.g. Accenture Philippines" className={iCls} />
-              </div>
-            </div>
-            <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Industry <span className="text-red-500">*</span></label>
-              <select name="industry" value={form.industry} onChange={handleChange} className={inputCls}>
-                <option value="">Select industry…</option>
-                {(industryOptions.length > 0
-                  ? industryOptions
-                  : ['IT and BPO', 'Banking and Finance', 'Government', 'Education']
-                ).map(i => <option key={i} value={i}>{i}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Website</label>
-              <div className="relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="website" value={form.website} onChange={handleChange} placeholder="https://company.com" className={iCls} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Contact */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <User className="size-4 text-[#166534]" /> Contact Representative
-          </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Contact Name <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="contactName" value={form.contactName} onChange={handleChange} placeholder="Full name" className={iCls} />
-              </div>
-            </div>
-            <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Position</label>
-              <div className="relative">
-                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="position" value={form.position} onChange={handleChange} placeholder="e.g. HR Manager" className={iCls} />
-              </div>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Phone</label>
-              <div className="flex gap-2">
-                <select
-                  name="phoneCountryCode"
-                  value={form.phoneCountryCode}
-                  onChange={handleChange}
-                  className="shrink-0 px-2.5 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 focus:bg-white focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 outline-none transition"
-                >
-                  <option value="+63">+63 PH</option>
-                  <option value="+1">+1 US</option>
-                  <option value="+44">+44 UK</option>
-                  <option value="+61">+61 AU</option>
-                  <option value="+65">+65 SG</option>
-                  <option value="+60">+60 MY</option>
-                  <option value="+81">+81 JP</option>
-                  <option value="+82">+82 KR</option>
-                  <option value="+86">+86 CN</option>
-                  <option value="+971">+971 AE</option>
-                </select>
-                <div className="relative flex-1 min-w-0">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                  <input
-                    name="phone"
-                    type="tel"
-                    value={form.phone}
-                    maxLength={form.phoneCountryCode === '+63' ? 11 : 15}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))
-                    }
-                    placeholder={form.phoneCountryCode === '+63' ? '9XXXXXXXXX or 09XXXXXXXXX' : 'Phone number'}
-                    className={iCls}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Skills the employer is hiring for */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Sparkles className="size-4 text-[#166534]" /> Skills You're Hiring For
-          </h3>
-          <p className="text-gray-500 text-xs mb-4">
-            Pick the skills you want from CHMSU BSIS graduates. Optional — leave blank to see all candidates. Updates automatically when admins add new skills.
-          </p>
-
-          {/* Technical skills */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
-                Technical skills <span className="text-gray-400" style={{ fontWeight: 400 }}>(optional if your industry isn't IT-related)</span>
-              </p>
-              {desiredTechSkillIds.length > 0 && (
-                <span className="text-[11px] text-[#166534]" style={{ fontWeight: 600 }}>{desiredTechSkillIds.length} selected</span>
-              )}
-            </div>
-            {loadingReferenceData ? (
-              <p className="text-gray-400 text-xs">Loading skills…</p>
-            ) : technicalCount === 0 ? (
-              <p className="text-gray-400 text-xs italic">No technical skills in the reference list yet.</p>
-            ) : (
-              <div>
-                {/* Category tabs */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {Object.keys(technicalSkillsByCategory).sort().map((categoryName) => {
-                    const selectedInCategory = technicalSkillsByCategory[categoryName].filter(
-                      (s) => desiredTechSkillIds.includes(s.id),
-                    ).length;
-                    const isActive = activeTechCategory === categoryName;
-                    return (
-                      <button
-                        key={categoryName}
-                        type="button"
-                        onClick={() => setActiveTechCategory(isActive ? null : categoryName)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${
-                          isActive
-                            ? 'bg-[#166534] border-[#166534] text-white'
-                            : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-                        }`}
-                        style={{ fontWeight: isActive ? 600 : 400 }}>
-                        {categoryName}
-                        {selectedInCategory > 0 && (
-                          <span className={`text-[10px] px-1.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-[#166534]/10 text-[#166534]'}`} style={{ fontWeight: 600 }}>
-                            {selectedInCategory}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Skills for the active category */}
-                {activeTechCategory && technicalSkillsByCategory[activeTechCategory] ? (
-                  <div className="rounded-xl bg-gray-50 border border-gray-100 p-3">
-                    <p className="text-[11px] text-gray-500 uppercase tracking-wide mb-2" style={{ fontWeight: 600 }}>
-                      {activeTechCategory}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {technicalSkillsByCategory[activeTechCategory].map((skill) => {
-                        const selected = desiredTechSkillIds.includes(skill.id);
-                        return (
-                          <button
-                            key={skill.id}
-                            type="button"
-                            onClick={() => toggleSkill(skill.id, 'tech')}
-                            className={`px-3 py-1.5 rounded-full text-xs border transition ${
-                              selected
-                                ? 'border-[#166534] bg-[#166534] text-white'
-                                : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
-                            }`}
-                            style={{ fontWeight: 500 }}>
-                            {skill.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-gray-400 text-xs text-center py-3">Click a category above to browse skills</p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Soft skills */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-gray-700 text-xs flex items-center gap-1.5" style={{ fontWeight: 600 }}>
-                <Heart className="size-3.5 text-[#166534]" />
-                Soft skills
-              </p>
-              {desiredSoftSkillIds.length > 0 && (
-                <span className="text-[11px] text-[#166534]" style={{ fontWeight: 600 }}>{desiredSoftSkillIds.length} selected</span>
-              )}
-            </div>
-            {loadingReferenceData ? (
-              <p className="text-gray-400 text-xs">Loading skills…</p>
-            ) : softSkills.length === 0 ? (
-              <p className="text-gray-400 text-xs italic">No soft skills in the reference list yet.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {softSkills.map((skill) => {
-                  const selected = desiredSoftSkillIds.includes(skill.id);
-                  return (
-                    <button
-                      key={skill.id}
-                      type="button"
-                      onClick={() => toggleSkill(skill.id, 'soft')}
-                      className={`px-3 py-1.5 rounded-full text-xs border transition ${
-                        selected
-                          ? 'border-[#166534] bg-[#166534] text-white'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-[#166534] hover:text-[#166534]'
-                      }`}
-                      style={{ fontWeight: 500 }}>
-                      {skill.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Account Credentials */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Lock className="size-4 text-[#166534]" /> Account Credentials
-          </h3>
-          <p className="text-gray-500 text-xs mb-4">Set a login email and password — used once your account is approved.</p>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Account Credential Email <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="you@company.com" className={iCls} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Password</label>
-                <input name="password" type="password" value={form.password} onChange={handleChange}
-                  placeholder="Min. 8 characters" className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Confirm Password</label>
-                <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={handleChange}
-                  placeholder="Repeat" className={inputCls} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <button type="submit" disabled={isLoading}
-          className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-70"
-          style={{ fontWeight: 600 }}>
-          {isLoading
-            ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Submitting…</>
-            : 'Submit Registration Request →'
-          }
-        </button>
-      </form>
-    </div>
-  );
-}
-
 // ── Pending ──
 function PendingView({ navigate }: { navigate: (path: string) => void }) {
   const rawUser = sessionStorage.getItem('employer_user');
@@ -712,7 +296,7 @@ function PendingView({ navigate }: { navigate: (path: string) => void }) {
         Your request for <span className="text-gray-700" style={{ fontWeight: 600 }}>{employer.company}</span> has been submitted and is under review.
       </p>
       <p className="text-gray-400 text-xs mb-8 max-w-xs mx-auto">
-        The CHMSU BSIS BSIS Admin will review your request and notify you at your credential email <span className="text-gray-600">{employer.email}</span>.
+        The CHMSU BSIS Admin will review your request and notify you at your credential email <span className="text-gray-600">{employer.email}</span>.
       </p>
 
       {/* Status steps */}

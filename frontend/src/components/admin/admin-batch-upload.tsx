@@ -4,7 +4,7 @@ import { MASTER_LIST } from '../../data/app-data';
 import { createMasterlistEntries } from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
-  Download, Info, Save, X,
+  Download, Info, Save, X, User, Calendar,
 } from 'lucide-react';
 
 interface BatchEntry {

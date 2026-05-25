@@ -19,6 +19,7 @@ keys and human-readable labels all collapse to the same enum value.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from django.db import transaction
@@ -112,6 +113,28 @@ _JOB_APPLICATIONS_BUCKET = {
     "31+ applications": 4,
     "31+": 4,
 }
+
+_COMPANY_STOP_WORDS = {
+    "philippines", "corp", "corporation", "inc", "ltd", "co", "company", "ph", "the", "and", "of",
+}
+
+
+def _split_company_keywords(value: str) -> list[str]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (value or "").strip().lower()).strip()
+    return [w for w in normalized.split() if len(w) >= 4 and w not in _COMPANY_STOP_WORDS]
+
+
+def _companies_match(a: str, b: str) -> bool:
+    av, bv = (a or "").strip().lower(), (b or "").strip().lower()
+    if not av or not bv:
+        return False
+    if av in bv or bv in av:
+        return True
+    aw, bw = _split_company_keywords(av), _split_company_keywords(bv)
+    if not aw or not bw:
+        return False
+    return any(x in y or y in x for x in aw for y in bw)
+
 
 _EMPLOYMENT_STATUS = {
     "employed_full_time": "employed_full_time",
@@ -491,17 +514,45 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
         else:
             er_status = EmploymentRecord.EmploymentStatus.UNEMPLOYED
 
-        EmploymentRecord.objects.update_or_create(
-            alumni=alumni_account,
-            is_current=True,
-            defaults=dict(
+        existing_record = EmploymentRecord.objects.filter(
+            alumni=alumni_account, is_current=True
+        ).first()
+
+        company_changed = (
+            existing_record is not None
+            and not _companies_match(existing_record.employer_name_input, company_name)
+        )
+
+        if company_changed:
+            # Graduate moved to a different company — retire the old record so
+            # the previous employer's dashboard stops showing them, then create
+            # a fresh pending record for the new company.
+            existing_record.is_current = False
+            existing_record.save(update_fields=["is_current", "updated_at"])
+            EmploymentRecord.objects.create(
+                alumni=alumni_account,
                 employer_account=employer_account,
                 employer_name_input=company_name[:255],
                 job_title_input=job_title[:255],
                 employment_status=er_status,
                 work_location=(work_loc or "")[:255],
-            ),
-        )
+                is_current=True,
+                verification_status=EmploymentRecord.VerificationStatus.PENDING,
+            )
+        else:
+            # Same company (or first record) — update details and preserve
+            # any existing verification_status so re-verification is not forced.
+            EmploymentRecord.objects.update_or_create(
+                alumni=alumni_account,
+                is_current=True,
+                defaults=dict(
+                    employer_account=employer_account,
+                    employer_name_input=company_name[:255],
+                    job_title_input=job_title[:255],
+                    employment_status=er_status,
+                    work_location=(work_loc or "")[:255],
+                ),
+            )
         touched["employment_record"] = True
 
     return {"applied": True, "touched": touched}
