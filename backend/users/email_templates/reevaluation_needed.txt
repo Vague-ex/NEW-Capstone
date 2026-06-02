@@ -1,0 +1,30 @@
+Carlos Hilado Memorial State University
+Graduate Tracer System - Employer Portal
+
+Hi {{ contact_name|default:"there" }},
+
+{{ alumni_name }} has updated their employment record. Because you
+previously confirmed their role at your organization, the system has
+placed their record in your "Needs re-evaluation" list. Please review
+the updated details and either confirm or deny the new role at your
+earliest convenience.
+
+Previously verified
+  Company: {{ old_company|default:"(not provided)" }}
+  Title:   {{ old_title|default:"(not provided)" }}
+
+Now pending re-evaluation
+  Company: {{ new_company|default:"(not provided)" }}
+  Title:   {{ new_title|default:"(not provided)" }}
+
+Open the Employer Portal: {{ portal_url }}
+
+Your previous evaluation of this graduate is preserved in the system as
+part of the historical record. You will only be asked to evaluate again
+because the graduate's company or role has changed.
+
+--
+CHMSU BSIS Program - Graduate Tracer System
+Carlos Hilado Memorial State University
+Talisay Campus, Negros Occidental
+This is an automated message. Please do not reply to this email.

@@ -157,6 +157,10 @@ export interface EmployerVerifiableGraduateResponse {
     biometricDate?: string | null;
     lat?: number;
     lng?: number;
+    // Re-evaluation context (only present on the reeval-pending feed):
+    previousCompany?: string;
+    previousJobTitle?: string;
+    previousVerifiedAt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +546,25 @@ export async function fetchEmployerVerifiableGraduates(
     const qs = query.toString();
     const response = await fetch(
         `${API_BASE_URL}/api/verification/employer/graduates/${qs ? `?${qs}` : ''}`,
+        {
+            headers: withEmployerAuthHeaders(),
+        },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.results) ? data.results : []);
+}
+
+/**
+ * Graduates this employer previously CONFIRMED whose CURRENT employment
+ * record is now pending re-evaluation (because the graduate changed their
+ * company or job title). Backed by EmployerReevaluationPendingListView.
+ */
+export async function fetchEmployerReevalPending(): Promise<EmployerVerifiableGraduateResponse[]> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/verification/employer/reeval-pending/`,
         {
             headers: withEmployerAuthHeaders(),
         },

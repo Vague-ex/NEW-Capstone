@@ -5,12 +5,14 @@ import { StatCard } from '../shared/stat-card';
 import {
   ApiClientError,
   fetchEmployerAccountStatus,
+  fetchEmployerReevalPending,
   fetchEmployerVerifiableGraduates,
   type EmployerVerifiableGraduateResponse,
 } from '../../app/api-client';
 import {
   Users, CheckCircle2, TrendingUp, Search, Briefcase,
   ArrowRight, BarChart2, Building2, UserX, AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -28,6 +30,11 @@ export function EmployerDashboard() {
   const [myAlumni, setMyAlumni] = useState<EmployerVerifiableGraduateResponse[]>([]);
   const [loadingAlumni, setLoadingAlumni] = useState(true);
   const [alumniError, setAlumniError] = useState('');
+  // Graduates this employer previously confirmed whose current employment
+  // record is pending re-evaluation because the graduate changed company
+  // or job title. Surfaced as a prominent banner + section here so the
+  // employer never misses the re-eval ask.
+  const [reevalPending, setReevalPending] = useState<EmployerVerifiableGraduateResponse[]>([]);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const employerId = String(employer?.id ?? '').trim();
@@ -138,6 +145,16 @@ export function EmployerDashboard() {
           (record) => String(record.employmentStatus ?? '').toLowerCase() === 'employed',
         );
         setMyAlumni(employedOnly);
+
+        // Fetch re-evaluation backlog in the same cycle so the banner count
+        // stays in sync with the workforce list. A failure here must not
+        // wipe the workforce list, so handle independently.
+        try {
+          const pendingReeval = await fetchEmployerReevalPending();
+          if (active) setReevalPending(pendingReeval);
+        } catch {
+          if (active) setReevalPending([]);
+        }
       } catch (err) {
         if (!active) {
           return;
@@ -238,6 +255,33 @@ export function EmployerDashboard() {
           </div>
         )}
 
+        {/* Re-evaluation Banner — only renders when there is a backlog.
+            Surfaces the count and scrolls to the detail list below. */}
+        {reevalPending.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-amber-400 shrink-0">
+              <RefreshCw className="size-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-amber-900 text-sm" style={{ fontWeight: 700 }}>
+                {reevalPending.length} graduate{reevalPending.length === 1 ? '' : 's'} need{reevalPending.length === 1 ? 's' : ''} re-evaluation
+              </p>
+              <p className="text-amber-800 text-xs mt-0.5 leading-relaxed">
+                You previously confirmed these graduates. They have since updated their company or job title and must be re-verified.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                document.getElementById('reeval-pending-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl text-sm shrink-0 transition"
+              style={{ fontWeight: 600 }}
+            >
+              Review <ArrowRight className="size-4" />
+            </button>
+          </div>
+        )}
+
         {/* Welcome Banner */}
         <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-6 text-white relative overflow-hidden">
           <div className="absolute right-0 top-0 bottom-0 w-40 opacity-10"
@@ -280,6 +324,61 @@ export function EmployerDashboard() {
             sub="Biometric verified"
             icon={CheckCircle2} iconBg="bg-amber-50" iconColor="text-amber-600" />
         </div>
+
+        {/* Re-evaluation Pending Section
+            Lists each graduate the employer previously verified whose current
+            employment record is now pending. Each row shows the prior verified
+            role on the left, the new role on the right, and a Re-evaluate
+            button that drops into the existing verification flow. */}
+        {reevalPending.length > 0 && (
+          <div id="reeval-pending-section" className="bg-white rounded-2xl border-2 border-amber-300 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
+              <RefreshCw className="size-5 text-amber-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-amber-900 text-sm" style={{ fontWeight: 700 }}>Needs re-evaluation</p>
+                <p className="text-amber-800 text-xs mt-0.5">Graduates you previously confirmed who have updated their role.</p>
+              </div>
+              <span className="text-amber-700 text-xs px-2.5 py-1 rounded-full bg-amber-100 border border-amber-200" style={{ fontWeight: 700 }}>
+                {reevalPending.length}
+              </span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {reevalPending.map((grad) => (
+                <div key={String(grad.id ?? grad.email ?? grad.name)} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="flex size-9 items-center justify-center rounded-full bg-amber-100 text-amber-700 shrink-0 text-xs" style={{ fontWeight: 700 }}>
+                      {String(grad.name ?? '?').split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-gray-900 text-sm truncate" style={{ fontWeight: 600 }}>{grad.name ?? 'Unnamed Graduate'}</p>
+                      <p className="text-gray-400 text-xs truncate">{grad.email ?? ''}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: '10px', fontWeight: 700 }}>Was</p>
+                      <p className="text-gray-700 truncate" style={{ fontWeight: 600 }}>{grad.previousCompany ?? '—'}</p>
+                      <p className="text-gray-500 truncate">{grad.previousJobTitle ?? '—'}</p>
+                    </div>
+                    <ArrowRight className="size-4 text-amber-500 shrink-0 hidden sm:block" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[#166534] uppercase tracking-wide" style={{ fontSize: '10px', fontWeight: 700 }}>Now</p>
+                      <p className="text-gray-700 truncate" style={{ fontWeight: 600 }}>{grad.company ?? '—'}</p>
+                      <p className="text-gray-500 truncate">{grad.jobTitle ?? '—'}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate('/employer/verify')}
+                    className="inline-flex items-center justify-center gap-1.5 bg-[#166534] hover:bg-[#14532d] text-white px-4 py-2 rounded-xl text-xs whitespace-nowrap transition shrink-0"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Re-evaluate <ArrowRight className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {loadingAlumni ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">

@@ -138,6 +138,17 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Snapshot the work-related fields the moment the form mounts. If either
+  // changes by the time the alumnus hits Save, we show a confirmation modal
+  // because the change retires their current verified employment record
+  // and forces their employer to re-evaluate. Anything else (work address,
+  // skills, awards, ...) saves silently as before.
+  const initialWorkRef = useRef<{ company: string; title: string }>({
+    company: String(sd.currentJobCompany ?? sd.current_job_company ?? alumni.company ?? ''),
+    title: String(sd.currentJobPosition ?? sd.current_job_title ?? alumni.jobTitle ?? ''),
+  });
+  const [reevalConfirmOpen, setReevalConfirmOpen] = useState(false);
+
   // Region → Province → CityMunicipality cascade. Lazy-loaded from the
   // reference DB so admin reference-data CRUD changes propagate live.
   const [provincesForRegion, setProvincesForRegion] = useState<ProvinceItem[]>([]);
@@ -405,8 +416,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   // ── Save ─────────────────────────────────────────────────────────────────────
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const performSave = async () => {
+    setReevalConfirmOpen(false);
     setIsSaving(true);
     setSaveError('');
 
@@ -475,6 +486,12 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
       sessionStorage.setItem('alumni_user', JSON.stringify(updated));
       setSaved(true);
+      // Refresh the work-field baseline so saving twice in a row does not
+      // re-prompt the re-evaluation modal for the same change.
+      initialWorkRef.current = {
+        company: form.currentJobCompany,
+        title: form.currentJobPosition,
+      };
 
       if (retrackingMode && alumniId) {
         try {
@@ -493,6 +510,25 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Submit gate: any change to company OR job title retires the current
+  // verified employment record and forces the prior employer to re-evaluate.
+  // We surface that intent with a confirmation modal so the alumnus does not
+  // accidentally clear their verified status while only fixing a typo.
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    const oldCompany = initialWorkRef.current.company.trim().toLowerCase();
+    const newCompany = form.currentJobCompany.trim().toLowerCase();
+    const oldTitle = initialWorkRef.current.title.trim().toLowerCase();
+    const newTitle = form.currentJobPosition.trim().toLowerCase();
+    const hadPriorJob = !!(oldCompany || oldTitle);
+    const workChanged = hadPriorJob && (oldCompany !== newCompany || oldTitle !== newTitle);
+    if (workChanged && isVerified) {
+      setReevalConfirmOpen(true);
+      return;
+    }
+    void performSave();
   };
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -1160,6 +1196,69 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           </div>
         </div>
       </div>
+
+      {/* Re-evaluation confirmation modal: fires when company OR job title
+          changed on an already-verified record. Backend will retire the
+          current EmploymentRecord, drop verified status, and email the
+          prior confirming employer to re-evaluate. */}
+      {reevalConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
+          <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-md max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
+                <AlertTriangle className="size-5 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>This change needs a new employer evaluation</p>
+                <p className="text-gray-500 text-xs mt-0.5">Your verified status will be cleared until your employer confirms the new role.</p>
+              </div>
+            </div>
+            <div className="px-5 py-4 text-sm text-gray-700 space-y-3 overflow-y-auto">
+              <p>
+                You are about to change your <span style={{ fontWeight: 600 }}>company</span> or <span style={{ fontWeight: 600 }}>job title</span>.
+                Because your current employment record is already verified, the
+                system will retire it and create a new one in <span style={{ fontWeight: 600 }}>pending</span> status.
+              </p>
+              <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-xs space-y-2">
+                <div>
+                  <span className="text-gray-400 uppercase tracking-wide" style={{ fontSize: '10px', fontWeight: 700 }}>Currently verified</span>
+                  <p className="text-gray-800 mt-0.5" style={{ fontWeight: 600 }}>{initialWorkRef.current.company || '(not set)'}</p>
+                  <p className="text-gray-500">{initialWorkRef.current.title || '(not set)'}</p>
+                </div>
+                <div>
+                  <span className="text-[#166534] uppercase tracking-wide" style={{ fontSize: '10px', fontWeight: 700 }}>New (will require evaluation)</span>
+                  <p className="text-gray-800 mt-0.5" style={{ fontWeight: 600 }}>{form.currentJobCompany || '(not set)'}</p>
+                  <p className="text-gray-500">{form.currentJobPosition || '(not set)'}</p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Your previous evaluation is preserved in the system as part of
+                the historical record. Your prior employer is notified by email
+                so they can re-confirm or deny the new role.
+              </p>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReevalConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-700 text-sm transition"
+                style={{ fontWeight: 500 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { void performSave(); }}
+                disabled={isSaving}
+                className="px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition disabled:opacity-70"
+                style={{ fontWeight: 600 }}
+              >
+                {isSaving ? 'Submitting…' : 'Submit Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </PortalLayout>
   );
 }

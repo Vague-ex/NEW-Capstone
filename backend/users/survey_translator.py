@@ -522,11 +522,30 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
             existing_record is not None
             and not _companies_match(existing_record.employer_name_input, company_name)
         )
+        # Per defense rule: a job-title change (e.g. a promotion) is also a
+        # work change and must reset verification. Compare case-insensitive
+        # after trimming so "Software Engineer" vs "software engineer " is not
+        # treated as a real change.
+        title_changed = (
+            existing_record is not None
+            and (existing_record.job_title_input or "").strip().lower()
+            != job_title.strip().lower()
+        )
+        work_changed = bool(existing_record) and (company_changed or title_changed)
 
-        if company_changed:
-            # Graduate moved to a different company — retire the old record so
-            # the previous employer's dashboard stops showing them, then create
-            # a fresh pending record for the new company.
+        if work_changed:
+            # Graduate either moved to a different company or shifted role
+            # (promotion / re-assignment). Retire the old record so the
+            # previous employer's "verified workforce" list drops them, then
+            # create a fresh pending record. The old VerificationDecision
+            # rows stay attached to the now-archived record by FK, so the
+            # historical evaluation is preserved with no copying.
+            _queue_reevaluation_emails(
+                alumni_account=alumni_account,
+                old_record=existing_record,
+                new_company=company_name,
+                new_title=job_title,
+            )
             existing_record.is_current = False
             existing_record.save(update_fields=["is_current", "updated_at"])
             EmploymentRecord.objects.create(
@@ -540,8 +559,9 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
                 verification_status=EmploymentRecord.VerificationStatus.PENDING,
             )
         else:
-            # Same company (or first record) — update details and preserve
-            # any existing verification_status so re-verification is not forced.
+            # Same company AND same title (or no prior record). Update non-
+            # work-related details in place and preserve verification_status
+            # so re-verification is not forced.
             EmploymentRecord.objects.update_or_create(
                 alumni=alumni_account,
                 is_current=True,
@@ -556,3 +576,82 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
         touched["employment_record"] = True
 
     return {"applied": True, "touched": touched}
+
+
+def _queue_reevaluation_emails(*, alumni_account, old_record, new_company: str, new_title: str) -> None:
+    """For every employer who previously CONFIRMED this alumnus, schedule a
+    branded re-evaluation email to fire after the current transaction commits.
+
+    Uses ``transaction.on_commit`` so a rolled-back save never produces a
+    bogus email, and so the slow SMTP/HTTP send happens off the DB lock.
+    """
+    from tracer.models import VerificationDecision
+    from .email_send import send_branded_email
+    from django.conf import settings
+
+    prior_confirmers: dict = {}
+    decisions = (
+        VerificationDecision.objects
+        .filter(
+            token__alumni=alumni_account,
+            decision=VerificationDecision.Decision.CONFIRM,
+        )
+        .select_related("employer_account__user")
+    )
+    for decision in decisions:
+        emp = decision.employer_account
+        if not emp or not emp.user or not emp.user.email:
+            continue
+        # One email per distinct employer, even if they confirmed more than
+        # once historically.
+        prior_confirmers.setdefault(str(emp.id), emp)
+
+    if not prior_confirmers:
+        return
+
+    # Build the alumni's display name once. Profile is preferred over the
+    # legacy master record, mirroring _session_payload_from_alumni.
+    alumni_name = ""
+    try:
+        profile = alumni_account.profile
+        if profile:
+            parts = [profile.first_name, profile.middle_name, profile.last_name]
+            alumni_name = " ".join(p.strip() for p in parts if p and p.strip())
+    except Exception:
+        pass
+    if not alumni_name and getattr(alumni_account, "master_record", None):
+        alumni_name = alumni_account.master_record.full_name or ""
+    if not alumni_name and getattr(alumni_account, "user", None):
+        alumni_name = alumni_account.user.email.split("@")[0]
+
+    portal_url = getattr(settings, "EMPLOYER_PORTAL_URL", "") or "https://chmsu-tracer.example/employer"
+    old_company = (old_record.employer_name_input or "").strip()
+    old_title = (old_record.job_title_input or "").strip()
+
+    for employer in prior_confirmers.values():
+        to_email = employer.user.email
+        contact_name = (employer.contact_name or "there").split(" ")[0] or "there"
+        ctx = {
+            "contact_name": contact_name,
+            "alumni_name": alumni_name or "a graduate you previously confirmed",
+            "old_company": old_company,
+            "old_title": old_title,
+            "new_company": new_company,
+            "new_title": new_title,
+            "portal_url": portal_url,
+        }
+
+        def _send(to_email=to_email, ctx=ctx):
+            try:
+                send_branded_email(
+                    to_email=to_email,
+                    subject="A graduate you verified has updated their employment",
+                    template_base="reevaluation_needed",
+                    context=ctx,
+                )
+            except Exception as exc:  # pragma: no cover - log only
+                logger.warning(
+                    "Re-evaluation email failed for %s: %s", to_email, exc
+                )
+
+        transaction.on_commit(_send)

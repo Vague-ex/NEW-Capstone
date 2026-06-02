@@ -6,6 +6,7 @@ from .api import (
     CityMunicipalityListView,
     ComprehensiveSurveySubmissionView,
     EmployerCandidatesListView,
+    EmployerReevaluationPendingListView,
     EmployerVerifiableGraduateListView,
     IndustryDetailView,
     IndustryListView,
@@ -73,6 +74,11 @@ urlpatterns = [
         "verification/employer/graduates/",
         EmployerVerifiableGraduateListView.as_view(),
         name="verification-employer-graduates",
+    ),
+    path(
+        "verification/employer/reeval-pending/",
+        EmployerReevaluationPendingListView.as_view(),
+        name="verification-employer-reeval-pending",
     ),
     path(
         "employer/candidates/",

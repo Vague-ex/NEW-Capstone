@@ -1060,6 +1060,78 @@ class EmployerVerifiableGraduateListView(APIView):
         )
 
 
+class EmployerReevaluationPendingListView(APIView):
+    """Graduates this employer previously CONFIRMED whose current employment
+    record is now ``is_current=True`` + ``verification_status=PENDING``.
+
+    Driven entirely by the existing ``EmploymentRecord.is_current`` archive
+    pattern and the ``VerificationDecision -> token -> employment_record``
+    FK chain. No new tables are introduced. The previous evaluation is
+    preserved because ``VerificationDecision`` rows remain attached to the
+    now-archived ``EmploymentRecord`` they were made against.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        employer_account, error_response = _require_employer(request, allow_pending=False)
+        if error_response:
+            return error_response
+
+        try:
+            current_pending = list(
+                EmploymentRecord.objects.select_related(
+                    "alumni__user",
+                    "alumni__profile",
+                    "alumni__master_record",
+                    "job_title__industry",
+                )
+                .prefetch_related("alumni__face_scans", "alumni__skills__skill")
+                .filter(
+                    is_current=True,
+                    verification_status=EmploymentRecord.VerificationStatus.PENDING,
+                    alumni__account_status=AccountStatus.ACTIVE,
+                )
+                .filter(
+                    alumni__employment_records__is_current=False,
+                    alumni__employment_records__verification_tokens__decisions__employer_account=employer_account,
+                    alumni__employment_records__verification_tokens__decisions__decision=VerificationDecision.Decision.CONFIRM,
+                )
+                .distinct()
+                .order_by("-updated_at")
+            )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        results: list[dict] = []
+        for record in current_pending:
+            payload = _serialize_employer_verifiable_graduate(record)
+            prior = (
+                EmploymentRecord.objects
+                .filter(
+                    alumni=record.alumni,
+                    is_current=False,
+                    verification_tokens__decisions__employer_account=employer_account,
+                    verification_tokens__decisions__decision=VerificationDecision.Decision.CONFIRM,
+                )
+                .order_by("-updated_at")
+                .first()
+            )
+            if prior:
+                payload["previousCompany"] = prior.employer_name_input
+                payload["previousJobTitle"] = prior.job_title_input
+                payload["previousVerifiedAt"] = prior.updated_at.date().isoformat()
+            results.append(payload)
+
+        return Response(
+            {
+                "results": results,
+                "count": len(results),
+            }
+        )
+
+
 def _candidate_is_unemployed(emp_profile) -> bool:
     """True when the alumni's latest EmploymentProfile is NOT an employed status.
 
