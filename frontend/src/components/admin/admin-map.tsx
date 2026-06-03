@@ -314,7 +314,7 @@ export function AdminMap() {
     <PortalLayout
       role="admin"
       pageTitle="Geomapping View"
-      pageSubtitle="Employment location clusters — local and international"
+      pageSubtitle="Employment location clusters - local and international"
       notificationCount={pendingCount}
     >
       <div className="space-y-4 h-full">

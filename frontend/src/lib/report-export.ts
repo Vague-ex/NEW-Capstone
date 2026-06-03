@@ -256,7 +256,7 @@ type JsPdfLike = {
 function parseTimelineCell(value: unknown): number | null {
   if (value == null) return null;
   const str = String(value).trim();
-  if (!str || str === '—') return null;
+  if (!str || str === '-') return null;
   const cleaned = str.replace(/[%,\s]/g, '');
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : null;

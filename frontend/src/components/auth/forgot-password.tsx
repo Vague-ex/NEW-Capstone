@@ -1,5 +1,5 @@
 /**
- * Forgot Password modal — three-step flow shared by Graduate and Employer
+ * Forgot Password modal - three-step flow shared by Graduate and Employer
  * roles. Step 1 collects the email and triggers the SMTP send. Step 2
  * collects the 12-digit code (XXX-XXX-XXX-XXX) and the new password,
  * shows a live code-expiry countdown plus a separate resend cooldown.

@@ -193,7 +193,7 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
 
       <div className="flex-1 w-full max-w-3xl lg:max-w-5xl mx-auto px-4 py-6 sm:py-8 pb-28">
 
-        {/* Intro banner — full width, replaces the stretched side panel */}
+        {/* Intro banner - full width, replaces the stretched side panel */}
         <div className="rounded-2xl bg-gradient-to-r from-[#166534] to-[#052e16] p-5 sm:p-6 text-white mb-5">
           <div className="flex items-start gap-4">
             <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-white/15">
@@ -233,7 +233,7 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
 
         <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* Company + Contact — side by side on desktop, stacked on mobile */}
+          {/* Company + Contact - side by side on desktop, stacked on mobile */}
           <div className="lg:grid lg:grid-cols-2 lg:gap-5 space-y-5 lg:space-y-0">
 
             <SectionCard icon={Building2} title="Company Information">
@@ -323,7 +323,7 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
           <SectionCard
             icon={Sparkles}
             title="Skills You're Hiring For"
-            subtitle="Pick the skills you want from CHMSU BSIS graduates. Optional — leave blank to see all candidates. Updated automatically when admins add new skills."
+            subtitle="Pick the skills you want from CHMSU BSIS graduates. Optional - leave blank to see all candidates. Updated automatically when admins add new skills."
           >
             {/* Technical skills */}
             <div className="mb-4">
@@ -446,7 +446,7 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
           <SectionCard
             icon={Lock}
             title="Account Credentials"
-            subtitle="Set a login email and password — used once your account is approved by the BSIS Admin."
+            subtitle="Set a login email and password - used once your account is approved by the BSIS Admin."
           >
             <div className="space-y-4">
               <Field label="Account Credential Email" required>

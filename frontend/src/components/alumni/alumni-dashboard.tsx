@@ -212,11 +212,11 @@ export function AlumniDashboard() {
                   );
                   return [
                     { label: 'Employment Status', value: statusColor.label },
-                    { label: 'Job Title', value: (alumni.jobTitle ?? sd.currentJobPosition ?? '—') as string },
-                    { label: 'Company / Organization', value: (alumni.company ?? sd.currentJobCompany ?? '—') as string },
-                    { label: 'Industry', value: (alumni.industry ?? '—') as string },
-                    { label: 'Job Alignment', value: rawAlignment === 'related' ? '✅ Related to BSIS' : rawAlignment === 'not-related' ? '❌ Not BSIS-related' : '—' },
-                    { label: 'Work Location', value: (alumni.workLocation ?? '—') as string },
+                    { label: 'Job Title', value: (alumni.jobTitle ?? sd.currentJobPosition ?? '-') as string },
+                    { label: 'Company / Organization', value: (alumni.company ?? sd.currentJobCompany ?? '-') as string },
+                    { label: 'Industry', value: (alumni.industry ?? '-') as string },
+                    { label: 'Job Alignment', value: rawAlignment === 'related' ? '✅ Related to BSIS' : rawAlignment === 'not-related' ? '❌ Not BSIS-related' : '-' },
+                    { label: 'Work Location', value: (alumni.workLocation ?? '-') as string },
                   ];
                 })().map(row => (
                   <div key={row.label}>

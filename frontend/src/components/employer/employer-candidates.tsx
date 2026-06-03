@@ -62,7 +62,7 @@ export function EmployerCandidates() {
       // Derive the current desired-skill IDs from the candidates' matchedSkillIds union
       // (server doesn't include the raw list on this endpoint). The modal seeds itself
       // from `EmployerAccountResponse.desiredSkills` when it opens, so this is just for
-      // the count badge — a separate fetch would be wasteful.
+      // the count badge - a separate fetch would be wasteful.
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.status === 401) {
@@ -150,7 +150,7 @@ export function EmployerCandidates() {
                 {desiredSkillCount === 0 ? (
                   <>You haven't picked any desired skills yet, so candidates are listed without skill matching.</>
                 ) : (
-                  <>Each card shows how many of your <span className="text-white" style={{ fontWeight: 600 }}>{desiredSkillCount} desired skill{desiredSkillCount !== 1 ? 's' : ''}</span> the graduate has — matched skills are highlighted.</>
+                  <>Each card shows how many of your <span className="text-white" style={{ fontWeight: 600 }}>{desiredSkillCount} desired skill{desiredSkillCount !== 1 ? 's' : ''}</span> the graduate has - matched skills are highlighted.</>
                 )}
               </p>
             </div>
@@ -230,7 +230,7 @@ export function EmployerCandidates() {
             </p>
             {candidates.length === 0 && (
               <p className="text-gray-400 text-xs mt-1">
-                Check back later — alumni who update their employment status will appear here.
+                Check back later - alumni who update their employment status will appear here.
               </p>
             )}
           </div>
@@ -318,7 +318,7 @@ function EditDesiredSkillsModal({
         setSelectedTechIds(techIds);
         setSelectedSoftIds(softIds);
       } catch {
-        // Defaults to empty selections — admin can re-pick from scratch.
+        // Defaults to empty selections - admin can re-pick from scratch.
       } finally {
         if (active) setSeedLoading(false);
       }
@@ -565,7 +565,7 @@ function CandidateCard({ candidate }: { candidate: EmployerCandidate }) {
             </p>
             <p className="text-gray-500 text-xs mt-0.5 flex items-center gap-1">
               <GraduationCap className="size-3.5 text-gray-400" />
-              {candidate.graduationYear ? `BSIS Batch ${candidate.graduationYear}` : 'Batch —'}
+              {candidate.graduationYear ? `BSIS Batch ${candidate.graduationYear}` : 'Batch -'}
             </p>
           </div>
         </div>

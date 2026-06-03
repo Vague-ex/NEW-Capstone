@@ -53,7 +53,7 @@ const REPORTS: ReportDef[] = [
     id: 'further-studies',
     title: 'Further Studies',
     description:
-      "Status breakdown — went straight to work vs. currently enrolled vs. completed Master's / PhD — with top programs, schools, and completion durations.",
+      "Status breakdown - went straight to work vs. currently enrolled vs. completed Master's / PhD - with top programs, schools, and completion durations.",
     endpoint: 'further-studies',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: GraduationCap,

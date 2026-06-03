@@ -132,7 +132,7 @@ export function useReferenceData() {
             const json: ReferenceData = await res.json();
             setData(json);
         } catch (err) {
-            // Fall back gracefully — forms still work with static lists
+            // Fall back gracefully - forms still work with static lists
             setError('Could not load reference data from server. Using defaults.');
             setData({
                 skills: FALLBACK_BSIS_CORE_SKILLS,

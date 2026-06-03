@@ -206,7 +206,7 @@ export function AdminEmployerRequests() {
             <div className="flex items-center gap-3 bg-amber-50 border-b border-amber-100 px-4 py-3">
               <AlertTriangle className="size-4 text-amber-500" />
               <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>
-                {pendingEmployers.length} pending applications — action required
+                {pendingEmployers.length} pending applications - action required
               </p>
             </div>
             <div className="divide-y divide-gray-50">
@@ -360,7 +360,7 @@ export function AdminEmployerRequests() {
                   </p>
                 </div>
                 {reviewModal.desiredSkills.length === 0 ? (
-                  <p className="text-gray-400 text-xs italic">No skills specified — they'll see all candidates.</p>
+                  <p className="text-gray-400 text-xs italic">No skills specified - they'll see all candidates.</p>
                 ) : (
                   <div className="space-y-2">
                     {(() => {

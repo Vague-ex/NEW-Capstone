@@ -1,8 +1,8 @@
-﻿/**
+/**
  * Alumni Registration Orchestrator
  * Coordinates the two-phase registration flow:
- *   Phase 1 (personal): RegisterAlumniPersonal — account, personal info, biometrics
- *   Phase 2 (employment): RegisterAlumniEmployment — employment survey (graduated users only)
+ *   Phase 1 (personal): RegisterAlumniPersonal - account, personal info, biometrics
+ *   Phase 2 (employment): RegisterAlumniEmployment - employment survey (graduated users only)
  *
  * Single FormData submission happens here after all data is collected.
  */
@@ -139,7 +139,7 @@ function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName:
           {isMatched ? (
             <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-6">
               <span className="size-2 rounded-full bg-emerald-500" />
-              <span className="text-emerald-700 text-xs" style={{ fontWeight: 600 }}>Matched in BSIS Graduate List — Auto-Verified</span>
+              <span className="text-emerald-700 text-xs" style={{ fontWeight: 600 }}>Matched in BSIS Graduate List - Auto-Verified</span>
             </div>
           ) : (
             <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
@@ -286,7 +286,7 @@ export function RegisterAlumni() {
 
   const handleEmploymentBack = () => {
     dispatch({ type: 'SET_PERSONAL_DATA', personalData: state.personalData! });
-    // Go back to personal — restart from step 3 would be ideal but full restart is safe
+    // Go back to personal - restart from step 3 would be ideal but full restart is safe
     dispatch({ type: 'RETRY' });
   };
 

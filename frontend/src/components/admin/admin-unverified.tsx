@@ -69,8 +69,8 @@ function SectionRow({ label, value }: { label: string; value?: string | null }) 
   return (
     <div className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
       <span className="text-gray-400 text-xs w-40 shrink-0 pt-0.5">{label}</span>
-      <span className="text-gray-700 text-xs flex-1" style={{ fontWeight: value && value !== '—' ? 500 : 400, fontStyle: value && value !== '—' ? 'normal' : 'italic', color: value && value !== '—' ? undefined : '#d1d5db' }}>
-        {value && value !== '—' ? value : 'Not provided'}
+      <span className="text-gray-700 text-xs flex-1" style={{ fontWeight: value && value !== '-' ? 500 : 400, fontStyle: value && value !== '-' ? 'normal' : 'italic', color: value && value !== '-' ? undefined : '#d1d5db' }}>
+        {value && value !== '-' ? value : 'Not provided'}
       </span>
     </div>
   );
@@ -78,7 +78,7 @@ function SectionRow({ label, value }: { label: string; value?: string | null }) 
 
 function deriveTimeToHire(a: AlumniRecord): string {
   const m = a.monthsToHire;
-  if (!m) return '—';
+  if (!m) return '-';
   if (m <= 1) return 'Within 1 month';
   if (m <= 3) return '1–3 months';
   if (m <= 6) return '3–6 months';
@@ -263,7 +263,7 @@ export function AdminUnverified() {
     <PortalLayout
       role="admin"
       pageTitle="Pending Verification"
-      pageSubtitle="Graduate data is submitted and visible — excluded from analytics until verified"
+      pageSubtitle="Graduate data is submitted and visible - excluded from analytics until verified"
       notificationCount={pendingAlumni.length}
     >
       <div className="space-y-5">
@@ -609,15 +609,15 @@ export function AdminUnverified() {
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
                           <SectionRow label="Degree" value="BS Information Systems" />
                           <SectionRow label="Campus" value="CHMSU – Talisay" />
-                          <SectionRow label="Scholarship" value={sd.scholarship || '—'} />
-                          <SectionRow label="Highest Attainment" value={sd.highestAttainment || '—'} />
-                          <SectionRow label="Prof. Eligibility" value={sd.profEligibility?.length ? sd.profEligibility.join(', ') : '—'} />
+                          <SectionRow label="Scholarship" value={sd.scholarship || '-'} />
+                          <SectionRow label="Highest Attainment" value={sd.highestAttainment || '-'} />
+                          <SectionRow label="Prof. Eligibility" value={sd.profEligibility?.length ? sd.profEligibility.join(', ') : '-'} />
                         </div>
                       </div>
                       {!hasBiometric && (
                         <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2">
                           <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
-                          <p className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>No biometric on file — verify identity manually before approving.</p>
+                          <p className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>No biometric on file - verify identity manually before approving.</p>
                         </div>
                       )}
                     </div>
@@ -639,13 +639,13 @@ export function AdminUnverified() {
                       <div>
                         <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q1–Q2 · EMPLOYMENT STATUS</p>
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
-                          <SectionRow label="Q1 — Current Status" value={
+                          <SectionRow label="Q1 - Current Status" value={
                             a.employmentStatus === 'employed' ? 'Presently Employed'
                               : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
                                 : sd.neverEmployed ? 'Never Been Employed'
                                   : 'Not Currently Employed'
                           } />
-                          <SectionRow label="Q2 — Time to Hire" value={deriveTimeToHire(a)} />
+                          <SectionRow label="Q2 - Time to Hire" value={deriveTimeToHire(a)} />
                         </div>
                       </div>
 
@@ -653,17 +653,17 @@ export function AdminUnverified() {
                       <div>
                         <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q3 · FIRST JOB</p>
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
-                          <SectionRow label="Sector" value={sd.firstJobSector || '—'} />
-                          <SectionRow label="Employment Status" value={sd.firstJobStatus || '—'} />
-                          <SectionRow label="Job Title" value={sd.firstJobTitle || a.jobTitle || '—'} />
+                          <SectionRow label="Sector" value={sd.firstJobSector || '-'} />
+                          <SectionRow label="Employment Status" value={sd.firstJobStatus || '-'} />
+                          <SectionRow label="Job Title" value={sd.firstJobTitle || a.jobTitle || '-'} />
                           <SectionRow label="BSIS-Related?" value={
-                            sd.firstJobRelated === 'Yes' ? 'Yes — Related to BSIS'
-                              : sd.firstJobRelated === 'No' ? 'No — Not related'
-                                : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                                  : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                            sd.firstJobRelated === 'Yes' ? 'Yes - Related to BSIS'
+                              : sd.firstJobRelated === 'No' ? 'No - Not related'
+                                : a.jobAlignment === 'related' ? 'Yes - Related to BSIS'
+                                  : a.jobAlignment === 'not-related' ? 'No - Not related' : '-'
                           } />
                           {(sd.firstJobRelated === 'No' || a.jobAlignment === 'not-related') && (
-                            <SectionRow label="Reason (not related)" value={sd.firstJobUnrelatedReason || '—'} />
+                            <SectionRow label="Reason (not related)" value={sd.firstJobUnrelatedReason || '-'} />
                           )}
                         </div>
                       </div>
@@ -672,17 +672,17 @@ export function AdminUnverified() {
                       <div>
                         <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q4 · CURRENT JOB</p>
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
-                          <SectionRow label="Sector" value={sd.currentJobSector || '—'} />
-                          <SectionRow label="Position" value={sd.currentJobPosition || a.jobTitle || '—'} />
-                          <SectionRow label="Company" value={sd.currentJobCompany || a.company || '—'} />
-                          <SectionRow label="Industry" value={a.industry || '—'} />
-                          <SectionRow label="Work Location" value={a.workLocation || '—'} />
-                          <SectionRow label="City" value={a.workCity || '—'} />
+                          <SectionRow label="Sector" value={sd.currentJobSector || '-'} />
+                          <SectionRow label="Position" value={sd.currentJobPosition || a.jobTitle || '-'} />
+                          <SectionRow label="Company" value={sd.currentJobCompany || a.company || '-'} />
+                          <SectionRow label="Industry" value={a.industry || '-'} />
+                          <SectionRow label="Work Location" value={a.workLocation || '-'} />
+                          <SectionRow label="City" value={a.workCity || '-'} />
                           <SectionRow label="BSIS-Related?" value={
-                            sd.currentJobRelated === 'Yes' ? 'Yes — Related to BSIS'
-                              : sd.currentJobRelated === 'No' ? 'No — Not related'
-                                : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                                  : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                            sd.currentJobRelated === 'Yes' ? 'Yes - Related to BSIS'
+                              : sd.currentJobRelated === 'No' ? 'No - Not related'
+                                : a.jobAlignment === 'related' ? 'Yes - Related to BSIS'
+                                  : a.jobAlignment === 'not-related' ? 'No - Not related' : '-'
                           } />
                         </div>
                       </div>
@@ -691,8 +691,8 @@ export function AdminUnverified() {
                       <div>
                         <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q5 · JOB SOURCING</p>
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
-                          <SectionRow label="Job Source" value={sd.firstJobSource || '—'} />
-                          <SectionRow label="Job Applications" value={sd.firstJobApplicationsCount ? `${sd.firstJobApplicationsCount} applications` : '—'} />
+                          <SectionRow label="Job Source" value={sd.firstJobSource || '-'} />
+                          <SectionRow label="Job Applications" value={sd.firstJobApplicationsCount ? `${sd.firstJobApplicationsCount} applications` : '-'} />
                         </div>
                         {a.employmentStatus === 'unemployed' && (
                           <div className="mt-3">

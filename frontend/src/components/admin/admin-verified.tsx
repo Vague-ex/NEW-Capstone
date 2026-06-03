@@ -18,7 +18,7 @@ const PAGE_SIZE = 20;
 function deriveTimeToHire(a: AlumniRecord): string {
   const sd = (a as Record<string, unknown>).surveyData as Record<string, unknown> | undefined;
   if (sd?.timeToHire) return String(sd.timeToHire);
-  if (!a.monthsToHire) return '—';
+  if (!a.monthsToHire) return '-';
   const m = a.monthsToHire;
   if (m <= 1) return 'Within 1 month';
   if (m <= 3) return '1–3 months';
@@ -63,9 +63,9 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
       <span className="text-gray-400 text-xs shrink-0 w-40 pt-0.5">{label}</span>
-      <span className={`text-xs flex-1 break-words ${value && value !== '—' ? 'text-gray-700' : 'text-gray-300 italic'}`}
-        style={{ fontWeight: value && value !== '—' ? 500 : 400 }}>
-        {value && value !== '—' ? value : 'Not provided'}
+      <span className={`text-xs flex-1 break-words ${value && value !== '-' ? 'text-gray-700' : 'text-gray-300 italic'}`}
+        style={{ fontWeight: value && value !== '-' ? 500 : 400 }}>
+        {value && value !== '-' ? value : 'Not provided'}
       </span>
     </div>
   );
@@ -138,7 +138,7 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
           ))}
         </div>
 
-        {/* Tab content — scrollable */}
+        {/* Tab content - scrollable */}
         <div className="overflow-y-auto flex-1 p-5">
 
           {/* ── Profile & Education ── */}
@@ -180,10 +180,10 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                     <Row label="GPS Coordinates" value={`${a.lat.toFixed(4)}, ${a.lng.toFixed(4)}`} />
                   )}
                   <Row label="Home Location" value={
-                    [sd.city, sd.province].filter(Boolean).join(', ') || '—'
+                    [sd.city, sd.province].filter(Boolean).join(', ') || '-'
                   } />
                   <Row label="Work Location" value={
-                    [a.workCity, a.workLocation].filter(Boolean).join(' · ') || '—'
+                    [a.workCity, a.workLocation].filter(Boolean).join(' · ') || '-'
                   } />
                 </div>
               </div>
@@ -196,13 +196,13 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <Row label="Degree" value="BS Information Systems" />
                   <Row label="Campus" value="CHMSU – Talisay" />
                   <Row label="Graduation Year" value={String(a.graduationYear)} />
-                  <Row label="Scholarship" value={sd.scholarship ? String(sd.scholarship) : '—'} />
-                  <Row label="Highest Attainment" value={sd.highestAttainment ? String(sd.highestAttainment) : '—'} />
+                  <Row label="Scholarship" value={sd.scholarship ? String(sd.scholarship) : '-'} />
+                  <Row label="Highest Attainment" value={sd.highestAttainment ? String(sd.highestAttainment) : '-'} />
                   <Row label="Graduate School" value="Carlos Hilado Memorial State University" />
                   <Row label="Prof. Eligibility" value={
                     Array.isArray(sd.profEligibility) && sd.profEligibility.length
                       ? (sd.profEligibility as string[]).join(', ')
-                      : '—'
+                      : '-'
                   } />
                 </div>
               </div>
@@ -217,12 +217,12 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <Briefcase className="size-3.5" /> Q1–Q2 · EMPLOYMENT STATUS
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Q1 — Status" value={
+                  <Row label="Q1 - Status" value={
                     a.employmentStatus === 'employed' ? 'Presently Employed'
                       : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
                         : sd.neverEmployed ? 'Never Been Employed' : 'Not Currently Employed'
                   } />
-                  <Row label="Q2 — Time to Hire" value={deriveTimeToHire(a)} />
+                  <Row label="Q2 - Time to Hire" value={deriveTimeToHire(a)} />
                 </div>
               </div>
 
@@ -231,17 +231,17 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <Building2 className="size-3.5" /> Q3 · FIRST JOB
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Sector" value={sd.firstJobSector ? String(sd.firstJobSector) : '—'} />
-                  <Row label="Employment Status" value={sd.firstJobStatus ? String(sd.firstJobStatus) : '—'} />
-                  <Row label="Job Title" value={sd.firstJobTitle ? String(sd.firstJobTitle) : (a.jobTitle ?? '—')} />
+                  <Row label="Sector" value={sd.firstJobSector ? String(sd.firstJobSector) : '-'} />
+                  <Row label="Employment Status" value={sd.firstJobStatus ? String(sd.firstJobStatus) : '-'} />
+                  <Row label="Job Title" value={sd.firstJobTitle ? String(sd.firstJobTitle) : (a.jobTitle ?? '-')} />
                   <Row label="BSIS-Related" value={
-                    sd.firstJobRelated === 'Yes' ? 'Yes — Related to BSIS'
-                      : sd.firstJobRelated === 'No' ? 'No — Not related'
-                        : a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                          : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                    sd.firstJobRelated === 'Yes' ? 'Yes - Related to BSIS'
+                      : sd.firstJobRelated === 'No' ? 'No - Not related'
+                        : a.jobAlignment === 'related' ? 'Yes - Related to BSIS'
+                          : a.jobAlignment === 'not-related' ? 'No - Not related' : '-'
                   } />
                   {(sd.firstJobRelated === 'No' || a.jobAlignment === 'not-related') && (
-                    <Row label="Reason (unrelated)" value={sd.firstJobUnrelatedReason ? String(sd.firstJobUnrelatedReason) : '—'} />
+                    <Row label="Reason (unrelated)" value={sd.firstJobUnrelatedReason ? String(sd.firstJobUnrelatedReason) : '-'} />
                   )}
                 </div>
               </div>
@@ -251,15 +251,15 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <MapPin className="size-3.5" /> Q4 · CURRENT JOB
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Sector" value={sd.currentJobSector ? String(sd.currentJobSector) : '—'} />
-                  <Row label="Position" value={sd.currentJobPosition ? String(sd.currentJobPosition) : (a.jobTitle ?? '—')} />
-                  <Row label="Company" value={sd.currentJobCompany ? String(sd.currentJobCompany) : (a.company ?? '—')} />
-                  <Row label="Industry" value={a.industry ?? '—'} />
-                  <Row label="Work Location" value={a.workLocation ?? '—'} />
+                  <Row label="Sector" value={sd.currentJobSector ? String(sd.currentJobSector) : '-'} />
+                  <Row label="Position" value={sd.currentJobPosition ? String(sd.currentJobPosition) : (a.jobTitle ?? '-')} />
+                  <Row label="Company" value={sd.currentJobCompany ? String(sd.currentJobCompany) : (a.company ?? '-')} />
+                  <Row label="Industry" value={a.industry ?? '-'} />
+                  <Row label="Work Location" value={a.workLocation ?? '-'} />
                   <Row label="Location Type" value={deriveLocationLabel(a)} />
                   <Row label="BSIS-Related" value={
-                    a.jobAlignment === 'related' ? 'Yes — Related to BSIS'
-                      : a.jobAlignment === 'not-related' ? 'No — Not related' : '—'
+                    a.jobAlignment === 'related' ? 'Yes - Related to BSIS'
+                      : a.jobAlignment === 'not-related' ? 'No - Not related' : '-'
                   } />
                 </div>
               </div>
@@ -269,8 +269,8 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <Clock className="size-3.5" /> Q5–Q6 · JOB SOURCE & APPLICATIONS
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Q5 — Job Source" value={sd.jobSource ? String(sd.jobSource) : '—'} />
-                  <Row label="Q6 — Applications Sent" value={sd.jobApplications ? String(sd.jobApplications) : '—'} />
+                  <Row label="Q5 - Job Source" value={sd.jobSource ? String(sd.jobSource) : '-'} />
+                  <Row label="Q6 - Applications Sent" value={sd.jobApplications ? String(sd.jobApplications) : '-'} />
                   {a.unemploymentReason && (
                     <Row label="Unemployment Reason" value={a.unemploymentReason} />
                   )}
@@ -414,7 +414,7 @@ export function AdminVerified() {
     };
   }, []);
 
-  // Batches reflect what's actually in the verified-alumni list — a year only
+  // Batches reflect what's actually in the verified-alumni list - a year only
   // appears once at least one alum from that batch has been verified.
   const availableBatches = useMemo(
     () => Array.from(
@@ -583,7 +583,7 @@ export function AdminVerified() {
                             </span>
                           </td>
                           <td className="px-4 py-3 max-w-[160px]">
-                            <p className="text-gray-700 text-xs truncate" style={{ fontWeight: 500 }}>{a.jobTitle ?? '—'}</p>
+                            <p className="text-gray-700 text-xs truncate" style={{ fontWeight: 500 }}>{a.jobTitle ?? '-'}</p>
                             <p className="text-gray-400 text-xs truncate">{a.company ?? ''}</p>
                           </td>
                           <td className="px-4 py-3">
@@ -596,7 +596,7 @@ export function AdminVerified() {
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-gray-500 text-xs max-w-[100px] truncate">{a.workCity ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-500 text-xs max-w-[100px] truncate">{a.workCity ?? '-'}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <button onClick={() => setModalAlumni(a)}
                               className="text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-1.5 rounded-lg transition"

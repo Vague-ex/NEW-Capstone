@@ -18,7 +18,7 @@ type Phase = "login" | "facescan";
 
 /**
  * Best-effort GPS capture for the login audit. Resolves to null on denial,
- * unavailability, or timeout — callers must tolerate nulls.
+ * unavailability, or timeout - callers must tolerate nulls.
  */
 async function captureLoginGps(timeoutMs = 4000): Promise<{ lat: number; lng: number; acc: number } | null> {
   if (typeof navigator === "undefined" || !navigator.geolocation) return null;
@@ -133,7 +133,7 @@ export function LoginPage() {
           autoDetectInterval.current = null;
           void runGraduateFaceAuthentication();
         }
-      } catch { /* silent — keep polling */ }
+      } catch { /* silent - keep polling */ }
     }, 1000);
     return () => {
       if (autoDetectInterval.current) {
@@ -142,7 +142,7 @@ export function LoginPage() {
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn, scanStage, faceAuthBusy]); // runGraduateFaceAuthentication omitted — credential/password stable during scan phase
+  }, [cameraOn, scanStage, faceAuthBusy]); // runGraduateFaceAuthentication omitted - credential/password stable during scan phase
 
   // Tick the lockout countdown each second so the button text refreshes.
   useEffect(() => {
@@ -403,7 +403,7 @@ export function LoginPage() {
       <div className="flex-1 flex items-start lg:items-center justify-center px-4 pt-6 pb-10 lg:py-12 bg-gray-50">
         <div className="w-full max-w-[400px]">
 
-          {/* Form card — elevated on mobile */}
+          {/* Form card - elevated on mobile */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 lg:p-0 lg:bg-transparent lg:shadow-none lg:border-0">
             {/* Mobile Logo */}
             <div className="lg:hidden flex items-center gap-3 mb-8">
@@ -631,7 +631,7 @@ export function LoginPage() {
                         <CheckCircle2 className="size-9 text-white" />
                       </div>
                       <p className="text-white" style={{ fontWeight: 700, fontSize: "1rem" }}>Face Matched ✓</p>
-                      <p className="text-emerald-300 text-sm mt-1">Identity verified — redirecting…</p>
+                      <p className="text-emerald-300 text-sm mt-1">Identity verified - redirecting…</p>
                     </div>
                   )}
                 </div>
@@ -708,7 +708,7 @@ export function LoginPage() {
             )}
           </div>
 
-          {/* Footer credit — mobile only */}
+          {/* Footer credit - mobile only */}
           <p className="lg:hidden text-center text-gray-400 text-xs mt-5">© 2026 Carlos Hilado Memorial State University</p>
         </div>
       </div>

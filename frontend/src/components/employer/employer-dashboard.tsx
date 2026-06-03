@@ -115,7 +115,7 @@ export function EmployerDashboard() {
     };
 
     void syncEmployerStatus();
-    // Refetch only on focus / visibilitychange — the 30s polling interval was
+    // Refetch only on focus / visibilitychange - the 30s polling interval was
     // causing visible flicker on the dashboard.
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
@@ -193,7 +193,7 @@ export function EmployerDashboard() {
     };
 
     void loadEmployerAlumni();
-    // Refetch only on focus / visibilitychange — the 30s polling interval was
+    // Refetch only on focus / visibilitychange - the 30s polling interval was
     // causing visible flicker on the dashboard.
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
@@ -255,7 +255,7 @@ export function EmployerDashboard() {
           </div>
         )}
 
-        {/* Re-evaluation Banner — only renders when there is a backlog.
+        {/* Re-evaluation Banner - only renders when there is a backlog.
             Surfaces the count and scrolls to the detail list below. */}
         {reevalPending.length > 0 && (
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-amber-50 border-2 border-amber-300 rounded-2xl p-4">
@@ -320,7 +320,7 @@ export function EmployerDashboard() {
             sub="Across your alumni"
             icon={TrendingUp} iconBg="bg-green-50" iconColor="text-green-700" />
           <StatCard label="Avg. Verification"
-            value={total > 0 ? `${Math.round((myAlumni.filter(a => a.biometricCaptured).length / total) * 100)}%` : '—'}
+            value={total > 0 ? `${Math.round((myAlumni.filter(a => a.biometricCaptured).length / total) * 100)}%` : '-'}
             sub="Biometric verified"
             icon={CheckCircle2} iconBg="bg-amber-50" iconColor="text-amber-600" />
         </div>
@@ -357,14 +357,14 @@ export function EmployerDashboard() {
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-xs flex-1 min-w-0">
                     <div className="min-w-0 flex-1">
                       <p className="text-gray-400 uppercase tracking-wide" style={{ fontSize: '10px', fontWeight: 700 }}>Was</p>
-                      <p className="text-gray-700 truncate" style={{ fontWeight: 600 }}>{grad.previousCompany ?? '—'}</p>
-                      <p className="text-gray-500 truncate">{grad.previousJobTitle ?? '—'}</p>
+                      <p className="text-gray-700 truncate" style={{ fontWeight: 600 }}>{grad.previousCompany ?? '-'}</p>
+                      <p className="text-gray-500 truncate">{grad.previousJobTitle ?? '-'}</p>
                     </div>
                     <ArrowRight className="size-4 text-amber-500 shrink-0 hidden sm:block" />
                     <div className="min-w-0 flex-1">
                       <p className="text-[#166534] uppercase tracking-wide" style={{ fontSize: '10px', fontWeight: 700 }}>Now</p>
-                      <p className="text-gray-700 truncate" style={{ fontWeight: 600 }}>{grad.company ?? '—'}</p>
-                      <p className="text-gray-500 truncate">{grad.jobTitle ?? '—'}</p>
+                      <p className="text-gray-700 truncate" style={{ fontWeight: 600 }}>{grad.company ?? '-'}</p>
+                      <p className="text-gray-500 truncate">{grad.jobTitle ?? '-'}</p>
                     </div>
                   </div>
                   <button
@@ -502,7 +502,7 @@ export function EmployerDashboard() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 500 }}>{a.name ?? 'Unknown Graduate'}</p>
-                      <p className="text-gray-400 text-xs truncate">{a.jobTitle ?? '—'} · Batch {a.graduationYear ?? '—'}</p>
+                      <p className="text-gray-400 text-xs truncate">{a.jobTitle ?? '-'} · Batch {a.graduationYear ?? '-'}</p>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${a.verificationStatus === 'verified' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
                       }`} style={{ fontWeight: 600 }}>

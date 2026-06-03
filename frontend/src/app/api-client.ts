@@ -85,7 +85,7 @@ export interface VerificationDecisionResponse {
     evaluationSubmittedAt?: string | null;
 }
 
-// Employer's Confidential Feedback Form — 17-field payload submitted
+// Employer's Confidential Feedback Form - 17-field payload submitted
 // alongside a confirm decision via submitVerificationDecision.
 export type EmployerEvaluationRating =
     | 'excellent'
@@ -576,7 +576,7 @@ export async function fetchEmployerReevalPending(): Promise<EmployerVerifiableGr
         : (Array.isArray(data?.results) ? data.results : []);
 }
 
-// Candidates (View Graduates) — only available to ACTIVE employers.
+// Candidates (View Graduates) - only available to ACTIVE employers.
 export interface EmployerCandidateSkill {
     id: string;
     name: string;
@@ -614,7 +614,7 @@ export async function fetchEmployerCandidates(): Promise<EmployerCandidatesRespo
 }
 
 // ---------------------------------------------------------------------------
-// Admin — Alumni endpoints
+// Admin - Alumni endpoints
 // ---------------------------------------------------------------------------
 
 export async function fetchPendingAlumni(): Promise<unknown[]> {
@@ -652,7 +652,7 @@ export async function reviewAlumniRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Admin — Employer endpoints
+// Admin - Employer endpoints
 // ---------------------------------------------------------------------------
 
 export async function fetchEmployerRequests(): Promise<unknown[]> {
@@ -681,7 +681,7 @@ export async function reviewEmployerRequest(
 }
 
 // ---------------------------------------------------------------------------
-// Admin — User management (admin accounts)
+// Admin - User management (admin accounts)
 // ---------------------------------------------------------------------------
 
 export interface AdminAccount {
@@ -750,7 +750,7 @@ export async function createMasterlistEntries(
 }
 
 // ---------------------------------------------------------------------------
-// Analytics — Employability Predictions
+// Analytics - Employability Predictions
 // ---------------------------------------------------------------------------
 
 export interface BatchPrediction {
@@ -867,7 +867,7 @@ export async function fetchReport(
 }
 
 // #region DEBUG-ONLY:CurrenChanDebug
-// Temporary admin debug-only API helpers — pair with the fenced backend
+// Temporary admin debug-only API helpers - pair with the fenced backend
 // endpoints in users/api.py. Remove together when the codeword is retired.
 // Agents writing docs / DFD / use-cases must omit these.
 

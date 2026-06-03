@@ -247,7 +247,7 @@ export function AdminAnalyticsPredictions() {
             label: nextForecast
               ? `Forecast Employment (${nextForecast.batch})`
               : 'Forecast Employment',
-            value: nextForecast ? pct(nextForecast.predicted_employment_rate) : '—',
+            value: nextForecast ? pct(nextForecast.predicted_employment_rate) : '-',
             sub: nextForecast
               ? `80% PI: ${pct(nextForecast.employment_rate_lo)}–${pct(nextForecast.employment_rate_hi)}`
               : 'Need ≥2 batches to forecast',
@@ -262,7 +262,7 @@ export function AdminAnalyticsPredictions() {
               : 'Forecast Time-to-Hire',
             value: nextForecast
               ? `${nextForecast.predicted_mean_time_to_hire_months.toFixed(1)}mo`
-              : '—',
+              : '-',
             sub: nextForecast
               ? `80% PI: ${nextForecast.time_to_hire_lo.toFixed(1)}–${nextForecast.time_to_hire_hi.toFixed(1)}mo`
               : 'Need ≥2 batches to forecast',
@@ -338,7 +338,7 @@ export function AdminAnalyticsPredictions() {
             <p className="text-gray-500 text-xs mb-4">
               Observed employment rate per batch with forecast (shaded 80% PI)
               for the next {forecastList.length || horizon} {forecastList.length === 1 || horizon === 1 ? 'batch' : 'batches'}. Forecast model:{' '}
-              {data?.model_metadata.best_models.employment_status ?? '—'}.
+              {data?.model_metadata.best_models.employment_status ?? '-'}.
             </p>
             {employmentSeries.length === 0 ? (
               <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
@@ -396,7 +396,7 @@ export function AdminAnalyticsPredictions() {
             <p className="text-gray-500 text-xs mb-4">
               Observed mean time-to-hire (months) with forecast (shaded 80% PI)
               for the next {forecastList.length || horizon} {forecastList.length === 1 || horizon === 1 ? 'batch' : 'batches'}. Forecast model:{' '}
-              {data?.model_metadata.best_models.time_to_hire ?? '—'}.
+              {data?.model_metadata.best_models.time_to_hire ?? '-'}.
             </p>
             {hireSeries.length === 0 ? (
               <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
@@ -594,7 +594,7 @@ export function AdminAnalyticsPredictions() {
                       </td>
                       <td className="py-2.5 pr-4">
                         <span className="text-green-600 text-xs" style={{ fontWeight: 600 }}>
-                          {next ? pct(next.projected_share) : '—'}
+                          {next ? pct(next.projected_share) : '-'}
                         </span>
                         {last && last !== next && (
                           <span className="text-gray-400 text-[11px] ml-1">
@@ -651,7 +651,7 @@ export function AdminAnalyticsPredictions() {
         )}
       </div>
 
-      {/* ── BSIS Alignment (Observed Only — Subordinate) ─────────────────── */}
+      {/* ── BSIS Alignment (Observed Only - Subordinate) ─────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
@@ -660,7 +660,7 @@ export function AdminAnalyticsPredictions() {
             </h3>
             <p className="text-gray-500 text-xs mt-1">
               Share of alumni whose first / current job aligns with the BSIS program.
-              Observed values only — no model prediction.
+              Observed values only - no model prediction.
             </p>
           </div>
         </div>

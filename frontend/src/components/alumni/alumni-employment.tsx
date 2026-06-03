@@ -148,6 +148,11 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     title: String(sd.currentJobPosition ?? sd.current_job_title ?? alumni.jobTitle ?? ''),
   });
   const [reevalConfirmOpen, setReevalConfirmOpen] = useState(false);
+  // Share-link modal: shown AFTER a successful save when the company
+  // changed (including first-time becoming employed). Replaces the older
+  // inline amber banner and the small emerald sub-panel that used to live
+  // permanently on the page.
+  const [shareLinkModalOpen, setShareLinkModalOpen] = useState(false);
 
   // Region → Province → CityMunicipality cascade. Lazy-loaded from the
   // reference DB so admin reference-data CRUD changes propagate live.
@@ -232,7 +237,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     if (!isCurrentlyEmployed || !workMapContainerRef.current) return;
     if (workLeafletMapRef.current) return; // already initialised
 
-    // Load Leaflet CSS once (without SRI integrity — SRI requires crossOrigin
+    // Load Leaflet CSS once (without SRI integrity - SRI requires crossOrigin
     // and can silently fail to load the stylesheet on some setups, which is
     // what was breaking the marker rendering / drag handles before).
     if (!document.getElementById('leaflet-css-link')) {
@@ -246,7 +251,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     void import('leaflet').then(({ default: L }) => {
       if (!workMapContainerRef.current || workLeafletMapRef.current) return;
 
-      // Build an explicit icon — bypasses the Default-icon URL resolution that
+      // Build an explicit icon - bypasses the Default-icon URL resolution that
       // breaks under bundlers (the marker becomes a 0×0 element when broken,
       // and a 0-size element can't be dragged or clicked).
       const pinIcon = L.icon({
@@ -324,7 +329,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
         updatePin(pos.lat, pos.lng);
       });
 
-      // Click-to-drop fallback: tap anywhere on the map to move the pin —
+      // Click-to-drop fallback: tap anywhere on the map to move the pin -
       // useful on touch devices or when the marker is off-screen.
       map.on('click', (e: { latlng: { lat: number; lng: number } }) => {
         marker.setLatLng(e.latlng);
@@ -357,7 +362,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   }, [isCurrentlyEmployed]);
 
   // Auto-pin the map from the chosen city. Forward-geocodes via Nominatim
-  // when the city/region/province changes — only fires when the user hasn't
+  // when the city/region/province changes - only fires when the user hasn't
   // already manually placed the pin (workLat/workLng could already be set
   // from prior session data; we still rough-pin if the city changes).
   useEffect(() => {
@@ -398,7 +403,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           };
           map.setView([lat, lng], 13);
         })
-        .catch(() => { /* abort or network — silent */ });
+        .catch(() => { /* abort or network - silent */ });
     }, 500); // small debounce so fast cascade clicks don't spam Nominatim
 
     return () => {
@@ -420,6 +425,12 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     setReevalConfirmOpen(false);
     setIsSaving(true);
     setSaveError('');
+    // Captured BEFORE the success block overwrites initialWorkRef so we
+    // know whether to surface the share-link modal afterwards.
+    const companyChangedAtSave = (
+      initialWorkRef.current.company.trim().toLowerCase()
+      !== form.currentJobCompany.trim().toLowerCase()
+    );
 
     // ZIP-code validation: PH must be exactly 4 digits when typed (the field
     // remains optional, so empty stays valid). Foreign ZIPs are unrestricted.
@@ -492,6 +503,17 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
         company: form.currentJobCompany,
         title: form.currentJobPosition,
       };
+      // Surface the share-link modal AFTER a successful save when the
+      // company changed (covers both moving employers and first-time
+      // becoming employed). Same-employer-title-only changes do not
+      // trigger it because the existing employer already has the link.
+      if (
+        companyChangedAtSave
+        && isCurrentlyEmployed
+        && form.currentJobCompany.trim()
+      ) {
+        setShareLinkModalOpen(true);
+      }
 
       if (retrackingMode && alumniId) {
         try {
@@ -534,7 +556,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey — Employment Record">
+    <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey - Employment Record">
       <div className="max-w-3xl lg:max-w-5xl mx-auto space-y-5 pb-28">
 
         {retrackingMode && (
@@ -543,7 +565,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             <div>
               <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Employment record retracking required</p>
               <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
-                Your employment data is over 2 years old. Please review and update every section before continuing — your dashboard and other features remain locked until this form is submitted.
+                Your employment data is over 2 years old. Please review and update every section before continuing - your dashboard and other features remain locked until this form is submitted.
               </p>
             </div>
           </div>
@@ -562,45 +584,13 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           </div>
         )}
 
-        {isCurrentlyEmployed && (
-          <div className="rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 to-yellow-50 p-5 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-amber-400 shadow">
-                <Building2 className="size-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <p className="text-amber-900 text-base" style={{ fontWeight: 800 }}>Important — Share Employer Portal Link</p>
-                <p className="text-amber-800 text-sm mt-1 leading-relaxed">
-                  To verify your employment, your <span style={{ fontWeight: 700 }}>employer or HR supervisor</span> must confirm your record through the Employer Portal.
-                  Copy the link below and send it to them — they register for free and verify your status in minutes.
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={handleShareLink}
-                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2.5 text-sm text-white shadow transition"
-                    style={{ fontWeight: 700 }}>
-                    <Building2 className="size-4" /> Copy Employer Portal Link
-                  </button>
-                  <span className="break-all text-xs text-amber-700 bg-amber-100 border border-amber-200 rounded-lg px-3 py-2 font-mono">
-                    {employerPortalLink}
-                  </span>
-                </div>
-                {employerLinkStatus && (
-                  <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700" style={{ fontWeight: 600 }}>
-                    <CheckCircle2 className="size-4 text-emerald-500" /> {employerLinkStatus}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
         <form onSubmit={handleSave} className="space-y-5">
 
           {/* ── Section 4: Academic & Pre-Employment ─────────────────────────── */}
           {/* On large screens, Academic + Employment Status sit side-by-side */}
           <div className="lg:grid lg:grid-cols-2 lg:gap-5 space-y-5 lg:space-y-0">
 
-          <SectionCard icon={BookOpen} title="Part III — Academic & Pre-Employment Profile">
+          <SectionCard icon={BookOpen} title="Part III - Academic & Pre-Employment Profile">
 
             <div>
               <FieldLabel>1. General Average Range during BSIS</FieldLabel>
@@ -650,7 +640,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           </SectionCard>
 
           {/* ── Section 5: Employment Status ─────────────────────────────────── */}
-          <SectionCard icon={Briefcase} title="Part IV — Current Employment Status">
+          <SectionCard icon={Briefcase} title="Part IV - Current Employment Status">
             <div>
               <FieldLabel required>Are you presently employed?</FieldLabel>
               <div className="space-y-1.5">
@@ -666,7 +656,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
           {/* ── Section 6: First Job ─────────────────────────────────────────── */}
           {!isNeverEmployed && form.employment_status && (
-            <SectionCard icon={Clock} title="Part V — First Job Details">
+            <SectionCard icon={Clock} title="Part V - First Job Details">
               <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 lg:items-start space-y-5 lg:space-y-0">
               <div className="space-y-5">
 
@@ -779,7 +769,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
           {/* ── Section 7: Current Job ───────────────────────────────────────── */}
           {isCurrentlyEmployed && (
-            <SectionCard icon={Building2} title="Part VI — Current / Most Recent Job Details">
+            <SectionCard icon={Building2} title="Part VI - Current / Most Recent Job Details">
               {/* Desktop: 2-column grid for compact layout */}
               <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 space-y-5 lg:space-y-0">
               <div className="space-y-5">
@@ -856,7 +846,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                         if (v === 'Local (Philippines)') {
                           setF('country_address', 'Philippines');
                         } else if (form.country_address === 'Philippines') {
-                          // Switching to Abroad — clear the locked PH value so
+                          // Switching to Abroad - clear the locked PH value so
                           // the user is forced to pick a foreign country.
                           setF('country_address', '');
                         }
@@ -864,21 +854,6 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                     />
                   ))}
                 </div>
-              </div>
-
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-emerald-900 text-xs leading-relaxed" style={{ fontWeight: 600 }}>
-                  To verify your workplace and employment details, share this Employer Portal link with your supervisor or HR.
-                </p>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <button type="button" onClick={handleShareLink}
-                    className="inline-flex items-center justify-center rounded-lg bg-[#166534] px-3.5 py-2 text-xs text-white transition hover:bg-[#14532d]"
-                    style={{ fontWeight: 600 }}>
-                    Give Employer Portal Link
-                  </button>
-                  {employerLinkStatus && <p className="text-[11px] text-emerald-700">{employerLinkStatus}</p>}
-                </div>
-                <p className="mt-2 break-all text-[11px] text-emerald-700">{employerPortalLink}</p>
               </div>
 
               </div>{/* end right column */}
@@ -890,9 +865,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           {isCurrentlyEmployed && (() => {
             const isLocal = form.currentJobLocation !== 'Abroad / Remote Foreign Employer';
             return (
-            <SectionCard icon={MapPin} title="Part VII — Work Address for Mapping">
+            <SectionCard icon={MapPin} title="Part VII - Work Address for Mapping">
               <p className="text-gray-400 text-xs -mt-2">
-                For employment distribution mapping — company name stays confidential.
+                For employment distribution mapping - company name stays confidential.
                 {isLocal
                   ? ' Pick the closest match; you can fine-tune the pin on the map below.'
                   : ' Type your foreign-country workplace details.'}
@@ -930,7 +905,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
                   {isLocal ? (
                     <>
-                      {/* Region → Province → City cascade — only shown for PH addresses.
+                      {/* Region → Province → City cascade - only shown for PH addresses.
                           Sourced from the seeded PSGC reference tables; admin-settings
                           is the source of truth. Backend only returns regions that have
                           a valid PSGC ID, so no psgc_id filter needed here. */}
@@ -1024,7 +999,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                       </div>
                     </>
                   ) : (
-                    /* Abroad — flat text inputs; PSGC cascade doesn't apply. */
+                    /* Abroad - flat text inputs; PSGC cascade doesn't apply. */
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <FieldLabel required>City / Locality</FieldLabel>
@@ -1175,12 +1150,12 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               ) : saved ? (
                 <span className="flex items-center gap-1.5 text-emerald-700" style={{ fontWeight: 600 }}>
                   <CheckCircle2 className="size-4" />
-                  {retrackingMode ? 'Retracking submitted — returning to your dashboard.' : 'Saved — your employment record is up to date.'}
+                  {retrackingMode ? 'Retracking submitted - returning to your dashboard.' : 'Saved - your employment record is up to date.'}
                 </span>
               ) : retrackingMode ? (
                 <span className="text-red-700" style={{ fontWeight: 600 }}>Submit this form to unlock the dashboard.</span>
               ) : (
-                <span className="text-gray-500">Confidential to you and the BSIS Program (RA 10173). Save anytime — even partial updates are kept.</span>
+                <span className="text-gray-500">Confidential to you and the BSIS Program (RA 10173). Save anytime - even partial updates are kept.</span>
               )}
             </div>
             <button
@@ -1254,6 +1229,59 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 style={{ fontWeight: 600 }}
               >
                 {isSaving ? 'Submitting…' : 'Submit Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share Employer Portal Link modal: fires after a successful save
+          when the company changed (including first-time employed). Replaces
+          the older permanent amber banner so the page is quiet by default
+          and the share prompt is timed to when the alumnus actually needs
+          to forward the link to their new employer. */}
+      {shareLinkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
+          <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-md max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
+                <Building2 className="size-5 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Share the Employer Portal link</p>
+                <p className="text-gray-500 text-xs mt-0.5">Your employer needs this link to confirm your new role.</p>
+              </div>
+            </div>
+            <div className="px-5 py-4 text-sm text-gray-700 space-y-3 overflow-y-auto">
+              <p>
+                To verify your employment, your <span style={{ fontWeight: 600 }}>employer or HR supervisor</span> must confirm your record through the Employer Portal.
+                Copy the link below and send it to them. They register for free and verify your status in minutes.
+              </p>
+              <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-xs font-mono break-all text-gray-700">
+                {employerPortalLink}
+              </div>
+              {employerLinkStatus && (
+                <p className="flex items-center gap-1.5 text-xs text-emerald-700" style={{ fontWeight: 600 }}>
+                  <CheckCircle2 className="size-4 text-emerald-500" /> {employerLinkStatus}
+                </p>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setShareLinkModalOpen(false); setEmployerLinkStatus(''); }}
+                className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-700 text-sm transition"
+                style={{ fontWeight: 500 }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleShareLink}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
+                style={{ fontWeight: 600 }}
+              >
+                <Building2 className="size-4" /> Copy link
               </button>
             </div>
           </div>

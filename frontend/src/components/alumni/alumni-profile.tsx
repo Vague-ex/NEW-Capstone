@@ -103,7 +103,7 @@ export function AlumniProfile() {
                 style={{ fontWeight: 700, fontSize: '1.4rem' }}>
                 {initials}
               </div>
-              {/* No upload — camera capture only per spec */}
+              {/* No upload - camera capture only per spec */}
               <div className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-white/20 border border-white/30">
                 <Camera className="size-3 text-white/70" />
               </div>

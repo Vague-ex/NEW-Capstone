@@ -751,7 +751,7 @@ export function AdminSettings() {
         )}
 
         {/* #region DEBUG-ONLY:CurrenChanDebug
-            Temporary debug-only admin tool — see DebugAccountListView in
+            Temporary debug-only admin tool - see DebugAccountListView in
             backend/users/api.py for the full guidance comment. Agents writing
             DFD / use-case / docs must omit this entire section. */}
         <DebugAccountsPanel />
@@ -762,7 +762,7 @@ export function AdminSettings() {
 }
 
 // #region DEBUG-ONLY:CurrenChanDebug
-// Temporary debug-only admin tool. NOT a feature — a maintenance hatch.
+// Temporary debug-only admin tool. NOT a feature - a maintenance hatch.
 // Agents writing system documentation MUST omit this component.
 
 function DebugAccountsPanel() {
@@ -837,7 +837,7 @@ function DebugAccountsPanel() {
           <AlertCircle className="size-4 text-red-500 shrink-0" />
           <div>
             <p className="text-red-900 text-sm" style={{ fontWeight: 700 }}>
-              Danger Zone — Debug Account Tools
+              Danger Zone - Debug Account Tools
             </p>
             <p className="text-red-700 text-xs mt-0.5">
               Temporary admin-only utility for managing seeded data. Hidden by default; permanently deletes accounts when used.
@@ -939,7 +939,7 @@ function DebugAccountsPanel() {
           )}
 
           <p className="text-[10px] text-red-700 italic">
-            Heads-up: deleting cascades through the user's FK — alumni profiles, employer records, login audits, and verification decisions all go with it.
+            Heads-up: deleting cascades through the user's FK - alumni profiles, employer records, login audits, and verification decisions all go with it.
           </p>
         </div>
       )}
@@ -1004,7 +1004,7 @@ function SkillsView({
       ? 'All skills'
       : selected === null
         ? 'Uncategorized'
-        : (selectedCategory?.name ?? '—');
+        : (selectedCategory?.name ?? '-');
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -1084,7 +1084,7 @@ function SkillsView({
                 q
                   ? 'No skills match that search.'
                   : selected === 'all'
-                    ? 'No skills yet — add the first one above.'
+                    ? 'No skills yet - add the first one above.'
                     : 'No skills in this category yet.'
               }
             />
@@ -1160,11 +1160,11 @@ function JobsView({
       ? 'All job titles'
       : selected === null
         ? 'No industry'
-        : (selectedIndustry?.name ?? '—');
+        : (selectedIndustry?.name ?? '-');
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-      {/* Master rail — industries */}
+      {/* Master rail - industries */}
       <div className="lg:col-span-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
           <Building2 className="size-4 text-[#1B3A6B]" />
@@ -1211,7 +1211,7 @@ function JobsView({
         </div>
       </div>
 
-      {/* Detail pane — job titles */}
+      {/* Detail pane - job titles */}
       <div className="lg:col-span-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="mb-4">
           <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
@@ -1238,7 +1238,7 @@ function JobsView({
                 q
                   ? 'No job titles match that search.'
                   : selected === 'all'
-                    ? 'No job titles yet — add the first one above.'
+                    ? 'No job titles yet - add the first one above.'
                     : 'No job titles for this industry yet.'
               }
             />
@@ -1412,9 +1412,9 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
           onChange={(e) => setFilterRegionId(e.target.value)}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
         >
-          <option value="">— Pick a region to load its provinces —</option>
+          <option value="">- Pick a region to load its provinces -</option>
           {regions.map((r) => (
-            <option key={r.id} value={r.id}>{r.code} — {r.name}</option>
+            <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
           ))}
         </select>
       </div>
@@ -1588,9 +1588,9 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
             onChange={(e) => setFilterRegionId(e.target.value)}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
           >
-            <option value="">— Pick a region —</option>
+            <option value="">- Pick a region -</option>
             {regions.map((r) => (
-              <option key={r.id} value={r.id}>{r.code} — {r.name}</option>
+              <option key={r.id} value={r.id}>{r.code} - {r.name}</option>
             ))}
           </select>
         </div>
@@ -1724,7 +1724,7 @@ function RegionsView({
       <div className="mt-4 space-y-0.5">
         {visible.length === 0 ? (
           <EmptyState
-            message={q ? 'No regions match that search.' : 'No regions yet — add the first one above.'}
+            message={q ? 'No regions match that search.' : 'No regions yet - add the first one above.'}
           />
         ) : (
           visible.map((r) => (
@@ -1871,7 +1871,7 @@ function UsersView({
           message={
             q
               ? 'No admins match that search.'
-              : 'No admins yet — add one to share access.'
+              : 'No admins yet - add one to share access.'
           }
         />
       ) : (

@@ -165,12 +165,12 @@ export function EvaluationFormModal({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Confidential notice — RA 10173 (Data Privacy Act) */}
+          {/* Confidential notice - RA 10173 (Data Privacy Act) */}
           <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
             <ShieldCheck className="size-4 text-[#166534] shrink-0 mt-0.5" />
             <div>
               <p className="text-xs text-emerald-900" style={{ fontWeight: 600 }}>
-                Confidential — RA 10173 (Data Privacy Act of 2012)
+                Confidential - RA 10173 (Data Privacy Act of 2012)
               </p>
               <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
                 Your responses are released only to the Carlos Hilado Memorial State University BSIS Program for aggregate batch reporting. The graduate will not see your name, ratings, or open-ended answers. Personal evaluator details are stored solely for record verification.

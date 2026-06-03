@@ -45,7 +45,7 @@ const inputCls = 'w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 
  * Normalize whatever shape is stored for a date into "YYYY-MM" so
  * `<input type="month">` accepts it. Legacy MM/DD rows have no year so
  * they fall back to blank, prompting the user to re-enter the date with
- * a year — after which the save flow stores the modern YYYY-MM format.
+ * a year - after which the save flow stores the modern YYYY-MM format.
  */
 function toYearMonth(raw: unknown): string {
     if (raw === null || raw === undefined) return '';
@@ -174,7 +174,7 @@ export function AlumniPersonalEducation() {
                     <ShieldCheck className="size-4 text-[#166534] shrink-0 mt-0.5" />
                     <div>
                         <p className="text-emerald-900 text-xs" style={{ fontWeight: 600 }}>
-                            Your data is private (RA 10173 — Data Privacy Act)
+                            Your data is private (RA 10173 - Data Privacy Act)
                         </p>
                         <p className="text-emerald-800 text-[11px] mt-0.5 leading-relaxed">
                             Personal details are visible only to you and the CHMSU BSIS Program for tracer reporting. Employers and other graduates will never see this information.
@@ -361,10 +361,10 @@ export function AlumniPersonalEducation() {
                                 </span>
                             ) : saved ? (
                                 <span className="flex items-center gap-1.5 text-emerald-700" style={{ fontWeight: 600 }}>
-                                    <CheckCircle2 className="size-4" /> Saved — your information is up to date.
+                                    <CheckCircle2 className="size-4" /> Saved - your information is up to date.
                                 </span>
                             ) : (
-                                <span className="text-gray-500">Keep your tracer record current — changes save instantly to the BSIS program.</span>
+                                <span className="text-gray-500">Keep your tracer record current - changes save instantly to the BSIS program.</span>
                             )}
                         </div>
                         <button

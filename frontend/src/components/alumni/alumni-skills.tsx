@@ -5,7 +5,7 @@ import { updateAlumniEmployment } from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import { Award, Plus, X, CheckCircle2, Save, Info } from 'lucide-react';
 
-// ── CHED BSIS Core Skills (Part IV — Skills Utilized) ────────────────────────
+// ── CHED BSIS Core Skills (Part IV - Skills Utilized) ────────────────────────
 
 const BSIS_CORE_SKILLS = [
   'Programming/Software Development',
@@ -152,7 +152,7 @@ export function AlumniSkills() {
             <div>
               <h3 className="text-white" style={{ fontWeight: 700 }}>BSIS Skills Profile</h3>
               <p className="text-green-100 text-sm mt-0.5">
-                Based on the CHED Graduate Tracer Survey — select all skills you actively use in your current employment.
+                Based on the CHED Graduate Tracer Survey - select all skills you actively use in your current employment.
               </p>
             </div>
           </div>
@@ -162,7 +162,7 @@ export function AlumniSkills() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-start justify-between mb-2">
             <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
-              BSIS Program Skills — Skills Utilized
+              BSIS Program Skills - Skills Utilized
             </h3>
             <span className="text-xs text-[#166534] bg-[#166534]/10 px-2.5 py-1 rounded-full shrink-0 ml-2" style={{ fontWeight: 600 }}>
               {coreSelected.length}/{BSIS_CORE_SKILLS.length}

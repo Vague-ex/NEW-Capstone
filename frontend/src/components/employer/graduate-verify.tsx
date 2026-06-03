@@ -179,7 +179,7 @@ export function GraduateVerify() {
     };
 
     void syncEmployerStatus();
-    // Refetch only on focus / visibilitychange — the 30s polling interval was
+    // Refetch only on focus / visibilitychange - the 30s polling interval was
     // causing visible flicker.
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
@@ -278,7 +278,7 @@ export function GraduateVerify() {
 
   // Smooth-scroll the selected graduate's detail card into view so employers
   // don't have to manually scroll after clicking a card. We intentionally key
-  // off the id only — the full graduate object identity changes on every
+  // off the id only - the full graduate object identity changes on every
   // render but the scroll behaviour should fire only when the *selection*
   // changes.
   const detailRef = useRef<HTMLDivElement>(null);
@@ -585,7 +585,7 @@ export function GraduateVerify() {
                 <div className="flex items-center gap-2">
                   <Shield className="size-4 text-gray-400 shrink-0" />
                   <p className="text-gray-700 text-sm">
-                    <span style={{ fontWeight: 600 }}>BSIS Graduate — Verified</span> on Carlos Hilado Memorial State University official records
+                    <span style={{ fontWeight: 600 }}>BSIS Graduate - Verified</span> on Carlos Hilado Memorial State University official records
                   </p>
                 </div>
                 {selectedGraduate.jobTitle && selectedGraduate.company && (
@@ -632,7 +632,7 @@ export function GraduateVerify() {
                 <div className="flex items-center gap-2">
                   <Clock className="size-4 text-gray-400 shrink-0" />
                   <p className="text-gray-400 text-xs">
-                    Last updated: {selectedGraduate.dateUpdated ? new Date(selectedGraduate.dateUpdated).toLocaleDateString('en-PH', { dateStyle: 'long' }) : '—'}
+                    Last updated: {selectedGraduate.dateUpdated ? new Date(selectedGraduate.dateUpdated).toLocaleDateString('en-PH', { dateStyle: 'long' }) : '-'}
                   </p>
                 </div>
                 {selectedGraduate.biometricCaptured && (
@@ -648,11 +648,11 @@ export function GraduateVerify() {
               </div>
             </div>
 
-            {/* Step 1 — Employer's Confidential Feedback Form (must precede confirmation) */}
+            {/* Step 1 - Employer's Confidential Feedback Form (must precede confirmation) */}
             {!endorsementSent && evaluationData === null && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                 <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
-                  <Star className="size-4 text-[#166534]" /> Step 1 — Employer's Confidential Feedback Form
+                  <Star className="size-4 text-[#166534]" /> Step 1 - Employer's Confidential Feedback Form
                 </h3>
                 <p className="text-gray-500 text-xs mb-4">
                   Before confirming employment, please complete the confidential evaluation. This rates {selectedGraduate.name?.split(' ')[0] ?? 'the graduate'} across 11 work-quality dimensions and two open-ended assessment questions. Your responses are submitted privately to CHMSU and feed the program's batch reports.
@@ -667,11 +667,11 @@ export function GraduateVerify() {
               </div>
             )}
 
-            {/* Step 2 — Employment Confirmation & Endorsement (unlocked after evaluation) */}
+            {/* Step 2 - Employment Confirmation & Endorsement (unlocked after evaluation) */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
                 <MessageSquare className="size-4 text-[#166534]" />
-                {evaluationData === null && !endorsementSent ? 'Step 2 — Employment Confirmation & Endorsement (locked)' : 'Step 2 — Employment Confirmation & Endorsement'}
+                {evaluationData === null && !endorsementSent ? 'Step 2 - Employment Confirmation & Endorsement (locked)' : 'Step 2 - Employment Confirmation & Endorsement'}
               </h3>
               <p className="text-gray-500 text-xs mb-5">
                 As <span style={{ fontWeight: 600 }}>{employerCompany}</span>, confirm this graduate's employment and leave an endorsement visible on their profile.
@@ -680,7 +680,7 @@ export function GraduateVerify() {
               {!endorsementSent && evaluationData === null ? (
                 <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4">
                   <p className="text-gray-500 text-xs leading-relaxed">
-                    Complete <span style={{ fontWeight: 600 }}>Step 1 — Employer's Confidential Feedback Form</span> above to unlock the confirmation button.
+                    Complete <span style={{ fontWeight: 600 }}>Step 1 - Employer's Confidential Feedback Form</span> above to unlock the confirmation button.
                   </p>
                 </div>
               ) : endorsementSent ? (
@@ -713,7 +713,7 @@ export function GraduateVerify() {
                     <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <p className="text-emerald-800 text-xs" style={{ fontWeight: 600 }}>
-                        Step 1 complete — Employer's Confidential Feedback Form captured
+                        Step 1 complete - Employer's Confidential Feedback Form captured
                       </p>
                       <p className="text-emerald-700 text-[11px] mt-0.5">
                         Your evaluation responses will be submitted alongside this confirmation.

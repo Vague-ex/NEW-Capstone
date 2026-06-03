@@ -293,7 +293,7 @@ export default function RegisterAlumniEmployment({
 
   // Cascading location dropdowns now sourced live from the reference DB
   // (Region → Province → CityMunicipality). The legacy /ph-locations.json
-  // fallback is dropped — admin reference-data CRUD is the source of truth.
+  // fallback is dropped - admin reference-data CRUD is the source of truth.
   const isPhilippinesWork = !form.country || form.country === 'Philippines';
   const apiRegions: RegionItem[] = referenceData?.regions ?? [];
   const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
@@ -893,7 +893,7 @@ export default function RegisterAlumniEmployment({
                   <select
                     value={form.city_municipality}
                     onChange={(e) => {
-                      // PSGC dataset has no ZIP column — user types it manually now.
+                      // PSGC dataset has no ZIP column - user types it manually now.
                       setForm({ ...form, city_municipality: e.target.value, barangay: '' });
                     }}
                     disabled={!form.province_work && phProvincesWork.length > 0}
@@ -907,7 +907,7 @@ export default function RegisterAlumniEmployment({
 
               <div>
                 <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
-                {/* Barangay stays free-text — the PSGC dataset has 42K rows, too
+                {/* Barangay stays free-text - the PSGC dataset has 42K rows, too
                     granular to dump in a dropdown. Type the name as-is. */}
                 <input
                   type="text"

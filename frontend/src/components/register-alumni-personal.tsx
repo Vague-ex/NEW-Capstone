@@ -59,7 +59,7 @@ export interface PersonalFormData {
   graduationYear: number | null;
   hasGraduated: boolean;
   scholarship: string;
-  // Further-studies (post-baccalaureate) — replaces the legacy "highestAttainment" question.
+  // Further-studies (post-baccalaureate) - replaces the legacy "highestAttainment" question.
   furtherStudies: 'none' | 'enrolled' | 'completed';
   postgradProgram: string;
   postgradField: string;
@@ -243,7 +243,7 @@ export default function RegisterAlumniPersonal({
   const errorRef = useRef<HTMLDivElement>(null);
 
   // Smooth-scroll the active step's error banner into view whenever a new
-  // error fires. Each step's banner gets `ref={errorRef}` — only one is
+  // error fires. Each step's banner gets `ref={errorRef}` - only one is
   // mounted at a time, so the ref always points at the visible banner.
   useEffect(() => {
     if (stepError && errorRef.current) {
@@ -491,7 +491,7 @@ export default function RegisterAlumniPersonal({
     if (!validatePersonalStep()) return;
 
     if (step === 3) {
-      // Always collect biometrics — backend requires face images for all alumni
+      // Always collect biometrics - backend requires face images for all alumni
       setStep(4 as PersonalStep);
     } else {
       setStep((s) => (s + 1) as PersonalStep);
@@ -932,7 +932,7 @@ export default function RegisterAlumniPersonal({
                   )}
                 </div>
 
-                {/* Home address — toggle between Philippines (cascading dropdowns) and Outside Philippines (free-text) */}
+                {/* Home address - toggle between Philippines (cascading dropdowns) and Outside Philippines (free-text) */}
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                     Home Address Location
@@ -1164,7 +1164,7 @@ export default function RegisterAlumniPersonal({
                   </label>
                   <div className="space-y-2">
                     {[
-                      { label: 'No — only my BSIS Bachelor\'s degree', value: 'none' as const },
+                      { label: 'No - only my BSIS Bachelor\'s degree', value: 'none' as const },
                       { label: 'Yes, currently enrolled', value: 'enrolled' as const },
                       { label: 'Yes, already completed', value: 'completed' as const },
                     ].map((opt) => (
@@ -1302,18 +1302,18 @@ export default function RegisterAlumniPersonal({
                     <div>
                       <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Face Capture</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        Three photos required — facing forward, turning left, and turning right — to prevent identity spoofing.
+                        Three photos required - facing forward, turning left, and turning right - to prevent identity spoofing.
                       </p>
                     </div>
                   </div>
 
-                  {/* Accessory removal warning — persistent (not dismissible) */}
+                  {/* Accessory removal warning - persistent (not dismissible) */}
                   <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl p-3.5 mb-3">
                     <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
                     <div className="text-xs text-amber-900 leading-relaxed">
                       <p style={{ fontWeight: 700 }}>Before you begin</p>
                       <p className="mt-0.5">
-                        Please remove anything that hides your face — sunglasses, hats, face masks, or thick reflective glasses.
+                        Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
                         Make sure your face is well-lit and you're looking directly at the camera.
                         The system requires three clear shots: front, left, and right.
                       </p>
@@ -1376,7 +1376,7 @@ export default function RegisterAlumniPersonal({
                     />
                     <canvas ref={canvasRef} className="hidden" />
 
-                    {/* All shots captured — 3-column thumbnail grid */}
+                    {/* All shots captured - 3-column thumbnail grid */}
                     {allCaptured && (
                       <div className="absolute inset-0 grid grid-cols-3 gap-0.5">
                         {previews.map((preview, i) => (
@@ -1399,7 +1399,7 @@ export default function RegisterAlumniPersonal({
                         <div className="absolute bottom-3 left-0 right-0 flex justify-center">
                           <div className="bg-black/65 rounded-full px-4 py-1.5">
                             <p className="text-white text-xs" style={{ fontWeight: 600 }}>
-                              Shot {shotIndex + 1}/3 — {SHOT_INSTRUCTIONS[shotIndex]?.label}: {SHOT_INSTRUCTIONS[shotIndex]?.desc}
+                              Shot {shotIndex + 1}/3 - {SHOT_INSTRUCTIONS[shotIndex]?.label}: {SHOT_INSTRUCTIONS[shotIndex]?.desc}
                             </p>
                           </div>
                         </div>
@@ -1436,7 +1436,7 @@ export default function RegisterAlumniPersonal({
                           style={{ fontWeight: 600 }}>
                           {checkingBlur
                             ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity</>
-                            : <><Camera className="size-4" /> Capture {shotIndex + 1}/3 — {SHOT_INSTRUCTIONS[shotIndex]?.label}</>
+                            : <><Camera className="size-4" /> Capture {shotIndex + 1}/3 - {SHOT_INSTRUCTIONS[shotIndex]?.label}</>
                           }
                         </button>
                       </>
