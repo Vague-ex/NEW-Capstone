@@ -110,12 +110,22 @@ def _normalize_employment_status(value: str | None, fallback: str = "unemployed"
         "yes": "employed",
         "employed": "employed",
         "currently employed": "employed",
+        # Fine-grained survey values (underscores already converted to hyphens).
+        "employed-full-time": "employed",
+        "employed full-time": "employed",
+        "employed-part-time": "employed",
+        "employed part-time": "employed",
         "no": "unemployed",
         "unemployed": "unemployed",
         "not employed": "unemployed",
         "never employed": "unemployed",
+        "never-employed": "unemployed",
+        "seeking": "unemployed",
+        "not-seeking": "unemployed",
+        "not seeking": "unemployed",
         "self-employed": "self-employed",
         "self employed": "self-employed",
+        "self-employed-freelance": "self-employed",
         "freelance": "self-employed",
         "entrepreneurial": "self-employed",
         "entrepreneur": "self-employed",
@@ -143,7 +153,9 @@ def _derive_employment_status_from_survey(survey_data, fallback: str = "unemploy
     if not isinstance(survey_data, dict):
         return fallback
 
-    q1_status = survey_data.get("employmentStatus")
+    # The normalized-table overlay writes "employment_status" (snake_case);
+    # legacy JSON blobs used "employmentStatus" (camelCase). Accept either.
+    q1_status = survey_data.get("employment_status") or survey_data.get("employmentStatus")
     normalized_status = _normalize_employment_status(q1_status, fallback=fallback)
 
     if normalized_status == "employed":

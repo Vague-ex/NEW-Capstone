@@ -30,6 +30,7 @@ type SurveyData = {
   employmentStatus?: string;
 
   // First Job
+  timeToHire?: string;
   timeToHireMonths?: number;
   firstJobSector?: string;
   firstJobStatus?: string;
@@ -77,7 +78,10 @@ function SectionRow({ label, value }: { label: string; value?: string | null }) 
 }
 
 function deriveTimeToHire(a: AlumniRecord): string {
-  const m = a.monthsToHire;
+  const sd = getSurveyData(a);
+  // Prefer the raw label captured from the survey (e.g. "1-3 months").
+  if (sd.timeToHire) return sd.timeToHire;
+  const m = sd.timeToHireMonths;
   if (!m) return '-';
   if (m <= 1) return 'Within 1 month';
   if (m <= 3) return '1–3 months';
@@ -113,55 +117,84 @@ function getSurveyData(a: AlumniRecord): SurveyData {
 
   const source = raw as Record<string, unknown>;
 
+  // The backend's merged surveyData overlay (_normalized_view_from_tables)
+  // emits camelCase keys; legacy JSON blobs used snake_case. Read camelCase
+  // first, then fall back to snake_case so both old and new records render.
+  const str = (...keys: string[]): string | undefined => {
+    for (const k of keys) {
+      const v = source[k];
+      if (typeof v === 'string' && v.trim() !== '') return v;
+    }
+    return undefined;
+  };
+  const num = (...keys: string[]): number | undefined => {
+    for (const k of keys) {
+      const v = source[k];
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+    }
+    return undefined;
+  };
+  // BSIS-relatedness arrives either as a 'Yes'/'No' string (overlay) or a
+  // boolean (legacy blob).
+  const related = (camelKey: string, snakeKey: string): string | undefined => {
+    const s = str(camelKey);
+    if (s) return s;
+    const b = source[snakeKey];
+    return typeof b === 'boolean' ? (b ? 'Yes' : 'No') : undefined;
+  };
+  const arr = (...keys: string[]): string[] | undefined => {
+    for (const k of keys) {
+      const v = source[k];
+      if (Array.isArray(v)) return v.filter((item): item is string => typeof item === 'string');
+    }
+    return undefined;
+  };
+
   return {
     // Academic & Pre-Employment
-    generalAverageRange: typeof source.general_average_range === 'number' ? source.general_average_range : undefined,
-    academicHonors: typeof source.academic_honors === 'number' ? source.academic_honors : undefined,
+    generalAverageRange: num('general_average_range'),
+    academicHonors: num('academic_honors'),
     priorWorkExperience: typeof source.prior_work_experience === 'boolean' ? source.prior_work_experience : undefined,
-    ojlRelevance: typeof source.ojt_relevance === 'number' ? source.ojt_relevance : undefined,
+    ojlRelevance: num('ojt_relevance'),
 
     // Employment Status
-    employmentStatus: typeof source.employment_status === 'string' ? source.employment_status : undefined,
+    employmentStatus: str('employment_status', 'employmentStatus'),
 
     // First Job
-    timeToHireMonths: typeof source.time_to_hire_months === 'number' ? source.time_to_hire_months : undefined,
-    firstJobSector: typeof source.first_job_sector === 'string' ? source.first_job_sector : undefined,
-    firstJobStatus: typeof source.first_job_status === 'string' ? source.first_job_status : undefined,
-    firstJobTitle: typeof source.first_job_title === 'string' ? source.first_job_title : undefined,
-    firstJobRelated: typeof source.first_job_related_to_bsis === 'boolean' ? (source.first_job_related_to_bsis ? 'Yes' : 'No') : undefined,
-    firstJobUnrelatedReason: typeof source.first_job_unrelated_reason === 'string' ? source.first_job_unrelated_reason : undefined,
-    firstJobApplicationsCount: typeof source.first_job_applications_count === 'number' ? source.first_job_applications_count : undefined,
-    firstJobSource: typeof source.first_job_source === 'string' ? source.first_job_source : undefined,
+    timeToHire: str('timeToHire'),
+    timeToHireMonths: num('time_to_hire_months'),
+    firstJobSector: str('firstJobSector', 'first_job_sector'),
+    firstJobStatus: str('firstJobStatus', 'first_job_status'),
+    firstJobTitle: str('firstJobTitle', 'first_job_title'),
+    firstJobRelated: related('firstJobRelated', 'first_job_related_to_bsis'),
+    firstJobUnrelatedReason: str('firstJobUnrelatedReason', 'first_job_unrelated_reason'),
+    firstJobApplicationsCount: num('jobApplications', 'first_job_applications_count'),
+    firstJobSource: str('jobSource', 'first_job_source'),
 
     // Current Job
-    currentJobSector: typeof source.current_job_sector === 'string' ? source.current_job_sector : undefined,
-    currentJobPosition: typeof source.current_job_title === 'string' ? source.current_job_title : undefined,
-    currentJobCompany: typeof source.current_job_company === 'string' ? source.current_job_company : undefined,
-    currentJobRelated: typeof source.current_job_related_to_bsis === 'boolean' ? (source.current_job_related_to_bsis ? 'Yes' : 'No') : undefined,
+    currentJobSector: str('currentJobSector', 'current_job_sector'),
+    currentJobPosition: str('currentJobPosition', 'current_job_title'),
+    currentJobCompany: str('currentJobCompany', 'current_job_company'),
+    currentJobRelated: related('currentJobRelated', 'current_job_related_to_bsis'),
 
     // Work Address
-    streetAddress: typeof source.street_address === 'string' ? source.street_address : undefined,
-    barangay: typeof source.barangay === 'string' ? source.barangay : undefined,
-    cityMunicipality: typeof source.city_municipality === 'string' ? source.city_municipality : undefined,
-    region: typeof source.region === 'string' ? source.region : undefined,
-    zipCode: typeof source.zip_code === 'string' ? source.zip_code : undefined,
-    country: typeof source.country === 'string' ? source.country : undefined,
+    streetAddress: str('street_address'),
+    barangay: str('barangay'),
+    cityMunicipality: str('city_municipality'),
+    region: str('region_address', 'region'),
+    zipCode: str('zip_code'),
+    country: str('country_address', 'country'),
 
     // Skills
-    technicalSkills: Array.isArray(source.technical_skills)
-      ? source.technical_skills.filter((item): item is string => typeof item === 'string')
-      : undefined,
-    softSkills: Array.isArray(source.soft_skills)
-      ? source.soft_skills.filter((item): item is string => typeof item === 'string')
-      : undefined,
-    professionalCertifications: typeof source.professional_certifications === 'string' ? source.professional_certifications : undefined,
+    technicalSkills: arr('technical_skills'),
+    softSkills: arr('soft_skills'),
+    professionalCertifications: str('professional_certifications'),
 
     // Academic Background (existing fields)
-    scholarship: typeof source.scholarship === 'string' ? source.scholarship : undefined,
-    highestAttainment: typeof source.highest_attainment === 'string' ? source.highest_attainment : undefined,
-    profEligibility: Array.isArray(source.prof_eligibility)
-      ? source.prof_eligibility.filter((item): item is string => typeof item === 'string')
-      : undefined,
+    scholarship: str('scholarship'),
+    highestAttainment: str('highestAttainment', 'highest_attainment'),
+    profEligibility: arr('profEligibility', 'prof_eligibility'),
     neverEmployed: typeof source.never_employed === 'boolean' ? source.never_employed : undefined,
   };
 }
