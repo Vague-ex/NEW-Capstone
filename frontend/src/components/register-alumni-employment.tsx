@@ -262,7 +262,23 @@ export default function RegisterAlumniEmployment({
   const [form, setForm] = useState<EmploymentFormData>(INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // "Is your current job the same as your first job?" - copies the first-job
+  // answers into the current-job fields so the graduate doesn't retype them.
+  const [sameAsFirstJob, setSameAsFirstJob] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
+
+  const applySameAsFirstJob = (checked: boolean) => {
+    setSameAsFirstJob(checked);
+    if (checked) {
+      setForm((f) => ({
+        ...f,
+        // Sector option values are identical between first/current job selects.
+        current_job_sector: f.first_job_sector,
+        current_job_title: f.first_job_title,
+        current_job_related_to_bsis: f.first_job_related_to_bsis,
+      }));
+    }
+  };
 
   // Smooth-scroll the error banner into view whenever a new error fires.
   useEffect(() => {
@@ -441,20 +457,25 @@ export default function RegisterAlumniEmployment({
     return true;
   };
 
-  // Navigation logic with conditional skipping
+  // Navigation logic with conditional skipping.
+  // Work Address (step 5) only applies to currently-employed graduates — it
+  // captures where they work, which feeds the geomap. Everyone who isn't
+  // currently employed skips First Job/Current Job/Work Address as appropriate
+  // and goes straight to Skills (step 6), so they are never forced to enter a
+  // workplace they don't have.
   const nextStep = () => {
     if (!validateStep()) return;
 
-    // Conditional skipping based on employment_status
-    if (step === 2) {
-      if (['never_employed', 'not_seeking'].includes(form.employment_status)) {
-        setStep(5 as EmploymentStep); // Skip first job and current job
-        return;
-      }
+    // Never employed / not seeking: no job history and no workplace → Skills.
+    if (step === 2 && ['never_employed', 'not_seeking'].includes(form.employment_status)) {
+      setStep(6 as EmploymentStep);
+      return;
     }
 
+    // Seeking: answered First Job, but isn't currently employed → skip Current
+    // Job and Work Address, go to Skills.
     if (step === 3 && form.employment_status === 'seeking') {
-      setStep(5 as EmploymentStep); // Skip current job
+      setStep(6 as EmploymentStep);
       return;
     }
 
@@ -464,12 +485,18 @@ export default function RegisterAlumniEmployment({
   };
 
   const prevStep = () => {
-    // Handle back navigation with skipped steps
-    if (step === 5 && ['never_employed', 'not_seeking'].includes(form.employment_status)) {
-      setStep(2 as EmploymentStep); // Jump back to employment status
-    } else if (step === 5 && form.employment_status === 'seeking') {
-      setStep(3 as EmploymentStep); // Jump back to first job
-    } else if (step > 1) {
+    // Mirror the forward skips when navigating back from Skills (step 6).
+    if (step === 6) {
+      if (['never_employed', 'not_seeking'].includes(form.employment_status)) {
+        setStep(2 as EmploymentStep);
+        return;
+      }
+      if (form.employment_status === 'seeking') {
+        setStep(3 as EmploymentStep);
+        return;
+      }
+    }
+    if (step > 1) {
       setStep((s) => (s - 1) as EmploymentStep);
     } else {
       onBack();
@@ -787,11 +814,26 @@ export default function RegisterAlumniEmployment({
         <div className="space-y-6">
           <SectionHeader icon={Briefcase} title="Your Current / Most Recent Job" />
 
+          {/* Quick-fill: reuse the first-job answers when it's the same job. */}
+          {(form.first_job_title || form.first_job_sector) && (
+            <label className="flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sameAsFirstJob}
+                onChange={(e) => applySameAsFirstJob(e.target.checked)}
+                className="size-4 rounded border-gray-300"
+              />
+              <span className="text-sm text-emerald-800">
+                My current job is the same as my first job (copy those details)
+              </span>
+            </label>
+          )}
+
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Sector</label>
             <select
               value={form.current_job_sector}
-              onChange={(e) => setForm({ ...form, current_job_sector: e.target.value })}
+              onChange={(e) => setForm({ ...form, current_job_sector: e.target.value, })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             >
               <option value="">Select Sector (optional)</option>
@@ -905,19 +947,10 @@ export default function RegisterAlumniEmployment({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
-                {/* Barangay stays free-text - the PSGC dataset has 42K rows, too
-                    granular to dump in a dropdown. Type the name as-is. */}
-                <input
-                  type="text"
-                  value={form.barangay}
-                  onChange={(e) => setForm({ ...form, barangay: e.target.value })}
-                  placeholder={form.city_municipality ? 'Enter barangay' : 'Select a city first'}
-                  disabled={!form.city_municipality}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
-                />
-              </div>
+              {/* Barangay intentionally omitted on the WORK address form -
+                  workplaces are recorded at city level for the geomap; barangay
+                  is only meaningful for a home address. The DB column is kept
+                  (sent empty) so the schema is unchanged. */}
             </>
           ) : (
             <>
@@ -931,15 +964,7 @@ export default function RegisterAlumniEmployment({
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Barangay (optional)</label>
-                <input
-                  type="text"
-                  value={form.barangay}
-                  onChange={(e) => setForm({ ...form, barangay: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-                />
-              </div>
+              {/* Barangay omitted on the work address form (see note above). */}
             </>
           )}
 

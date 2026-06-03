@@ -1,14 +1,16 @@
 import json
 import logging
+import re
 from datetime import date
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import DatabaseError, OperationalError, transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -1014,10 +1016,17 @@ class AdminLoginView(APIView):
             return Response(payload, status=status.HTTP_401_UNAUTHORIZED)
 
         if not (user.role == User.Role.ADMIN or user.is_staff):
-            return Response(
+            # Graduates (and employers) hit this endpoint first during login;
+            # the frontend uses this 403 to fall through to the face-scan flow,
+            # so it is an expected, benign outcome - not a security event.
+            # Mark the response as already logged so Django's base handler
+            # skips its noisy "Forbidden: /api/auth/admin/login/" warning.
+            response = Response(
                 {"detail": "This account is not allowed to access the admin portal."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+            response._has_been_logged = True
+            return response
 
         throttle_reset(throttle_id)
         return Response(
@@ -1056,6 +1065,25 @@ class AdminListCreateView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        # Every admin-role / staff user should appear in (and be manageable
+        # from) the user-management UI. Some admins - e.g. created via
+        # `createsuperuser` or data seeding - predate the AdminCredential flow
+        # and have no credential row. Back-fill those lazily so the list is
+        # complete and they become editable like any other admin.
+        admin_users = User.objects.filter(Q(role=User.Role.ADMIN) | Q(is_staff=True))
+        credentialed_user_ids = set(
+            AdminCredential.objects.filter(user__in=admin_users).values_list("user_id", flat=True)
+        )
+        missing = [u for u in admin_users if u.id not in credentialed_user_ids]
+        if missing:
+            AdminCredential.objects.bulk_create(
+                [
+                    AdminCredential(user=u, admin_email=u.email, is_active=u.is_active)
+                    for u in missing
+                ],
+                ignore_conflicts=True,
+            )
+
         creds = AdminCredential.objects.select_related("user").order_by("created_at")
         return Response(
             [_admin_credential_payload(c) for c in creds],
@@ -1213,6 +1241,45 @@ class AdminDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+_FACEBOOK_HOSTS = frozenset({
+    "facebook.com",
+    "www.facebook.com",
+    "m.facebook.com",
+    "web.facebook.com",
+    "l.facebook.com",
+    "fb.com",
+    "www.fb.com",
+    "fb.me",
+})
+
+
+def _sanitize_facebook_url(raw: object) -> str:
+    """Return a validated Facebook profile URL, or "" when the input is empty
+    or not a Facebook link.
+
+    The field is optional, but it must not become a vector for storing an
+    arbitrary (potentially malicious) URL. The frontend already enforces this,
+    but a direct API call bypasses the frontend - so we re-validate here against
+    the same host allow-list and reject any non-http(s) scheme.
+    """
+    if not isinstance(raw, str):
+        return ""
+    trimmed = raw.strip()
+    if not trimmed:
+        return ""
+    # Tolerate users pasting "facebook.com/foo" without a scheme.
+    candidate = trimmed if re.match(r"^https?://", trimmed, re.IGNORECASE) else f"https://{trimmed}"
+    try:
+        parsed = urlparse(candidate)
+    except ValueError:
+        return ""
+    if parsed.scheme not in ("http", "https"):
+        return ""
+    if (parsed.hostname or "").lower() not in _FACEBOOK_HOSTS:
+        return ""
+    return candidate
+
+
 def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict:
     """
     Extract fields for AlumniProfile from survey_data + personal form data.
@@ -1233,7 +1300,7 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "birth_date": personal_data.get("birth_date", ""),
         "civil_status": personal_data.get("civil_status", ""),
         "mobile": personal_data.get("mobile", ""),
-        "facebook_url": personal_data.get("facebook_url", ""),
+        "facebook_url": _sanitize_facebook_url(personal_data.get("facebook_url", "")),
         "city": personal_data.get("city", ""),
         "province": personal_data.get("province", ""),
 
@@ -1506,6 +1573,19 @@ class AlumniRegisterView(APIView):
         if face_descriptor and not face_descriptor_samples:
             face_descriptor_samples = [face_descriptor]
 
+        # Liveness signals are client-attested per-slot measurements (MAR + yaw)
+        # produced by the 3-challenge capture. Stored as-is for forensic audit;
+        # server-side recomputation is deferred.
+        liveness_signals_raw = request.data.get("liveness_signals")
+        liveness_signals: dict | None = None
+        if liveness_signals_raw:
+            try:
+                parsed = json.loads(liveness_signals_raw) if isinstance(liveness_signals_raw, str) else liveness_signals_raw
+                if isinstance(parsed, dict):
+                    liveness_signals = parsed
+            except (ValueError, TypeError):
+                liveness_signals = None
+
         with transaction.atomic():
             # 1. Create User
             user = User.objects.create_user(
@@ -1528,6 +1608,7 @@ class AlumniRegisterView(APIView):
                     "capture_meta": capture_meta,
                     "face_descriptor": face_descriptor,
                     "face_descriptor_samples": face_descriptor_samples,
+                    "liveness_signals": liveness_signals,
                 }),
                 account_status=AccountStatus.PENDING,
             )
@@ -1909,12 +1990,25 @@ class AlumniLoginView(APIView):
         if not isinstance(login_audit, list):
             login_audit = []
 
+        # Liveness signal (client-attested) from the login challenge gate.
+        # Recorded for forensic audit; no server-side threshold check yet.
+        liveness_signal_raw = request.data.get("liveness_signal")
+        liveness_signal_for_audit: dict | None = None
+        if liveness_signal_raw:
+            try:
+                parsed_liveness = json.loads(liveness_signal_raw) if isinstance(liveness_signal_raw, str) else liveness_signal_raw
+                if isinstance(parsed_liveness, dict):
+                    liveness_signal_for_audit = parsed_liveness
+            except (ValueError, TypeError):
+                liveness_signal_for_audit = None
+
         login_audit.append(
             {
                 "timestamp": timezone.now().isoformat(),
                 "scan_url": login_scan_url,
                 "similarity_score": round(similarity_score, 4),
                 "descriptor_distance": round(descriptor_distance, 4) if descriptor_distance is not None else None,
+                "liveness_signal": liveness_signal_for_audit,
             }
         )
         login_audit = login_audit[-5:]

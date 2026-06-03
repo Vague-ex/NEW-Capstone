@@ -5,6 +5,19 @@ export const FACE_MATCH_SIMILARITY_THRESHOLD = 0.42;
 export const FACE_MATCH_DISTANCE_THRESHOLD =
     (1 - FACE_MATCH_SIMILARITY_THRESHOLD) * FACE_DISTANCE_SIMILARITY_SCALE;
 
+export const MOUTH_OPEN_MAR_THRESHOLD = 0.45;
+export const MOUTH_CLOSED_MAR_THRESHOLD = 0.25;
+export const HEAD_TURN_YAW_THRESHOLD_DEG = 20;
+export const FRONTAL_YAW_TOLERANCE_DEG = 15;
+
+export type HeadTurnDirection = 'left' | 'right';
+
+export interface LivenessSignal {
+    mouthAspectRatio: number;
+    yawDegrees: number;
+    detected: boolean;
+}
+
 let faceApiPromise: Promise<typeof import('modern-face-api')> | null = null;
 let modelsLoadedPromise: Promise<void> | null = null;
 
@@ -88,6 +101,113 @@ export async function extractFaceDescriptorFromDataUrl(dataUrl: string): Promise
 export async function extractFaceDescriptorFromBlob(blob: Blob): Promise<number[] | null> {
     const dataUrl = await blobToDataUrl(blob);
     return extractFaceDescriptorFromDataUrl(dataUrl);
+}
+
+type Point2D = { x: number; y: number };
+
+function distance(a: Point2D, b: Point2D): number {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+export function computeMouthAspectRatio(positions: Point2D[]): number {
+    if (!positions || positions.length < 68) {
+        return 0;
+    }
+    const innerLeftCorner = positions[60];
+    const innerRightCorner = positions[64];
+    const innerTop1 = positions[61];
+    const innerTop2 = positions[62];
+    const innerTop3 = positions[63];
+    const innerBottom1 = positions[67];
+    const innerBottom2 = positions[66];
+    const innerBottom3 = positions[65];
+
+    const horizontal = distance(innerLeftCorner, innerRightCorner);
+    if (horizontal <= 0) {
+        return 0;
+    }
+    const vertical =
+        (distance(innerTop1, innerBottom1) +
+            distance(innerTop2, innerBottom2) +
+            distance(innerTop3, innerBottom3)) /
+        3;
+
+    return vertical / horizontal;
+}
+
+export function estimateHeadYawDegrees(positions: Point2D[]): number {
+    if (!positions || positions.length < 68) {
+        return 0;
+    }
+    const rightEyeOuter = positions[36];
+    const leftEyeOuter = positions[45];
+    const noseTip = positions[30];
+
+    const eyeMidX = (rightEyeOuter.x + leftEyeOuter.x) / 2;
+    const interOcular = Math.abs(leftEyeOuter.x - rightEyeOuter.x);
+    if (interOcular <= 0) {
+        return 0;
+    }
+
+    const normalized = (noseTip.x - eyeMidX) / (interOcular / 2);
+    const clamped = Math.max(-1, Math.min(1, normalized));
+    return clamped * 45;
+}
+
+export async function extractFaceLandmarksFromDataUrl(
+    dataUrl: string,
+): Promise<Point2D[] | null> {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    await ensureModernFaceModelsLoaded();
+    const faceapi = await getFaceApi();
+    const image = await loadImage(dataUrl);
+
+    const detection = await faceapi
+        .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.45 }))
+        .withFaceLandmarks(true);
+
+    if (!detection || !detection.landmarks) {
+        return null;
+    }
+
+    const positions = detection.landmarks.positions as Point2D[];
+    if (!positions || positions.length < 68) {
+        return null;
+    }
+    return positions.map((p) => ({ x: p.x, y: p.y }));
+}
+
+export async function extractFaceLandmarksFromVideo(
+    video: HTMLVideoElement,
+): Promise<Point2D[] | null> {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    await ensureModernFaceModelsLoaded();
+    const faceapi = await getFaceApi();
+
+    const detection = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+        .withFaceLandmarks(true);
+
+    if (!detection || !detection.landmarks) {
+        return null;
+    }
+    const positions = detection.landmarks.positions as Point2D[];
+    if (!positions || positions.length < 68) {
+        return null;
+    }
+    return positions.map((p) => ({ x: p.x, y: p.y }));
+}
+
+export function computeLivenessSignal(positions: Point2D[]): LivenessSignal {
+    const mouthAspectRatio = computeMouthAspectRatio(positions);
+    const yawDegrees = estimateHeadYawDegrees(positions);
+    return { mouthAspectRatio, yawDegrees, detected: true };
 }
 
 export function averageFaceDescriptors(descriptors: number[][]): number[] | null {

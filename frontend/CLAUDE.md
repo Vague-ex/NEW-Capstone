@@ -28,7 +28,7 @@ Administrator (Program Chair/Faculty): Has full access to the geomapping dashboa
 Module A: Enhanced Identity Verification & Geo-Tagging Gate
 To ensure absolute data integrity and prevent fraudulent entries, the standard ID verification is reinforced with mandatory visual and spatial validation.
 
-Identity Photo Capture: During initial registration or critical status updates, the system must trigger the device camera to capture a real-time image of the user.
+Identity Photo Capture: During initial registration or critical status updates, the system must trigger the device camera to capture a real-time image of the user. The three registration captures double as active-liveness challenges (look forward, open mouth, randomized head turn) using face-api.js 68-point landmarks to confirm a live human is present; login adds a single randomized liveness challenge before the face-match step.
 
 Metadata Encoding: The image capture must be securely stamped with the exact Date, Time, and GPS Coordinates (Latitude/Longitude) of the submission.
 

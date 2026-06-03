@@ -257,6 +257,18 @@ export function RegisterAlumni() {
         payload.append('face_front', biometricData.front, `face_front_${Date.now()}.jpg`);
         payload.append('face_left', biometricData.left, `face_left_${Date.now()}.jpg`);
         payload.append('face_right', biometricData.right, `face_right_${Date.now()}.jpg`);
+        // Liveness signals collected per slot during the 3-challenge capture
+        // (neutral / mouth_open / head_turn). Stored as-is on the backend
+        // under biometric_template.liveness_signals.
+        payload.append(
+          'liveness_signals',
+          JSON.stringify({
+            head_turn_direction: biometricData.headTurnDirection,
+            samples: biometricData.livenessSignals,
+            slot_kinds: ['neutral', 'mouth_open', 'head_turn'],
+            captured_at: new Date().toISOString(),
+          }),
+        );
       }
 
       const response = await registerAlumni(payload);

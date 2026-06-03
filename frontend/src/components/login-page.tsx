@@ -6,12 +6,45 @@ import {
   AlertCircle, Mail, Camera, Video,
   CheckCircle2,
 } from "lucide-react";
-import { ADMIN_ACCESS_TOKEN_KEY, API_BASE_URL, adminLogin, alumniLogin, ApiClientError } from "../app/api-client";
+import {
+  ADMIN_ACCESS_TOKEN_KEY,
+  API_BASE_URL,
+  adminLogin,
+  alumniLogin,
+  ApiClientError,
+  type AlumniLoginLivenessSignal,
+} from "../app/api-client";
 import ForgotPasswordModal from "./auth/forgot-password";
 import {
   ensureModernFaceModelsLoaded,
   extractFaceDescriptorFromDataUrl,
+  extractFaceLandmarksFromVideo,
+  computeMouthAspectRatio,
+  estimateHeadYawDegrees,
+  MOUTH_OPEN_MAR_THRESHOLD,
+  HEAD_TURN_YAW_THRESHOLD_DEG,
 } from "../app/modern-face-descriptor";
+
+type LoginChallenge = 'mouth_open' | 'head_turn_left' | 'head_turn_right';
+
+const LOGIN_CHALLENGES: LoginChallenge[] = ['mouth_open', 'head_turn_left', 'head_turn_right'];
+
+function pickRandomLoginChallenge(): LoginChallenge {
+  return LOGIN_CHALLENGES[Math.floor(Math.random() * LOGIN_CHALLENGES.length)];
+}
+
+function describeChallenge(challenge: LoginChallenge): { title: string; hint: string } {
+  switch (challenge) {
+    case 'mouth_open':
+      return { title: 'Open your mouth', hint: 'Open wide and hold for a moment' };
+    case 'head_turn_left':
+      return { title: 'Turn your head LEFT', hint: 'Slowly look to your left' };
+    case 'head_turn_right':
+      return { title: 'Turn your head RIGHT', hint: 'Slowly look to your right' };
+  }
+}
+
+const LIVENESS_TIMEOUT_MS = 10000;
 const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "login" | "facescan";
@@ -92,11 +125,17 @@ export function LoginPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
-  const [scanStage, setScanStage] = useState<"idle" | "detecting" | "matched" | "failed">("idle");
+  const [scanStage, setScanStage] = useState<"idle" | "challenge" | "detecting" | "matched" | "failed">("idle");
   const [cameraError, setCameraError] = useState("");
   const [faceAuthBusy, setFaceAuthBusy] = useState(false);
   const scanTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const autoDetectInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const livenessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [challenge, setChallenge] = useState<LoginChallenge>(() => pickRandomLoginChallenge());
+  const [livenessPassed, setLivenessPassed] = useState(false);
+  const livenessSignalRef = useRef<AlumniLoginLivenessSignal | null>(null);
+  const [livenessCountdown, setLivenessCountdown] = useState<number | null>(null);
+  const countdownValRef = useRef<number | null>(null);
 
 
   useEffect(() => {
@@ -113,36 +152,108 @@ export function LoginPage() {
     }
   }, [phase]);
 
+  // Liveness challenge loop: while the camera is on and we have not yet
+  // verified the challenge, sample landmarks every ~500ms and check whether
+  // the prompted action (mouth open / head turn) has been performed. On
+  // success, kick off the face-auth submission. On timeout, fail back to the
+  // retry button.
   useEffect(() => {
-    if (!cameraOn || scanStage !== "idle" || faceAuthBusy) {
+    if (!cameraOn || scanStage !== "challenge" || faceAuthBusy) {
       if (autoDetectInterval.current) {
         clearInterval(autoDetectInterval.current);
         autoDetectInterval.current = null;
       }
       return;
     }
+
+    livenessTimeoutRef.current = setTimeout(() => {
+      if (autoDetectInterval.current) {
+        clearInterval(autoDetectInterval.current);
+        autoDetectInterval.current = null;
+      }
+      setScanStage("failed");
+      setCameraError(
+        `Liveness challenge timed out. Please ${describeChallenge(challenge).title.toLowerCase()} and try again.`,
+      );
+      stopCamera();
+    }, LIVENESS_TIMEOUT_MS);
+
     autoDetectInterval.current = setInterval(async () => {
-      if (faceAuthBusy || scanStage !== "idle") return;
+      if (faceAuthBusy) return;
       const video = videoRef.current;
       if (!video || video.videoWidth === 0) return;
-      const dataUrl = captureOvalFrame(video, 0.85);
       try {
-        const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
-        if (descriptor) {
-          clearInterval(autoDetectInterval.current!);
-          autoDetectInterval.current = null;
+        const landmarks = await extractFaceLandmarksFromVideo(video);
+        if (!landmarks) {
+          // Lost the face - reset any running countdown.
+          countdownValRef.current = null;
+          setLivenessCountdown(null);
+          return;
+        }
+        const mar = computeMouthAspectRatio(landmarks);
+        const yaw = estimateHeadYawDegrees(landmarks);
+
+        let passed = false;
+        if (challenge === 'mouth_open') {
+          passed = mar >= MOUTH_OPEN_MAR_THRESHOLD;
+        } else if (challenge === 'head_turn_left') {
+          passed = yaw <= -HEAD_TURN_YAW_THRESHOLD_DEG;
+        } else if (challenge === 'head_turn_right') {
+          passed = yaw >= HEAD_TURN_YAW_THRESHOLD_DEG;
+        }
+
+        if (!passed) {
+          // Gesture broken before the countdown finished - start over.
+          countdownValRef.current = null;
+          setLivenessCountdown(null);
+          return;
+        }
+
+        // Capture the signal at the moment the gesture is held.
+        livenessSignalRef.current = {
+          challenge,
+          mouthAspectRatio: mar,
+          yawDegrees: yaw,
+          completedAt: new Date().toISOString(),
+        };
+
+        const cur = countdownValRef.current;
+        if (cur === null) {
+          countdownValRef.current = 3;
+          setLivenessCountdown(3);
+        } else if (cur > 1) {
+          countdownValRef.current = cur - 1;
+          setLivenessCountdown(cur - 1);
+        } else {
+          // Held through 3-2-1 -> verify face now.
+          countdownValRef.current = null;
+          setLivenessCountdown(null);
+          if (livenessTimeoutRef.current) {
+            clearTimeout(livenessTimeoutRef.current);
+            livenessTimeoutRef.current = null;
+          }
+          if (autoDetectInterval.current) {
+            clearInterval(autoDetectInterval.current);
+            autoDetectInterval.current = null;
+          }
+          setLivenessPassed(true);
           void runGraduateFaceAuthentication();
         }
       } catch { /* silent - keep polling */ }
     }, 1000);
+
     return () => {
       if (autoDetectInterval.current) {
         clearInterval(autoDetectInterval.current);
         autoDetectInterval.current = null;
       }
+      if (livenessTimeoutRef.current) {
+        clearTimeout(livenessTimeoutRef.current);
+        livenessTimeoutRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn, scanStage, faceAuthBusy]); // runGraduateFaceAuthentication omitted - credential/password stable during scan phase
+  }, [cameraOn, scanStage, faceAuthBusy, challenge]);
 
   // Tick the lockout countdown each second so the button text refreshes.
   useEffect(() => {
@@ -278,6 +389,7 @@ export function LoginPage() {
         descriptor,
         undefined,
         gps ? { gpsLat: gps.lat, gpsLng: gps.lng, gpsAccuracyM: gps.acc } : undefined,
+        livenessSignalRef.current ?? undefined,
       );
       sessionStorage.setItem("alumni_user", JSON.stringify(response.alumni));
       setScanStage("matched");
@@ -296,7 +408,14 @@ export function LoginPage() {
 
   const startCamera = async () => {
     setCameraError("");
-    setScanStage("idle");
+    // Fresh randomized challenge every camera start - prevents replay attacks
+    // with a pre-recorded video of the alumnus.
+    setChallenge(pickRandomLoginChallenge());
+    setLivenessPassed(false);
+    livenessSignalRef.current = null;
+    countdownValRef.current = null;
+    setLivenessCountdown(null);
+    setScanStage("challenge");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
       if (videoRef.current) {
@@ -306,6 +425,7 @@ export function LoginPage() {
       setCameraOn(true);
     } catch {
       setCameraError("Camera access was denied. Please allow camera permission and try again.");
+      setScanStage("idle");
     }
   };
 
@@ -314,10 +434,16 @@ export function LoginPage() {
       clearInterval(autoDetectInterval.current);
       autoDetectInterval.current = null;
     }
+    if (livenessTimeoutRef.current) {
+      clearTimeout(livenessTimeoutRef.current);
+      livenessTimeoutRef.current = null;
+    }
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
+    countdownValRef.current = null;
+    setLivenessCountdown(null);
     setCameraOn(false);
   };
 
@@ -521,8 +647,8 @@ export function LoginPage() {
                     <Camera className="size-5 text-[#166534]" />
                   </div>
                   <div>
-                    <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: "1.1rem" }}>Face Verification</h2>
-                    <p className="text-gray-500 text-xs">Biometric verification for Graduate login</p>
+                    <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: "1.1rem" }}>Face & Liveness Verification</h2>
+                    <p className="text-gray-500 text-xs">Perform the on-screen liveness action, then we&apos;ll match your face.</p>
                   </div>
                 </div>
 
@@ -614,12 +740,33 @@ export function LoginPage() {
                         />
                       ))}
 
-                      <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                        <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2">
-                          <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-                          <span className="text-white text-xs" style={{ fontWeight: 500 }}>
-                            {scanStage === "idle" ? "Fill your face into the oval" : "Scanning face…"}
+                      {/* 3-2-1 countdown while the gesture is held */}
+                      {livenessCountdown !== null && scanStage !== "detecting" && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-white drop-shadow-lg" style={{ fontWeight: 800, fontSize: "4.5rem", lineHeight: 1 }}>
+                            {livenessCountdown}
                           </span>
+                        </div>
+                      )}
+
+                      <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2">
+                        <div className="bg-black/65 backdrop-blur-sm rounded-xl px-4 py-2 text-center">
+                          <p className="text-white text-sm" style={{ fontWeight: 700 }}>
+                            {scanStage === "detecting"
+                              ? livenessPassed
+                                ? "Liveness verified - scanning face..."
+                                : "Scanning face..."
+                              : livenessCountdown !== null
+                                ? `Hold still — capturing in ${livenessCountdown}…`
+                                : describeChallenge(challenge).title}
+                          </p>
+                          <p className="text-white/70 text-[11px] mt-0.5">
+                            {scanStage === "detecting"
+                              ? "Hold still"
+                              : livenessCountdown !== null
+                                ? "Keep holding the action"
+                                : describeChallenge(challenge).hint}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -678,15 +825,12 @@ export function LoginPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-center gap-2 py-1">
                       <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                      <span className="text-gray-600 text-sm">Scanning automatically…</span>
+                      <span className="text-gray-600 text-sm">
+                        {scanStage === "challenge"
+                          ? `Liveness challenge: ${describeChallenge(challenge).title}`
+                          : "Verifying face..."}
+                      </span>
                     </div>
-                    <button
-                      onClick={() => { void runGraduateFaceAuthentication(); }}
-                      className="w-full flex items-center justify-center gap-2 border border-gray-300 hover:bg-gray-50 text-gray-700 py-2.5 rounded-xl text-sm transition"
-                      style={{ fontWeight: 500 }}
-                    >
-                      <Camera className="size-4" /> Scan Now
-                    </button>
                     <button
                       onClick={stopCamera}
                       className="w-full flex items-center justify-center gap-1.5 text-gray-500 hover:text-gray-700 text-xs transition"

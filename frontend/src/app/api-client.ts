@@ -260,6 +260,13 @@ export interface AlumniLoginGps {
     gpsAccuracyM?: number | null;
 }
 
+export interface AlumniLoginLivenessSignal {
+    challenge: 'mouth_open' | 'head_turn_left' | 'head_turn_right';
+    mouthAspectRatio: number;
+    yawDegrees: number;
+    completedAt: string;
+}
+
 export async function alumniLogin(
     email: string,
     password: string,
@@ -267,6 +274,7 @@ export async function alumniLogin(
     faceDescriptor?: number[],
     similarityScore?: number,
     gps?: AlumniLoginGps,
+    liveness?: AlumniLoginLivenessSignal,
 ): Promise<AlumniAuthResponse> {
     const payload = new FormData();
     payload.append('email', email);
@@ -281,6 +289,7 @@ export async function alumniLogin(
     if (gps?.gpsLat != null) payload.append('gps_lat', String(gps.gpsLat));
     if (gps?.gpsLng != null) payload.append('gps_lng', String(gps.gpsLng));
     if (gps?.gpsAccuracyM != null) payload.append('gps_accuracy_m', String(gps.gpsAccuracyM));
+    if (liveness) payload.append('liveness_signal', JSON.stringify(liveness));
 
     const response = await fetch(`${API_BASE_URL}/api/auth/alumni/login/`, {
         method: 'POST',
