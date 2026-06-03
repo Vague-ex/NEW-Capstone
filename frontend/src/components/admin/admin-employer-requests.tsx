@@ -309,9 +309,9 @@ export function AdminEmployerRequests() {
 
       {/* Review / Detail Modal */}
       {reviewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50">
+          <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-lg max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
               <div className="flex items-center gap-2.5">
                 <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
                   {reviewModal.status === 'pending' ? 'Employer Application Review' : 'Employer Details'}
@@ -320,7 +320,7 @@ export function AdminEmployerRequests() {
               </div>
               <button onClick={() => setReviewModal(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-400 text-xl leading-none">×</button>
             </div>
-            <div className="p-6 space-y-3">
+            <div className="p-6 space-y-3 overflow-y-auto flex-1">
               <div className="flex items-center gap-3 mb-4">
                 <div className="flex size-12 items-center justify-center rounded-xl bg-violet-100">
                   <Building2 className="size-6 text-violet-600" />
@@ -391,7 +391,7 @@ export function AdminEmployerRequests() {
                 )}
               </div>
             </div>
-            <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
               <button onClick={() => setReviewModal(null)} className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm transition" style={{ fontWeight: 500 }}>
                 Close
               </button>
