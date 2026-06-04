@@ -17,6 +17,7 @@ import {
     forgotPasswordSetPassword,
     type ForgotRole,
 } from '../../app/api-client';
+import { PasswordChecklist, isPasswordStrong } from '../shared/password-strength';
 
 type Step = 'request' | 'code' | 'password' | 'done';
 
@@ -105,7 +106,7 @@ export default function ForgotPasswordModal({
     }, [open, codeRemaining, resendRemaining, ticketRemaining]);
 
     const inputCls = 'w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500';
-    const passOk = password.length >= 8;
+    const passOk = isPasswordStrong(password);
     const passwordsMatch = password === confirm && passOk;
     const codeDigits = code.replace(/\D/g, '');
     const canSubmitCode = codeDigits.length === CODE_LENGTH && !busy;
@@ -351,7 +352,7 @@ export default function ForgotPasswordModal({
 
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1.5">
-                                    New password (8+ characters)
+                                    New password
                                 </label>
                                 <div className="relative">
                                     <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
@@ -363,6 +364,7 @@ export default function ForgotPasswordModal({
                                         autoFocus
                                     />
                                 </div>
+                                <PasswordChecklist password={password} show={password.length > 0} />
                             </div>
                             <div>
                                 <label className="block text-xs font-medium text-gray-700 mb-1.5">

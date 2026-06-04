@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   Building2, ArrowLeft, CheckCircle2, AlertCircle,
-  Globe, Mail, Phone, User, Briefcase, Lock, Sparkles, Heart,
+  Globe, Mail, Phone, User, Briefcase, Lock, Sparkles, Heart, Eye, EyeOff,
 } from 'lucide-react';
 import {
   ApiClientError,
@@ -10,6 +10,7 @@ import {
   registerEmployer,
 } from '../app/api-client';
 import { useReferenceData, type SkillItem } from '../hooks/useReferenceData';
+import { PasswordChecklist, isPasswordStrong, PASSWORD_RULE_MESSAGE } from './shared/password-strength';
 
 const SOFT_SKILL_PATTERN = /soft|communication|interpersonal|behaviou?ral|attitude/i;
 
@@ -51,12 +52,21 @@ function SectionCard({ icon: Icon, title, subtitle, children }: {
 
 export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
+  // Evaluator invite: a graduate shared a link so a (new) evaluator at their
+  // company can register and verify them. We prefill + lock the company and
+  // reframe the page as "join {Company} as an evaluator" — under the hood this
+  // is still a normal EmployerAccount (own email), so no schema change.
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get('invite') || '';
+  const invitedCompany = searchParams.get('company') || '';
+  const isEvaluatorInvite = !!inviteToken;
   const { data: referenceData, loading: loadingReferenceData } = useReferenceData();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPass, setShowPass] = useState(false);
 
   const [form, setForm] = useState({
-    companyName: '', industry: '', website: '',
+    companyName: invitedCompany, industry: '', website: '',
     contactName: '', position: '', email: '', phone: '', phoneCountryCode: '+63',
     password: '', confirmPassword: '',
   });
@@ -117,7 +127,7 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
         return;
       }
     }
-    if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (!isPasswordStrong(form.password)) { setError(PASSWORD_RULE_MESSAGE); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return; }
 
     setIsLoading(true);
@@ -157,6 +167,11 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
       };
 
       sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
+      // Preserve the graduate's invite token so, once this evaluator is
+      // approved, they can be routed to that graduate's evaluation form.
+      if (inviteToken) {
+        sessionStorage.setItem('pending_invite_token', inviteToken);
+      }
       navigate('/employer/dashboard');
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -224,6 +239,17 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
           </div>
         </div>
 
+        {isEvaluatorInvite && (
+          <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 mb-5">
+            <Building2 className="size-4 text-emerald-600 shrink-0 mt-0.5" />
+            <p className="text-emerald-800 text-sm">
+              You&apos;re joining <span style={{ fontWeight: 700 }}>{invitedCompany || 'a company'}</span> as an{' '}
+              <span style={{ fontWeight: 700 }}>evaluator</span> to verify a graduate&apos;s employment. Register with your
+              own work email — your account is reviewed by the CHMSU BSIS Admin before it activates.
+            </p>
+          </div>
+        )}
+
         {error && (
           <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5">
             <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
@@ -242,8 +268,15 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
                   <div className="relative">
                     <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                     <input name="companyName" value={form.companyName} onChange={handleChange}
-                      placeholder="e.g. Accenture Philippines" className={iconInputClass} />
+                      readOnly={isEvaluatorInvite}
+                      placeholder="e.g. Accenture Philippines"
+                      className={`${iconInputClass}${isEvaluatorInvite ? ' bg-gray-50 cursor-not-allowed' : ''}`} />
                   </div>
+                  {isEvaluatorInvite && (
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Set by the graduate&apos;s invite. Register with <span style={{ fontWeight: 600 }}>your own work email</span> below.
+                    </p>
+                  )}
                 </Field>
                 <Field label="Industry" required>
                   <select name="industry" value={form.industry} onChange={handleChange} className={inputClass}>
@@ -304,11 +337,17 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
                         name="phone"
                         type="tel"
                         value={form.phone}
-                        maxLength={form.phoneCountryCode === '+63' ? 11 : 15}
-                        onChange={(e) =>
-                          setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))
-                        }
-                        placeholder={form.phoneCountryCode === '+63' ? '9XXXXXXXXX or 09XXXXXXXXX' : 'Phone number'}
+                        maxLength={form.phoneCountryCode === '+63' ? 10 : 15}
+                        onChange={(e) => {
+                          // Same cleaner as the graduate form: digits only, and
+                          // for +63 drop a leading 0 (09xx -> 9xx).
+                          let digits = e.target.value.replace(/\D/g, '');
+                          if (form.phoneCountryCode === '+63' && digits.startsWith('0')) {
+                            digits = digits.replace(/^0+/, '');
+                          }
+                          setForm((f) => ({ ...f, phone: digits }));
+                        }}
+                        placeholder={form.phoneCountryCode === '+63' ? '9XX XXX XXXX' : 'Phone number'}
                         className={iconInputClass}
                       />
                     </div>
@@ -458,14 +497,21 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
               </Field>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Password">
-                  <input name="password" type="password" value={form.password} onChange={handleChange}
-                    placeholder="Min. 8 characters" className={inputClass} />
+                  <div className="relative">
+                    <input name="password" type={showPass ? 'text' : 'password'} value={form.password} onChange={handleChange}
+                      placeholder="Min. 8 characters" className={`${inputClass} pr-10`} />
+                    <button type="button" onClick={() => setShowPass(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
                 </Field>
                 <Field label="Confirm Password">
-                  <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={handleChange}
+                  <input name="confirmPassword" type={showPass ? 'text' : 'password'} value={form.confirmPassword} onChange={handleChange}
                     placeholder="Repeat password" className={inputClass} />
                 </Field>
               </div>
+              <PasswordChecklist password={form.password} show={form.password.length > 0} />
             </div>
           </SectionCard>
 

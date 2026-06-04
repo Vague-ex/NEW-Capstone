@@ -476,6 +476,8 @@ export async function updateAlumniEmployment(
         job_title_id?: string;
         region_id?: string;
         skill_entries?: Array<{ skillId?: string; name?: string; proficiency?: string }>;
+        /** When false, suppress the auto re-evaluation email to prior confirmers. */
+        notify_previous_evaluator?: boolean;
     },
 ): Promise<{ alumni?: unknown }> {
     const response = await fetch(
@@ -489,6 +491,26 @@ export async function updateAlumniEmployment(
     await throwIfNotOk(response);
     const data = await response.json();
     return { alumni: data?.alumni ?? data };
+}
+
+/**
+ * Graduate-initiated verification invite: mints a token for the graduate's own
+ * current employment record and returns it so the UI can build a deep link
+ * (`/employer/evaluate?invite={id}`) to hand to a (possibly new) evaluator.
+ */
+export async function createAlumniVerificationInvite(
+    alumniId: string,
+): Promise<{ message?: string; token?: { id?: string }; companyName?: string }> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/verification/alumni/${alumniId}/invite/`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        },
+    );
+    await throwIfNotOk(response);
+    return response.json();
 }
 
 // ---------------------------------------------------------------------------

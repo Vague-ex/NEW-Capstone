@@ -256,9 +256,16 @@ def _resolve_region_choice(survey_data: dict, region_name_hint: str = "") -> str
 
 
 @transaction.atomic
-def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) -> dict:
+def apply_survey_data_to_normalized_tables(
+    alumni_account, survey_data: dict, *, notify_previous_evaluator: bool = True
+) -> dict:
     """Upsert AlumniProfile / EmploymentProfile / WorkAddress / CompetencyProfile /
     EmploymentRecord rows from a flat camelCase survey blob.
+
+    When ``notify_previous_evaluator`` is False, the automatic re-evaluation
+    email to prior confirmers is suppressed. The graduate's "same evaluator?"
+    modal drives this: a new evaluator (or an intentional same-evaluator reuse)
+    should not blast the previously-confirming employer.
 
     Returns a dict describing which tables were touched (handy for logging / tests).
     """
@@ -540,12 +547,13 @@ def apply_survey_data_to_normalized_tables(alumni_account, survey_data: dict) ->
             # create a fresh pending record. The old VerificationDecision
             # rows stay attached to the now-archived record by FK, so the
             # historical evaluation is preserved with no copying.
-            _queue_reevaluation_emails(
-                alumni_account=alumni_account,
-                old_record=existing_record,
-                new_company=company_name,
-                new_title=job_title,
-            )
+            if notify_previous_evaluator:
+                _queue_reevaluation_emails(
+                    alumni_account=alumni_account,
+                    old_record=existing_record,
+                    new_company=company_name,
+                    new_title=job_title,
+                )
             existing_record.is_current = False
             existing_record.save(update_fields=["is_current", "updated_at"])
             EmploymentRecord.objects.create(

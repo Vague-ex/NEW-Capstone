@@ -21,6 +21,7 @@ from .api import (
     SkillCategoryListView,
     SkillDetailView,
     SkillListView,
+    AlumniVerificationInviteView,
     SurveyDataRetrievalView,
     TrainingDataExportView,
     VerificationTokenDecisionView,
@@ -70,6 +71,12 @@ urlpatterns = [
 
     # Employer verification tokens / decisions (DS7)
     path("verification/tokens/issue/", VerificationTokenIssueView.as_view(), name="verification-token-issue"),
+    # Graduate-initiated invite (graduate mints a token for their own current record)
+    path(
+        "verification/alumni/<uuid:alumni_id>/invite/",
+        AlumniVerificationInviteView.as_view(),
+        name="verification-alumni-invite",
+    ),
     path(
         "verification/employer/graduates/",
         EmployerVerifiableGraduateListView.as_view(),

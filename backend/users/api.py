@@ -30,8 +30,8 @@ from .throttling import (
     reset_attempts as throttle_reset,
 )
 from tracer.models import (
-    AlumniSkill, CompetencyProfile, EmploymentProfile,
-    Skill, SkillCategory, WorkAddress,
+    AlumniSkill, CompetencyProfile, EmploymentProfile, EmploymentRecord,
+    Skill, SkillCategory, VerificationDecision, VerificationToken, WorkAddress,
 )
 
 try:
@@ -853,7 +853,22 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
     if not graduation_year:
         graduation_year = date.today().year
 
-    name = profile.get("name")
+    # Prefer the structured AlumniProfile name (first/middle/last) — the JSON
+    # blob "name" is usually empty for self-registered graduates, which made
+    # the admin pending-verification modal fall through to the email prefix.
+    name = ""
+    try:
+        prof = account.profile
+        if prof:
+            name = " ".join(
+                p.strip()
+                for p in [prof.first_name, prof.middle_name, prof.last_name]
+                if p and p.strip()
+            )
+    except Exception:
+        name = ""
+    if not name:
+        name = profile.get("name") or ""
     if not name and account.master_record:
         name = account.master_record.full_name
     if not name:
@@ -2145,9 +2160,21 @@ class AlumniEmploymentUpdateView(APIView):
         # Mirror the blob into the normalized tables so analytics, reports,
         # and admin dashboards can query them directly. JSON blob remains for
         # backwards compatibility but the tables are the source of truth.
+        # When the graduate goes through the "same evaluator?" modal (company /
+        # title changed), the old evaluator must NOT be auto-emailed: same ->
+        # reuse existing, different -> graduate shares an invite link manually.
+        # The frontend sends notify_previous_evaluator=false in that case.
+        notify_raw = request.data.get("notify_previous_evaluator", True)
+        notify_previous_evaluator = (
+            notify_raw if isinstance(notify_raw, bool) else str(notify_raw).strip().lower() != "false"
+        )
         try:
             from .survey_translator import apply_survey_data_to_normalized_tables
-            apply_survey_data_to_normalized_tables(alumni_account, merged_survey_data)
+            apply_survey_data_to_normalized_tables(
+                alumni_account,
+                merged_survey_data,
+                notify_previous_evaluator=notify_previous_evaluator,
+            )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception(
                 "survey_translator failed for alumni %s: %s", alumni_account.id, exc
@@ -2367,6 +2394,52 @@ class EmployerRequestApproveView(APIView):
 
         employer_account.account_status = AccountStatus.ACTIVE
         employer_account.save(update_fields=["account_status", "updated_at"])
+
+        # Activate any verification decisions this employer submitted while
+        # still pending. They were created with is_held=True and never applied
+        # to the employment record; now that the program chair has approved the
+        # employer, apply them (mirrors the non-held path in
+        # VerificationTokenDecisionView).
+        try:
+            with transaction.atomic():
+                held = (
+                    VerificationDecision.objects.select_related(
+                        "token", "token__employment_record", "verified_job_title"
+                    ).filter(employer_account=employer_account, is_held=True)
+                )
+                now = timezone.now()
+                for decision in held:
+                    decision.is_held = False
+                    decision.held_activated_at = now
+                    decision.save(update_fields=["is_held", "held_activated_at"])
+
+                    record = decision.token.employment_record if decision.token else None
+                    if record is None:
+                        continue
+                    record.employer_account = employer_account
+                    if decision.verified_employer_name:
+                        record.employer_name_input = decision.verified_employer_name
+                    if decision.verified_job_title:
+                        record.job_title = decision.verified_job_title
+                        if not record.job_title_input:
+                            record.job_title_input = decision.verified_job_title.name
+                    record.verification_status = (
+                        EmploymentRecord.VerificationStatus.VERIFIED
+                        if decision.decision == VerificationDecision.Decision.CONFIRM
+                        else EmploymentRecord.VerificationStatus.DENIED
+                    )
+                    record.save(
+                        update_fields=[
+                            "employer_account",
+                            "employer_name_input",
+                            "job_title",
+                            "job_title_input",
+                            "verification_status",
+                            "updated_at",
+                        ]
+                    )
+        except (OperationalError, DatabaseError):
+            logger.exception("Failed to activate held decisions for employer %s", employer_id)
 
         return Response(
             {

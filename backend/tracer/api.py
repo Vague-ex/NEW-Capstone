@@ -988,6 +988,69 @@ class VerificationTokenIssueView(APIView):
         )
 
 
+class AlumniVerificationInviteView(APIView):
+    """Graduate-initiated verification invite.
+
+    Lets a graduate mint a VerificationToken for THEIR OWN current employment
+    record, so they can hand the resulting link to a (possibly new) evaluator at
+    their company. Mirrors VerificationTokenIssueView but is keyed by alumni_id
+    instead of employer auth. No schema change - reuses VerificationToken.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, alumni_id):
+        try:
+            record = (
+                EmploymentRecord.objects
+                .select_related("job_title", "region", "alumni")
+                .filter(alumni_id=alumni_id, is_current=True)
+                .first()
+            )
+            if not record:
+                return Response(
+                    {"detail": "No current employment record to verify. Save your current job first."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            raw_ttl = request.data.get("expires_in_days")
+            ttl_days = _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS
+            if raw_ttl is not None:
+                try:
+                    ttl_days = max(1, min(int(raw_ttl), 30))
+                except (TypeError, ValueError):
+                    return Response(
+                        {"detail": "expires_in_days must be a valid number from 1 to 30."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            with transaction.atomic():
+                VerificationToken.objects.filter(
+                    employment_record=record,
+                    status=VerificationToken.Status.PENDING,
+                ).update(status=VerificationToken.Status.REVOKED)
+
+                token = VerificationToken.objects.create(
+                    alumni=record.alumni,
+                    employment_record=record,
+                    expires_at=timezone.now() + timedelta(days=ttl_days),
+                )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        return Response(
+            {
+                "message": "Verification invite created.",
+                "token": _serialize_verification_token(token),
+                "employmentRecord": _serialize_employment_record(record),
+                "companyName": record.employer_name_input,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class EmployerVerifiableGraduateListView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]

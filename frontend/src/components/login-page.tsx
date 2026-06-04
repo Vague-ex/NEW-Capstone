@@ -23,6 +23,7 @@ import {
   estimateHeadYawDegrees,
   MOUTH_OPEN_MAR_THRESHOLD,
   HEAD_TURN_YAW_THRESHOLD_DEG,
+  FRONTAL_YAW_TOLERANCE_DEG,
 } from "../app/modern-face-descriptor";
 
 type LoginChallenge = 'mouth_open' | 'head_turn_left' | 'head_turn_right';
@@ -125,12 +126,17 @@ export function LoginPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
-  const [scanStage, setScanStage] = useState<"idle" | "challenge" | "detecting" | "matched" | "failed">("idle");
+  const [scanStage, setScanStage] = useState<"idle" | "aligning" | "challenge" | "detecting" | "matched" | "failed">("idle");
   const [cameraError, setCameraError] = useState("");
   const [faceAuthBusy, setFaceAuthBusy] = useState(false);
   const scanTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const autoDetectInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const alignIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const alignTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const livenessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The frontal frame + descriptor captured BEFORE the liveness challenge, used
+  // for the actual face match so the match never sees a mid-gesture pose.
+  const frontalCaptureRef = useRef<{ blob: Blob; descriptor: number[] } | null>(null);
   const [challenge, setChallenge] = useState<LoginChallenge>(() => pickRandomLoginChallenge());
   const [livenessPassed, setLivenessPassed] = useState(false);
   const livenessSignalRef = useRef<AlumniLoginLivenessSignal | null>(null);
@@ -152,11 +158,75 @@ export function LoginPage() {
     }
   }, [phase]);
 
-  // Liveness challenge loop: while the camera is on and we have not yet
-  // verified the challenge, sample landmarks every ~500ms and check whether
-  // the prompted action (mouth open / head turn) has been performed. On
-  // success, kick off the face-auth submission. On timeout, fail back to the
-  // retry button.
+  // Alignment step (runs FIRST): wait for a clear, frontal face, then capture
+  // the frame + descriptor used for the actual identity match. Doing this
+  // before the liveness gesture guarantees the match never sees a turned head
+  // or open mouth, which was causing "passed liveness but face not recognized".
+  useEffect(() => {
+    if (!cameraOn || scanStage !== "aligning" || faceAuthBusy) {
+      if (alignIntervalRef.current) {
+        clearInterval(alignIntervalRef.current);
+        alignIntervalRef.current = null;
+      }
+      return;
+    }
+
+    alignTimeoutRef.current = setTimeout(() => {
+      if (alignIntervalRef.current) {
+        clearInterval(alignIntervalRef.current);
+        alignIntervalRef.current = null;
+      }
+      setScanStage("failed");
+      setCameraError("Couldn't get a clear, front-facing shot. Face the camera in good light and try again.");
+      stopCamera();
+    }, 15000);
+
+    alignIntervalRef.current = setInterval(async () => {
+      if (faceAuthBusy) return;
+      const video = videoRef.current;
+      if (!video || video.videoWidth === 0) return;
+      try {
+        // Require a roughly frontal face before capturing the match frame.
+        const landmarks = await extractFaceLandmarksFromVideo(video);
+        if (!landmarks) return;
+        const yaw = estimateHeadYawDegrees(landmarks);
+        if (Math.abs(yaw) > FRONTAL_YAW_TOLERANCE_DEG) return;
+
+        const captured = await captureFaceScanBlob();
+        frontalCaptureRef.current = captured;
+
+        if (alignTimeoutRef.current) {
+          clearTimeout(alignTimeoutRef.current);
+          alignTimeoutRef.current = null;
+        }
+        if (alignIntervalRef.current) {
+          clearInterval(alignIntervalRef.current);
+          alignIntervalRef.current = null;
+        }
+        // Frontal face locked — move on to the liveness challenge.
+        setScanStage("challenge");
+      } catch {
+        /* no face / not ready yet — keep polling */
+      }
+    }, 600);
+
+    return () => {
+      if (alignIntervalRef.current) {
+        clearInterval(alignIntervalRef.current);
+        alignIntervalRef.current = null;
+      }
+      if (alignTimeoutRef.current) {
+        clearTimeout(alignTimeoutRef.current);
+        alignTimeoutRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOn, scanStage, faceAuthBusy]);
+
+  // Liveness challenge loop: runs AFTER a frontal frame is captured. Samples
+  // landmarks every ~1s, checks the prompted action (mouth open / head turn),
+  // and on a held 3-2-1 countdown submits the already-captured frontal frame.
+  // On timeout, fall back to the retry button.
   useEffect(() => {
     if (!cameraOn || scanStage !== "challenge" || faceAuthBusy) {
       if (autoDetectInterval.current) {
@@ -219,8 +289,8 @@ export function LoginPage() {
 
         const cur = countdownValRef.current;
         if (cur === null) {
-          countdownValRef.current = 3;
-          setLivenessCountdown(3);
+          countdownValRef.current = 2;
+          setLivenessCountdown(2);
         } else if (cur > 1) {
           countdownValRef.current = cur - 1;
           setLivenessCountdown(cur - 1);
@@ -380,7 +450,10 @@ export function LoginPage() {
     setScanStage("detecting");
 
     try {
-      const { blob: faceBlob, descriptor } = await captureFaceScanBlob();
+      // Prefer the frontal frame captured during the alignment step; fall back
+      // to a fresh capture only if it's somehow missing.
+      const { blob: faceBlob, descriptor } =
+        frontalCaptureRef.current ?? (await captureFaceScanBlob());
       const gps = await captureLoginGps();
       const response = await alumniLogin(
         credential.trim(),
@@ -413,9 +486,11 @@ export function LoginPage() {
     setChallenge(pickRandomLoginChallenge());
     setLivenessPassed(false);
     livenessSignalRef.current = null;
+    frontalCaptureRef.current = null;
     countdownValRef.current = null;
     setLivenessCountdown(null);
-    setScanStage("challenge");
+    // Frontal capture happens first, then the liveness challenge.
+    setScanStage("aligning");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
       if (videoRef.current) {
@@ -433,6 +508,14 @@ export function LoginPage() {
     if (autoDetectInterval.current) {
       clearInterval(autoDetectInterval.current);
       autoDetectInterval.current = null;
+    }
+    if (alignIntervalRef.current) {
+      clearInterval(alignIntervalRef.current);
+      alignIntervalRef.current = null;
+    }
+    if (alignTimeoutRef.current) {
+      clearTimeout(alignTimeoutRef.current);
+      alignTimeoutRef.current = null;
     }
     if (livenessTimeoutRef.current) {
       clearTimeout(livenessTimeoutRef.current);
@@ -752,20 +835,22 @@ export function LoginPage() {
                       <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2">
                         <div className="bg-black/65 backdrop-blur-sm rounded-xl px-4 py-2 text-center">
                           <p className="text-white text-sm" style={{ fontWeight: 700 }}>
-                            {scanStage === "detecting"
-                              ? livenessPassed
-                                ? "Liveness verified - scanning face..."
-                                : "Scanning face..."
-                              : livenessCountdown !== null
-                                ? `Hold still — capturing in ${livenessCountdown}…`
-                                : describeChallenge(challenge).title}
+                            {scanStage === "aligning"
+                              ? "Look straight at the camera"
+                              : scanStage === "detecting"
+                                ? "Verifying your face..."
+                                : livenessCountdown !== null
+                                  ? `Hold still — capturing in ${livenessCountdown}…`
+                                  : describeChallenge(challenge).title}
                           </p>
                           <p className="text-white/70 text-[11px] mt-0.5">
-                            {scanStage === "detecting"
-                              ? "Hold still"
-                              : livenessCountdown !== null
-                                ? "Keep holding the action"
-                                : describeChallenge(challenge).hint}
+                            {scanStage === "aligning"
+                              ? "Face forward, neutral expression, good lighting"
+                              : scanStage === "detecting"
+                                ? "Hold still"
+                                : livenessCountdown !== null
+                                  ? "Keep holding the action"
+                                  : `Step 2: ${describeChallenge(challenge).hint}`}
                           </p>
                         </div>
                       </div>
@@ -826,9 +911,11 @@ export function LoginPage() {
                     <div className="flex items-center justify-center gap-2 py-1">
                       <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
                       <span className="text-gray-600 text-sm">
-                        {scanStage === "challenge"
-                          ? `Liveness challenge: ${describeChallenge(challenge).title}`
-                          : "Verifying face..."}
+                        {scanStage === "aligning"
+                          ? "Step 1: centering your face..."
+                          : scanStage === "challenge"
+                            ? `Step 2 — ${describeChallenge(challenge).title}`
+                            : "Verifying face..."}
                       </span>
                     </div>
                     <button

@@ -371,8 +371,8 @@ export default function RegisterAlumniPersonal({
         if (met) {
           const cur = countdownValRef.current;
           if (cur === null) {
-            countdownValRef.current = 3;
-            setAutoCountdown(3);
+            countdownValRef.current = 2;
+            setAutoCountdown(2);
           } else if (cur > 1) {
             countdownValRef.current = cur - 1;
             setAutoCountdown(cur - 1);

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
-import { fetchAlumniAccountStatus, updateAlumniEmployment } from '../../app/api-client';
+import { fetchAlumniAccountStatus, updateAlumniEmployment, createAlumniVerificationInvite } from '../../app/api-client';
 import {
   useReferenceData,
   provincesApi,
@@ -148,6 +148,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     title: String(sd.currentJobPosition ?? sd.current_job_title ?? alumni.jobTitle ?? ''),
   });
   const [reevalConfirmOpen, setReevalConfirmOpen] = useState(false);
+  // Retracking notice: shown on entry when the dashboard routed the graduate
+  // here because their record is 2+ years old.
+  const [retrackNoticeOpen, setRetrackNoticeOpen] = useState(retrackingMode);
   // Share-link modal: shown AFTER a successful save when the company
   // changed (including first-time becoming employed). Replaces the older
   // inline amber banner and the small emerald sub-panel that used to live
@@ -210,7 +213,36 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   const workLeafletMapRef = useRef<unknown>(null);
   const workMarkerRef = useRef<unknown>(null);
 
-  const employerPortalLink = typeof window === 'undefined' ? '/employer' : `${window.location.origin}/employer`;
+  const [employerPortalLink, setEmployerPortalLink] = useState(
+    typeof window === 'undefined' ? '/employer' : `${window.location.origin}/employer`,
+  );
+  // Answer to the "is your evaluator the same as before?" modal question.
+  // null = not asked / not a work change; true = same evaluator; false = a
+  // different evaluator at (possibly) the same company.
+  const [evaluatorSame, setEvaluatorSame] = useState<boolean | null>(null);
+
+  // Open the share modal and mint a graduate-initiated invite token so the
+  // link the graduate copies routes a (new) evaluator straight to this
+  // graduate's evaluation. Falls back to the generic portal link on failure.
+  const openShareLinkWithInvite = async () => {
+    setShareLinkModalOpen(true);
+    if (!alumniId) return;
+    try {
+      const res = await createAlumniVerificationInvite(alumniId);
+      const tokenId = res?.token?.id;
+      if (tokenId) {
+        const base = typeof window === 'undefined' ? '' : window.location.origin;
+        const params = new URLSearchParams({ invite: tokenId });
+        const companyName = res?.companyName || form.currentJobCompany || '';
+        if (companyName) params.set('company', companyName);
+        // Route the (possibly new) evaluator into employer registration framed
+        // as "join {Company} as an evaluator" — company prefilled & locked.
+        setEmployerPortalLink(`${base}/register/employer?${params.toString()}`);
+      }
+    } catch {
+      /* keep the generic /employer link already set */
+    }
+  };
 
   const setF = (key: string, value: string) => {
     setSaved(false); setSaveError('');
@@ -470,6 +502,10 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           survey_data: surveyDataPayload,
           job_title_id: resolvedJobTitleId,
           region_id: resolvedRegionId,
+          // Only auto-email prior confirmers when this was NOT routed through
+          // the "same evaluator?" modal. Same -> reuse existing (no email);
+          // different -> graduate shares an invite link (old evaluator silent).
+          notify_previous_evaluator: evaluatorSame === null,
           skill_entries: [
             ...form.technical_skills.map(name => ({ name, proficiency: 'intermediate' })),
             ...form.soft_skills.map(name => ({ name, proficiency: 'intermediate' })),
@@ -507,15 +543,19 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
       // company changed (covers both moving employers and first-time
       // becoming employed). Same-employer-title-only changes do not
       // trigger it because the existing employer already has the link.
-      if (
-        companyChangedAtSave
-        && isCurrentlyEmployed
-        && form.currentJobCompany.trim()
-      ) {
-        setShareLinkModalOpen(true);
+      // Surface the tokenized invite link when the evaluator is a DIFFERENT
+      // person (modal answered "no"), or — for a first-time/company change with
+      // no prior verification — when the company changed. Same-evaluator reuse
+      // shows nothing (the existing employer already has access).
+      const shouldInvite =
+        evaluatorSame === false
+        || (evaluatorSame === null && companyChangedAtSave && isCurrentlyEmployed && !!form.currentJobCompany.trim());
+      if (shouldInvite) {
+        void openShareLinkWithInvite();
       }
+      setEvaluatorSame(null);
 
-      if (retrackingMode && alumniId) {
+      if (retrackingMode && alumniId && !shouldInvite) {
         try {
           const refreshed = await fetchAlumniAccountStatus(alumniId);
           if (refreshed && typeof refreshed === 'object') {
@@ -590,6 +630,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           {/* On large screens, Academic + Employment Status sit side-by-side */}
           <div className="lg:grid lg:grid-cols-2 lg:gap-5 space-y-5 lg:space-y-0">
 
+          {/* Academic & pre-employment is one-time history — hidden when retracking. */}
+          {!retrackingMode && (
           <SectionCard icon={BookOpen} title="Part III - Academic & Pre-Employment Profile">
 
             <div>
@@ -638,6 +680,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             </div>
 
           </SectionCard>
+          )}
 
           {/* ── Section 5: Employment Status ─────────────────────────────────── */}
           <SectionCard icon={Briefcase} title="Part IV - Current Employment Status">
@@ -654,8 +697,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
           </div>{/* end lg:grid for Part III + IV */}
 
-          {/* ── Section 6: First Job ─────────────────────────────────────────── */}
-          {!isNeverEmployed && form.employment_status && (
+          {/* ── Section 6: First Job (one-time history; hidden when retracking) ── */}
+          {!retrackingMode && !isNeverEmployed && form.employment_status && (
             <SectionCard icon={Clock} title="Part V - First Job Details">
               <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 lg:items-start space-y-5 lg:space-y-0">
               <div className="space-y-5">
@@ -1176,8 +1219,42 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           changed on an already-verified record. Backend will retire the
           current EmploymentRecord, drop verified status, and email the
           prior confirming employer to re-evaluate. */}
+      {retrackNoticeOpen && (
+        <div className="fixed inset-0 z-[1200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
+          <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-md flex flex-col overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
+                <AlertTriangle className="size-5 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Time to update your record</p>
+                <p className="text-gray-500 text-xs mt-0.5">It&apos;s been over 2 years since your last update.</p>
+              </div>
+            </div>
+            <div className="px-5 py-4 text-sm text-gray-700 space-y-2">
+              <p>
+                Please confirm your <span style={{ fontWeight: 600 }}>current</span>{' '}details — your present job,
+                work location, and any personal changes. You won&apos;t need to re-enter your first-job or
+                academic history.
+              </p>
+              <p className="text-xs text-gray-500">Skills and personal info can also be updated from their own pages.</p>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setRetrackNoticeOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
+                style={{ fontWeight: 600 }}
+              >
+                Update now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {reevalConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
+        <div className="fixed inset-0 z-[1200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
           <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-md max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
@@ -1208,14 +1285,37 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               </div>
               <p className="text-xs text-gray-500">
                 Your previous evaluation is preserved in the system as part of
-                the historical record. Your prior employer is notified by email
-                so they can re-confirm or deny the new role.
+                the historical record.
               </p>
+              <div className="rounded-xl border border-gray-200 p-3 space-y-2">
+                <p className="text-xs text-gray-700" style={{ fontWeight: 600 }}>
+                  Will the same person/employer evaluate you again?
+                </p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setEvaluatorSame(true)}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-xs transition ${evaluatorSame === true ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    style={{ fontWeight: 600 }}>
+                    Yes, same evaluator
+                  </button>
+                  <button type="button" onClick={() => setEvaluatorSame(false)}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-xs transition ${evaluatorSame === false ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    style={{ fontWeight: 600 }}>
+                    No, a different person
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  {evaluatorSame === true
+                    ? 'We will reuse your existing employer — no new email is sent.'
+                    : evaluatorSame === false
+                      ? 'You will get a link to send your new evaluator. Your previous evaluator will NOT be emailed.'
+                      : 'Choose one to continue.'}
+                </p>
+              </div>
             </div>
             <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setReevalConfirmOpen(false)}
+                onClick={() => { setReevalConfirmOpen(false); setEvaluatorSame(null); }}
                 className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-700 text-sm transition"
                 style={{ fontWeight: 500 }}
               >
@@ -1224,8 +1324,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               <button
                 type="button"
                 onClick={() => { void performSave(); }}
-                disabled={isSaving}
-                className="px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition disabled:opacity-70"
+                disabled={isSaving || evaluatorSame === null}
+                className="px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ fontWeight: 600 }}
               >
                 {isSaving ? 'Submitting…' : 'Submit Changes'}
@@ -1241,7 +1341,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           and the share prompt is timed to when the alumnus actually needs
           to forward the link to their new employer. */}
       {shareLinkModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
+        <div className="fixed inset-0 z-[1200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
           <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-md max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
