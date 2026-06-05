@@ -378,6 +378,9 @@ export function AdminVerified() {
   const [search, setSearch] = useState('');
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  // Seeded sample/masterlist records are hidden by default so the real demo
+  // stays clean; this toggle reveals them (they power the analytics).
+  const [showSample, setShowSample] = useState(false);
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -442,12 +445,13 @@ export function AdminVerified() {
       || (a.company ?? '').toLowerCase().includes(q);
     const matchYear = filterYear === 'all' || a.graduationYear === parseInt(filterYear);
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
-    return matchQ && matchYear && matchStatus;
+    const matchSample = showSample || !(a as Record<string, unknown>).isSample;
+    return matchQ && matchYear && matchStatus && matchSample;
   }).sort((a, b) => {
     const va = String((a as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     const vb = String((b as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-  }), [backendVerified, search, filterYear, filterStatus, sortField, sortDir]);
+  }), [backendVerified, search, filterYear, filterStatus, showSample, sortField, sortDir]);
 
   const handleSort = (f: string) => {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -462,7 +466,7 @@ export function AdminVerified() {
   );
 
   // Snap back to page 1 whenever the filtered set changes shape.
-  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, showSample, sortField, sortDir]);
 
   const SortIcon = ({ f }: { f: string }) => (
     <span className="inline-flex flex-col ml-1 opacity-60">
@@ -524,6 +528,10 @@ export function AdminVerified() {
             <option value="self-employed">Self-Employed</option>
             <option value="unemployed">Unemployed</option>
           </select>
+          <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none px-2">
+            <input type="checkbox" checked={showSample} onChange={e => setShowSample(e.target.checked)} className="size-3.5 rounded border-gray-300" />
+            Show masterlist records
+          </label>
           <span className="text-gray-400 text-xs ml-auto">{verifiedAlumni.length} records</span>
         </div>
 

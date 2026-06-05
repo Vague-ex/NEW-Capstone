@@ -108,15 +108,14 @@ interface ShotInstruction {
   kind: LivenessChallengeKind;
 }
 
-function buildShotInstructions(headTurn: HeadTurnDirection): ShotInstruction[] {
+function buildShotInstructions(): ShotInstruction[] {
   return [
     { label: 'Look Forward', desc: 'Face the camera, keep your mouth closed', kind: 'neutral' },
     { label: 'Open Mouth', desc: 'Open your mouth wide and hold for a moment', kind: 'mouth_open' },
     {
-      label: headTurn === 'left' ? 'Turn LEFT' : 'Turn RIGHT',
-      desc: headTurn === 'left'
-        ? 'Slowly turn your head to the left'
-        : 'Slowly turn your head to the right',
+      // Direction-agnostic (mirror-proof): accept a turn to either side.
+      label: 'Turn Your Head',
+      desc: 'Turn your head to either side',
       kind: 'head_turn',
     },
   ];
@@ -307,10 +306,7 @@ export default function RegisterAlumniPersonal({
   const [headTurnDirection] = useState<HeadTurnDirection>(
     () => (Math.random() < 0.5 ? 'left' : 'right'),
   );
-  const shotInstructions = useMemo(
-    () => buildShotInstructions(headTurnDirection),
-    [headTurnDirection],
-  );
+  const shotInstructions = useMemo(() => buildShotInstructions(), []);
 
   useEffect(() => { return () => stopCamera(); }, []);
 
@@ -335,8 +331,8 @@ export default function RegisterAlumniPersonal({
       return mar >= MOUTH_OPEN_MAR_THRESHOLD;
     }
     if (challenge.kind === 'head_turn') {
-      const expectedSign = headTurnDirection === 'left' ? -1 : 1;
-      return Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG && Math.sign(yaw) === expectedSign;
+      // Either direction counts (mirror-proof).
+      return Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG;
     }
     return false;
   };
@@ -744,14 +740,9 @@ export default function RegisterAlumniPersonal({
           return;
         }
       } else if (challenge.kind === 'head_turn') {
-        const expectedSign = headTurnDirection === 'left' ? -1 : 1;
+        // Either direction counts (mirror-proof) — just require a clear turn.
         if (Math.abs(yaw) < HEAD_TURN_YAW_THRESHOLD_DEG) {
-          setStepError(`Please turn your head further to the ${headTurnDirection}.`);
-          setCheckingBlur(false);
-          return;
-        }
-        if (Math.sign(yaw) !== expectedSign) {
-          setStepError(`Please turn your head to the ${headTurnDirection}, not the other way.`);
+          setStepError('Please turn your head further to either side.');
           setCheckingBlur(false);
           return;
         }
@@ -1548,7 +1539,7 @@ export default function RegisterAlumniPersonal({
                     <div>
                       <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Liveness Capture</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        Three quick challenges — face forward, open mouth, then turn your head {headTurnDirection.toUpperCase()} — to prove you are present in real time.
+                        Three quick challenges — face forward, open mouth, then turn your head to either side — to prove you are present in real time.
                       </p>
                     </div>
                   </div>
@@ -1561,7 +1552,7 @@ export default function RegisterAlumniPersonal({
                       <p className="mt-0.5">
                         Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
                         Make sure your face is well-lit. You will be asked to face the camera, open your mouth wide, then
-                        turn your head {headTurnDirection.toUpperCase()} - each on a separate capture.
+                        turn your head to either side - each on a separate capture.
                       </p>
                     </div>
                   </div>
@@ -1769,7 +1760,7 @@ export default function RegisterAlumniPersonal({
                 </div>
                 {!allCaptured && (
                   <p className="text-center text-gray-400 text-xs">
-                    All 3 liveness challenges (look forward, open mouth, turn {headTurnDirection}) are required to continue.
+                    All 3 liveness challenges (look forward, open mouth, turn your head) are required to continue.
                   </p>
                 )}
               </div>

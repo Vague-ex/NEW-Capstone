@@ -848,6 +848,14 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
     )
 
     graduation_year = profile.get("graduation_year")
+    if not graduation_year:
+        # Prefer the AlumniProfile table (the JSON blob is empty for
+        # self-registered + seeded accounts).
+        try:
+            if account.profile and account.profile.graduation_year:
+                graduation_year = account.profile.graduation_year
+        except Exception:
+            pass
     if not graduation_year and account.master_record:
         graduation_year = account.master_record.batch_year
     if not graduation_year:
@@ -932,6 +940,8 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "graduationYear": graduation_year,
         "verificationStatus": verification_status,
         "accountStatus": account.account_status,
+        "rejectionReason": account.rejection_reason or "",
+        "isSample": bool(isinstance(template, dict) and template.get("is_sample")),
         "employmentStatus": employment_status,
         "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
         "company": survey_data.get("currentJobCompany") or "",
@@ -993,6 +1003,7 @@ def _employer_request_payload(account: EmployerAccount) -> dict:
         "address": account.company_address,
         "status": status_label,
         "accountStatus": status_value,
+        "rejectionReason": account.rejection_reason or "",
         "date": account.created_at.date().isoformat(),
         "dateUpdated": account.updated_at.date().isoformat(),
         "desiredSkills": desired_skills,
@@ -2333,26 +2344,65 @@ class AlumniRequestApproveView(APIView):
         )
 
 
+def _send_rejection_email(*, to_email: str, recipient_name: str, reason: str, is_employer: bool, company_name: str = "") -> None:
+    """Best-effort branded rejection email. Logs and swallows transport errors
+    so a failed send never blocks the admin's reject action."""
+    if not to_email:
+        return
+    try:
+        from .email_send import send_branded_email
+
+        template_base = (
+            "employer_rejected" if is_employer else "account_rejected"
+        )
+        send_branded_email(
+            to_email=to_email,
+            subject=(
+                "Your employer registration was not approved"
+                if is_employer
+                else "Your graduate registration was not approved"
+            ),
+            template_base=template_base,
+            context={
+                "recipient_name": recipient_name or "",
+                "reason": (reason or "").strip(),
+                "company_name": company_name or "",
+            },
+        )
+    except Exception:
+        logger.exception("Failed to send rejection email to %s", to_email)
+
+
 class AlumniRequestRejectView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request, alumni_id):
-        alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
+        alumni_account = AlumniAccount.objects.select_related("user", "master_record", "profile").filter(id=alumni_id).first()
         if not alumni_account:
             return Response(
                 {"detail": "Graduate request was not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        reason = (request.data.get("reason") or "").strip()
         alumni_account.account_status = AccountStatus.REJECTED
-        alumni_account.save(update_fields=["account_status", "updated_at"])
+        alumni_account.rejection_reason = reason
+        alumni_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
+
+        payload = _admin_alumni_payload(alumni_account)
+        _send_rejection_email(
+            to_email=alumni_account.user.email,
+            recipient_name=payload.get("name") or "",
+            reason=reason,
+            is_employer=False,
+        )
 
         return Response(
             {
                 "message": "Graduate request rejected.",
-                "alumni": _admin_alumni_payload(alumni_account),
+                "alumni": payload,
             },
             status=status.HTTP_200_OK,
         )
@@ -2463,8 +2513,18 @@ class EmployerRequestRejectView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        reason = (request.data.get("reason") or "").strip()
         employer_account.account_status = AccountStatus.REJECTED
-        employer_account.save(update_fields=["account_status", "updated_at"])
+        employer_account.rejection_reason = reason
+        employer_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
+
+        _send_rejection_email(
+            to_email=employer_account.company_email or employer_account.user.email,
+            recipient_name=employer_account.contact_name or "",
+            reason=reason,
+            is_employer=True,
+            company_name=employer_account.company_name or "",
+        )
 
         return Response(
             {
@@ -2491,6 +2551,30 @@ class MasterlistCheckView(APIView):
         return Response({
             "matched": record is not None,
             "name": record.full_name if record else None,
+        })
+
+
+class MasterlistListView(APIView):
+    """Admin: list all GraduateMasterRecord entries with totals + per-batch counts.
+
+    Backs the batch-upload page's "current master list" tiles, which previously
+    read a static frontend array and therefore showed 0.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from collections import Counter
+        qs = GraduateMasterRecord.objects.all().order_by("batch_year", "full_name")
+        entries = [
+            {"id": str(r.id), "name": r.full_name, "graduationYear": r.batch_year}
+            for r in qs
+        ]
+        per_batch = Counter(e["graduationYear"] for e in entries if e["graduationYear"] is not None)
+        return Response({
+            "total": len(entries),
+            "perBatch": [{"year": y, "count": c} for y, c in sorted(per_batch.items())],
+            "entries": entries,
         })
 
 

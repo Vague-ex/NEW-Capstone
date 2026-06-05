@@ -245,10 +245,20 @@ export function AdminMap() {
         );
         const color = STATUS_COLORS[statusKey];
         const abroad = isAbroad(alumni);
+        // "Approximate" = no precise workplace pin was set, so the location came
+        // from registration GPS or a city-level geocode (city centroid).
+        const approximate = !alumni.workLat && !alumni.workLng;
+        const borderStyle = abroad
+          ? '3px solid #f59e0b'
+          : approximate ? '2.5px dashed #ffffff' : '2.5px solid #ffffff';
+        const sdLoc = ((alumni as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
+        const regionText = (typeof sdLoc.region_address === 'string' && sdLoc.region_address)
+          || (typeof sdLoc.region === 'string' && sdLoc.region) || '';
+        const locLabel = [alumni.workCity, regionText].filter(Boolean).join(', ');
 
         const icon = L.divIcon({
           className: '',
-          html: `<div style="width:${abroad ? 22 : 18}px;height:${abroad ? 22 : 18}px;border-radius:50%;background:${color};border:${abroad ? '3px solid #f59e0b' : '2.5px solid white'};box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;" title="${alumni.name}"></div>`,
+          html: `<div style="width:${abroad ? 22 : 18}px;height:${abroad ? 22 : 18}px;border-radius:50%;background:${color};border:${borderStyle};box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;" title="${alumni.name}${approximate ? ' (approximate location)' : ''}"></div>`,
           iconSize: [abroad ? 22 : 18, abroad ? 22 : 18],
           iconAnchor: [abroad ? 11 : 9, abroad ? 11 : 9],
         });
@@ -277,8 +287,11 @@ export function AdminMap() {
             ${alumni.company
               ? `<p style="margin:0 0 2px;font-size:12px;color:#374151;font-weight:600">${alumni.jobTitle ?? 'Employed'} @ ${alumni.company}</p>`
               : ''}
-            ${alumni.workCity
-              ? `<p style="margin:0 0 4px;font-size:11px;color:#9ca3af">&#128205; ${alumni.workCity}</p>`
+            ${(locLabel || approximate)
+              ? `<p style="margin:0 0 4px;font-size:11px;color:#6b7280">&#128205; ${locLabel || 'Location on file'}${approximate ? ` <span style="color:#d97706;font-weight:600">· approximate</span>` : ''}</p>`
+              : ''}
+            ${approximate
+              ? `<p style="margin:0 0 4px;font-size:10px;color:#9ca3af;font-style:italic">Pin is an estimate from the city/region — not an exact workplace.</p>`
               : ''}
             ${skills.length
               ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:4px">
@@ -404,6 +417,10 @@ export function AdminMap() {
             <div className="flex items-center gap-1.5">
               <span className="size-3.5 rounded-full border-2 border-amber-400 bg-emerald-500 shadow-sm" />
               <span className="text-gray-500 text-xs">Abroad</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="size-3.5 rounded-full bg-gray-400 shadow-sm" style={{ border: '2px dashed #ffffff' }} />
+              <span className="text-gray-500 text-xs">Approx. (city-level)</span>
             </div>
           </div>
         </div>

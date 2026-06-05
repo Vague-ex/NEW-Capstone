@@ -10,6 +10,7 @@ import {
   BarChart2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { RejectReasonModal, GRADUATE_REJECT_REASONS } from './reject-reason-modal';
 
 type ModalTab = 'biometric' | 'employment' | 'skills';
 
@@ -214,6 +215,8 @@ export function AdminUnverified() {
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -261,13 +264,24 @@ export function AdminUnverified() {
     }
   };
 
-  const handleReject = async (id: string) => {
+  const openReject = (id: string, name: string) => {
     if (!id) return;
+    setActionError('');
+    setRejectReason('');
+    setRejectTarget({ id, name: name || 'Unnamed Graduate' });
+  };
+
+  const confirmReject = async () => {
+    if (!rejectTarget) return;
+    const id = rejectTarget.id;
+    const reason = rejectReason.trim();
+    if (!reason) return;
     setActionError('');
     setActionLoading(id + '-reject');
     try {
-      await reviewAlumniRequest(id, 'reject');
+      await reviewAlumniRequest(id, 'reject', reason);
       setBackendPending((prev) => prev.filter((a) => getRecordId(a) !== id));
+      setRejectTarget(null);
       setReviewAlumni(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to reject graduate right now.';
@@ -487,7 +501,7 @@ export function AdminUnverified() {
                           Approve
                         </button>
                         <button
-                          onClick={() => handleReject(rowId)}
+                          onClick={() => openReject(rowId, a.name ?? '')}
                           disabled={!rowId || actionLoading === rowId + '-reject'}
                           className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
                           style={{ fontWeight: 600 }}
@@ -506,6 +520,19 @@ export function AdminUnverified() {
           </div>
         )}
       </div>
+
+      {/* ── Reject Reason Modal ── */}
+      <RejectReasonModal
+        open={!!rejectTarget}
+        subjectName={rejectTarget?.name ?? ''}
+        reason={rejectReason}
+        quickReasons={GRADUATE_REJECT_REASONS}
+        loading={!!rejectTarget && actionLoading === rejectTarget.id + '-reject'}
+        error={actionError}
+        onReasonChange={setRejectReason}
+        onCancel={() => { setRejectTarget(null); setActionError(''); }}
+        onConfirm={confirmReject}
+      />
 
       {/* ── Full Review Modal ── */}
       {reviewAlumni && (() => {
@@ -824,7 +851,7 @@ export function AdminUnverified() {
                 </button>
                 <div className="flex-1" />
                 <button
-                  onClick={() => handleReject(String(a.id ?? ''))}
+                  onClick={() => openReject(String(a.id ?? ''), a.name ?? '')}
                   disabled={!!actionLoading}
                   className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}

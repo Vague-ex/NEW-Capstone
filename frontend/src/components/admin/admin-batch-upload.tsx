@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { MASTER_LIST } from '../../data/app-data';
-import { createMasterlistEntries } from '../../app/api-client';
+import { createMasterlistEntries, fetchMasterlist, type MasterlistEntry } from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
   Download, Info, Save, X, User, Calendar,
@@ -38,6 +38,34 @@ export function AdminBatchUpload() {
   const [manualEntries, setManualEntries] = useState<BatchEntry[]>([
     { name: '', graduationYear: '' },
   ]);
+
+  // Live master-list counts from the database (the page used to read a static
+  // array, which showed 0). Falls back to MASTER_LIST if the fetch fails.
+  const [masterTotal, setMasterTotal] = useState<number | null>(null);
+  const [masterPerBatch, setMasterPerBatch] = useState<Record<number, number>>({});
+  const [masterEntries, setMasterEntries] = useState<MasterlistEntry[]>([]);
+  const [showMasterList, setShowMasterList] = useState(false);
+  const [masterSearch, setMasterSearch] = useState('');
+  const refreshMasterlist = useCallback(() => {
+    fetchMasterlist()
+      .then((d) => {
+        setMasterTotal(d.total);
+        setMasterEntries(d.entries);
+        const m: Record<number, number> = {};
+        for (const b of d.perBatch) m[b.year] = b.count;
+        setMasterPerBatch(m);
+      })
+      .catch(() => { /* keep static fallback */ });
+  }, []);
+  useEffect(() => { refreshMasterlist(); }, [refreshMasterlist]);
+
+  const filteredMaster = masterEntries.filter(m =>
+    !masterSearch.trim() || m.name.toLowerCase().includes(masterSearch.trim().toLowerCase())
+    || String(m.graduationYear ?? '').includes(masterSearch.trim()));
+
+  const totalMaster = masterTotal ?? MASTER_LIST.length;
+  const batchCount = (yr: number) =>
+    masterTotal !== null ? (masterPerBatch[yr] ?? 0) : MASTER_LIST.filter(m => m.graduationYear === yr).length;
   const [manualSaved, setManualSaved] = useState(false);
   const [manualError, setManualError] = useState('');
 
@@ -167,6 +195,7 @@ export function AdminBatchUpload() {
       const skipped = cleaned.length - created;
       setSavedSummary({ created, skipped });
       setCsvStage('saved');
+      refreshMasterlist();
       if (errors.length) {
         setCsvError(`${errors.length} row(s) skipped before send: ${errors.slice(0, 3).join('; ')}`);
       }
@@ -210,6 +239,7 @@ export function AdminBatchUpload() {
       }));
       await createMasterlistEntries(payload);
       setManualSaved(true);
+      refreshMasterlist();
     } catch (err) {
       setManualError(err instanceof Error ? err.message : 'Save failed. Please try again.');
     } finally {
@@ -244,13 +274,13 @@ export function AdminBatchUpload() {
               <p className="text-gray-500 text-xs mt-0.5">Current graduate records on file</p>
             </div>
             <div className="text-right">
-              <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '1.8rem', lineHeight: 1 }}>{MASTER_LIST.length}</p>
+              <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '1.8rem', lineHeight: 1 }}>{totalMaster}</p>
               <p className="text-gray-400 text-xs">total entries</p>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-2">
             {YEAR_RANGE.map(yr => {
-              const count = MASTER_LIST.filter(m => m.graduationYear === yr).length;
+              const count = batchCount(yr);
               return (
                 <div key={yr} className="bg-gray-50 border border-gray-100 rounded-xl p-2 text-center">
                   <p className="text-gray-700 text-xs" style={{ fontWeight: 700 }}>{count}</p>
@@ -258,6 +288,41 @@ export function AdminBatchUpload() {
                 </div>
               );
             })}
+          </div>
+
+          {/* View master list */}
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <button
+              onClick={() => setShowMasterList(v => !v)}
+              className="text-[#166534] text-xs hover:underline"
+              style={{ fontWeight: 600 }}
+            >
+              {showMasterList ? 'Hide master list' : `View master list (${masterEntries.length})`}
+            </button>
+            {showMasterList && (
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={masterSearch}
+                  onChange={e => setMasterSearch(e.target.value)}
+                  placeholder="Search name or year…"
+                  className="w-full mb-2 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#166534]"
+                />
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
+                  {filteredMaster.length === 0 ? (
+                    <p className="px-3 py-4 text-center text-gray-400 text-xs">No matching records.</p>
+                  ) : (
+                    filteredMaster.map(m => (
+                      <div key={m.id} className="flex items-center justify-between px-3 py-2">
+                        <span className="text-gray-700 text-sm truncate">{m.name}</span>
+                        <span className="text-gray-400 text-xs shrink-0 ml-2">Batch {m.graduationYear ?? '—'}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <p className="text-gray-400 text-[11px] mt-1">{filteredMaster.length} of {masterEntries.length} shown</p>
+              </div>
+            )}
           </div>
         </div>
 

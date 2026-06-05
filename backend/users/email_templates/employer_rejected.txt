@@ -1,0 +1,20 @@
+Carlos Hilado Memorial State University
+Graduate Tracer System - Employer Portal
+
+Hi {{ recipient_name|default:"there" }},
+
+Thank you for registering {{ company_name|default:"your organization" }} with
+the CHMSU Graduate Tracer System. After reviewing your submission, the program
+administrator was unable to approve your employer account at this time.
+
+Admin comment:
+  {{ reason|default:"No additional comment was provided." }}
+
+If you believe this was a mistake, please correct the issue noted above and
+register again, or contact the BSIS program office for assistance.
+
+--
+CHMSU BSIS Program - Graduate Tracer System
+Carlos Hilado Memorial State University
+Talisay Campus, Negros Occidental
+This is an automated message. Please do not reply to this email.

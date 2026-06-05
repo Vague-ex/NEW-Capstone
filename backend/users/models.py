@@ -150,6 +150,9 @@ class AlumniAccount(models.Model):
         choices=MatchStatus.choices,
         default=MatchStatus.PENDING,
     )
+    # Admin's comment when an account is rejected. Surfaced to the admin in the
+    # request lists and included in the rejection email sent to the graduate.
+    rejection_reason = models.TextField(blank=True, default="")
     matched_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -391,6 +394,9 @@ class EmployerAccount(models.Model):
         choices=AccountStatus.choices,
         default=AccountStatus.PENDING,
     )
+    # Admin's comment when an employer account is rejected. Surfaced to the admin
+    # in the request list and included in the rejection email to the employer.
+    rejection_reason = models.TextField(blank=True, default="")
     # Skills the employer is hiring for. Pulled live from the Skill reference
     # table so admin-added skills appear automatically in the employer-register
     # form's chip selectors.

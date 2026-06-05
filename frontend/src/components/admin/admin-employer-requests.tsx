@@ -4,8 +4,9 @@ import { ApiClientError, fetchEmployerRequests, reviewEmployerRequest } from '..
 import { EMPLOYER_ACCOUNTS } from '../../data/app-data';
 import {
   Building2, CheckCircle2, XCircle, Clock, AlertTriangle,
-  Mail, User, Globe, FileText, Phone, Sparkles,
+  Mail, User, Globe, FileText, Phone, Sparkles, ChevronDown, ChevronRight,
 } from 'lucide-react';
+import { RejectReasonModal, EMPLOYER_REJECT_REASONS } from './reject-reason-modal';
 
 type DesiredSkill = { id: string; name: string; category: string | null };
 
@@ -72,6 +73,8 @@ export function AdminEmployerRequests() {
   const [actionError, setActionError] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
   const [reviewModal, setReviewModal] = useState<EmployerRequest | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; name: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -105,13 +108,41 @@ export function AdminEmployerRequests() {
   const approvedCount = useMemo(() => employers.filter((e) => e.status === 'approved').length, [employers]);
   const rejectedCount = useMemo(() => employers.filter((e) => e.status === 'rejected').length, [employers]);
 
-  const handleAction = async (id: string, action: 'approved' | 'rejected') => {
+  // Group applications by company so multiple evaluators at one company collapse
+  // into a single expandable row; paginate the grouped list.
+  const COMPANIES_PER_PAGE = 10;
+  const [companyPage, setCompanyPage] = useState(1);
+  const [expandedCompanies, setExpandedCompanies] = useState<Set<string>>(new Set());
+  const companyGroups = useMemo(() => {
+    const map = new Map<string, EmployerRequest[]>();
+    for (const e of employers) {
+      const key = (e.company || 'Unknown Company').trim().toLowerCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+    return Array.from(map.values())
+      .map((list) => ({ key: (list[0].company || 'Unknown Company').trim().toLowerCase(), company: list[0].company || 'Unknown Company', evaluators: list }))
+      .sort((a, b) => a.company.localeCompare(b.company));
+  }, [employers]);
+  const totalCompanyPages = Math.max(1, Math.ceil(companyGroups.length / COMPANIES_PER_PAGE));
+  const safeCompanyPage = Math.min(companyPage, totalCompanyPages);
+  const pagedCompanyGroups = useMemo(
+    () => companyGroups.slice((safeCompanyPage - 1) * COMPANIES_PER_PAGE, safeCompanyPage * COMPANIES_PER_PAGE),
+    [companyGroups, safeCompanyPage],
+  );
+  const toggleCompany = (key: string) => setExpandedCompanies((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const handleAction = async (id: string, action: 'approved' | 'rejected', reason?: string) => {
     setActionError('');
     setLoading(`${id}-${action}`);
 
     try {
       const endpointAction = action === 'approved' ? 'approve' : 'reject';
-      const response = await reviewEmployerRequest(id, endpointAction);
+      const response = await reviewEmployerRequest(id, endpointAction, reason);
       const payload = (response.employer ?? null) as Record<string, unknown> | null;
 
       setEmployers(prev => prev.map((entry) => {
@@ -123,6 +154,7 @@ export function AdminEmployerRequests() {
       }));
 
       setReviewModal(null);
+      setRejectTarget(null);
     } catch (err) {
       if (err instanceof ApiClientError) {
         setActionError(err.message);
@@ -132,6 +164,19 @@ export function AdminEmployerRequests() {
     } finally {
       setLoading(null);
     }
+  };
+
+  const openReject = (id: string, name: string) => {
+    setActionError('');
+    setRejectReason('');
+    setRejectTarget({ id, name: name || 'this employer' });
+  };
+
+  const confirmReject = async () => {
+    if (!rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) return;
+    await handleAction(rejectTarget.id, 'rejected', reason);
   };
 
   const StatusBadge = ({ status }: { status: string }) => {
@@ -258,7 +303,7 @@ export function AdminEmployerRequests() {
                         : <CheckCircle2 className="size-3.5" />}
                       Approve
                     </button>
-                    <button onClick={() => handleAction(emp.id, 'rejected')}
+                    <button onClick={() => openReject(emp.id, emp.company)}
                       disabled={loading?.startsWith(emp.id)}
                       className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
                       style={{ fontWeight: 600 }}>
@@ -280,32 +325,112 @@ export function AdminEmployerRequests() {
             <div className="px-4 py-10 text-center text-gray-400 text-sm">No employer requests found.</div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {employers.map(emp => (
-                <div key={emp.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50/50 transition">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-violet-50 shrink-0">
-                    <Building2 className="size-4 text-violet-500" />
+              {pagedCompanyGroups.map(group => {
+                const multi = group.evaluators.length > 1;
+                const isOpen = expandedCompanies.has(group.key);
+                if (!multi) {
+                  const emp = group.evaluators[0];
+                  return (
+                    <div key={emp.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50/50 transition">
+                      <div className="flex size-9 items-center justify-center rounded-xl bg-violet-50 shrink-0">
+                        <Building2 className="size-4 text-violet-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{emp.company}</p>
+                        <p className="text-gray-400 text-xs">{emp.industry} · {emp.contact}</p>
+                      </div>
+                      <StatusBadge status={emp.status} />
+                      <p className="text-gray-400 text-xs whitespace-nowrap hidden sm:block">
+                        {formatDate(emp.date, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                      <button
+                        onClick={() => setReviewModal(emp)}
+                        className="text-violet-600 bg-violet-50 hover:bg-violet-100 text-xs px-3 py-1.5 rounded-lg transition shrink-0"
+                        style={{ fontWeight: 600 }}
+                      >
+                        View Details
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={group.key}>
+                    <button type="button" onClick={() => toggleCompany(group.key)}
+                      className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50/50 transition text-left">
+                      <div className="flex size-9 items-center justify-center rounded-xl bg-violet-50 shrink-0">
+                        <Building2 className="size-4 text-violet-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{group.company}</p>
+                        <p className="text-gray-400 text-xs">{group.evaluators.length} evaluators · {group.evaluators[0].industry}</p>
+                      </div>
+                      <span className="text-[11px] text-violet-700 bg-violet-50 rounded-full px-2 py-0.5 shrink-0" style={{ fontWeight: 600 }}>
+                        {group.evaluators.length}
+                      </span>
+                      {isOpen ? <ChevronDown className="size-4 text-gray-400 shrink-0" /> : <ChevronRight className="size-4 text-gray-400 shrink-0" />}
+                    </button>
+                    {isOpen && (
+                      <div className="bg-gray-50/40">
+                        {group.evaluators.map(emp => (
+                          <div key={emp.id} className="flex items-center gap-4 pl-16 pr-4 py-3 border-t border-gray-50">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-gray-700 text-sm truncate" style={{ fontWeight: 600 }}>{emp.contact || 'Unnamed evaluator'}</p>
+                              <p className="text-gray-400 text-xs truncate">{emp.email}</p>
+                            </div>
+                            <StatusBadge status={emp.status} />
+                            <p className="text-gray-400 text-xs whitespace-nowrap hidden sm:block">
+                              {formatDate(emp.date, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                            <button
+                              onClick={() => setReviewModal(emp)}
+                              className="text-violet-600 bg-violet-50 hover:bg-violet-100 text-xs px-3 py-1.5 rounded-lg transition shrink-0"
+                              style={{ fontWeight: 600 }}
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{emp.company}</p>
-                    <p className="text-gray-400 text-xs">{emp.industry} · {emp.contact}</p>
-                  </div>
-                  <StatusBadge status={emp.status} />
-                  <p className="text-gray-400 text-xs whitespace-nowrap hidden sm:block">
-                    {formatDate(emp.date, { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </p>
-                  <button
-                    onClick={() => setReviewModal(emp)}
-                    className="text-violet-600 bg-violet-50 hover:bg-violet-100 text-xs px-3 py-1.5 rounded-lg transition shrink-0"
-                    style={{ fontWeight: 600 }}
-                  >
-                    View Details
-                  </button>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+          )}
+          {totalCompanyPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50">
+              <button
+                disabled={safeCompanyPage <= 1}
+                onClick={() => setCompanyPage(p => Math.max(1, p - 1))}
+                className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Previous
+              </button>
+              <span className="text-gray-500 text-xs">Page {safeCompanyPage} of {totalCompanyPages} · {companyGroups.length} companies</span>
+              <button
+                disabled={safeCompanyPage >= totalCompanyPages}
+                onClick={() => setCompanyPage(p => Math.min(totalCompanyPages, p + 1))}
+                className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next
+              </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* Reject Reason Modal */}
+      <RejectReasonModal
+        open={!!rejectTarget}
+        subjectName={rejectTarget?.name ?? ''}
+        reason={rejectReason}
+        quickReasons={EMPLOYER_REJECT_REASONS}
+        loading={!!rejectTarget && loading === `${rejectTarget.id}-rejected`}
+        error={actionError}
+        onReasonChange={setRejectReason}
+        onCancel={() => { setRejectTarget(null); setActionError(''); }}
+        onConfirm={confirmReject}
+      />
 
       {/* Review / Detail Modal */}
       {reviewModal && (
@@ -398,7 +523,7 @@ export function AdminEmployerRequests() {
               <div className="flex-1" />
               {reviewModal.status === 'pending' && (
                 <>
-                  <button onClick={() => handleAction(reviewModal.id, 'rejected')} disabled={!!loading}
+                  <button onClick={() => openReject(reviewModal.id, reviewModal.company)} disabled={!!loading}
                     className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
                     style={{ fontWeight: 600 }}>
                     <XCircle className="size-4" /> Reject

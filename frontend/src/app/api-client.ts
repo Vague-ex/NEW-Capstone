@@ -261,7 +261,7 @@ export interface AlumniLoginGps {
 }
 
 export interface AlumniLoginLivenessSignal {
-    challenge: 'mouth_open' | 'head_turn_left' | 'head_turn_right';
+    challenge: 'mouth_open' | 'head_turn' | 'head_turn_left' | 'head_turn_right';
     mouthAspectRatio: number;
     yawDegrees: number;
     completedAt: string;
@@ -669,12 +669,14 @@ export async function fetchVerifiedAlumni(): Promise<unknown[]> {
 export async function reviewAlumniRequest(
     alumniId: string,
     action: 'approve' | 'reject',
+    reason?: string,
 ): Promise<{ alumni?: unknown }> {
     const response = await fetch(
         `${API_BASE_URL}/api/admin/alumni/requests/${alumniId}/${action}/`,
         {
             method: 'POST',
             headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(action === 'reject' ? { reason: reason ?? '' } : {}),
         },
     );
     await throwIfNotOk(response);
@@ -698,12 +700,14 @@ export async function fetchEmployerRequests(): Promise<unknown[]> {
 export async function reviewEmployerRequest(
     employerId: string,
     action: 'approve' | 'reject',
+    reason?: string,
 ): Promise<{ employer?: unknown }> {
     const response = await fetch(
         `${API_BASE_URL}/api/admin/employers/requests/${employerId}/${action}/`,
         {
             method: 'POST',
             headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(action === 'reject' ? { reason: reason ?? '' } : {}),
         },
     );
     await throwIfNotOk(response);
@@ -766,6 +770,26 @@ export async function deleteAdmin(id: string): Promise<void> {
         headers: withAdminAuthHeaders(),
     });
     await throwIfNotOk(response);
+}
+
+export interface MasterlistEntry { id: string; name: string; graduationYear: number | null; }
+export interface MasterlistData {
+    total: number;
+    perBatch: { year: number; count: number }[];
+    entries: MasterlistEntry[];
+}
+
+export async function fetchMasterlist(): Promise<MasterlistData> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return {
+        total: typeof data?.total === 'number' ? data.total : 0,
+        perBatch: Array.isArray(data?.perBatch) ? data.perBatch : [],
+        entries: Array.isArray(data?.entries) ? data.entries : [],
+    };
 }
 
 export async function createMasterlistEntries(

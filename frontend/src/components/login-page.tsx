@@ -26,9 +26,9 @@ import {
   FRONTAL_YAW_TOLERANCE_DEG,
 } from "../app/modern-face-descriptor";
 
-type LoginChallenge = 'mouth_open' | 'head_turn_left' | 'head_turn_right';
+type LoginChallenge = 'mouth_open' | 'head_turn';
 
-const LOGIN_CHALLENGES: LoginChallenge[] = ['mouth_open', 'head_turn_left', 'head_turn_right'];
+const LOGIN_CHALLENGES: LoginChallenge[] = ['mouth_open', 'head_turn'];
 
 function pickRandomLoginChallenge(): LoginChallenge {
   return LOGIN_CHALLENGES[Math.floor(Math.random() * LOGIN_CHALLENGES.length)];
@@ -38,10 +38,10 @@ function describeChallenge(challenge: LoginChallenge): { title: string; hint: st
   switch (challenge) {
     case 'mouth_open':
       return { title: 'Open your mouth', hint: 'Open wide and hold for a moment' };
-    case 'head_turn_left':
-      return { title: 'Turn your head LEFT', hint: 'Slowly look to your left' };
-    case 'head_turn_right':
-      return { title: 'Turn your head RIGHT', hint: 'Slowly look to your right' };
+    case 'head_turn':
+      // Direction-agnostic: the selfie preview is mirrored, so we accept a turn
+      // to either side instead of guessing left/right.
+      return { title: 'Turn your head', hint: 'Turn to either side' };
   }
 }
 
@@ -266,49 +266,31 @@ export function LoginPage() {
         let passed = false;
         if (challenge === 'mouth_open') {
           passed = mar >= MOUTH_OPEN_MAR_THRESHOLD;
-        } else if (challenge === 'head_turn_left') {
-          passed = yaw <= -HEAD_TURN_YAW_THRESHOLD_DEG;
-        } else if (challenge === 'head_turn_right') {
-          passed = yaw >= HEAD_TURN_YAW_THRESHOLD_DEG;
+        } else if (challenge === 'head_turn') {
+          // Either direction counts (mirror-proof).
+          passed = Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG;
         }
 
-        if (!passed) {
-          // Gesture broken before the countdown finished - start over.
-          countdownValRef.current = null;
-          setLivenessCountdown(null);
-          return;
-        }
+        if (!passed) return; // keep polling until the action is performed
 
-        // Capture the signal at the moment the gesture is held.
+        // Action satisfied -> record the signal, mark Approved, and go straight
+        // to the face match (no countdown).
         livenessSignalRef.current = {
           challenge,
           mouthAspectRatio: mar,
           yawDegrees: yaw,
           completedAt: new Date().toISOString(),
         };
-
-        const cur = countdownValRef.current;
-        if (cur === null) {
-          countdownValRef.current = 2;
-          setLivenessCountdown(2);
-        } else if (cur > 1) {
-          countdownValRef.current = cur - 1;
-          setLivenessCountdown(cur - 1);
-        } else {
-          // Held through 3-2-1 -> verify face now.
-          countdownValRef.current = null;
-          setLivenessCountdown(null);
-          if (livenessTimeoutRef.current) {
-            clearTimeout(livenessTimeoutRef.current);
-            livenessTimeoutRef.current = null;
-          }
-          if (autoDetectInterval.current) {
-            clearInterval(autoDetectInterval.current);
-            autoDetectInterval.current = null;
-          }
-          setLivenessPassed(true);
-          void runGraduateFaceAuthentication();
+        if (livenessTimeoutRef.current) {
+          clearTimeout(livenessTimeoutRef.current);
+          livenessTimeoutRef.current = null;
         }
+        if (autoDetectInterval.current) {
+          clearInterval(autoDetectInterval.current);
+          autoDetectInterval.current = null;
+        }
+        setLivenessPassed(true);
+        void runGraduateFaceAuthentication();
       } catch { /* silent - keep polling */ }
     }, 1000);
 
@@ -838,10 +820,8 @@ export function LoginPage() {
                             {scanStage === "aligning"
                               ? "Look straight at the camera"
                               : scanStage === "detecting"
-                                ? "Verifying your face..."
-                                : livenessCountdown !== null
-                                  ? `Hold still — capturing in ${livenessCountdown}…`
-                                  : describeChallenge(challenge).title}
+                                ? (livenessPassed ? "Approved ✓ — verifying your face…" : "Verifying your face…")
+                                : describeChallenge(challenge).title}
                           </p>
                           <p className="text-white/70 text-[11px] mt-0.5">
                             {scanStage === "aligning"
