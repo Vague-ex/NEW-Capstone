@@ -168,19 +168,26 @@ class Command(BaseCommand):
             portfolio = rng.random() < 0.45
             prior_work = rng.random() < 0.4
             honors = rng.choices([1, 2, 3, 4], weights=[70, 18, 8, 4])[0]
-            ability = grades + ojt + tech / 3 + soft / 4 + (2 if portfolio else 0) + (1 if prior_work else 0)
+            base_ability = grades + ojt + tech / 3 + soft / 4 + (2 if portfolio else 0) + (1 if prior_work else 0)
+            # Rising employability: later batches are more likely employed and
+            # hired faster, but capped below 100% so no batch looks fake. This
+            # gives the trend report a healthy upward slope (~63% → ~90%).
+            year_lift = (year - 2020) * 0.055           # +0 (2020) … +0.275 (2025)
+            emp_prob = max(0.45, min(0.92, 0.40 + base_ability * 0.03 + year_lift))
+            is_employed = rng.random() < emp_prob
 
-            if ability >= 11:
-                emp_status = rng.choices(["employed_full_time", "self_employed"], weights=[85, 15])[0]
-                tth = rng.choice([1, 3]); apps = rng.randint(1, 2); related = rng.random() < 0.85
-            elif ability >= 7:
-                emp_status = rng.choices(["employed_full_time", "employed_part_time", "self_employed"], weights=[55, 30, 15])[0]
-                tth = rng.choice([3, 4.5, 9]); apps = rng.randint(2, 3); related = rng.random() < 0.6
+            if is_employed:
+                # Stronger graduates and later batches tend to hire faster.
+                fast = base_ability >= 8 or rng.random() < (0.25 + year_lift)
+                if fast:
+                    emp_status = rng.choices(["employed_full_time", "self_employed"], weights=[85, 15])[0]
+                    tth = rng.choice([1, 3]); apps = rng.randint(1, 2); related = rng.random() < 0.85
+                else:
+                    emp_status = rng.choices(["employed_full_time", "employed_part_time", "self_employed"], weights=[60, 25, 15])[0]
+                    tth = rng.choice([3, 4.5, 9]); apps = rng.randint(2, 3); related = rng.random() < 0.6
             else:
-                emp_status = rng.choices(["seeking", "not_seeking", "employed_part_time"], weights=[45, 20, 35])[0]
-                tth = rng.choice([9, 18, 30]); apps = rng.randint(3, 4); related = rng.random() < 0.3
-
-            is_employed = emp_status in ("employed_full_time", "employed_part_time", "self_employed")
+                emp_status = rng.choices(["seeking", "not_seeking"], weights=[70, 30])[0]
+                tth = None; apps = rng.randint(3, 4); related = rng.random() < 0.3
             sector = rng.choice(SECTORS)
             company = rng.choice(companies)
             city, province, region, lat, lng, is_local = rng.choice(CITIES if is_employed else CITIES[:10])

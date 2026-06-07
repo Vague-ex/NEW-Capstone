@@ -2,10 +2,10 @@ Django==5.2.13
 djangorestframework==3.17.1
 django-cors-headers==4.9.0
 psycopg2-binary==2.9.9
-scikit-learn==1.5.2
-pandas==2.3.2
-numpy==2.0.2
-joblib==1.4.2
+scikit-learn==1.8.0
+pandas==2.3.3
+numpy==2.4.4
+joblib==1.5.3
 matplotlib==3.9.2
 opencv-python-headless==4.13.0.92
 python-dotenv==1.0.0

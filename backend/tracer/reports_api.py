@@ -863,16 +863,115 @@ def _summarize_trend(
     return " ".join(parts)
 
 
+def _observed_tth_buckets(df) -> list[list]:
+    """Observed time-to-hire histogram over all employed graduates (rows that
+    actually have a hire time). Real counts, not model predictions."""
+    try:
+        series = df["time_to_hire_months"].dropna()
+    except Exception:  # noqa: BLE001
+        return []
+    buckets = {"Within 3 months": 0, "3–6 months": 0, "6–12 months": 0, "More than 12 months": 0}
+    for raw in series:
+        try:
+            t = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if t < 3:
+            buckets["Within 3 months"] += 1
+        elif t < 6:
+            buckets["3–6 months"] += 1
+        elif t < 12:
+            buckets["6–12 months"] += 1
+        else:
+            buckets["More than 12 months"] += 1
+    return [[label, count] for label, count in buckets.items()]
+
+
+def _reliability_paragraph(meta: dict) -> str:
+    """Plain-language reliability note from the model's cross-validated metrics
+    (held-out, not training-set). Falls back to a generic line if absent."""
+    targets = (meta or {}).get("targets", {})
+    emp = targets.get("employment_status", {})
+    emp_c = emp.get("candidates", {}).get(emp.get("best_model"), {})
+    tth = targets.get("time_to_hire", {})
+    tth_c = tth.get("candidates", {}).get(tth.get("best_model"), {})
+    emp_acc = emp_c.get("train_accuracy")
+    emp_f1 = emp_c.get("cv_mean")
+    tth_r2 = tth_c.get("cv_mean")
+    tth_mae = tth_c.get("train_mae")
+
+    if emp_f1 is None and tth_r2 is None:
+        return (
+            "The forecast extends the observed trend of past batches. Its reliability improves as "
+            "more verified graduate responses are collected."
+        )
+
+    bits: list[str] = []
+    if emp_acc is not None and emp_f1 is not None:
+        bits.append(
+            f"For predicting whether a graduate is employed, the model is correct about {emp_acc * 100:.0f}% "
+            f"of the time, with a cross-validated F1 score of {emp_f1:.2f} — measured on graduates the model "
+            f"had never seen during training."
+        )
+    if tth_r2 is not None and tth_mae is not None:
+        bits.append(
+            f"For time-to-hire, it explains roughly {tth_r2 * 100:.0f}% of the variation between graduates "
+            f"(cross-validated R² of {tth_r2:.2f}), with an average error of about {tth_mae:.1f} months."
+        )
+    bits.append(
+        "These are the honest, held-out figures (we report them instead of the easier training-set numbers), "
+        "which is why the forward forecast can be read as a reliable direction for the program as a whole — "
+        "not a guarantee for any single graduate."
+    )
+    return " ".join(bits)
+
+
+def _trend_interpretation(employment_history, tth_history, overall: dict) -> str:
+    """One interpretive paragraph generated from the observed numbers."""
+    if not employment_history:
+        return "Not enough graduating batches in the selected range to interpret a trend."
+    first_y, first_e = employment_history[0]
+    last_y, last_e = employment_history[-1]
+    e_delta = (last_e - first_e) * 100
+    e_dir = "increased" if e_delta > 1 else "decreased" if e_delta < -1 else "stayed roughly level"
+    best_y, best_e = max(employment_history, key=lambda p: p[1])
+    sentences = [
+        f"Across batches {first_y}–{last_y}, the employment rate {e_dir}"
+        + (f" by {abs(e_delta):.1f} percentage points" if abs(e_delta) > 1 else "")
+        + f", with the {best_y} batch the strongest at {best_e * 100:.0f}% employed."
+    ]
+    if tth_history:
+        t_first = tth_history[0][1]
+        t_last = tth_history[-1][1]
+        t_delta = t_last - t_first
+        if t_delta < -0.2:
+            t_dir = "graduates were hired faster over time"
+        elif t_delta > 0.2:
+            t_dir = "hiring took longer over time"
+        else:
+            t_dir = "time-to-hire stayed stable"
+        sentences.append(
+            f"Over the same window {t_dir} (from {t_first:.1f} to {t_last:.1f} months on average)."
+        )
+    cur = overall.get("actual_bsis_current_rate")
+    if cur is not None:
+        sentences.append(
+            f"About {cur * 100:.0f}% of employed graduates hold jobs aligned with the BSIS program."
+        )
+    return " ".join(sentences)
+
+
 class PredictiveTrendReportView(APIView):
-    """Predictive Employability Trend — historical actual vs predicted plus a
-    forward forecast for the next several years."""
+    """Predictive Employability Trend — the observed batch trend, a forward
+    forecast, and a plain-language reliability note (no in-sample
+    actual-vs-predicted tables)."""
 
     permission_classes = [AllowAny]
 
     def get(self, request):
         # Reuse the same model-loading helpers used by the Analytics tab so
         # the chart UI and this report can never disagree.
-        from .api import _aggregate_for_batch, _load_ml_artifacts
+        from .api import _aggregate_for_batch, _build_live_df, _load_ml_artifacts
 
         filters = _parse_filters(request)
         try:
@@ -892,75 +991,68 @@ class PredictiveTrendReportView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        # Use the live DB graduates when available (same source the Analytics
+        # tab uses) so the report and dashboard never disagree; fall back to the
+        # training CSV when the DB is empty/unavailable.
+        try:
+            live_df = _build_live_df()
+        except Exception:  # noqa: BLE001
+            live_df = None
+        if live_df is not None and not live_df.empty:
+            artifacts = {**artifacts, "df": live_df}
+
         overall = _aggregate_for_batch(artifacts, None)
-        batches = sorted(int(c) for c in artifacts["df"]["batch"].unique().tolist())
+        meta = artifacts.get("meta", {}) or {}
+        df = artifacts["df"]
+
+        batches = sorted(int(c) for c in df["batch"].unique().tolist())
         batches = [
             c
             for c in batches
             if filters["batch_start"] <= c <= filters["batch_end"]
         ]
 
-        per_batch_rows = []
+        # ── Observed per-batch trend (real numbers only — no in-sample predictions) ──
+        per_batch_rows: list[list] = []
+        timeline_year_cols: list = ["Metric"]
+        timeline_emp_row: list = ["Employment rate"]
+        timeline_tth_row: list = ["Mean time-to-hire (mo)"]
         employment_history: list[tuple[int, float]] = []
         tth_history: list[tuple[int, float]] = []
         for c in batches:
             agg = _aggregate_for_batch(artifacts, c)
-            predicted_emp = float(agg.get("predicted_employment_rate", 0))
-            predicted_tth = float(agg.get("predicted_mean_time_to_hire_months", 0))
-            employment_history.append((c, predicted_emp))
-            tth_history.append((c, predicted_tth))
+            emp = float(agg.get("actual_employment_rate", 0))
+            tth = float(agg.get("actual_mean_time_to_hire_months", 0))
+            employment_history.append((c, emp))
+            tth_history.append((c, tth))
+            timeline_year_cols.append(str(c))
+            timeline_emp_row.append(f"{emp * 100:.1f}%")
+            timeline_tth_row.append(f"{tth:.1f}")
             per_batch_rows.append(
                 [
                     c,
                     agg.get("n_alumni", 0),
-                    f"{agg.get('actual_employment_rate', 0) * 100:.1f}%",
-                    f"{predicted_emp * 100:.1f}%",
-                    f"{agg.get('actual_mean_time_to_hire_months', 0):.1f}",
-                    f"{predicted_tth:.1f}",
+                    f"{emp * 100:.1f}%",
+                    f"{tth:.1f}",
                     f"{agg.get('actual_bsis_first_rate', 0) * 100:.1f}%",
                     f"{agg.get('actual_bsis_current_rate', 0) * 100:.1f}%",
                 ]
             )
 
-        overall_rows = [
-            ["Graduates in trained sample", overall.get("n_alumni", 0), ""],
-            [
-                "Employment rate",
-                f"{overall.get('actual_employment_rate', 0) * 100:.1f}%",
-                f"{overall.get('predicted_employment_rate', 0) * 100:.1f}%",
-            ],
-            [
-                "Mean time-to-hire (months)",
-                f"{overall.get('actual_mean_time_to_hire_months', 0):.1f}",
-                f"{overall.get('predicted_mean_time_to_hire_months', 0):.1f}",
-            ],
-            [
-                "BSIS-aligned first job (observed)",
-                f"{overall.get('actual_bsis_first_rate', 0) * 100:.1f}%",
-                "—",
-            ],
-            [
-                "BSIS-aligned current job (observed)",
-                f"{overall.get('actual_bsis_current_rate', 0) * 100:.1f}%",
-                "—",
-            ],
+        # ── Forward forecast — extend the OBSERVED trend line ──
+        emp_forecast = [
+            (y, max(0.0, min(1.0, v)))
+            for y, v in _linear_forecast([y for y, _ in employment_history],
+                                         [v for _, v in employment_history], forecast_years)
         ]
-
-        # Forward forecast — linear-trend projection on top of the per-batch
-        # model predictions. Clamps employment rate to [0, 1] and TTH to >= 0.
-        emp_years = [y for y, _ in employment_history]
-        emp_values = [v for _, v in employment_history]
-        tth_years = [y for y, _ in tth_history]
-        tth_values = [v for _, v in tth_history]
-
-        emp_forecast_raw = _linear_forecast(emp_years, emp_values, forecast_years)
-        tth_forecast_raw = _linear_forecast(tth_years, tth_values, forecast_years)
-
-        emp_forecast = [(y, max(0.0, min(1.0, v))) for y, v in emp_forecast_raw]
-        tth_forecast = [(y, max(0.0, v)) for y, v in tth_forecast_raw]
-
+        # Floor the projection at 1 month — a graduate can't be hired in 0
+        # months, and the data's fastest bucket is "within 1 month".
+        tth_forecast = [
+            (y, max(1.0, v))
+            for y, v in _linear_forecast([y for y, _ in tth_history],
+                                         [v for _, v in tth_history], forecast_years)
+        ]
         if emp_forecast or tth_forecast:
-            forecast_year_set = sorted({y for y, _ in emp_forecast} | {y for y, _ in tth_forecast})
             emp_map = dict(emp_forecast)
             tth_map = dict(tth_forecast)
             forecast_rows = [
@@ -969,55 +1061,78 @@ class PredictiveTrendReportView(APIView):
                     f"{emp_map[y] * 100:.1f}%" if y in emp_map else "—",
                     f"{tth_map[y]:.1f}" if y in tth_map else "—",
                 ]
-                for y in forecast_year_set
+                for y in sorted({y for y, _ in emp_forecast} | {y for y, _ in tth_forecast})
             ]
         else:
             forecast_rows = []
 
-        narrative = _summarize_trend(
-            employment_history, emp_forecast, tth_history, tth_forecast,
+        narrative = _summarize_trend(employment_history, emp_forecast, tth_history, tth_forecast)
+
+        # ── Prose blocks (single-column text sections; export-safe) ──
+        if batches:
+            intro_text = (
+                f"This report summarizes the employability of BSIS graduates for batches "
+                f"{batches[0]}–{batches[-1]}, drawn from the graduate tracer dataset. It presents the "
+                f"observed trend in employment rate and time-to-hire across those batches, a projection "
+                f"for the next {forecast_years} year(s), and a short note on how reliable that projection "
+                f"is. As more verified graduate responses are collected, the trend and forecast refine "
+                f"automatically."
+            )
+        else:
+            intro_text = "No graduating batches fall within the selected year range."
+
+        about_forecast_text = (
+            "The forecast extends the observed trend with a straight-line (least-squares) projection: it "
+            "continues the direction of the past batches into the next years. Like any projection it grows "
+            "less certain the further out it reaches, and it describes the cohort as a whole — not a "
+            "guarantee for any individual graduate. Read it as the likely direction for the program."
+        )
+        conclusion_text = (
+            "In summary, the report pairs what actually happened to past batches with a grounded projection "
+            "of where the next batches are heading. The program can act on the rising or falling signals in "
+            "employment rate, time-to-hire, and job alignment to guide curriculum emphasis and graduate "
+            "support, and the figures sharpen as each new batch is traced."
         )
 
-        distribution_rows = [
-            [bucket, count]
-            for bucket, count in (overall.get("time_to_hire_distribution") or {}).items()
-        ]
-
         sections: list[dict[str, Any]] = [
+            {"title": "Introduction", "columns": ["Overview"], "rows": [[intro_text]]},
+            {"title": "Executive Summary", "columns": ["Summary"], "rows": [[narrative]]},
             {
-                "title": "Narrative Summary",
-                "columns": ["Insight"],
-                "rows": [[narrative]],
+                # Title kept verbatim so the PDF exporter draws the trend line chart.
+                "title": "Cross-Batch Timeline",
+                "columns": timeline_year_cols,
+                "rows": [timeline_emp_row, timeline_tth_row] if batches else [],
             },
             {
-                "title": "Overall — Actual vs Predicted",
-                "columns": ["Metric", "Actual", "Predicted"],
-                "rows": overall_rows,
-            },
-            {
-                "title": "Per-Batch Predictions",
+                "title": "Observed Employment Trend (2020–2025)",
                 "columns": [
-                    "Batch",
-                    "N",
-                    "Employment (Actual)",
-                    "Employment (Predicted)",
-                    "TTH Actual (mo)",
-                    "TTH Predicted (mo)",
-                    "BSIS-Aligned First (Obs)",
-                    "BSIS-Aligned Current (Obs)",
+                    "Batch", "Graduates", "Employment Rate", "Mean Time-to-Hire (mo)",
+                    "BSIS-Aligned First", "BSIS-Aligned Current",
                 ],
                 "rows": per_batch_rows,
             },
             {
-                "title": f"Forecast — Next {forecast_years} Year(s)",
-                "columns": ["Year (forecast)", "Employment Rate", "Time-to-Hire (mo)"],
-                "rows": forecast_rows or [["—", "Insufficient data to forecast", ""]],
+                "title": "What the Trend Shows",
+                "columns": ["Interpretation"],
+                "rows": [[_trend_interpretation(employment_history, tth_history, overall)]],
             },
             {
-                "title": "Predicted Time-to-Hire Distribution",
-                "columns": ["Bucket", "Count"],
-                "rows": distribution_rows,
+                "title": f"Forecast — Next {forecast_years} Year(s)",
+                "columns": ["Year", "Projected Employment Rate", "Projected Time-to-Hire (mo)"],
+                "rows": forecast_rows or [["—", "Insufficient data to forecast", ""]],
             },
+            {"title": "About the Forecast", "columns": ["Notes"], "rows": [[about_forecast_text]]},
+            {
+                "title": "Why You Can Trust This",
+                "columns": ["Model Reliability"],
+                "rows": [[_reliability_paragraph(meta)]],
+            },
+            {
+                "title": "Time-to-Hire Breakdown (Observed)",
+                "columns": ["Time Range", "Graduates"],
+                "rows": _observed_tth_buckets(df),
+            },
+            {"title": "Conclusion & Recommendations", "columns": ["Summary"], "rows": [[conclusion_text]]},
         ]
 
         return _ok("Predictive Employability Trend", sections, filters)

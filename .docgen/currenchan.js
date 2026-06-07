@@ -71,6 +71,8 @@ const children = [
   H2("Module 8 — Reporting & Documentation"),
   DO("Open Reports; export a sample report."),
   SAY("Finally, the system turns everything into reports — batch summaries, employment outcomes, a skills inventory, and a data-quality report — all exportable for accreditation and planning."),
+  DO("Open the Predictive Employability Trend report; preview it, then export as PDF."),
+  SAY("The flagship one is the Predictive Employability Trend report, and it's built to read top to bottom for a non-technical reader: a plain introduction and summary, the observed employment trend per batch from 2020 to 2025, a three-year forecast, a short 'why you can trust this' note with our cross-validated accuracy, and an observed time-to-hire breakdown — closing with a conclusion. Every section exports to PDF and Excel, and the PDF even draws the trend as a line chart."),
 
   H1("Part 2 — Possible questions (all modules)"),
 
@@ -109,6 +111,12 @@ const children = [
   A("Only the program chair / faculty admin, with role-based access; graduates and employers never see admin functions."),
   Q("What reports can the system produce?"),
   A("Batch summaries, employment outcomes, a skills inventory, and a data-quality report — all exportable."),
+  Q("Walk us through the Predictive Employability Trend report."),
+  A("Ten short sections: introduction, executive summary, the observed trend per batch, an interpretation, the three-year forecast, notes on the forecast, a model-reliability note with our cross-validated metrics, an observed time-to-hire breakdown, and a conclusion. It shows what actually happened alongside one forward forecast — instead of re-predicting batches we already have data for."),
+  Q("The report used to have 'actual vs predicted' columns — where did they go?"),
+  A("We removed them. Comparing the model's guess against batches we already have real data for is an accuracy check, not a forecast, and it confused readers. We replaced it with one plain sentence plus the cross-validated metrics — the same evidence, far clearer."),
+  Q("Why show observed data per batch instead of predictions?"),
+  A("For past batches we already have the real outcomes, so predicting them again adds nothing. The report shows what actually happened — the trend — and reserves prediction for the one thing we don't know yet: the next batches, in the forecast."),
 
   H1("Part 3 — Prediction module deep-dive"),
   NOTE("Current numbers, on synthetic data (230 training rows, 2020–2025): employment — Random Forest, ~90% accuracy / 0.93 F1 in-sample, 0.89 cross-validated F1. Time-to-hire — Random Forest, cross-validated R² 0.25, average error ~0.37 months. Quote the cross-validated numbers."),
@@ -127,6 +135,16 @@ const children = [
 
   Q("Isn't the data synthetic?"),
   A("Yes, and we're upfront about it. Real 2025 tracer data doesn't exist yet because the alumni office needs the 2-year reporting interval, so the demo is populated with representative synthetic graduates spanning 2020–2025. The pipeline is built so that the moment real verified records arrive, we swap the data source and retrain — nothing else in the model changes."),
+  Q("What does the time-to-hire breakdown count?"),
+  A("Real graduates, bucketed by how long they actually took to get hired — within 3 months, 3 to 6, 6 to 12, and more than 12. It's a count of people, observed, not a model output. Graduates who were never hired simply have no time-to-hire and aren't counted."),
+  Q("Why does the forecast only go one to three years out?"),
+  A("The forecast extends a straight line through the batches. One or two years past the last batch stays close to what we've seen, but further out the line extrapolates beyond the data and the uncertainty widens — so we cap the horizon. We also floor time-to-hire at one month, since nobody is hired in zero months."),
+  Q("What's the single biggest factor in how fast a graduate gets hired?"),
+  A("Internship or OJT relevance, by far — about 37% of the model's importance — then the number of job applications. A relevant internship matters more than raw grades, which is itself a useful finding for the program."),
+  Q("How is the skills trend different from the prediction model?"),
+  A("It isn't machine learning at all. For each skill we count how common it is per batch, fit a trend line, and check 'employment lift' — whether graduates who hold it are employed more. Skills that are both rising and job-linked get flagged for the curriculum. You can verify it by hand, which is the whole point."),
+  Q("Why does employment trend upward in the demo?"),
+  A("We tuned the synthetic generator so later batches are modestly more employable and hire a little faster — a realistic upward trend — while capping it so no batch is an unrealistic 100%. On real data the trend would simply reflect whatever the graduates report."),
 
   H1("Part 4 — Demo safety"),
   BUL("Keep each module to ~30–45 seconds; name the screen before you click."),

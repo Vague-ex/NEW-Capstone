@@ -11,15 +11,20 @@ class TracerConfig(AppConfig):
     name = 'tracer'
 
     def ready(self):
-        """Warm the ML artifact cache once at server startup.
+        """Optionally warm the ML artifact cache at server startup.
 
-        Loading the joblib model + scaler + training CSV is the slow part of
-        the first analytics request. Doing it here (in a daemon thread so it
-        never blocks startup) means the first admin who opens the dashboard
-        isn't the one who pays for it. Skipped for management commands that
-        don't serve requests, and any failure is swallowed — the request-time
-        loader still works as a fallback.
+        OFF by default. Loading scikit-learn + the model in every gunicorn
+        worker at boot can exhaust memory on small hosts (e.g. Render's free
+        tier), which kills the workers before they bind the port — the deploy
+        then reports "No open HTTP ports detected." Set ``WARM_ML=1`` only on
+        hosts with memory headroom. With it off, the model loads lazily on the
+        first analytics request (the request-time loader is the fallback), so
+        nothing breaks — the first such request is just a little slower.
         """
+        # Opt-in gate. Default off so constrained hosts boot lean.
+        if os.environ.get("WARM_ML", "").strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+
         skip_cmds = {
             "migrate", "makemigrations", "collectstatic", "shell",
             "test", "loaddata", "dumpdata", "createsuperuser", "check",
