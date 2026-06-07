@@ -21,8 +21,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from users.models import User, AlumniAccount, AlumniProfile, AccountStatus, GraduateMasterRecord
-from tracer.models import EmploymentProfile, WorkAddress
+from users.models import User, AlumniAccount, AlumniProfile, AccountStatus, GraduateMasterRecord, EmployerAccount
+from tracer.models import EmploymentProfile, WorkAddress, CompetencyProfile, Skill
 
 SAMPLE_EMAIL_DOMAIN = "sample.masterlist.local"
 
@@ -113,6 +113,31 @@ class Command(BaseCommand):
         rng = random.Random(opts["seed"])
         count = opts["count"]
 
+        # Real companies from the DB so seeded graduates "work" at places that
+        # actually exist in the system (falls back to a small default list).
+        companies = sorted({
+            c.strip() for c in EmployerAccount.objects.values_list("company_name", flat=True)
+            if c and c.strip().lower() not in {"test"}
+        })
+        if not companies:
+            companies = ["Accenture Philippines", "Globe Telecom", "Concentrix", "BDO Unibank"]
+
+        # Real named skills from the Skill reference table, split technical vs
+        # soft, junk/test entries filtered out. Populates CompetencyProfile so
+        # the skills-trend forecast has actual data to work with.
+        def _clean_skill(name):
+            n = (name or "").strip()
+            low = n.lower()
+            return n if (n and "curren" not in low and "lovemaking" not in low) else None
+        soft_pool, tech_pool = [], []
+        for s_name, s_cat in Skill.objects.values_list("name", "category__name"):
+            cn = _clean_skill(s_name)
+            if not cn:
+                continue
+            (soft_pool if (s_cat or "").strip().lower() == "soft" else tech_pool).append(cn)
+        soft_pool = sorted(set(soft_pool)) or ["Communication", "Teamwork", "Adaptability"]
+        tech_pool = sorted(set(tech_pool)) or ["Python", "SQL", "HTML/CSS", "Java"]
+
         # Pull masterlist records that don't yet have an account, so the samples
         # correspond to real masterlist graduates.
         masters = list(GraduateMasterRecord.objects.filter(alumni_accounts__isnull=True).order_by("batch_year"))
@@ -131,7 +156,9 @@ class Command(BaseCommand):
             first = rng.choice(FIRST_NAMES_M if gender == "Male" else FIRST_NAMES_F)
             middle = rng.choice(SURNAMES)
             last = rng.choice(SURNAMES)
-            year = opts.get("grad_year") or master.batch_year or rng.choice([2020, 2021, 2022, 2023, 2024])
+            # Even spread across 2020–2025 for a clean trend line (unless a
+            # specific --grad-year was requested).
+            year = opts.get("grad_year") or (2020 + (i % 6))
 
             # --- predictor features ---
             grades = rng.randint(0, 5)
@@ -155,6 +182,7 @@ class Command(BaseCommand):
 
             is_employed = emp_status in ("employed_full_time", "employed_part_time", "self_employed")
             sector = rng.choice(SECTORS)
+            company = rng.choice(companies)
             city, province, region, lat, lng, is_local = rng.choice(CITIES if is_employed else CITIES[:10])
 
             user = User.objects.create_user(email=email, password=None, role=User.Role.ALUMNI)
@@ -183,6 +211,18 @@ class Command(BaseCommand):
                 technical_skill_count=tech, soft_skill_count=soft,
             )
 
+            # Named skills (real reference skills) so the skills-trend forecast
+            # has data; selection count matches the profile's skill counts.
+            sel_tech = rng.sample(tech_pool, min(tech, len(tech_pool)))
+            sel_soft = rng.sample(soft_pool, min(soft, len(soft_pool)))
+            CompetencyProfile.objects.create(
+                alumni=account,
+                technical_skills=[{"name": s, "selected": True} for s in sel_tech],
+                soft_skills=[{"name": s, "selected": True} for s in sel_soft],
+                technical_skill_count=len(sel_tech),
+                soft_skill_count=len(sel_soft),
+            )
+
             EmploymentProfile.objects.create(
                 alumni=account, employment_status=emp_status,
                 time_to_hire_raw=TTH_LABELS.get(tth, ""), time_to_hire_months=tth,
@@ -192,7 +232,7 @@ class Command(BaseCommand):
                 first_job_source=rng.choice(JOB_SOURCES),
                 current_job_sector=sector if is_employed else "",
                 current_job_title=("Software Developer" if is_employed else ""),
-                current_job_company=("Sample Tech Corp" if is_employed else ""),
+                current_job_company=(company if is_employed else ""),
                 current_job_related_to_bsis=(related if is_employed else None),
                 location_type=is_local,
             )
