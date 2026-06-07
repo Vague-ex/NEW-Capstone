@@ -172,7 +172,8 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
       if (inviteToken) {
         sessionStorage.setItem('pending_invite_token', inviteToken);
       }
-      navigate('/employer/dashboard');
+      // New employer accounts are PENDING until the BSIS admin approves.
+      navigate('/employer/pending');
     } catch (err) {
       if (err instanceof ApiClientError) {
         setError(err.message);

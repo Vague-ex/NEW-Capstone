@@ -2350,10 +2350,17 @@ class AlumniRequestApproveView(APIView):
         alumni_account.account_status = AccountStatus.ACTIVE
         alumni_account.save(update_fields=["account_status", "updated_at"])
 
+        payload = _admin_alumni_payload(alumni_account)
+        _send_approval_email(
+            to_email=alumni_account.user.email if alumni_account.user else "",
+            recipient_name=payload.get("name") or "",
+            is_employer=False,
+        )
+
         return Response(
             {
                 "message": "Graduate request approved.",
-                "alumni": _admin_alumni_payload(alumni_account),
+                "alumni": payload,
             },
             status=status.HTTP_200_OK,
         )
@@ -2400,6 +2407,42 @@ def _send_rejection_email(*, to_email: str, recipient_name: str, reason: str, is
     threading.Thread(target=_deliver, daemon=True).start()
 
 
+def _send_approval_email(*, to_email: str, recipient_name: str, is_employer: bool, company_name: str = "") -> None:
+    """Best-effort branded approval email, sent in a background thread so the
+    admin's "Approve" action returns immediately."""
+    if not to_email:
+        return
+
+    template_base = "employer_approved" if is_employer else "account_approved"
+    subject = (
+        "Your employer account has been approved"
+        if is_employer
+        else "Your graduate account has been verified"
+    )
+
+    def _deliver() -> None:
+        try:
+            from django.conf import settings
+            from .email_send import send_branded_email
+
+            send_branded_email(
+                to_email=to_email,
+                subject=subject,
+                template_base=template_base,
+                context={
+                    "recipient_name": recipient_name or "",
+                    "company_name": company_name or "",
+                    "login_url": getattr(settings, "GRADUATE_LOGIN_URL", "") or "",
+                },
+            )
+        except Exception:
+            logger.exception("Failed to send approval email to %s", to_email)
+
+    import threading
+
+    threading.Thread(target=_deliver, daemon=True).start()
+
+
 class AlumniRequestRejectView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -2414,21 +2457,38 @@ class AlumniRequestRejectView(APIView):
             )
 
         reason = (request.data.get("reason") or "").strip()
-        alumni_account.account_status = AccountStatus.REJECTED
-        alumni_account.rejection_reason = reason
-        alumni_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
-
+        # Build the payload + capture the email BEFORE deleting the row.
         payload = _admin_alumni_payload(alumni_account)
+        user = alumni_account.user
+        to_email = user.email if user else ""
+
         _send_rejection_email(
-            to_email=alumni_account.user.email,
+            to_email=to_email,
             recipient_name=payload.get("name") or "",
             reason=reason,
             is_employer=False,
         )
 
+        # Hard delete so the email address is freed for a fresh registration —
+        # no soft-deleted "rejected" record lingers. Deleting the User cascades
+        # to the AlumniAccount and all related rows. Fall back to a soft reject
+        # if the delete is blocked so the admin action never hard-errors.
+        try:
+            if user:
+                user.delete()
+            else:
+                alumni_account.delete()
+            message = "Graduate request rejected and removed."
+        except Exception:
+            logger.exception("Hard delete failed for rejected alumni %s; soft-rejecting", alumni_id)
+            alumni_account.account_status = AccountStatus.REJECTED
+            alumni_account.rejection_reason = reason
+            alumni_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
+            message = "Graduate request rejected."
+
         return Response(
             {
-                "message": "Graduate request rejected.",
+                "message": message,
                 "alumni": payload,
             },
             status=status.HTTP_200_OK,
@@ -2518,6 +2578,13 @@ class EmployerRequestApproveView(APIView):
         except (OperationalError, DatabaseError):
             logger.exception("Failed to activate held decisions for employer %s", employer_id)
 
+        _send_approval_email(
+            to_email=employer_account.company_email or (employer_account.user.email if employer_account.user else ""),
+            recipient_name=employer_account.contact_name or "",
+            is_employer=True,
+            company_name=employer_account.company_name or "",
+        )
+
         return Response(
             {
                 "message": "Employer request approved.",
@@ -2541,22 +2608,38 @@ class EmployerRequestRejectView(APIView):
             )
 
         reason = (request.data.get("reason") or "").strip()
-        employer_account.account_status = AccountStatus.REJECTED
-        employer_account.rejection_reason = reason
-        employer_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
+        payload = _employer_request_payload(employer_account)
+        user = employer_account.user
+        to_email = employer_account.company_email or (user.email if user else "")
 
         _send_rejection_email(
-            to_email=employer_account.company_email or employer_account.user.email,
+            to_email=to_email,
             recipient_name=employer_account.contact_name or "",
             reason=reason,
             is_employer=True,
             company_name=employer_account.company_name or "",
         )
 
+        # Hard delete so the email is freed for re-registration. Deleting the
+        # User cascades to the EmployerAccount and related rows; soft-reject as
+        # a fallback if the delete is blocked.
+        try:
+            if user:
+                user.delete()
+            else:
+                employer_account.delete()
+            message = "Employer request rejected and removed."
+        except Exception:
+            logger.exception("Hard delete failed for rejected employer %s; soft-rejecting", employer_id)
+            employer_account.account_status = AccountStatus.REJECTED
+            employer_account.rejection_reason = reason
+            employer_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
+            message = "Employer request rejected."
+
         return Response(
             {
-                "message": "Employer request rejected.",
-                "employer": _employer_request_payload(employer_account),
+                "message": message,
+                "employer": payload,
             },
             status=status.HTTP_200_OK,
         )

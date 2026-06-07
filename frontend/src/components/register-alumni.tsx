@@ -112,7 +112,9 @@ function ProgressIndicator({ stage }: { stage: RegistrationStage }) {
 function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName: string; matchStatus: MasterlistMatchStatus; navigate: (path: string) => void }) {
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigate('/alumni/dashboard');
+      // Newly registered graduates are PENDING until the BSIS admin approves —
+      // route them to the pending page, not the dashboard.
+      navigate('/alumni/pending');
     }, 4000); // 4 second delay before auto-redirect
 
     return () => clearTimeout(timer);

@@ -449,7 +449,14 @@ export function LoginPage() {
       sessionStorage.setItem("alumni_user", JSON.stringify(response.alumni));
       setScanStage("matched");
       stopCamera();
-      const redirectTimer = setTimeout(() => navigate("/alumni/dashboard"), 1100);
+      // Gate: verified graduates reach the dashboard; pending accounts (awaiting
+      // BSIS admin approval) go to the pending page.
+      const isVerified =
+        (response.alumni as { verificationStatus?: string } | undefined)?.verificationStatus === "verified";
+      const redirectTimer = setTimeout(
+        () => navigate(isVerified ? "/alumni/dashboard" : "/alumni/pending"),
+        1100,
+      );
       scanTimers.current.push(redirectTimer);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Face authentication failed. Please try again.";

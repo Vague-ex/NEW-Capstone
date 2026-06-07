@@ -7,6 +7,9 @@ export const FACE_MATCH_DISTANCE_THRESHOLD =
 
 export const MOUTH_OPEN_MAR_THRESHOLD = 0.45;
 export const MOUTH_CLOSED_MAR_THRESHOLD = 0.25;
+// Eye-aspect-ratio below this means the eyes are closed (a blink). Open eyes
+// sit around 0.30–0.35; a firm close drops well under 0.20.
+export const EYE_CLOSED_EAR_THRESHOLD = 0.21;
 export const HEAD_TURN_YAW_THRESHOLD_DEG = 20;
 export const FRONTAL_YAW_TOLERANCE_DEG = 15;
 
@@ -135,6 +138,24 @@ export function computeMouthAspectRatio(positions: Point2D[]): number {
         3;
 
     return vertical / horizontal;
+}
+
+export function computeEyeAspectRatio(positions: Point2D[]): number {
+    // Average eye-aspect-ratio across both eyes. Returns a high (open) value
+    // when no usable face so a missing detection never reads as a blink.
+    if (!positions || positions.length < 68) {
+        return 0.3;
+    }
+    const eyeEar = (p1: number, p2: number, p3: number, p4: number, p5: number, p6: number): number => {
+        const horizontal = distance(positions[p1], positions[p4]);
+        if (horizontal <= 0) return 0.3;
+        const vertical = distance(positions[p2], positions[p6]) + distance(positions[p3], positions[p5]);
+        return vertical / (2 * horizontal);
+    };
+    // face-api 68-point indices: left eye 36–41, right eye 42–47.
+    const left = eyeEar(36, 37, 38, 39, 40, 41);
+    const right = eyeEar(42, 43, 44, 45, 46, 47);
+    return (left + right) / 2;
 }
 
 export function estimateHeadYawDegrees(positions: Point2D[]): number {

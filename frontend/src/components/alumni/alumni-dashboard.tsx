@@ -46,6 +46,14 @@ export function AlumniDashboard() {
     };
   }, [alumniId]);
 
+  // Fully gated: a pending graduate is routed to the pending page and cannot
+  // view the dashboard until the BSIS admin approves the account.
+  useEffect(() => {
+    if (alumni?.verificationStatus === 'pending') {
+      navigate('/alumni/pending');
+    }
+  }, [alumni?.verificationStatus, navigate]);
+
   if (alumni?.requiresRetracking) {
     return <AlumniEmployment retrackingMode />;
   }

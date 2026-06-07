@@ -186,7 +186,10 @@ function LoginView({ onBack, navigate }: { onBack: () => void; navigate: (path: 
       };
 
       sessionStorage.setItem('employer_user', JSON.stringify(employerForSession));
-      navigate('/employer/dashboard');
+      // Gate: only approved/active employers reach the dashboard; pending (or
+      // not-yet-approved) accounts go to the pending page.
+      const isApproved = status === 'approved' || status === 'active';
+      navigate(isApproved ? '/employer/dashboard' : '/employer/pending');
     } catch (err) {
       if (err instanceof ApiClientError) {
         const payload = err.payload as Record<string, unknown> | undefined;

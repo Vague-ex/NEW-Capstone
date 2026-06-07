@@ -14,6 +14,7 @@ import { AlumniProfile } from './components/alumni/alumni-profile';
 import { AlumniSkills } from './components/alumni/alumni-skills';
 import { AlumniEmployment } from './components/alumni/alumni-employment';
 import { AlumniPersonalEducation } from './components/alumni/alumni-personal-education';
+import { GraduatePending } from './components/alumni/graduate-pending';
 
 // Employer Portal
 import { EmployerDashboard } from './components/employer/employer-dashboard';
@@ -41,6 +42,7 @@ export const routes: RouteObject[] = [
 
   // ── Alumni Portal ──
   { path: '/alumni/dashboard', Component: AlumniDashboard },
+  { path: '/alumni/pending', Component: GraduatePending },
   { path: '/alumni/skills', Component: AlumniSkills },
   { path: '/alumni/employment', Component: AlumniEmployment },
   { path: '/alumni/profile', Component: AlumniProfile },

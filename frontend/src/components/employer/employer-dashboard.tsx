@@ -42,6 +42,14 @@ export function EmployerDashboard() {
   const employerStatus = String(employer?.status ?? '').toLowerCase();
   const isPendingEmployer = employerStatus === 'pending';
 
+  // Fully gated: a pending employer is routed to the pending page and cannot
+  // use the dashboard until the BSIS admin approves the account.
+  useEffect(() => {
+    if (isPendingEmployer) {
+      navigate('/employer/pending');
+    }
+  }, [isPendingEmployer, navigate]);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;

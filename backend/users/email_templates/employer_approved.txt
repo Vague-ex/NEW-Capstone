@@ -1,0 +1,16 @@
+Carlos Hilado Memorial State University
+Graduate Tracer System - Employer Portal
+
+Hi {{ recipient_name|default:"there" }},
+
+The program administrator has APPROVED {{ company_name|default:"your organization" }}
+on the CHMSU Graduate Tracer System. You can now log in to confirm graduate
+employment and view aggregated skill insights from the Employer Dashboard.
+
+{% if login_url %}Log in here: {{ login_url }}
+{% endif %}
+--
+CHMSU BSIS Program - Graduate Tracer System
+Carlos Hilado Memorial State University
+Talisay Campus, Negros Occidental
+This is an automated message. Please do not reply to this email.
