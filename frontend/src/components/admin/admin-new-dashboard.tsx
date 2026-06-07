@@ -9,7 +9,7 @@ import {
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
   ClipboardCheck, Upload,
 } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 
 function countPendingEmployerRequests(records: Array<Record<string, unknown>>): number {
   return records.filter((record) => {
@@ -69,7 +69,7 @@ export function AdminNewDashboard() {
       } else {
         const message = pendingResult.reason instanceof Error
           ? pendingResult.reason.message
-          : 'Pending alumni data could not be refreshed.';
+          : 'Pending graduate data could not be refreshed.';
         errorMessages.push(message);
       }
 
@@ -78,7 +78,7 @@ export function AdminNewDashboard() {
       } else {
         const message = verifiedResult.reason instanceof Error
           ? verifiedResult.reason.message
-          : 'Verified alumni data could not be refreshed.';
+          : 'Verified graduate data could not be refreshed.';
         errorMessages.push(message);
       }
 
@@ -151,6 +151,7 @@ export function AdminNewDashboard() {
         year: String(year),
         total: verifiedBatch.length,
         employed: employedBatch,
+        notEmployed: verifiedBatch.length - employedBatch,
       };
     })
   ), [batchYears, verifiedAlumni]);
@@ -243,7 +244,7 @@ export function AdminNewDashboard() {
     },
     {
       icon: CheckCircle2,
-      label: 'Verified Alumni',
+      label: 'Verified Graduates',
       sub: `${verifiedCount} approved`,
       path: '/admin/verified',
       color: 'text-emerald-600',
@@ -290,7 +291,7 @@ export function AdminNewDashboard() {
             <AlertTriangle className="size-5 text-amber-500 shrink-0" />
             <div className="flex-1">
               <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>
-                {pendingAlumni.length} alumni account{pendingAlumni.length !== 1 ? 's' : ''} pending verification
+                {pendingAlumni.length} graduate account{pendingAlumni.length !== 1 ? 's' : ''} pending verification
               </p>
               <p className="text-amber-700 text-xs mt-0.5">Review biometric submissions and approve or reject accounts.</p>
             </div>
@@ -358,7 +359,7 @@ export function AdminNewDashboard() {
               </ResponsiveContainer>
             ) : (
               <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
-                No verified alumni data yet.
+                No verified graduate data yet.
               </div>
             )}
           </div>
@@ -390,6 +391,11 @@ export function AdminNewDashboard() {
                 No time-to-hire records yet.
               </div>
             )}
+            <p className="text-gray-400 text-[11px] mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: '#10b981' }} />≤3 mo · fast</span>
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: '#f59e0b' }} />3–4.5 mo · moderate</span>
+              <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: '#ef4444' }} />&gt;4.5 mo · slow</span>
+            </p>
           </div>
         </div>
 
@@ -405,8 +411,9 @@ export function AdminNewDashboard() {
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Bar key="bar-employed" dataKey="employed" name="Employed" fill="#166534" radius={[3, 3, 0, 0]} />
-                <Bar key="bar-total" dataKey="total" name="Total" fill="#e5e7eb" radius={[3, 3, 0, 0]} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
+                <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -481,7 +488,7 @@ export function AdminNewDashboard() {
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <TrendingUp className="size-4 text-[#166534]" /> Top Skills from Verified Alumni
+            <TrendingUp className="size-4 text-[#166534]" /> Top Skills from Verified Graduates
           </h3>
           {topSkills.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -489,12 +496,12 @@ export function AdminNewDashboard() {
                 <div key={s.skill} className="rounded-xl p-3 border bg-emerald-50 border-emerald-100">
                   <p className="text-xs mb-1 truncate text-emerald-900" style={{ fontWeight: 600 }}>{s.skill}</p>
                   <p className="text-xs text-emerald-600" style={{ fontWeight: 700 }}>{s.growth}</p>
-                  <p className="text-gray-500 text-xs">{s.count} alumni</p>
+                  <p className="text-gray-500 text-xs">{s.count} graduates</p>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-gray-400 text-sm text-center py-6">No skills data from verified alumni yet.</div>
+            <div className="text-gray-400 text-sm text-center py-6">No skills data from verified graduates yet.</div>
           )}
         </div>
       </div>

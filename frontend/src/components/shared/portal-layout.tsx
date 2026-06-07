@@ -34,7 +34,7 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
   admin: [
     { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Pending Verification', path: '/admin/unverified', icon: ClipboardCheck },
-    { label: 'Verified Alumni', path: '/admin/verified', icon: CheckCircle2 },
+    { label: 'Verified Graduates', path: '/admin/verified', icon: CheckCircle2 },
     { label: 'Batch Upload', path: '/admin/batch-upload', icon: Upload },
     { label: 'Employer Requests', path: '/admin/employers', icon: Building2 },
     { label: 'Geomapping', path: '/admin/map', icon: Map },
@@ -45,7 +45,7 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
 
 const ROLE_CONFIG = {
   alumni: {
-    label: 'Alumni Portal',
+    label: 'Graduate Portal',
     color: 'from-[#166534] to-[#14532d]',
     accent: 'bg-emerald-500',
     logoutPath: '/',
@@ -381,7 +381,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                               <UserCheck className="size-4 text-amber-600" />
                             </span>
                             <div>
-                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingAlumniCount} Alumni Pending Verification</p>
+                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingAlumniCount} Graduates Pending Verification</p>
                               <p className="text-gray-400 text-xs">Awaiting biometric review</p>
                             </div>
                           </button>

@@ -69,7 +69,7 @@ export function AlumniDashboard() {
   );
 
   return (
-    <PortalLayout role="alumni" pageTitle="Alumni Dashboard" pageSubtitle={`Welcome back, ${alumni.name?.split(' ')[0] ?? 'Alumni'}!`}>
+    <PortalLayout role="alumni" pageTitle="Graduate Dashboard" pageSubtitle={`Welcome back, ${alumni.name?.split(' ')[0] ?? 'Graduate'}!`}>
       <div className="space-y-6">
 
         {/* ── Profile Banner ── */}

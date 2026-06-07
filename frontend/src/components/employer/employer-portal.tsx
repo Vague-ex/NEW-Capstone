@@ -49,7 +49,7 @@ export function EmployerPortal() {
         <div className="relative space-y-4">
           {[
             { icon: CheckCircle2, title: 'Verify Graduates', desc: 'Confirm BSIS graduation and employment status of your candidates.' },
-            { icon: Briefcase, title: 'Talent Insights', desc: 'View skills and employment data of alumni at your company.' },
+            { icon: Briefcase, title: 'Talent Insights', desc: 'View skills and employment data of graduates at your company.' },
             { icon: Clock, title: 'Admin-Approved Access', desc: 'All requests are reviewed by the BSIS Admin.' },
           ].map(item => (
             <div key={item.title} className="flex items-start gap-3">
@@ -70,7 +70,7 @@ export function EmployerPortal() {
         <div className="relative space-y-2">
           <p className="text-white/25 text-xs">© 2026 Carlos Hilado Memorial State University</p>
           <button onClick={() => navigate('/')} className="flex items-center gap-1.5 text-green-300 hover:text-white text-xs transition" style={{ fontWeight: 500 }}>
-            <GraduationCap className="size-3.5" /> Alumni & Admin login →
+            <GraduationCap className="size-3.5" /> Graduate & Admin login →
           </button>
         </div>
       </div>

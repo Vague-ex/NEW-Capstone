@@ -27,7 +27,7 @@ export function AdminAnalyticsPredictions() {
   const [selectedBatch, setSelectedBatch] = useState<number | 'all'>('all');
   const [projectionView, setProjectionView] = useState<'employment' | 'hire'>('employment');
   const [rawNumbersOpen, setRawNumbersOpen] = useState(false);
-  const [horizon, setHorizon] = useState<1 | 2>(2);
+  const [horizon, setHorizon] = useState<1 | 2>(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,7 +161,7 @@ export function AdminAnalyticsPredictions() {
             <p className="text-white/75 text-xs mt-1">
               Predicted employability and skill demand for the next {horizon}{' '}
               graduating {horizon === 1 ? 'batch' : 'batches'}, based on historical
-              alumni outcomes.
+              graduate outcomes.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -187,23 +187,26 @@ export function AdminAnalyticsPredictions() {
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <span style={{ fontWeight: 600 }}>Batch:</span>
-          <select
-            value={selectedBatch}
-            onChange={(e) =>
-              setSelectedBatch(e.target.value === 'all' ? 'all' : Number(e.target.value))
-            }
-            className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
-          >
-            <option value="all">All batches</option>
-            {batches.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          {loading && <span className="text-gray-400 text-xs">Loading...</span>}
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <span style={{ fontWeight: 600 }}>Summary for batch:</span>
+            <select
+              value={selectedBatch}
+              onChange={(e) =>
+                setSelectedBatch(e.target.value === 'all' ? 'all' : Number(e.target.value))
+              }
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
+            >
+              <option value="all">All batches</option>
+              {batches.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            {loading && <span className="text-gray-400 text-xs">Loading...</span>}
+          </div>
+          <p className="text-[11px] text-gray-400">Changes the summary cards only — the forecast always projects from the most recent batch, not the one selected here.</p>
         </div>
         {data?.model_metadata && (
           <p className="text-xs text-gray-400">
@@ -228,7 +231,7 @@ export function AdminAnalyticsPredictions() {
           {
             label: 'Observed Employment Rate',
             value: pct(observedEmp),
-            sub: `${overall?.n_alumni ?? 0} alumni in sample`,
+            sub: `${overall?.n_alumni ?? 0} graduates in sample`,
             icon: TrendingUp,
             bg: 'bg-emerald-50',
             color: 'text-emerald-600',
@@ -237,7 +240,7 @@ export function AdminAnalyticsPredictions() {
           {
             label: 'Observed Time-to-Hire',
             value: `${observedHire.toFixed(1)}mo`,
-            sub: 'Mean across employed alumni',
+            sub: 'Mean across employed graduates',
             icon: Clock,
             bg: 'bg-blue-50',
             color: 'text-blue-600',
@@ -250,7 +253,7 @@ export function AdminAnalyticsPredictions() {
             value: nextForecast ? pct(nextForecast.predicted_employment_rate) : '-',
             sub: nextForecast
               ? `80% PI: ${pct(nextForecast.employment_rate_lo)}–${pct(nextForecast.employment_rate_hi)}`
-              : 'Need ≥2 batches to forecast',
+              : 'Not enough batches yet to forecast',
             icon: Sparkles,
             bg: 'bg-green-50',
             color: 'text-green-600',
@@ -265,7 +268,7 @@ export function AdminAnalyticsPredictions() {
               : '-',
             sub: nextForecast
               ? `80% PI: ${nextForecast.time_to_hire_lo.toFixed(1)}–${nextForecast.time_to_hire_hi.toFixed(1)}mo`
-              : 'Need ≥2 batches to forecast',
+              : 'Not enough batches yet to forecast',
             icon: Sparkles,
             bg: 'bg-amber-50',
             color: 'text-amber-600',
@@ -299,6 +302,10 @@ export function AdminAnalyticsPredictions() {
           </div>
         ))}
       </div>
+
+      <p className="text-xs text-gray-500 -mt-1 leading-relaxed">
+        <span style={{ fontWeight: 600 }}>Reading the forecast:</span> the two forecast cards project the next batch past your latest year (e.g. 2025 → 2026). &ldquo;80% PI&rdquo; is the prediction interval — we&rsquo;re about 80% confident the real value lands in that range. Projections further out are rougher estimates.
+      </p>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
@@ -504,11 +511,11 @@ export function AdminAnalyticsPredictions() {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-              <Tooltip formatter={(v: number) => [`${v} alumni`, 'Count']} />
+              <Tooltip formatter={(v: number) => [`${v} graduates`, 'Count']} />
               <Line
                 type="monotone"
                 dataKey="n"
-                name="Alumni count"
+                name="Graduate count"
                 stroke="#166534"
                 strokeWidth={2.5}
                 dot={{ r: 5, fill: '#166534' }}
@@ -527,7 +534,7 @@ export function AdminAnalyticsPredictions() {
               <Lightbulb className="size-4 text-[#166534]" /> Top Skills for Next Batches
             </h3>
             <p className="text-gray-500 text-xs mt-1">
-              Ranked by projected demand share, employment-lift (alumni holding the
+              Ranked by projected demand share, employment-lift (graduates holding the
               skill are more likely to be employed), and growth slope. Use this to
               advise current students on which skills to double down on.
             </p>
@@ -535,7 +542,7 @@ export function AdminAnalyticsPredictions() {
         </div>
         {skillForecast.length === 0 ? (
           <div className="h-[160px] flex items-center justify-center text-gray-400 text-sm">
-            {loading ? 'Loading...' : 'Need ≥2 batches of skill data to forecast'}
+            {loading ? 'Loading...' : 'Not enough data yet — skill trends need at least 2 graduation years with skill responses.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -572,7 +579,7 @@ export function AdminAnalyticsPredictions() {
                           {s.skill}
                         </span>
                         <p className="text-gray-400 text-[11px] mt-0.5">
-                          {s.holders_total} alumni hold this
+                          {s.holders_total} graduates hold this
                         </p>
                       </td>
                       <td className="py-2.5 pr-4">
@@ -659,7 +666,7 @@ export function AdminAnalyticsPredictions() {
               <Cpu className="size-4 text-[#166534]" /> BSIS-Aligned Employment (Observed)
             </h3>
             <p className="text-gray-500 text-xs mt-1">
-              Share of alumni whose first / current job aligns with the BSIS program.
+              Share of graduates whose first / current job aligns with the BSIS program.
               Observed values only - no model prediction.
             </p>
           </div>

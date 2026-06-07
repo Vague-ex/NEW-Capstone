@@ -1,5 +1,5 @@
 {
-  "trained_at": "2026-05-20T13:46:10.102678+00:00",
+  "trained_at": "2026-06-05T10:58:23.584460+00:00",
   "n_samples": 230,
   "n_features": 31,
   "features": [
@@ -71,31 +71,31 @@
     "employment_status": {
       "task": "classification",
       "target_column": "employment_status",
-      "best_model": "logistic_regression",
+      "best_model": "random_forest",
       "candidates": {
         "logistic_regression": {
-          "cv_mean": 1.0,
-          "cv_std": 0.0,
+          "cv_mean": 0.8836494967690284,
+          "cv_std": 0.028599408913158732,
           "scoring": "f1",
           "n_samples": 230,
-          "train_accuracy": 1.0,
-          "train_precision": 1.0,
-          "train_recall": 1.0,
-          "train_f1": 1.0
+          "train_accuracy": 0.8695652173913043,
+          "train_precision": 0.8827160493827161,
+          "train_recall": 0.9285714285714286,
+          "train_f1": 0.9050632911392406
         },
         "random_forest": {
-          "cv_mean": 1.0,
-          "cv_std": 0.0,
+          "cv_mean": 0.8927483854322713,
+          "cv_std": 0.04433912338176005,
           "scoring": "f1",
           "n_samples": 230,
-          "train_accuracy": 1.0,
-          "train_precision": 1.0,
-          "train_recall": 1.0,
-          "train_f1": 1.0
+          "train_accuracy": 0.9,
+          "train_precision": 0.9225806451612903,
+          "train_recall": 0.9285714285714286,
+          "train_f1": 0.9255663430420712
         },
         "gradient_boosting": {
-          "cv_mean": 1.0,
-          "cv_std": 0.0,
+          "cv_mean": 0.8542409362120559,
+          "cv_std": 0.030414147104162095,
           "scoring": "f1",
           "n_samples": 230,
           "train_accuracy": 1.0,

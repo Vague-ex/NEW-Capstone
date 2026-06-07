@@ -26,6 +26,24 @@ from tracer.models import EmploymentProfile, WorkAddress
 
 SAMPLE_EMAIL_DOMAIN = "sample.masterlist.local"
 
+# Fictional name pools for demo accounts. We deliberately do NOT use the real
+# masterlist names (privacy / taste): seeded demo graduates get made-up but
+# plausible Filipino names instead. Combinations are random so they don't
+# correspond to any real person on the masterlist.
+FIRST_NAMES_M = [
+    "Mateo", "Gabriel", "Rafael", "Lance", "Joaquin", "Emilio", "Andres",
+    "Carlo", "Diego", "Marco", "Paolo", "Enrique", "Vicente", "Rommel", "Kurt",
+]
+FIRST_NAMES_F = [
+    "Bea", "Sofia", "Camille", "Andrea", "Patricia", "Isabel", "Mariel",
+    "Trisha", "Angeline", "Kristine", "Danica", "Joy", "Mae", "Hannah", "Liza",
+]
+SURNAMES = [
+    "Reyes", "Santos", "Cruz", "Bautista", "Villanueva", "Mercado", "Aquino",
+    "Delos Santos", "Garcia", "Ramos", "Flores", "Gonzales", "Torres", "Castillo",
+    "Domingo", "Salvador", "Navarro", "Espinosa", "Fernandez", "Lim",
+]
+
 SECTORS = ["government", "private", "entrepreneurial"]
 JOB_STATUSES = ["regular", "probationary", "contractual", "self_employed"]
 JOB_SOURCES = ["personal_network", "online_portal", "career_fair", "walk_in", "social_media", "other"]
@@ -55,6 +73,16 @@ class Command(BaseCommand):
         parser.add_argument("--count", type=int, default=60)
         parser.add_argument("--clear", action="store_true")
         parser.add_argument("--seed", type=int, default=42)
+        parser.add_argument(
+            "--grad-year",
+            type=int,
+            default=None,
+            help=(
+                "Force every seeded graduate to this graduation year, overriding "
+                "the masterlist batch year. Use a distinct --seed (e.g. --seed 2025) "
+                "so the generated emails don't collide with existing samples."
+            ),
+        )
 
     def _is_sample(self, account: AlumniAccount) -> bool:
         try:
@@ -97,11 +125,13 @@ class Command(BaseCommand):
             if User.objects.filter(email__iexact=email).exists():
                 continue
 
-            parts = (master.full_name or "Sample Graduate").split()
-            first = parts[0]
-            last = parts[-1] if len(parts) > 1 else first
-            middle = " ".join(parts[1:-1]) if len(parts) > 2 else ""
-            year = master.batch_year or rng.choice([2020, 2021, 2022, 2023, 2024])
+            # Fictional name (never the real masterlist name). Pick gender
+            # first so the given name matches it.
+            gender = rng.choice(["Male", "Female"])
+            first = rng.choice(FIRST_NAMES_M if gender == "Male" else FIRST_NAMES_F)
+            middle = rng.choice(SURNAMES)
+            last = rng.choice(SURNAMES)
+            year = opts.get("grad_year") or master.batch_year or rng.choice([2020, 2021, 2022, 2023, 2024])
 
             # --- predictor features ---
             grades = rng.randint(0, 5)
@@ -143,7 +173,7 @@ class Command(BaseCommand):
 
             AlumniProfile.objects.create(
                 alumni=account, first_name=first, middle_name=middle, last_name=last,
-                gender=rng.choice(["Male", "Female"]),
+                gender=gender,
                 graduation_year=year, graduation_date=f"{year}-06",
                 city=city if is_local else "", province=province if is_local else "",
                 scholarship=rng.choice(["", "", "CHED Scholar", "SUC Scholar"]),

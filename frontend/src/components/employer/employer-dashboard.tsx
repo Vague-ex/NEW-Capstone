@@ -165,13 +165,13 @@ export function EmployerDashboard() {
             setAlumniError('Your employer session expired. Please sign in again.');
           } else if (err.status === 403) {
             setAlumniError(
-              err.message || 'Your account cannot access currently employed alumni data right now.',
+              err.message || 'Your account cannot access currently employed graduate data right now.',
             );
           } else {
-            setAlumniError(err.message || 'Unable to load currently employed alumni right now.');
+            setAlumniError(err.message || 'Unable to load currently employed graduates right now.');
           }
         } else {
-          setAlumniError('Unable to load currently employed alumni right now.');
+          setAlumniError('Unable to load currently employed graduates right now.');
         }
 
         setMyAlumni([]);
@@ -293,7 +293,7 @@ export function EmployerDashboard() {
                 <h2 className="text-white" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{employerCompany}</h2>
               </div>
               <p className="text-emerald-100 text-sm">
-                Showing data for <span style={{ fontWeight: 600 }}>{total} BSIS alumni</span> currently employed at your company.
+                Showing data for <span style={{ fontWeight: 600 }}>{total} BSIS graduates</span> currently employed at your company.
               </p>
               <p className="text-emerald-200 text-xs mt-1">
                 {isPendingEmployer
@@ -311,13 +311,13 @@ export function EmployerDashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Currently Employed Alumni" value={total} sub="At your company"
+          <StatCard label="Currently Employed Graduates" value={total} sub="At your company"
             icon={Users} iconBg="bg-green-50" iconColor="text-green-700" />
           <StatCard label="Employment Match" value={employed}
             sub={total > 0 ? 'Verified employed records' : 'No data'}
             icon={Briefcase} iconBg="bg-emerald-50" iconColor="text-emerald-600" />
           <StatCard label="Skills on File" value={Object.keys(skillMap).length}
-            sub="Across your alumni"
+            sub="Across your graduates"
             icon={TrendingUp} iconBg="bg-green-50" iconColor="text-green-700" />
           <StatCard label="Avg. Verification"
             value={total > 0 ? `${Math.round((myAlumni.filter(a => a.biometricCaptured).length / total) * 100)}%` : '-'}
@@ -383,7 +383,7 @@ export function EmployerDashboard() {
         {loadingAlumni ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
             <span className="inline-block size-8 border-2 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin mb-3" />
-            <p className="text-gray-700 text-sm" style={{ fontWeight: 600 }}>Loading currently employed alumni…</p>
+            <p className="text-gray-700 text-sm" style={{ fontWeight: 600 }}>Loading currently employed graduates…</p>
             <p className="text-gray-400 text-xs mt-1">Fetching live employer employment records.</p>
           </div>
         ) : alumniError ? (
@@ -392,7 +392,7 @@ export function EmployerDashboard() {
               <AlertTriangle className="size-5 text-red-500 shrink-0 mt-0.5" />
               <div>
                 <p className="text-red-700 text-sm" style={{ fontWeight: 700 }}>
-                  Unable to load currently employed alumni
+                  Unable to load currently employed graduates
                 </p>
                 <p className="text-red-600 text-xs mt-0.5 leading-relaxed">{alumniError}</p>
               </div>
@@ -406,7 +406,7 @@ export function EmployerDashboard() {
                 <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
                   <BarChart2 className="size-4 text-[#166534]" /> Skills Distribution
                 </h3>
-                <p className="text-gray-500 text-xs mb-4">Skills held by your company's BSIS alumni</p>
+                <p className="text-gray-500 text-xs mb-4">Skills held by your company's BSIS graduates</p>
                 {skillData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={isMobileViewport ? 240 : 220}>
                     <BarChart
@@ -427,8 +427,8 @@ export function EmployerDashboard() {
                         tickFormatter={formatSkillLabel}
                         width={isMobileViewport ? 72 : 104}
                       />
-                      <Tooltip formatter={(v) => [`${v} alumni`, 'Count']} />
-                      <Bar dataKey="value" fill="#15803d" radius={[0, 4, 4, 0]} name="Alumni" />
+                      <Tooltip formatter={(v) => [`${v} graduates`, 'Count']} />
+                      <Bar dataKey="value" fill="#15803d" radius={[0, 4, 4, 0]} name="Graduates" />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -453,7 +453,7 @@ export function EmployerDashboard() {
                           dataKey="value" paddingAngle={3}>
                           {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
                         </Pie>
-                        <Tooltip formatter={(v) => [`${v} alumni`]} />
+                        <Tooltip formatter={(v) => [`${v} graduates`]} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="space-y-3 flex-1">
@@ -485,7 +485,7 @@ export function EmployerDashboard() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
-                  Currently Employed BSIS Alumni ({total})
+                  Currently Employed BSIS Graduates ({total})
                 </h3>
                 <button onClick={() => navigate('/employer/verify')}
                   className="flex items-center gap-1.5 bg-[#166534] hover:bg-[#14532d] text-white text-xs px-3 py-1.5 rounded-lg transition"
@@ -519,15 +519,15 @@ export function EmployerDashboard() {
             <div className="flex size-16 items-center justify-center rounded-full bg-gray-100 mx-auto mb-4">
               <UserX className="size-8 text-gray-400" />
             </div>
-            <h3 className="text-gray-700 mb-2" style={{ fontWeight: 700 }}>No alumni linked yet</h3>
+            <h3 className="text-gray-700 mb-2" style={{ fontWeight: 700 }}>No graduates linked yet</h3>
             <p className="text-gray-500 text-sm max-w-sm mx-auto mb-6">
-              No BSIS alumni are currently employed at <span style={{ fontWeight: 600 }}>{employerCompany}</span> yet.
-              Alumni must update their Employment Details in their dashboard for data to appear here.
+              No BSIS graduates are currently employed at <span style={{ fontWeight: 600 }}>{employerCompany}</span> yet.
+              Graduates must update their Employment Details in their dashboard for data to appear here.
             </p>
             <button onClick={() => navigate('/employer/verify')}
               className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm mx-auto transition"
               style={{ fontWeight: 600 }}>
-              <Search className="size-4" /> Verify an Alumni <ArrowRight className="size-4" />
+              <Search className="size-4" /> Verify a Graduate <ArrowRight className="size-4" />
             </button>
           </div>
         )}

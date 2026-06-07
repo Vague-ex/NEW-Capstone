@@ -183,7 +183,7 @@ const questions = [
   A("Exact when the graduate sets their workplace pin; otherwise we estimate from the city and mark the pin as 'approximate,' so we never overstate precision."),
 
   H1("G. Module 6 — Predictive Employability Analysis"),
-  NOTE("Dataset behind every answer here: 230 records, batches 2020–2025, 31 features, about 70% employed, 5-fold cross-validation. Currently synthetic data because real verified records are still below the 80+ threshold — be ready to say so."),
+  NOTE("Dataset behind every answer here: 230 records, batches 2020–2025, 31 features, about 67% employed, 5-fold cross-validation. Currently synthetic data because real verified records are still below the 80+ threshold — be ready to say so."),
 
   Q("What exactly does the model predict?"),
   A("Two things. First, whether a graduate is employed — a yes/no classification. Second, how long it took them to get hired in months — a numeric regression. We also display whether their first and current jobs are BSIS-related, but that is observed survey data, not a model prediction."),
@@ -192,24 +192,24 @@ const questions = [
   A("We don't grade the model on the data it learned from. We use 5-fold cross-validation: the data is split into five parts, the model trains on four and is tested on the fifth it never saw, repeated five times. 'Right' means how well it matched graduates whose real outcomes we already know — and we always report that cross-validation number, not the easier in-sample one."),
 
   Q("What are your actual numbers?"),
-  A("For employment status, our Logistic Regression scores Accuracy, Precision, Recall, and F1 all at 1.00, with a clean confusion matrix — 68 unemployed and 162 employed, zero misclassifications. For time-to-hire, our Random Forest reaches a cross-validation R-squared of 0.25, meaning it explains about a quarter of the variation in how fast graduates get hired; in-sample it fits to R-squared 0.87 with an average error of about 0.37 months."),
+  A("For employment status, our Random Forest classifier scores about 90% accuracy — precision 0.92, recall 0.93, F1 0.93 in-sample, and a cross-validated F1 of 0.89. Out of 230 graduates it classifies 207 correctly: 64 correctly unemployed and 143 correctly employed, with 23 misses. For time-to-hire, our Random Forest reaches a cross-validation R-squared of 0.25 — it explains about a quarter of the variation in how fast graduates get hired; in-sample it fits to R-squared 0.87 with an average error of about 0.37 months."),
 
-  Q("Why is your employment accuracy a perfect 100% — isn't that suspicious?"),
-  A("It is, and we're upfront about it: we're still training on synthetic data we generated, because we don't yet have 80+ real verified records. The synthetic data has a cleanly separable employed-versus-unemployed pattern, so the model finds it perfectly. We fully expect this to drop once real alumni data replaces it — the honest, generalizable number we lean on is the time-to-hire R-squared of 0.25 from cross-validation, which already reflects the realistic difficulty."),
+  Q("Your employment model is about 90% — how do you know that isn't just overfitting?"),
+  A("Because we choose the winning model on cross-validation, not on how well it fits the training data. Gradient boosting actually scored a perfect 100% on the training set but only 85% on held-out folds — a textbook overfit, so we rejected it. Random Forest generalized best: 90% on training and 89% cross-validated, and that small gap is what tells us the 90% is honest rather than memorized. It's trained on synthetic data for now, so the exact figure will shift once real verified records replace it."),
 
   Q("Your time-to-hire R-squared is 0.87 in training but 0.25 in cross-validation — explain that gap."),
   A("That gap is the overfitting. The model memorizes patterns in the 230 training rows it can't reproduce on held-out folds. We quote the 0.25 because it's the honest generalization number. The fix is more real data, not a deeper model — which is exactly why the pipeline is built to retrain the moment real records arrive."),
 
   P("Say each metric in plain words:"),
-  BUL("Accuracy — share of predictions that were correct (yours: 100% on synthetic data)."),
-  BUL("Precision — when it predicts 'employed,' how often that's actually true (1.00)."),
-  BUL("Recall — of the truly employed, how many it caught (1.00)."),
-  BUL("F1 — the balance of precision and recall in one number (1.00)."),
+  BUL("Accuracy — share of predictions that were correct (employment: about 90%, 89% cross-validated)."),
+  BUL("Precision — when it predicts 'employed,' how often that's actually true (0.92)."),
+  BUL("Recall — of the truly employed, how many it caught (0.93)."),
+  BUL("F1 — the balance of precision and recall in one number (0.93 in-sample, 0.89 cross-validated)."),
   BUL("R-squared — share of variation the model explains, 0 to 1 (time-to-hire: 0.25 cross-validated)."),
   BUL("MAE — average miss for time-to-hire, in months (about 0.37 months in-sample)."),
 
-  Q("Why Random Forest for one target and Logistic Regression for the other?"),
-  A("We didn't hand-pick — we tested three candidates per target under cross-validation and kept the best. For time-to-hire, plain linear and ridge regression scored worse than just guessing the average (negative R-squared around -0.22), while Random Forest captured the non-linear patterns and won at 0.25. For employment status all three candidates tied, so we chose Logistic Regression because it's the simplest and most interpretable."),
+  Q("Why Random Forest for both targets?"),
+  A("We didn't hand-pick — we tested three candidates per target under cross-validation and kept the best. For time-to-hire, plain linear and ridge regression scored worse than just guessing the average (negative R-squared around -0.22), while Random Forest captured the non-linear patterns and won at 0.25. For employment status, logistic regression scored a cross-validated F1 of 0.88 and gradient boosting overfit (perfect on training but only 0.85 cross-validated), so Random Forest won at a cross-validated F1 of 0.89."),
 
   Q("What's the single biggest factor in how fast a graduate gets hired?"),
   A("OJT or internship relevance, by far — about 37% of the model's importance — followed by the number of job applications at 20% and the batch year at 8%. That's a useful finding for the program: a relevant internship matters more than raw grades."),
@@ -243,19 +243,19 @@ const questions = [
 
   H1("J. Rapid-Fire"),
   Q("In one number, how accurate is it?"),
-  A("On employment status it's 100% on our current synthetic data — which we expect to drop on real data — and for time-to-hire it explains about a quarter of the variation (cross-validated R-squared 0.25), missing by under half a month in training."),
+  A("On employment status it's about 90% (89% cross-validated) on our current synthetic data, and for time-to-hire it explains about a quarter of the variation (cross-validated R-squared 0.25), missing by under half a month in training. The figures will shift once real records replace the synthetic set."),
   Q("Can the system be cheated?"),
   A("We layered defenses: live face capture with a random liveness action, employer confirmation of employment, and program-chair approval of every employer account."),
   Q("Why not just use LinkedIn?"),
   A("It isn't verified, isn't complete for our batches, and can't be exported as institutional tracer data for accreditation."),
 
   H1("Your numbers at a glance (current trained model)"),
-  BUL("Records: 230 (synthetic), batches 2020–2025, 31 features, about 70% employed, 5-fold cross-validation."),
-  BUL("Employment status — Logistic Regression: Accuracy / Precision / Recall / F1 = 1.00; confusion matrix 68 unemployed + 162 employed, zero errors (on synthetic data)."),
+  BUL("Records: 230 (synthetic), batches 2020–2025, 31 features, about 67% employed, 5-fold cross-validation."),
+  BUL("Employment status — Random Forest: accuracy 0.90, precision 0.92, recall 0.93, F1 0.93 in-sample; cross-validated F1 0.89; confusion matrix 64 + 143 correct, 23 misclassified (on synthetic data)."),
   BUL("Time-to-hire — Random Forest: cross-validation R-squared 0.25; in-sample R-squared 0.87, MAE about 0.37 months. Quote the 0.25."),
-  BUL("Models compared per target: time-to-hire — linear, ridge, random forest (random forest won; linear/ridge were negative). Employment — logistic, random forest, gradient boosting (all tied; logistic chosen for interpretability)."),
+  BUL("Models compared per target: time-to-hire — linear, ridge, random forest (random forest won; linear/ridge were negative). Employment — logistic (CV F1 0.88), random forest (CV F1 0.89, won), gradient boosting (overfit: 1.00 on training, 0.85 cross-validated)."),
   BUL("Top time-to-hire drivers: OJT relevance 37%, job applications 20%, batch year 8%, technical skills 5%, GPA 5%."),
-  NOTE("Source: backend/ml/models/model_metadata.json and evaluation_report.json (trained 2026-05-20). Re-run stages 2–3 of the pipeline after real records are added — the numbers will move, especially the perfect employment score."),
+  NOTE("Source: backend/ml/models/model_metadata.json and evaluation_report.json (retrained 2026-06-05 with realistic label noise). Re-run stages 1–3 of the pipeline after real records are added — the numbers will move."),
 ];
 
 // ============================================================ STORYBOARD (table)

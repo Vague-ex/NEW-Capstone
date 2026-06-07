@@ -56,61 +56,61 @@
     },
     "employment_status": {
       "n_samples": 230,
-      "model": "LogisticRegression",
-      "accuracy": 1.0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
+      "model": "RandomForestClassifier",
+      "accuracy": 0.9,
+      "precision": 0.9225806451612903,
+      "recall": 0.9285714285714286,
+      "f1": 0.9255663430420712,
       "confusion_matrix": [
         [
-          68,
-          0
+          64,
+          12
         ],
         [
-          0,
-          162
+          11,
+          143
         ]
       ],
       "top_features": [
         {
-          "feature": "first_sector_2",
-          "coef": 1.183560329698514
+          "feature": "job_source_7",
+          "importance": 0.24523137730189273
         },
         {
           "feature": "current_sector_2",
-          "coef": 1.1291304915207823
+          "importance": 0.12262938888721574
         },
         {
-          "feature": "job_source_7",
-          "coef": -1.1232253144969548
+          "feature": "first_sector_2",
+          "importance": 0.06369199567098373
         },
         {
-          "feature": "first_status_1",
-          "coef": 1.0065343733888215
-        },
-        {
-          "feature": "current_sector_1",
-          "coef": 0.7386371206872498
+          "feature": "technical_skill_count",
+          "importance": 0.04622711744094435
         },
         {
           "feature": "first_status_2",
-          "coef": 0.724780738939835
+          "importance": 0.04211495782894802
         },
         {
-          "feature": "current_sector_3",
-          "coef": 0.6715056422008291
+          "feature": "soft_skill_count",
+          "importance": 0.0399325744537217
         },
         {
-          "feature": "first_sector_1",
-          "coef": 0.6662504339355719
+          "feature": "first_status_1",
+          "importance": 0.03771530164013923
         },
         {
-          "feature": "first_sector_3",
-          "coef": 0.620143595327811
+          "feature": "batch_code",
+          "importance": 0.037702715581563025
         },
         {
-          "feature": "first_status_3",
-          "coef": 0.5457250712185843
+          "feature": "job_source_2",
+          "importance": 0.03485126683385705
+        },
+        {
+          "feature": "job_applications_count",
+          "importance": 0.03414695683282727
         }
       ]
     }

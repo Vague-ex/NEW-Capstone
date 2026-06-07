@@ -2278,11 +2278,20 @@ class AdminAnalyticsPredictionsView(APIView):
         # --- Inject live DB data; fall back to CSV when DB is empty ---
         import logging as _logging
         _log = _logging.getLogger(__name__)
-        try:
-            live_df = _build_live_df()
-        except Exception as _exc:  # noqa: BLE001
-            live_df = None
-            _log.warning("_build_live_df() failed: %s", _exc)
+        # Cache the live feature DataFrame for a short window so repeated
+        # analytics interactions (changing the batch filter or horizon) don't
+        # re-query the DB and re-engineer features every time.
+        from django.core.cache import cache as _django_cache
+
+        live_df = _django_cache.get("analytics_live_df")
+        if live_df is None:
+            try:
+                live_df = _build_live_df()
+            except Exception as _exc:  # noqa: BLE001
+                live_df = None
+                _log.warning("_build_live_df() failed: %s", _exc)
+            if live_df is not None and not live_df.empty:
+                _django_cache.set("analytics_live_df", live_df, 90)
 
         working_df = (
             live_df if (live_df is not None and not live_df.empty)

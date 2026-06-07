@@ -493,6 +493,7 @@ def _alumni_dashboard_queryset(qs):
     additional queries regardless of result-set size.
     """
     from tracer.models import CompetencyProfile, EmploymentProfile, WorkAddress
+    from .models import FaceScan
 
     return qs.select_related("user", "master_record", "profile").prefetch_related(
         Prefetch(
@@ -509,6 +510,14 @@ def _alumni_dashboard_queryset(qs):
             "competency_profiles",
             queryset=CompetencyProfile.objects.order_by("-assessment_date"),
             to_attr="_prefetched_comp",
+        ),
+        # Front face scan for the primary-photo fallback in _admin_alumni_payload.
+        # Without this, accounts whose photo URL isn't on the JSON blob (e.g. the
+        # seeded samples) trigger one extra query each — an N+1 across the list.
+        Prefetch(
+            "face_scans",
+            queryset=FaceScan.objects.filter(scan_type="face_front").order_by("-captured_at"),
+            to_attr="_prefetched_scans",
         ),
     )
 
@@ -833,12 +842,18 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
     primary_face_url = account.face_photo_url or registration_face_scans.get("front")
     if not primary_face_url:
         try:
-            face_scan_obj = (
-                account.face_scans
-                .filter(scan_type="face_front")
-                .order_by("-captured_at")
-                .first()
-            )
+            # Use the prefetched front-scan list when present (list endpoints),
+            # otherwise fall back to a direct query (single-record callers).
+            scans = getattr(account, "_prefetched_scans", None)
+            if scans is not None:
+                face_scan_obj = scans[0] if scans else None
+            else:
+                face_scan_obj = (
+                    account.face_scans
+                    .filter(scan_type="face_front")
+                    .order_by("-captured_at")
+                    .first()
+                )
             if face_scan_obj:
                 primary_face_url = face_scan_obj.url
         except Exception:

@@ -923,7 +923,7 @@ class PredictiveTrendReportView(APIView):
             )
 
         overall_rows = [
-            ["Alumni in trained sample", overall.get("n_alumni", 0), ""],
+            ["Graduates in trained sample", overall.get("n_alumni", 0), ""],
             [
                 "Employment rate",
                 f"{overall.get('actual_employment_rate', 0) * 100:.1f}%",
