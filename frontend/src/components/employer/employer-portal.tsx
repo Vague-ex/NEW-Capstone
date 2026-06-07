@@ -102,7 +102,7 @@ function LandingView({ onLogin, onRegister }: { onLogin: () => void; onRegister:
   return (
     <div>
       <h2 className="text-gray-900 mb-1" style={{ fontWeight: 700, fontSize: '1.35rem' }}>Welcome, Employer</h2>
-      <p className="text-gray-500 text-sm mb-8">Sign in with your approved credentials, or submit an access request.</p>
+      <p className="text-gray-500 text-sm mb-8">Sign in with your approved credentials, or register a new account.</p>
 
       <div className="space-y-3">
         <button
@@ -127,8 +127,8 @@ function LandingView({ onLogin, onRegister }: { onLogin: () => void; onRegister:
             <Building2 className="size-5 text-[#166534]" />
           </div>
           <div className="flex-1">
-            <p className="text-sm" style={{ fontWeight: 600 }}>Request Access</p>
-            <p className="text-gray-500 text-xs mt-0.5">Submit a new employer registration</p>
+            <p className="text-sm" style={{ fontWeight: 600 }}>Register Account</p>
+            <p className="text-gray-500 text-xs mt-0.5">Create a new employer account</p>
           </div>
           <ArrowRight className="size-5 text-gray-300 shrink-0" />
         </button>

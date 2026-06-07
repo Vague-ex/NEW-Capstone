@@ -236,7 +236,7 @@ export function RegisterEmployer({ onBack }: { onBack?: () => void } = {}) {
             </div>
           </div>
           <div className="mt-4 rounded-lg bg-white/10 p-3 text-xs text-green-100">
-            <span style={{ fontWeight: 600 }}>Note:</span> All access requests are reviewed and approved by the CHMSU BSIS Admin before activation.
+            <span style={{ fontWeight: 600 }}>Note:</span> All employer registrations are reviewed and approved by the CHMSU BSIS Admin before activation.
           </div>
         </div>
 

@@ -105,6 +105,8 @@ const children = [
   H2("Geomapping"),
   Q("How accurate are the map locations?"),
   A("Exact when the graduate sets their workplace pin; otherwise we estimate from the city and clearly mark the pin as approximate, so we never overstate precision."),
+  Q("You capture GPS on every login — is it shown on the map?"),
+  A("The login GPS is captured and stored in the login audit trail — that already works. The geomap currently visualizes employment and work locations; plotting recent-login locations is the same stored coordinates as an additional layer, so it's a planned next step, not a new data pipeline. We prioritized the employment-location map because that's the core tracer output; the login coordinates are retained for audit and security."),
 
   H2("Admin Dashboard & Reporting"),
   Q("Who can access the admin side?"),
@@ -117,6 +119,10 @@ const children = [
   A("We removed them. Comparing the model's guess against batches we already have real data for is an accuracy check, not a forecast, and it confused readers. We replaced it with one plain sentence plus the cross-validated metrics — the same evidence, far clearer."),
   Q("Why show observed data per batch instead of predictions?"),
   A("For past batches we already have the real outcomes, so predicting them again adds nothing. The report shows what actually happened — the trend — and reserves prediction for the one thing we don't know yet: the next batches, in the forecast."),
+  Q("Why does the system have a data-quality report?"),
+  A("Tracer data is self-reported and often incomplete, so we audit it. The report checks every record against seven required fields — employment status, time-to-hire, sector, job title, work address, technical skills and soft skills — and shows overall coverage, which fields are most often missing, and the completion rate per batch. It's how the program chair spots gaps, follows up with those graduates, and trusts the analytics built on top."),
+  Q("Isn't measuring data quality trivial?"),
+  A("It's the foundation, not a frill. It pairs with validation at entry — we reject bad data going in and measure coverage after. Everything depends on it: the geomap can't plot a graduate with no work address, and the model shouldn't predict on half-empty records. The data-quality report is the integrity check that makes the predictions and the map credible — exactly what accreditation expects."),
 
   H1("Part 3 — Prediction module deep-dive"),
   NOTE("Current numbers, on synthetic data (230 training rows, 2020–2025): employment — Random Forest, ~90% accuracy / 0.93 F1 in-sample, 0.89 cross-validated F1. Time-to-hire — Random Forest, cross-validated R² 0.25, average error ~0.37 months. Quote the cross-validated numbers."),
