@@ -887,43 +887,25 @@ def _observed_tth_buckets(df) -> list[list]:
     return [[label, count] for label, count in buckets.items()]
 
 
-def _reliability_paragraph(meta: dict) -> str:
-    """Plain-language reliability note from the model's cross-validated metrics
-    (held-out, not training-set). Falls back to a generic line if absent."""
+def _model_performance_rows(meta: dict) -> list[list]:
+    """Compact, factual model-performance rows from the trained metadata
+    (cross-validated where applicable). Report-style metric/value pairs."""
     targets = (meta or {}).get("targets", {})
     emp = targets.get("employment_status", {})
     emp_c = emp.get("candidates", {}).get(emp.get("best_model"), {})
     tth = targets.get("time_to_hire", {})
     tth_c = tth.get("candidates", {}).get(tth.get("best_model"), {})
-    emp_acc = emp_c.get("train_accuracy")
-    emp_f1 = emp_c.get("cv_mean")
-    tth_r2 = tth_c.get("cv_mean")
-    tth_mae = tth_c.get("train_mae")
 
-    if emp_f1 is None and tth_r2 is None:
-        return (
-            "The forecast extends the observed trend of past batches. Its reliability improves as "
-            "more verified graduate responses are collected."
-        )
-
-    bits: list[str] = []
-    if emp_acc is not None and emp_f1 is not None:
-        bits.append(
-            f"For predicting whether a graduate is employed, the model is correct about {emp_acc * 100:.0f}% "
-            f"of the time, with a cross-validated F1 score of {emp_f1:.2f} — measured on graduates the model "
-            f"had never seen during training."
-        )
-    if tth_r2 is not None and tth_mae is not None:
-        bits.append(
-            f"For time-to-hire, it explains roughly {tth_r2 * 100:.0f}% of the variation between graduates "
-            f"(cross-validated R² of {tth_r2:.2f}), with an average error of about {tth_mae:.1f} months."
-        )
-    bits.append(
-        "These are the honest, held-out figures (we report them instead of the easier training-set numbers), "
-        "which is why the forward forecast can be read as a reliable direction for the program as a whole — "
-        "not a guarantee for any single graduate."
-    )
-    return " ".join(bits)
+    rows: list[list] = []
+    if emp_c.get("train_accuracy") is not None:
+        rows.append(["Employment — accuracy", f"{emp_c['train_accuracy'] * 100:.0f}%"])
+    if emp_c.get("cv_mean") is not None:
+        rows.append(["Employment — F1 (cross-validated)", f"{emp_c['cv_mean']:.2f}"])
+    if tth_c.get("cv_mean") is not None:
+        rows.append(["Time-to-hire — R-squared (cross-validated)", f"{tth_c['cv_mean']:.2f}"])
+    if tth_c.get("train_mae") is not None:
+        rows.append(["Time-to-hire — mean error (months)", f"{tth_c['train_mae']:.1f}"])
+    return rows or [["Model metrics", "Unavailable"]]
 
 
 def _trend_interpretation(employment_history, tth_history, overall: dict) -> str:
@@ -1081,19 +1063,6 @@ class PredictiveTrendReportView(APIView):
         else:
             intro_text = "No graduating batches fall within the selected year range."
 
-        about_forecast_text = (
-            "The forecast extends the observed trend with a straight-line (least-squares) projection: it "
-            "continues the direction of the past batches into the next years. Like any projection it grows "
-            "less certain the further out it reaches, and it describes the cohort as a whole — not a "
-            "guarantee for any individual graduate. Read it as the likely direction for the program."
-        )
-        conclusion_text = (
-            "In summary, the report pairs what actually happened to past batches with a grounded projection "
-            "of where the next batches are heading. The program can act on the rising or falling signals in "
-            "employment rate, time-to-hire, and job alignment to guide curriculum emphasis and graduate "
-            "support, and the figures sharpen as each new batch is traced."
-        )
-
         sections: list[dict[str, Any]] = [
             {"title": "Introduction", "columns": ["Overview"], "rows": [[intro_text]]},
             {"title": "Executive Summary", "columns": ["Summary"], "rows": [[narrative]]},
@@ -1121,18 +1090,16 @@ class PredictiveTrendReportView(APIView):
                 "columns": ["Year", "Projected Employment Rate", "Projected Time-to-Hire (mo)"],
                 "rows": forecast_rows or [["—", "Insufficient data to forecast", ""]],
             },
-            {"title": "About the Forecast", "columns": ["Notes"], "rows": [[about_forecast_text]]},
             {
-                "title": "Why You Can Trust This",
-                "columns": ["Model Reliability"],
-                "rows": [[_reliability_paragraph(meta)]],
+                "title": "Model Performance",
+                "columns": ["Metric", "Value"],
+                "rows": _model_performance_rows(meta),
             },
             {
                 "title": "Time-to-Hire Breakdown (Observed)",
                 "columns": ["Time Range", "Graduates"],
                 "rows": _observed_tth_buckets(df),
             },
-            {"title": "Conclusion & Recommendations", "columns": ["Summary"], "rows": [[conclusion_text]]},
         ]
 
         return _ok("Predictive Employability Trend", sections, filters)
