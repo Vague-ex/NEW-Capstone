@@ -2360,32 +2360,44 @@ class AlumniRequestApproveView(APIView):
 
 
 def _send_rejection_email(*, to_email: str, recipient_name: str, reason: str, is_employer: bool, company_name: str = "") -> None:
-    """Best-effort branded rejection email. Logs and swallows transport errors
-    so a failed send never blocks the admin's reject action."""
+    """Best-effort branded rejection email, sent in a background thread.
+
+    The send runs off the request thread so the admin's "Reject" action
+    returns immediately — important on hosts like Render where outbound SMTP
+    is blocked and a synchronous send would otherwise hang for the full
+    EMAIL_TIMEOUT before failing. Transport errors are logged and swallowed.
+    """
     if not to_email:
         return
-    try:
-        from .email_send import send_branded_email
 
-        template_base = (
-            "employer_rejected" if is_employer else "account_rejected"
-        )
-        send_branded_email(
-            to_email=to_email,
-            subject=(
-                "Your employer registration was not approved"
-                if is_employer
-                else "Your graduate registration was not approved"
-            ),
-            template_base=template_base,
-            context={
-                "recipient_name": recipient_name or "",
-                "reason": (reason or "").strip(),
-                "company_name": company_name or "",
-            },
-        )
-    except Exception:
-        logger.exception("Failed to send rejection email to %s", to_email)
+    template_base = "employer_rejected" if is_employer else "account_rejected"
+    subject = (
+        "Your employer registration was not approved"
+        if is_employer
+        else "Your graduate registration was not approved"
+    )
+    context = {
+        "recipient_name": recipient_name or "",
+        "reason": (reason or "").strip(),
+        "company_name": company_name or "",
+    }
+
+    def _deliver() -> None:
+        try:
+            from .email_send import send_branded_email
+
+            send_branded_email(
+                to_email=to_email,
+                subject=subject,
+                template_base=template_base,
+                context=context,
+            )
+        except Exception:
+            logger.exception("Failed to send rejection email to %s", to_email)
+
+    import threading
+
+    threading.Thread(target=_deliver, daemon=True).start()
 
 
 class AlumniRequestRejectView(APIView):
