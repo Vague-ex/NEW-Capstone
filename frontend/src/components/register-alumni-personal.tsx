@@ -20,11 +20,9 @@ import {
   extractFaceLandmarksFromVideo,
   ensureModernFaceModelsLoaded,
   computeMouthAspectRatio,
-  computeEyeAspectRatio,
   estimateHeadYawDegrees,
   MOUTH_OPEN_MAR_THRESHOLD,
   MOUTH_CLOSED_MAR_THRESHOLD,
-  EYE_CLOSED_EAR_THRESHOLD,
   HEAD_TURN_YAW_THRESHOLD_DEG,
   FRONTAL_YAW_TOLERANCE_DEG,
   type HeadTurnDirection,
@@ -102,7 +100,7 @@ const PERSONAL_STEP_CONFIG = [
   { n: 4 as PersonalStep, label: 'Verify Identity' },
 ];
 
-type LivenessChallengeKind = 'neutral' | 'blink' | 'head_turn';
+type LivenessChallengeKind = 'neutral' | 'mouth_open' | 'head_turn';
 
 interface ShotInstruction {
   label: string;
@@ -113,7 +111,7 @@ interface ShotInstruction {
 function buildShotInstructions(): ShotInstruction[] {
   return [
     { label: 'Look Forward', desc: 'Face the camera, keep your mouth closed', kind: 'neutral' },
-    { label: 'Blink', desc: 'Gently close your eyes and hold for the capture', kind: 'blink' },
+    { label: 'Open Mouth', desc: 'Open your mouth wide and hold for a moment', kind: 'mouth_open' },
     {
       // Direction-agnostic (mirror-proof): accept a turn to either side.
       label: 'Turn Your Head',
@@ -329,8 +327,8 @@ export default function RegisterAlumniPersonal({
     if (challenge.kind === 'neutral') {
       return Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG && mar <= MOUTH_OPEN_MAR_THRESHOLD;
     }
-    if (challenge.kind === 'blink') {
-      return computeEyeAspectRatio(positions) <= EYE_CLOSED_EAR_THRESHOLD;
+    if (challenge.kind === 'mouth_open') {
+      return mar >= MOUTH_OPEN_MAR_THRESHOLD;
     }
     if (challenge.kind === 'head_turn') {
       // Either direction counts (mirror-proof).
@@ -735,9 +733,9 @@ export default function RegisterAlumniPersonal({
           setCheckingBlur(false);
           return;
         }
-      } else if (challenge.kind === 'blink') {
-        if (computeEyeAspectRatio(landmarks) > EYE_CLOSED_EAR_THRESHOLD) {
-          setStepError('Please close your eyes for the blink capture.');
+      } else if (challenge.kind === 'mouth_open') {
+        if (mar < MOUTH_OPEN_MAR_THRESHOLD) {
+          setStepError('Please open your mouth wider and hold for the capture.');
           setCheckingBlur(false);
           return;
         }
@@ -809,7 +807,7 @@ export default function RegisterAlumniPersonal({
     try {
       const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
       const biometricData: BiometricData = {
-        // The three slots map to: neutral / blink / head_turn.
+        // The three slots map to: neutral / mouth_open / head_turn.
         // Field names (front/left/right) retained so the backend's existing
         // FaceScan rows and Supabase paths don't require a migration.
         front: capturedShots[0],
@@ -1541,7 +1539,7 @@ export default function RegisterAlumniPersonal({
                     <div>
                       <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Liveness Capture</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        Three quick challenges — face forward, blink, then turn your head to either side — to prove you are present in real time.
+                        Three quick challenges — face forward, open mouth, then turn your head to either side — to prove you are present in real time.
                       </p>
                     </div>
                   </div>
@@ -1553,7 +1551,7 @@ export default function RegisterAlumniPersonal({
                       <p style={{ fontWeight: 700 }}>Before you begin</p>
                       <p className="mt-0.5">
                         Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
-                        Make sure your face is well-lit. You will be asked to face the camera, blink (close your eyes), then
+                        Make sure your face is well-lit. You will be asked to face the camera, open your mouth wide, then
                         turn your head to either side - each on a separate capture.
                       </p>
                     </div>
@@ -1762,7 +1760,7 @@ export default function RegisterAlumniPersonal({
                 </div>
                 {!allCaptured && (
                   <p className="text-center text-gray-400 text-xs">
-                    All 3 liveness challenges (look forward, blink, turn your head) are required to continue.
+                    All 3 liveness challenges (look forward, open mouth, turn your head) are required to continue.
                   </p>
                 )}
               </div>
