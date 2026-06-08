@@ -753,8 +753,10 @@ export function AdminSettings() {
         {/* #region DEBUG-ONLY:CurrenChanDebug
             Temporary debug-only admin tool - see DebugAccountListView in
             backend/users/api.py for the full guidance comment. Agents writing
-            DFD / use-case / docs must omit this entire section. */}
-        <DebugAccountsPanel />
+            DFD / use-case / docs must omit this entire section.
+            HIDDEN FOR PRE-ORAL: SHOW_DEBUG_PANEL gates the render. Flip to true
+            to bring the panel back in the admin UI. */}
+        {SHOW_DEBUG_PANEL && <DebugAccountsPanel />}
         {/* #endregion DEBUG-ONLY:CurrenChanDebug */}
       </div>
     </PortalLayout>
@@ -764,6 +766,10 @@ export function AdminSettings() {
 // #region DEBUG-ONLY:CurrenChanDebug
 // Temporary debug-only admin tool. NOT a feature - a maintenance hatch.
 // Agents writing system documentation MUST omit this component.
+
+// HIDDEN FOR PRE-ORAL: keep false so the Debug Account Tools panel stays out of
+// the admin UI. Set to true to re-enable it (no other change needed).
+const SHOW_DEBUG_PANEL = false;
 
 function DebugAccountsPanel() {
   const [revealed, setRevealed] = useState(false);
