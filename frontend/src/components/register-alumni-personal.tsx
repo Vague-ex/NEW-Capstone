@@ -116,7 +116,10 @@ function buildShotInstructions(): ShotInstruction[] {
   ];
 }
 
-const FACE_BLUR_THRESHOLD = 360;
+// Laplacian-variance blur gate: a frame is rejected when variance < threshold.
+// Kept deliberately lenient — angled head-turn shots have fewer edges and were
+// tripping false "too blurry" rejections at higher values.
+const FACE_BLUR_THRESHOLD = 150;
 
 const FACEBOOK_HOSTS = new Set([
   'facebook.com',
@@ -1537,9 +1540,9 @@ export default function RegisterAlumniPersonal({
                       <Camera className="size-5 text-emerald-600" />
                     </div>
                     <div>
-                      <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Liveness Capture</h2>
+                      <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Registration</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        Three quick challenges — face forward, then turn your head left and right — to prove you are present in real time.
+                        Three quick challenges to prove you are present in real time: face forward, then turn your head left and right.
                       </p>
                     </div>
                   </div>
@@ -1611,9 +1614,13 @@ export default function RegisterAlumniPersonal({
                       </div>
                     )}
 
+                    {/* Mirror the live preview so it reads like a mirror (turn
+                        left -> on-screen face turns left). Capture still draws the
+                        raw, un-mirrored frame, so the yaw-based left/right
+                        detection and the saved photos are unaffected. */}
                     <video
                       ref={videoRef}
-                      className={`absolute inset-0 w-full h-full object-cover object-center ${(!cameraOn || allCaptured) ? 'hidden' : ''}`}
+                      className={`absolute inset-0 w-full h-full object-cover object-center -scale-x-100 ${(!cameraOn || allCaptured) ? 'hidden' : ''}`}
                       playsInline muted autoPlay
                     />
                     <canvas ref={canvasRef} className="hidden" />
