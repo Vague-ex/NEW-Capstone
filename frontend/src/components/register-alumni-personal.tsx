@@ -100,7 +100,7 @@ const PERSONAL_STEP_CONFIG = [
   { n: 4 as PersonalStep, label: 'Verify Identity' },
 ];
 
-type LivenessChallengeKind = 'neutral' | 'mouth_open' | 'head_turn_left' | 'head_turn_right';
+type LivenessChallengeKind = 'neutral' | 'head_turn_left' | 'head_turn_right';
 
 interface ShotInstruction {
   label: string;
@@ -113,11 +113,6 @@ function buildShotInstructions(): ShotInstruction[] {
     { label: 'Look Forward', desc: 'Face the camera, keep your mouth closed', kind: 'neutral' },
     { label: 'Turn Left', desc: 'Turn your head to your left', kind: 'head_turn_left' },
     { label: 'Turn Right', desc: 'Turn your head to your right', kind: 'head_turn_right' },
-    // Liveness-only gesture: the open-mouth frame is verified for liveness but is
-    // NOT saved as a reference photo and NOT used for face matching. Open-mouth
-    // frames are blur-prone and hurt recognition, so they are excluded from
-    // enrollment — only the three clear shots above (front/left/right) are kept.
-    { label: 'Open Mouth', desc: 'Open your mouth wide and hold for a moment', kind: 'mouth_open' },
   ];
 }
 
@@ -326,9 +321,6 @@ export default function RegisterAlumniPersonal({
     const yaw = estimateHeadYawDegrees(positions);
     if (challenge.kind === 'neutral') {
       return Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG && mar <= MOUTH_OPEN_MAR_THRESHOLD;
-    }
-    if (challenge.kind === 'mouth_open') {
-      return mar >= MOUTH_OPEN_MAR_THRESHOLD;
     }
     // Non-mirrored feed: turning to your LEFT produces a positive yaw, turning to
     // your RIGHT a negative yaw.
@@ -696,20 +688,18 @@ export default function RegisterAlumniPersonal({
       ctx.drawImage(videoRef.current, 0, 0);
 
       const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.9);
+      const isBlurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
+      if (isBlurry) {
+        setStepError('Image too blurry. Please try again.');
+        setCheckingBlur(false);
+        return;
+      }
 
-      const challenge = shotInstructions[shotIndex];
-      // Open-mouth is a liveness-only gesture: its frame is never enrolled as a
-      // reference photo nor used for face matching, so we skip the recognition
-      // blur check (open-mouth frames are blur-prone) and the descriptor extract.
-      const isLivenessOnly = challenge.kind === 'mouth_open';
-
-      if (!isLivenessOnly) {
-        const isBlurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
-        if (isBlurry) {
-          setStepError('Image too blurry. Please try again.');
-          setCheckingBlur(false);
-          return;
-        }
+      const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
+      if (!descriptor) {
+        setStepError('Could not detect face. Please try again.');
+        setCheckingBlur(false);
+        return;
       }
 
       const landmarks = await extractFaceLandmarksFromDataUrl(dataUrl);
@@ -726,17 +716,7 @@ export default function RegisterAlumniPersonal({
         detected: true,
       };
 
-      // Recognition shots (front / left / right) need a usable face descriptor.
-      let descriptor: number[] | null = null;
-      if (!isLivenessOnly) {
-        descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
-        if (!descriptor) {
-          setStepError('Could not detect face. Please try again.');
-          setCheckingBlur(false);
-          return;
-        }
-      }
-
+      const challenge = shotInstructions[shotIndex];
       if (challenge.kind === 'neutral') {
         if (Math.abs(yaw) > FRONTAL_YAW_TOLERANCE_DEG) {
           setStepError('Please face the camera directly for the first shot.');
@@ -745,12 +725,6 @@ export default function RegisterAlumniPersonal({
         }
         if (mar > MOUTH_OPEN_MAR_THRESHOLD) {
           setStepError('Please close your mouth for the first shot.');
-          setCheckingBlur(false);
-          return;
-        }
-      } else if (challenge.kind === 'mouth_open') {
-        if (mar < MOUTH_OPEN_MAR_THRESHOLD) {
-          setStepError('Please open your mouth wider and hold for the capture.');
           setCheckingBlur(false);
           return;
         }
@@ -780,20 +754,15 @@ export default function RegisterAlumniPersonal({
         }
       }
 
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+
       if (shotIndex === 0) {
         setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
       }
-
-      // Persist the frame only for recognition shots; the open-mouth liveness
-      // gesture records a signal but is never enrolled.
-      if (!isLivenessOnly && descriptor) {
-        const finalDescriptor = descriptor;
-        const response = await fetch(dataUrl);
-        const blob = await response.blob();
-        setPreviews((p) => [...p, dataUrl]);
-        setCapturedShots((c) => [...c, blob]);
-        setDescriptorSamples((d) => [...d, finalDescriptor]);
-      }
+      setPreviews((p) => [...p, dataUrl]);
+      setCapturedShots((c) => [...c, blob]);
+      setDescriptorSamples((d) => [...d, descriptor]);
       setLivenessSignals((l) => [...l, livenessSignal]);
 
       const isLastShot = shotIndex >= shotInstructions.length - 1;
@@ -838,11 +807,9 @@ export default function RegisterAlumniPersonal({
     try {
       const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
       const biometricData: BiometricData = {
-        // The three enrolled slots map to: look-forward / turn-left / turn-right.
-        // The open-mouth liveness gesture is intentionally NOT enrolled (it is
-        // blur-prone and hurts recognition). Field names (front/left/right) are
-        // retained so the backend's existing FaceScan rows and Supabase paths
-        // don't require a migration.
+        // The three slots map to: look-forward / turn-left / turn-right.
+        // Field names (front/left/right) are retained so the backend's existing
+        // FaceScan rows and Supabase paths don't require a migration.
         front: capturedShots[0],
         left: capturedShots[1],
         right: capturedShots[2],
@@ -1572,7 +1539,7 @@ export default function RegisterAlumniPersonal({
                     <div>
                       <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Liveness Capture</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        Four quick challenges — face forward, turn left, turn right, then open your mouth — to prove you are present in real time.
+                        Three quick challenges — face forward, then turn your head left and right — to prove you are present in real time.
                       </p>
                     </div>
                   </div>
@@ -1584,8 +1551,8 @@ export default function RegisterAlumniPersonal({
                       <p style={{ fontWeight: 700 }}>Before you begin</p>
                       <p className="mt-0.5">
                         Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
-                        Make sure your face is well-lit. You will be asked to face the camera, turn your head left, turn
-                        right, then open your mouth wide - each on a separate capture.
+                        Make sure your face is well-lit. You will be asked to face the camera, then turn your head left
+                        and right - each on a separate capture.
                       </p>
                     </div>
                   </div>
@@ -1672,7 +1639,7 @@ export default function RegisterAlumniPersonal({
                       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                         {/* Guide ring: solid emerald while counting down, soft
                             emerald when a face is detected, dashed white idle. */}
-                        <div className={`size-32 rounded-full border-2 transition-colors ${
+                        <div className={`size-48 rounded-full border-2 transition-colors ${
                           autoCountdown !== null
                             ? 'border-solid border-emerald-400'
                             : faceDetected
@@ -1798,7 +1765,7 @@ export default function RegisterAlumniPersonal({
                 </div>
                 {!allCaptured && (
                   <p className="text-center text-gray-400 text-xs">
-                    All 4 liveness challenges (look forward, turn left, turn right, open mouth) are required to continue.
+                    All 3 liveness challenges (look forward, turn left, turn right) are required to continue.
                   </p>
                 )}
               </div>
