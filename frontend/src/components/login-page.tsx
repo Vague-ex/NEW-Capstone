@@ -746,10 +746,18 @@ export function LoginPage() {
                 </div>
 
                 {/* GPS-capture notice (RA 10173 transparency) */}
-                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-5">
+                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-3">
                   <CheckCircle2 className="size-3.5 text-[#166534] shrink-0 mt-0.5" />
                   <p className="text-[11px] text-emerald-800 leading-snug">
                     For audit purposes, your device's approximate GPS location is recorded with this login. If you decline the browser permission, sign-in still proceeds without location data.
+                  </p>
+                </div>
+
+                {/* Obstruction-removal reminder */}
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5">
+                  <AlertCircle className="size-3.5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-900 leading-snug">
+                    Before scanning, please remove anything that hides your face - eyeglasses, sunglasses, hats, or face masks - and make sure your face is well-lit.
                   </p>
                 </div>
 
