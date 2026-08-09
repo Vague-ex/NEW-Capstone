@@ -4,6 +4,7 @@ export const API_BASE_URL = (
 
 export const ADMIN_ACCESS_TOKEN_KEY = 'admin_access_token';
 export const EMPLOYER_ACCESS_TOKEN_KEY = 'employer_access_token';
+export const ALUMNI_ACCESS_TOKEN_KEY = 'alumni_access_token';
 
 export class ApiClientError extends Error {
     status: number;
@@ -58,6 +59,10 @@ export interface AlumniAuthResponse {
     alumni: AlumniSession;
     user?: Record<string, unknown>;
     faceScanUrl?: string;
+    /** Issued on successful login only — registration returns a pending account. */
+    accessToken?: string;
+    tokenType?: 'Bearer';
+    expiresIn?: number;
 }
 
 export interface VerificationTokenResponse {
@@ -194,6 +199,30 @@ function readAdminAccessToken(): string | null {
 function readEmployerAccessToken(): string | null {
     if (typeof window === 'undefined') return null;
     return sessionStorage.getItem(EMPLOYER_ACCESS_TOKEN_KEY);
+}
+
+function readAlumniAccessToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return sessionStorage.getItem(ALUMNI_ACCESS_TOKEN_KEY);
+}
+
+export function withAlumniAuthHeaders(
+    headers: Record<string, string> = {},
+): Record<string, string> {
+    const token = readAlumniAccessToken();
+    if (!token) return headers;
+    return {
+        ...headers,
+        Authorization: `Bearer ${token}`,
+    };
+}
+
+/** Clear every stored session token — call on logout or on a 401. */
+export function clearAccessTokens(): void {
+    if (typeof window === 'undefined') return;
+    sessionStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(ALUMNI_ACCESS_TOKEN_KEY);
 }
 
 function withAdminAuthHeaders(
@@ -484,7 +513,9 @@ export async function updateAlumniEmployment(
         `${API_BASE_URL}/api/auth/alumni/account/${alumniId}/employment/`,
         {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            // Backend now requires the graduate's own token and checks that it
+            // matches alumniId — this endpoint was previously world-writable.
+            headers: withAlumniAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(payload),
         },
     );

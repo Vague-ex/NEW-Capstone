@@ -159,7 +159,7 @@ export function AlumniDashboard() {
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
             <Camera className="size-5 text-red-500 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <p className="text-red-800 text-sm" style={{ fontWeight: 600 }}>Biometric capture missing</p>
+              <p className="text-red-800 text-sm" style={{ fontWeight: 600 }}>Face recognition capture missing</p>
               <p className="text-red-700 text-xs mt-0.5">No face capture on file. This is required for identity verification.</p>
             </div>
           </div>
@@ -253,10 +253,10 @@ export function AlumniDashboard() {
 
           {/* Biometric + Skills */}
           <div className="space-y-4">
-            {/* Biometric Status */}
+            {/* Face Recognition Status */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <h3 className="text-gray-800 mb-3 flex items-center gap-2" style={{ fontWeight: 700 }}>
-                <Camera className="size-4 text-[#166534]" /> Biometric Status
+                <Camera className="size-4 text-[#166534]" /> Face Recognition Status
               </h3>
               {alumni.biometricCaptured ? (
                 <div>

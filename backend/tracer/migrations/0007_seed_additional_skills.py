@@ -41,6 +41,15 @@ def unseed(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ('tracer', '0006_employmentprofile_workaddress_competencyprofile'),
+        # 0005 fans out into two parallel 0006 branches. This one carries the
+        # actual CreateModel operations for CompetencyProfile / EmploymentProfile
+        # / WorkAddress, but nothing depended on it, leaving it a dangling leaf.
+        # That had two consequences: `makemigrations` saw two leaf nodes and
+        # refused to run, and because those models were absent from migration
+        # state it kept regenerating them as phantom CreateModel operations.
+        # Both 0006s are already applied everywhere, so joining them here is
+        # ordering metadata only — no schema change.
+        ('tracer', '0006_competencyprofile_employmentprofile_workaddress_and_more'),
     ]
 
     operations = [

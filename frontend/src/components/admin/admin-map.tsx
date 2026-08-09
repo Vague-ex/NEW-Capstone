@@ -78,6 +78,7 @@ export function AdminMap() {
             lng: toNumberOrNull(item.lng),
             workLat: toNumberOrNull(item.workLat),
             workLng: toNumberOrNull(item.workLng),
+            geomapConsent: item.geomapConsent === true,
           } as AlumniRecord;
         });
         setAlumniRecords(normalized);
@@ -85,7 +86,11 @@ export function AdminMap() {
         // Forward-geocode employed alumni who have work-address text but no explicit WorkAddress pin.
         // workLat/workLng are null when the alumni hasn't dragged the pin yet.
         // We override the registration GPS (lat/lng) with the geocoded work address for accuracy.
+        // Consent is checked BEFORE geocoding, not just before plotting:
+        // resolving an address means sending it to a third-party geocoder, so a
+        // non-consenting graduate's workplace must never reach this point.
         const toGeocode = normalized.filter(a =>
+          a.geomapConsent === true &&
           a.employmentStatus !== 'unemployed' &&
           !a.workLat && !a.workLng &&
           !!a.workCity
@@ -144,6 +149,10 @@ export function AdminMap() {
   );
 
   const filteredAlumni = alumniRecords.filter(a => {
+    // Data Privacy Act: plotting a workplace is a separate opt-in from joining
+    // the tracer study. No consent, no pin — including legacy records that
+    // predate the consent gate.
+    if (a.geomapConsent !== true) return false;
     if (!a.lat || !a.lng) return false;
     if (filterYear !== 'all' && a.graduationYear !== parseInt(filterYear)) return false;
     if (filterStatus !== 'all' && a.employmentStatus !== filterStatus) return false;
@@ -531,7 +540,7 @@ export function AdminMap() {
 
             {/* Biometric Status */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-              <h3 className="text-gray-800 mb-3" style={{ fontWeight: 700 }}>Biometric</h3>
+              <h3 className="text-gray-800 mb-3" style={{ fontWeight: 700 }}>Face Recognition</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">

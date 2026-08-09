@@ -175,7 +175,7 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <Row label="Email Address" value={a.email} />
                   <Row label="Graduation Batch" value={`Batch ${a.graduationYear}`} />
                   <Row label="Last Updated" value={a.dateUpdated} />
-                  <Row label="Biometric Capture" value={a.biometricCaptured ? 'Captured' : 'Not captured'} />
+                  <Row label="Face Recognition Capture" value={a.biometricCaptured ? 'Captured' : 'Not captured'} />
                   {a.biometricDate && <Row label="Capture Date" value={a.biometricDate} />}
                   {a.lat && a.lng && (
                     <Row label="GPS Coordinates" value={`${a.lat.toFixed(4)}, ${a.lng.toFixed(4)}`} />

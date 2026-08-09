@@ -27,6 +27,8 @@ export interface AlumniRecord {
     lng?: number;
     workLat?: number | null;
     workLng?: number | null;
+    /** Consent to appear on the public geomap. Absent/false means do not plot. */
+    geomapConsent?: boolean;
     facePhotoUrl?: string;
     registrationFaceScans?: { front?: string | null; left?: string | null; right?: string | null };
     [key: string]: unknown;

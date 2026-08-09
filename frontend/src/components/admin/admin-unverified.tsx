@@ -392,7 +392,7 @@ export function AdminUnverified() {
                       <div className="relative flex size-14 shrink-0 items-center justify-center rounded-xl bg-gray-900 overflow-hidden border-2 border-amber-300">
                         {hasBiometric && primaryFaceScan ? (
                           <>
-                            <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} biometric capture`} className="absolute inset-0 w-full h-full object-cover object-center" />
+                            <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} face recognition capture`} className="absolute inset-0 w-full h-full object-cover object-center" />
                             <div className="absolute bottom-0 left-0 right-0 bg-emerald-500/80 text-white text-center py-0.5">
                               <p style={{ fontWeight: 700, fontSize: '9px' }}>CAPTURED</p>
                             </div>
@@ -415,11 +415,11 @@ export function AdminUnverified() {
                           </span>
                           {hasBiometric ? (
                             <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
-                              <CheckCircle2 className="size-3" /> Biometric
+                              <CheckCircle2 className="size-3" /> Face Recognition
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
-                              <XCircle className="size-3" /> No biometric
+                              <XCircle className="size-3" /> No face recognition scan
                             </span>
                           )}
                           <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
@@ -571,7 +571,7 @@ export function AdminUnverified() {
               {/* Tabs */}
               <div className="flex border-b border-gray-100 shrink-0 px-6">
                 {([
-                  { key: 'biometric', label: 'Biometric & ID', icon: Camera },
+                  { key: 'biometric', label: 'Face Recognition & ID', icon: Camera },
                   { key: 'employment', label: 'Employment Data', icon: Briefcase },
                   { key: 'skills', label: 'Skills', icon: Star },
                 ] as { key: ModalTab; label: string; icon: LucideIcon }[]).map(tab => (
@@ -601,14 +601,14 @@ export function AdminUnverified() {
                       <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>BIOMETRIC CAPTURE (3-SHOT)</p>
                       <div className="bg-gray-900 rounded-2xl overflow-hidden" style={{ aspectRatio: '3/4' }}>
                         {hasBiometric && primaryFaceScan ? (
-                          <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} biometric`} className="w-full h-full object-cover object-center" />
+                          <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} face recognition scan`} className="w-full h-full object-cover object-center" />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                             <div className="flex size-20 items-center justify-center rounded-full bg-gray-700">
                               <User className="size-10 text-gray-500" />
                             </div>
                             <span className="bg-red-500/20 text-red-400 border border-red-500/30 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5" style={{ fontWeight: 600 }}>
-                              <XCircle className="size-3.5" /> No Biometric Submitted
+                              <XCircle className="size-3.5" /> No Face Recognition Submitted
                             </span>
                           </div>
                         )}
@@ -624,7 +624,7 @@ export function AdminUnverified() {
                             <div key={scan.key} className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
                               <div className="h-16">
                                 {scan.url ? (
-                                  <img src={scan.url} alt={`${a.name || 'Graduate'} ${scan.label} biometric`} className="w-full h-full object-cover object-center" />
+                                  <img src={scan.url} alt={`${a.name || 'Graduate'} ${scan.label} face recognition scan`} className="w-full h-full object-cover object-center" />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-gray-500 text-[10px]">
                                     Missing
@@ -639,7 +639,7 @@ export function AdminUnverified() {
 
                       <div className="mt-3 space-y-1">
                         <span className="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-3 py-1.5 rounded-full" style={{ fontWeight: 600 }}>
-                          <CheckCircle2 className="size-3.5" /> {hasBiometric ? 'Biometric Submitted' : 'Pending Biometric'}
+                          <CheckCircle2 className="size-3.5" /> {hasBiometric ? 'Face Recognition Submitted' : 'Pending Face Recognition'}
                         </span>
                         <p className="text-gray-400 text-xs">{a.biometricDate || a.dateUpdated}</p>
                         {a.lat && a.lng && (
@@ -675,7 +675,7 @@ export function AdminUnverified() {
                       {!hasBiometric && (
                         <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2">
                           <AlertTriangle className="size-4 text-amber-500 shrink-0 mt-0.5" />
-                          <p className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>No biometric on file - verify identity manually before approving.</p>
+                          <p className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>No face recognition scan on file - verify identity manually before approving.</p>
                         </div>
                       )}
                     </div>

@@ -293,7 +293,7 @@ export function AdminNewDashboard() {
               <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>
                 {pendingAlumni.length} graduate account{pendingAlumni.length !== 1 ? 's' : ''} pending verification
               </p>
-              <p className="text-amber-700 text-xs mt-0.5">Review biometric submissions and approve or reject accounts.</p>
+              <p className="text-amber-700 text-xs mt-0.5">Review face recognition submissions and approve or reject accounts.</p>
             </div>
             <button onClick={() => navigate('/admin/unverified')}
               className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs px-3 py-1.5 rounded-lg transition shrink-0"
@@ -326,7 +326,7 @@ export function AdminNewDashboard() {
             sub={`${employed + selfEmp} of ${verifiedCount} verified graduates`}
             icon={Briefcase} iconBg="bg-emerald-50" iconColor="text-emerald-600"
             trend={verifiedCount > 0 ? 'Live from verified records' : undefined} trendUp />
-          <StatCard label="Biometric Captured" value={bioCaptured}
+          <StatCard label="Face Recognition Captured" value={bioCaptured}
             sub={`${verifiedCount > 0 ? Math.round((bioCaptured / verifiedCount) * 100) : 0}% of verified graduates`}
             icon={Camera} iconBg="bg-blue-50" iconColor="text-blue-600" />
           <StatCard label="Pending Verification" value={pendingAlumni.length}

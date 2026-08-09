@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from django.core import signing
+from django.core.signing import BadSignature, SignatureExpired
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import DatabaseError, OperationalError, transaction
@@ -18,6 +19,14 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .auth import (
+    ADMIN_TOKEN_TTL_SECONDS as _ADMIN_TOKEN_TTL_SECONDS,
+    ALUMNI_TOKEN_TTL_SECONDS as _ALUMNI_TOKEN_TTL_SECONDS,
+    generate_admin_access_token as _generate_admin_access_token,
+    generate_alumni_access_token as _generate_alumni_access_token,
+    require_admin as _require_admin,
+    require_alumni as _require_alumni,
+)
 from .models import (
     AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
     EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, User,
@@ -58,6 +67,7 @@ _EMPLOYER_TOKEN_SALT = "users.employer.access"
 _EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8  # 8 hours
 
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,6 +90,21 @@ def _safe_int(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _as_bool(value) -> bool:
+    """
+    Coerce a multipart form value to a bool.
+
+    Consent fields arrive as the strings "true"/"false" over FormData, where a
+    naive truth test would read "false" as True. Anything not explicitly
+    affirmative is treated as no consent — the safe default for a privacy opt-in.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in ("true", "1", "yes", "on")
 
 
 def _build_profile_name(first_name: str, middle_name: str, family_name: str) -> str:
@@ -975,6 +1000,10 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "lng": lng,
         "workLat": addr_row.latitude if addr_row is not None else None,
         "workLng": addr_row.longitude if addr_row is not None else None,
+        # Whether this graduate agreed to be plotted on the geomap. Alumni who
+        # registered before the consent gate existed default to False, so the
+        # map treats "never asked" as "not consented".
+        "geomapConsent": bool(getattr(getattr(account, "profile", None), "geomap_consent", False)),
         "surveyData": survey_data,
     }
 
@@ -1034,6 +1063,8 @@ def _generate_employer_access_token(user_id: str) -> str:
     )
 
 
+
+
 class AdminLoginView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -1089,6 +1120,12 @@ class AdminLoginView(APIView):
                     "email": user.email,
                     "role": "admin",
                 },
+                # The frontend already stores this (login-page.tsx) and already
+                # sends it via withAdminAuthHeaders(); until now the field was
+                # never emitted, so every admin request went out unauthenticated.
+                "accessToken": _generate_admin_access_token(user.id),
+                "tokenType": "Bearer",
+                "expiresIn": _ADMIN_TOKEN_TTL_SECONDS,
             },
             status=status.HTTP_200_OK,
         )
@@ -1117,6 +1154,9 @@ class AdminListCreateView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         # Every admin-role / staff user should appear in (and be manageable
         # from) the user-management UI. Some admins - e.g. created via
         # `createsuperuser` or data seeding - predate the AdminCredential flow
@@ -1143,6 +1183,9 @@ class AdminListCreateView(APIView):
         )
 
     def post(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         email = _normalize_admin_email(request.data.get("email"))
         password = request.data.get("password") or ""
         is_active_raw = request.data.get("is_active", True)
@@ -1209,6 +1252,9 @@ class AdminDetailView(APIView):
         )
 
     def patch(self, request, admin_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         cred = self._get_credential(admin_id)
         if not cred:
             return Response(
@@ -1282,6 +1328,9 @@ class AdminDetailView(APIView):
         return Response(_admin_credential_payload(cred), status=status.HTTP_200_OK)
 
     def delete(self, request, admin_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         # TODO: backend self-delete check once admin auth is per-request.
         cred = self._get_credential(admin_id)
         if not cred:
@@ -1370,6 +1419,12 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "postgrad_year_completed": _safe_int(personal_data.get("postgrad_year_completed")),
         "prof_eligibility": personal_data.get("prof_eligibility", ""),
         "prof_eligibility_other": personal_data.get("prof_eligibility_other", ""),
+
+        # Consent. terms_accepted_at is stamped server-side so the record
+        # reflects when the server actually received the agreement rather than
+        # a client-supplied timestamp.
+        "terms_accepted_at": timezone.now() if _as_bool(personal_data.get("terms_accepted")) else None,
+        "geomap_consent": _as_bool(personal_data.get("geomap_consent")),
 
         # Academic Profile (from survey_data - Section 3)
         "general_average_range": survey_data.get("general_average_range"),
@@ -2106,6 +2161,9 @@ class AlumniLoginView(APIView):
                 "message": "Graduate login successful.",
                 "alumni": _session_payload_from_alumni(alumni_account),
                 "faceScanUrl": login_scan_url,
+                "accessToken": _generate_alumni_access_token(alumni_account.user_id),
+                "tokenType": "Bearer",
+                "expiresIn": _ALUMNI_TOKEN_TTL_SECONDS,
             },
             status=status.HTTP_200_OK,
         )
@@ -2138,6 +2196,9 @@ class AlumniEmploymentUpdateView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, alumni_id):
+        _alumni_account, _auth_error = _require_alumni(request, alumni_id=alumni_id)
+        if _auth_error:
+            return _auth_error
         alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
         if not alumni_account:
             return Response(
@@ -2222,6 +2283,9 @@ class AlumniEmploymentUpdateView(APIView):
         )
 
     def patch(self, request, alumni_id):
+        _alumni_account, _auth_error = _require_alumni(request, alumni_id=alumni_id)
+        if _auth_error:
+            return _auth_error
         return self.post(request, alumni_id)
 
 
@@ -2301,6 +2365,9 @@ class PendingAlumniListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             pending_accounts = _alumni_dashboard_queryset(
                 AlumniAccount.objects.filter(account_status=AccountStatus.PENDING)
@@ -2324,6 +2391,9 @@ class VerifiedAlumniListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             verified_accounts = _alumni_dashboard_queryset(
                 AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
@@ -2347,6 +2417,9 @@ class AlumniRequestApproveView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, alumni_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
         if not alumni_account:
             return Response(
@@ -2456,6 +2529,9 @@ class AlumniRequestRejectView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, alumni_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         alumni_account = AlumniAccount.objects.select_related("user", "master_record", "profile").filter(id=alumni_id).first()
         if not alumni_account:
             return Response(
@@ -2508,6 +2584,9 @@ class EmployerRequestsListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             employer_accounts = EmployerAccount.objects.select_related("user").order_by("-created_at")
             results = [_employer_request_payload(account) for account in employer_accounts]
@@ -2529,6 +2608,9 @@ class EmployerRequestApproveView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, employer_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
         if not employer_account:
             return Response(
@@ -2607,6 +2689,9 @@ class EmployerRequestRejectView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, employer_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
         if not employer_account:
             return Response(
@@ -2681,6 +2766,9 @@ class MasterlistListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         from collections import Counter
         qs = GraduateMasterRecord.objects.all().order_by("batch_year", "full_name")
         entries = [
@@ -2701,6 +2789,9 @@ class MasterlistBulkCreateView(APIView):
     permission_classes = [AllowAny]  # TODO: restrict to admin once token auth is wired
 
     def post(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         entries = request.data.get("entries", [])
         if not isinstance(entries, list) or not entries:
             return Response({"detail": "entries list is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -2749,6 +2840,9 @@ class DebugAccountListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         alumni_rows = []
         for acc in AlumniAccount.objects.select_related("user", "profile", "master_record").order_by("-created_at"):
             profile = getattr(acc, "profile", None)
@@ -2807,6 +2901,9 @@ class DebugAccountDeleteView(APIView):
     permission_classes = [AllowAny]
 
     def delete(self, request, role: str, account_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
         role = (role or "").strip().lower()
         if role not in {"alumni", "employer", "admin"}:
             return Response({"detail": "role must be alumni, employer, or admin."}, status=status.HTTP_400_BAD_REQUEST)

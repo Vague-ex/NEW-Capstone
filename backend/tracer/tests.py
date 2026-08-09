@@ -2,6 +2,7 @@ from django.core import signing
 from django.test import TestCase
 from rest_framework.test import APIClient
 
+from users.auth import generate_admin_access_token
 from users.models import AccountStatus, AlumniAccount, AlumniProfile, EmployerAccount, User
 
 from .models import EmploymentRecord, JobTitle, Region, VerificationDecision, VerificationToken
@@ -10,12 +11,36 @@ from .models import EmploymentRecord, JobTitle, Region, VerificationDecision, Ve
 class RegionReferenceApiTests(TestCase):
 	def setUp(self):
 		self.client = APIClient()
+		# Reference-data reads stay public (the registration form needs them
+		# before anyone signs in) but writes are admin-only, so the CRUD
+		# lifecycle below has to authenticate.
+		self.admin_user = User.objects.create_user(
+			email="region-admin@example.com",
+			password="AdminPass123!",
+			role=User.Role.ADMIN,
+			is_staff=True,
+		)
+		self.admin_headers = {
+			"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(self.admin_user.id)}"
+		}
+
+	def test_region_list_is_public(self):
+		self.assertEqual(self.client.get("/api/reference/regions/").status_code, 200)
+
+	def test_region_write_requires_admin(self):
+		response = self.client.post(
+			"/api/reference/regions/",
+			{"code": "R6", "name": "Region VI"},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 401)
 
 	def test_region_crud_lifecycle(self):
 		create_response = self.client.post(
 			"/api/reference/regions/",
 			{"code": "R6", "name": "Region VI"},
 			format="json",
+			**self.admin_headers,
 		)
 		self.assertEqual(create_response.status_code, 201)
 
@@ -25,13 +50,16 @@ class RegionReferenceApiTests(TestCase):
 			f"/api/reference/regions/{region_id}/",
 			{"name": "Region VI - Western Visayas"},
 			format="json",
+			**self.admin_headers,
 		)
 		self.assertEqual(patch_response.status_code, 200)
 		self.assertEqual(
 			patch_response.data["region"]["name"], "Region VI - Western Visayas"
 		)
 
-		delete_response = self.client.delete(f"/api/reference/regions/{region_id}/")
+		delete_response = self.client.delete(
+			f"/api/reference/regions/{region_id}/", **self.admin_headers
+		)
 		self.assertEqual(delete_response.status_code, 204)
 
 		region = Region.objects.get(id=region_id)

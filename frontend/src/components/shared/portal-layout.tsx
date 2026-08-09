@@ -382,7 +382,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                             </span>
                             <div>
                               <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingAlumniCount} Graduates Pending Verification</p>
-                              <p className="text-gray-400 text-xs">Awaiting biometric review</p>
+                              <p className="text-gray-400 text-xs">Awaiting face recognition review</p>
                             </div>
                           </button>
                         )}

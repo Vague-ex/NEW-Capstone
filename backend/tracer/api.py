@@ -13,6 +13,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from users.auth import require_admin, require_alumni
 from users.models import AccountStatus, EmployerAccount, User
 
 from .models import (
@@ -466,6 +467,9 @@ class SkillListView(APIView):
         return Response({"skills": [_serialize_skill(s) for s in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         name = (request.data.get("name") or "").strip()
         category_id = request.data.get("category_id") or None
         if not name:
@@ -497,6 +501,9 @@ class SkillDetailView(APIView):
             return None
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         skill = self._get_skill(pk)
         if not skill:
             return Response({"detail": "Skill not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -517,6 +524,9 @@ class SkillDetailView(APIView):
         return Response({"skill": _serialize_skill(skill)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         skill = self._get_skill(pk)
         if not skill:
             return Response({"detail": "Skill not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -537,6 +547,9 @@ class SkillCategoryListView(APIView):
         return Response({"categories": [_serialize_category(c) for c in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         name = (request.data.get("name") or "").strip()
         if not name:
             return Response({"detail": "name is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -552,6 +565,9 @@ class SkillCategoryDetailView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             cat = SkillCategory.objects.get(pk=pk)
         except SkillCategory.DoesNotExist:
@@ -564,6 +580,9 @@ class SkillCategoryDetailView(APIView):
         return Response({"category": _serialize_category(cat)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             cat = SkillCategory.objects.get(pk=pk)
         except SkillCategory.DoesNotExist:
@@ -585,6 +604,9 @@ class IndustryListView(APIView):
         return Response({"industries": [_serialize_industry(i) for i in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         name = (request.data.get("name") or "").strip()
         if not name:
             return Response({"detail": "name is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -600,6 +622,9 @@ class IndustryDetailView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             ind = Industry.objects.get(pk=pk)
         except Industry.DoesNotExist:
@@ -612,6 +637,9 @@ class IndustryDetailView(APIView):
         return Response({"industry": _serialize_industry(ind)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             ind = Industry.objects.get(pk=pk)
         except Industry.DoesNotExist:
@@ -633,6 +661,9 @@ class JobTitleListView(APIView):
         return Response({"job_titles": [_serialize_job_title(j) for j in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         name = (request.data.get("name") or "").strip()
         industry_id = request.data.get("industry_id") or None
         if not name:
@@ -655,6 +686,9 @@ class JobTitleDetailView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             jt = JobTitle.objects.select_related("industry").get(pk=pk)
         except JobTitle.DoesNotExist:
@@ -676,6 +710,9 @@ class JobTitleDetailView(APIView):
         return Response({"job_title": _serialize_job_title(jt)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             jt = JobTitle.objects.get(pk=pk)
         except JobTitle.DoesNotExist:
@@ -700,6 +737,9 @@ class RegionListView(APIView):
         return Response({"regions": [_serialize_region(r) for r in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         code = (request.data.get("code") or "").strip()
         name = (request.data.get("name") or "").strip()
         if not code or not name:
@@ -728,6 +768,9 @@ class RegionDetailView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             region = Region.objects.get(pk=pk)
         except Region.DoesNotExist:
@@ -758,6 +801,9 @@ class RegionDetailView(APIView):
         return Response({"region": _serialize_region(region)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             region = Region.objects.get(pk=pk)
         except Region.DoesNotExist:
@@ -785,6 +831,9 @@ class ProvinceListView(APIView):
         return Response({"provinces": [_serialize_province(p) for p in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         name = str(request.data.get("name") or "").strip()
         region_id = request.data.get("region_id") or request.data.get("region")
         psgc_id = str(request.data.get("psgc_id") or "").strip()
@@ -807,6 +856,9 @@ class ProvinceDetailView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             province = Province.objects.select_related("region").get(pk=pk)
         except Province.DoesNotExist:
@@ -826,6 +878,9 @@ class ProvinceDetailView(APIView):
         return Response({"province": _serialize_province(province)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             province = Province.objects.get(pk=pk)
         except Province.DoesNotExist:
@@ -856,6 +911,9 @@ class CityMunicipalityListView(APIView):
         return Response({"cities": [_serialize_city(c) for c in qs]})
 
     def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         name = str(request.data.get("name") or "").strip()
         region_id = request.data.get("region_id") or request.data.get("region")
         province_id = request.data.get("province_id") or request.data.get("province")
@@ -888,6 +946,9 @@ class CityMunicipalityDetailView(APIView):
     permission_classes = [AllowAny]
 
     def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             city = CityMunicipality.objects.select_related("region", "province").get(pk=pk)
         except CityMunicipality.DoesNotExist:
@@ -911,6 +972,9 @@ class CityMunicipalityDetailView(APIView):
         return Response({"city": _serialize_city(city)})
 
     def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         try:
             city = CityMunicipality.objects.get(pk=pk)
         except CityMunicipality.DoesNotExist:
@@ -1561,6 +1625,9 @@ class ComprehensiveSurveySubmissionView(APIView):
     permission_classes = []  # Authenticated alumni only - set in middleware
 
     def post(self, request):
+        _alumni_account, _auth_error = require_alumni(request)
+        if _auth_error:
+            return _auth_error
         """Submit comprehensive survey data"""
         from tracer.serializers import ComprehensiveSurveySerializer
         from tracer.models import EmploymentProfile, WorkAddress, CompetencyProfile
@@ -1719,6 +1786,9 @@ class SurveyDataRetrievalView(APIView):
     permission_classes = []  # Authenticated alumni only
 
     def get(self, request):
+        _alumni_account, _auth_error = require_alumni(request)
+        if _auth_error:
+            return _auth_error
         """Get survey data for authenticated alumni"""
         try:
             alumni = request.user.alumni_account
@@ -2242,6 +2312,9 @@ class AdminAnalyticsPredictionsView(APIView):
     permission_classes = []  # Admin only - set in middleware
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         batch_param = request.query_params.get("batch")
         batch = None
         if batch_param:
@@ -2361,6 +2434,9 @@ class TrainingDataExportView(APIView):
     permission_classes = []  # Admin only
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         """Export training data"""
         import csv
         from io import StringIO
@@ -2458,6 +2534,9 @@ class DataQualityReportView(APIView):
     permission_classes = []  # Admin only
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         """Get data quality report"""
         from tracer.models import EmploymentProfile
 

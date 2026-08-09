@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import {
   ADMIN_ACCESS_TOKEN_KEY,
+  ALUMNI_ACCESS_TOKEN_KEY,
   API_BASE_URL,
   adminLogin,
   alumniLogin,
@@ -458,6 +459,9 @@ export function LoginPage() {
         livenessSignalRef.current ?? undefined,
       );
       sessionStorage.setItem("alumni_user", JSON.stringify(response.alumni));
+      if (response.accessToken) {
+        sessionStorage.setItem(ALUMNI_ACCESS_TOKEN_KEY, response.accessToken);
+      }
       setScanStage("matched");
       stopCamera();
       // Gate: verified graduates reach the dashboard; pending accounts (awaiting
@@ -937,7 +941,7 @@ export function LoginPage() {
                   <div className="flex items-center gap-2 justify-center py-2">
                     <span className="size-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
                     <span className="text-gray-600 text-sm">
-                      {faceAuthBusy ? "Verifying account and face scan..." : "Analyzing facial biometrics..."}
+                      {faceAuthBusy ? "Verifying account and face scan..." : "Analyzing face recognition scan..."}
                     </span>
                   </div>
                 )}

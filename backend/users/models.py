@@ -243,6 +243,14 @@ class AlumniProfile(models.Model):
     prof_eligibility = models.CharField(max_length=255, blank=True)
     prof_eligibility_other = models.CharField(max_length=255, blank=True)
 
+    # Consent record (Data Privacy Act). Consent must be *recorded*, not merely
+    # clicked, so the timestamp is stored rather than a bare boolean.
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    # Plotting a graduate's workplace on the public geomap is a separate,
+    # more intrusive disclosure than joining the tracer study, so it carries its
+    # own opt-in. Alumni without this must never appear on the map.
+    geomap_consent = models.BooleanField(default=False)
+
     # Awards / honors
     awards = models.TextField(blank=True)
 

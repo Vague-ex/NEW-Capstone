@@ -36,6 +36,7 @@ from users.api import (
     _alumni_dashboard_queryset,
     _first_prefetched,
 )
+from users.auth import require_admin, require_alumni
 from users.models import AccountStatus, AlumniAccount
 
 from .models import VerificationDecision
@@ -216,6 +217,9 @@ class BatchSummaryReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         filters = _parse_filters(request)
         qs = _alumni_qs(filters)
 
@@ -428,6 +432,9 @@ class EmploymentOutcomesReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         filters = _parse_filters(request)
         qs = _alumni_qs(filters)
 
@@ -510,6 +517,9 @@ class SkillsInventoryReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         filters = _parse_filters(request)
         qs = _alumni_qs(filters)
 
@@ -583,6 +593,9 @@ class FurtherStudiesReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         filters = _parse_filters(request)
         qs = _alumni_qs(filters)
 
@@ -697,6 +710,9 @@ class DataQualityReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         filters = _parse_filters(request)
         qs = _alumni_qs(filters)
 
@@ -951,6 +967,9 @@ class PredictiveTrendReportView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
         # Reuse the same model-loading helpers used by the Analytics tab so
         # the chart UI and this report can never disagree.
         from .api import _aggregate_for_batch, _build_live_df, _load_ml_artifacts

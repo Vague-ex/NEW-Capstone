@@ -12,11 +12,12 @@ import { useNavigate } from 'react-router';
 import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
 import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData, type MasterlistMatchStatus } from './register-alumni-personal';
 import RegisterAlumniEmployment, { type EmploymentFormData } from './register-alumni-employment';
+import RegisterTerms, { type ConsentData } from './register-terms';
 import { registerAlumni } from '../app/api-client';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type RegistrationStage = 'personal' | 'employment' | 'complete' | 'error';
+type RegistrationStage = 'personal' | 'employment' | 'terms' | 'complete' | 'error';
 
 interface RegistrationState {
   stage: RegistrationStage;
@@ -34,6 +35,7 @@ type Action =
   | { type: 'SET_BIOMETRIC_DATA'; biometricData: BiometricData | null }
   | { type: 'SET_EMPLOYMENT_DATA'; employmentData: EmploymentFormData }
   | { type: 'GO_TO_EMPLOYMENT' }
+  | { type: 'GO_TO_TERMS' }
   | { type: 'GO_TO_COMPLETE'; firstName: string }
   | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
   | { type: 'SET_ERROR'; error: string }
@@ -61,6 +63,8 @@ function reducer(state: RegistrationState, action: Action): RegistrationState {
       return { ...state, employmentData: action.employmentData };
     case 'GO_TO_EMPLOYMENT':
       return { ...state, stage: 'employment' };
+    case 'GO_TO_TERMS':
+      return { ...state, stage: 'terms' };
     case 'GO_TO_COMPLETE':
       return { ...state, stage: 'complete', firstName: action.firstName, isSubmitting: false };
     case 'SET_SUBMITTING':
@@ -212,7 +216,8 @@ export function RegisterAlumni() {
   const submitRegistration = async (
     personalData: PersonalFormData,
     employmentData: EmploymentFormData | null,
-    biometricData?: BiometricData | null,
+    biometricData: BiometricData | null | undefined,
+    consent: ConsentData,
   ) => {
     dispatch({ type: 'SET_SUBMITTING', isSubmitting: true });
     try {
@@ -249,6 +254,11 @@ export function RegisterAlumni() {
       payload.append('prof_eligibility_other', personalData.profEligibilityOther || '');
       payload.append('employment_status', employmentData?.employment_status || 'unemployed');
       payload.append('capture_time', new Date().toISOString());
+      // Consent is recorded, not just enforced client-side. Geomap consent is
+      // separate from the terms: an alumnus can join the study yet decline to
+      // be plotted on the public map.
+      payload.append('terms_accepted', consent.termsAccepted ? 'true' : 'false');
+      payload.append('geomap_consent', consent.geomapConsent ? 'true' : 'false');
 
       if (employmentData) {
         payload.append('survey_data', JSON.stringify(employmentData));
@@ -296,10 +306,20 @@ export function RegisterAlumni() {
     dispatch({ type: 'GO_TO_EMPLOYMENT' });
   };
 
+  // Employment no longer submits directly — consent is the final gate.
   const handleEmploymentComplete = async (employmentData: EmploymentFormData) => {
     dispatch({ type: 'SET_EMPLOYMENT_DATA', employmentData });
+    dispatch({ type: 'GO_TO_TERMS' });
+  };
+
+  const handleConsentComplete = async (consent: ConsentData) => {
     if (state.personalData) {
-      await submitRegistration(state.personalData, employmentData, state.biometricData);
+      await submitRegistration(
+        state.personalData,
+        state.employmentData,
+        state.biometricData,
+        consent,
+      );
     }
   };
 
@@ -320,6 +340,31 @@ export function RegisterAlumni() {
 
   if (state.stage === 'error') {
     return <ErrorState error={state.submitError!} onRetry={() => dispatch({ type: 'RETRY' })} />;
+  }
+
+  if (state.stage === 'terms') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="bg-white border-b border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
+          <div className="flex size-7 items-center justify-center rounded-lg bg-[#166534]">
+            <GraduationCap className="size-4 text-white" />
+          </div>
+          <div>
+            <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
+            <p className="text-gray-400 text-xs">Carlos Hilado Memorial State University · BSIS Graduate Tracer System</p>
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col items-center px-4 py-8">
+          <div className="w-full max-w-lg">
+            <ProgressIndicator stage="employment" />
+            <RegisterTerms
+              onComplete={handleConsentComplete}
+              onBack={() => dispatch({ type: 'GO_TO_EMPLOYMENT' })}
+            />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (state.stage === 'employment') {

@@ -39,7 +39,7 @@ export function GraduatePending() {
             {/* Status steps */}
             <div className="space-y-3">
               {[
-                { label: 'Registration submitted', done: true, desc: 'Your details and biometrics were received' },
+                { label: 'Registration submitted', done: true, desc: 'Your details and face recognition scan were received' },
                 { label: 'Under BSIS Admin review', done: false, desc: 'The program chair is verifying your identity', active: true },
                 { label: 'Account verified', done: false, desc: 'You will receive an email confirmation' },
               ].map((step, i) => (

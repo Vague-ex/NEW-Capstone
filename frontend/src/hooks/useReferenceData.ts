@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { ADMIN_ACCESS_TOKEN_KEY } from '../app/api-client';
 
 const API_BASE_URL = (
     (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL) ||
@@ -154,9 +155,17 @@ export function useReferenceData() {
 // ── Admin CRUD helpers (used by settings page) ─────────────────────────────────
 
 async function apiRequest(path: string, method: string, body?: object): Promise<unknown> {
+    // Reference-data reads stay public (the registration form needs skills,
+    // regions, etc. before anyone is signed in), but writes are admin-only on
+    // the backend, so attach the admin token whenever one is present.
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const adminToken =
+        typeof window === 'undefined' ? null : sessionStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
+    if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+
     const res = await fetch(`${API_BASE_URL}${path}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: body ? JSON.stringify(body) : undefined,
     });
     if (res.status === 204) return null;
