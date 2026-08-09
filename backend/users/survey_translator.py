@@ -341,8 +341,9 @@ def apply_survey_data_to_normalized_tables(
 
     # Academic encoded values (Section 3 of questionnaire). Accept both
     # snake_case and camelCase shapes here too.
-    if (val := _to_int(_first("general_average_range", "generalAverageRange"))) is not None:
-        profile_updates["general_average_range"] = val
+    # NOTE: general_average_range is no longer collected (removed per the 2026
+    # panel revision). The column is retained for historical rows; nothing
+    # writes it any more.
     if (val := _to_int(_first("academic_honors", "academicHonors"))) is not None:
         profile_updates["academic_honors"] = val
     if "prior_work_experience" in sd or "priorWorkExperience" in sd:

@@ -154,7 +154,6 @@ def _derive_employment_status_from_survey(survey_data, fallback: str = "unemploy
         return fallback
 
     # The normalized-table overlay writes "employment_status" (snake_case);
-    # legacy JSON blobs used "employmentStatus" (camelCase). Accept either.
     q1_status = survey_data.get("employment_status") or survey_data.get("employmentStatus")
     normalized_status = _normalize_employment_status(q1_status, fallback=fallback)
 

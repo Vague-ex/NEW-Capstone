@@ -22,7 +22,6 @@ type FaceScans = {
 
 type SurveyData = {
   // Academic & Pre-Employment
-  generalAverageRange?: number;
   academicHonors?: number;
   priorWorkExperience?: boolean;
   ojlRelevance?: number;
@@ -154,7 +153,6 @@ function getSurveyData(a: AlumniRecord): SurveyData {
 
   return {
     // Academic & Pre-Employment
-    generalAverageRange: num('general_average_range'),
     academicHonors: num('academic_honors'),
     priorWorkExperience: typeof source.prior_work_experience === 'boolean' ? source.prior_work_experience : undefined,
     ojlRelevance: num('ojt_relevance'),

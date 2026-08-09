@@ -1624,8 +1624,8 @@ class ComprehensiveSurveySubmissionView(APIView):
                 profile.graduate_school = edu.get('graduate_school', '')
                 profile.prof_eligibility = edu.get('professional_eligibility', '')
 
-                # Academic profile fields
-                profile.general_average_range = academic.get('general_average_range')
+                # Academic profile fields (general_average_range removed per the
+                # 2026 panel revision; the column is kept for historical rows)
                 profile.academic_honors = academic.get('academic_honors')
                 profile.prior_work_experience = academic.get('prior_work_experience', False)
                 profile.ojt_relevance = academic.get('ojt_relevance')

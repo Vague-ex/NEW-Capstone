@@ -214,16 +214,8 @@ class SurveyDataValidator:
     def _validate_academic_preemployment(self, data: Dict):
         """Validate academic & pre-employment profile fields"""
 
-        # Validate GPA range
-        if data.get('general_average_range') is not None:
-            if data['general_average_range'] not in FieldValidationRules.GPA_RANGE_VALID:
-                self.errors.append({
-                    'section': 'academic_preemployment',
-                    'field': 'general_average_range',
-                    'error': f"GPA range {data['general_average_range']} not in valid set {FieldValidationRules.GPA_RANGE_VALID}"
-                })
-            else:
-                self.field_completeness['general_average_range'] = True
+        # GPA / general average is no longer collected (2026 panel revision),
+        # so there is nothing to validate for it.
 
         # Validate academic honors
         if data.get('academic_honors') is not None:

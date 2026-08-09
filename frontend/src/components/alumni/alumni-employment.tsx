@@ -88,7 +88,6 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   const [form, setForm] = useState({
     // Section 4: Academic & Pre-Employment
-    general_average_range: String(sd.general_average_range ?? ''),
     academic_honors: String(sd.academic_honors ?? ''),
     prior_work_experience: String(sd.prior_work_experience ?? ''),
     ojt_relevance: String(sd.ojt_relevance ?? ''),
@@ -635,16 +634,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           <SectionCard icon={BookOpen} title="Part III - Academic & Pre-Employment Profile">
 
             <div>
-              <FieldLabel>1. General Average Range during BSIS</FieldLabel>
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-2">
-                {['95 - 100', '90 - 94', '85 - 89', '80 - 84', '75 - 79', 'Below 75', "I don't remember"].map(opt => (
-                  <RadioOption key={opt} label={opt} value={opt} current={form.general_average_range} onSelect={v => setF('general_average_range', v)} />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <FieldLabel>2. Academic Honors Received at Graduation</FieldLabel>
+              <FieldLabel>1. Academic Honors Received at Graduation</FieldLabel>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {['Summa Cum Laude', 'Magna Cum Laude', 'Cum Laude', 'No Academic Honors'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.academic_honors} onSelect={v => setF('academic_honors', v)} />
@@ -653,7 +643,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             </div>
 
             <div>
-              <FieldLabel>3. Work experience (part-time, freelance, internship beyond OJT) BEFORE graduating?</FieldLabel>
+              <FieldLabel>2. Work experience (part-time, freelance, internship beyond OJT) BEFORE graduating?</FieldLabel>
               <div className="flex gap-2">
                 {['Yes', 'No'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.prior_work_experience} onSelect={v => setF('prior_work_experience', v)} />
@@ -662,7 +652,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             </div>
 
             <div>
-              <FieldLabel>4. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
+              <FieldLabel>3. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {['Yes, directly related', 'Somewhat related', 'Not related', 'Have not secured a job yet / Not applicable'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.ojt_relevance} onSelect={v => setF('ojt_relevance', v)} />
@@ -671,7 +661,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
             </div>
 
             <div>
-              <FieldLabel>5. Online portfolio, GitHub profile, or project showcase when applying?</FieldLabel>
+              <FieldLabel>4. Online portfolio, GitHub profile, or project showcase when applying?</FieldLabel>
               <div className="flex gap-2">
                 {['Yes', 'No'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.has_portfolio} onSelect={v => setF('has_portfolio', v)} />
@@ -686,12 +676,16 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           <SectionCard icon={Briefcase} title="Part IV - Current Employment Status">
             <div>
               <FieldLabel required>Are you presently employed?</FieldLabel>
-              <div className="space-y-1.5">
+              <select
+                value={form.employment_status}
+                onChange={e => setF('employment_status', e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Select Employment Status</option>
                 {EMPLOYMENT_STATUS_OPTIONS.map(opt => (
-                  <RadioOption key={opt.value} label={opt.label} value={opt.value}
-                    current={form.employment_status} onSelect={v => setF('employment_status', v)} />
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
-              </div>
+              </select>
             </div>
           </SectionCard>
 

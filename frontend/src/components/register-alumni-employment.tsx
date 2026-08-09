@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
-  AlertCircle, CheckCircle2, Code, Users, Loader,
+  AlertCircle, CheckCircle2, Code, Users, Loader, X,
 } from 'lucide-react';
 import {
   useReferenceData,
@@ -27,7 +27,6 @@ type EmploymentStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface EmploymentFormData {
   // Step 1: Academic & Pre-Employment Profile
-  general_average_range: number | null;
   academic_honors: number | null;
   prior_work_experience: boolean;
   ojt_relevance: number | null;
@@ -117,8 +116,18 @@ const PHILIPPINE_REGIONS = [
   'Region XI', 'Region XII', 'Region XIII', 'CAR', 'BARMM', 'Abroad',
 ];
 
+// Mirrors EmploymentProfile.EmploymentStatusChoices in backend/tracer/models.py,
+// plus 'never_employed' which the survey tracks separately from 'seeking'.
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { label: 'Employed Full-Time', value: 'employed_full_time' },
+  { label: 'Employed Part-Time', value: 'employed_part_time' },
+  { label: 'Self-Employed / Freelance', value: 'self_employed' },
+  { label: 'Seeking Employment', value: 'seeking' },
+  { label: 'Not Seeking Employment', value: 'not_seeking' },
+  { label: 'Never Been Employed', value: 'never_employed' },
+];
+
 const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
-  general_average_range: null,
   academic_honors: null,
   prior_work_experience: false,
   ojt_relevance: null,
@@ -186,12 +195,54 @@ function RadioOption<T>({ label, value, current, onSelect }: {
   );
 }
 
-function CheckOption({ label, checked, onChange }: any) {
+// Dropdown-based multi-select: pick from the list, chosen skills show as
+// removable chips. The dropdown hides what's already picked and closes itself
+// once `max` is reached, so the cap is enforced by the UI rather than by
+// silently ignoring clicks (which is what the old checkbox grid did).
+function SkillPicker({ options, selected, max, onChange, placeholder }: {
+  options: string[];
+  selected: string[];
+  max: number;
+  onChange: (next: string[]) => void;
+  placeholder: string;
+}) {
+  const available = options.filter((s) => !selected.includes(s));
+  const atMax = selected.length >= max;
+
   return (
-    <label className="flex items-center gap-3 cursor-pointer">
-      <input type="checkbox" checked={checked} onChange={onChange} className="size-4 rounded border-gray-300" />
-      <span className="text-gray-700 text-sm">{label}</span>
-    </label>
+    <div className="space-y-2">
+      <select
+        value=""
+        disabled={atMax || available.length === 0}
+        onChange={(e) => {
+          if (e.target.value) onChange([...selected, e.target.value]);
+        }}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
+      >
+        <option value="">
+          {atMax ? `Maximum of ${max} reached` : available.length === 0 ? 'All options selected' : placeholder}
+        </option>
+        {available.map((skill) => (
+          <option key={skill} value={skill}>{skill}</option>
+        ))}
+      </select>
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {selected.map((skill) => (
+            <span key={skill}
+              className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
+              {skill}
+              <button type="button" aria-label={`Remove ${skill}`}
+                onClick={() => onChange(selected.filter((s) => s !== skill))}
+                className="text-emerald-500 hover:text-emerald-800">
+                <X size={14} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -563,26 +614,6 @@ export default function RegisterAlumniEmployment({
 
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Cumulative GPA / General Average
-            </label>
-            <select
-              value={form.general_average_range ?? ''}
-              onChange={(e) => setForm({ ...form, general_average_range: e.target.value ? parseInt(e.target.value) : null })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-            >
-              <option value="">Select GPA Range</option>
-              <option value="5">95-100</option>
-              <option value="4">90-94</option>
-              <option value="3">85-89</option>
-              <option value="2">80-84</option>
-              <option value="1">75-79</option>
-              <option value="0">Below 75</option>
-              <option value="">I don't remember</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">
               Academic Honors
             </label>
             <select
@@ -656,23 +687,20 @@ export default function RegisterAlumniEmployment({
         <div className="space-y-6">
           <SectionHeader icon={Briefcase} title="Current Employment Status" subtitle="This determines which information we'll ask for next" />
 
-          <div className="space-y-2">
-            {[
-              { label: 'Employed Full-Time', value: 'employed_full_time' },
-              { label: 'Employed Part-Time', value: 'employed_part_time' },
-              { label: 'Self-Employed / Freelance', value: 'self_employed' },
-              { label: 'Seeking Employment', value: 'seeking' },
-              { label: 'Not Seeking Employment', value: 'not_seeking' },
-              { label: 'Never Been Employed', value: 'never_employed' },
-            ].map(({ label, value }) => (
-              <RadioOption
-                key={value}
-                label={label}
-                value={value}
-                current={form.employment_status}
-                onSelect={(v) => setForm({ ...form, employment_status: v })}
-              />
-            ))}
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">
+              Are you presently employed?
+            </label>
+            <select
+              value={form.employment_status}
+              onChange={(e) => setForm({ ...form, employment_status: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+            >
+              <option value="">Select Employment Status</option>
+              {EMPLOYMENT_STATUS_OPTIONS.map(({ label, value }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
 
           <NavButtons onBack={prevStep} onNext={nextStep} nextDisabled={!form.employment_status} />
@@ -1052,22 +1080,13 @@ export default function RegisterAlumniEmployment({
             <label className="block text-sm font-semibold text-gray-900 mb-2">
               Technical Skills ({form.technical_skills.length} of {maxTechnical} selected)
             </label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {technicalSkills.map((skill) => (
-                <CheckOption
-                  key={skill}
-                  label={skill}
-                  checked={form.technical_skills.includes(skill)}
-                  onChange={(e: any) => {
-                    if (e.target.checked && form.technical_skills.length < maxTechnical) {
-                      setForm({ ...form, technical_skills: [...form.technical_skills, skill] });
-                    } else if (!e.target.checked) {
-                      setForm({ ...form, technical_skills: form.technical_skills.filter(s => s !== skill) });
-                    }
-                  }}
-                />
-              ))}
-            </div>
+            <SkillPicker
+              options={technicalSkills}
+              selected={form.technical_skills}
+              max={maxTechnical}
+              placeholder="Select a technical skill"
+              onChange={(next) => setForm({ ...form, technical_skills: next })}
+            />
           </div>
 
           {/* Soft Skills */}
@@ -1075,22 +1094,13 @@ export default function RegisterAlumniEmployment({
             <label className="block text-sm font-semibold text-gray-900 mb-2">
               Soft Skills ({form.soft_skills.length} of {maxSoft} selected)
             </label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {softSkills.map((skill) => (
-                <CheckOption
-                  key={skill}
-                  label={skill}
-                  checked={form.soft_skills.includes(skill)}
-                  onChange={(e: any) => {
-                    if (e.target.checked && form.soft_skills.length < maxSoft) {
-                      setForm({ ...form, soft_skills: [...form.soft_skills, skill] });
-                    } else if (!e.target.checked) {
-                      setForm({ ...form, soft_skills: form.soft_skills.filter(s => s !== skill) });
-                    }
-                  }}
-                />
-              ))}
-            </div>
+            <SkillPicker
+              options={softSkills}
+              selected={form.soft_skills}
+              max={maxSoft}
+              placeholder="Select a soft skill"
+              onChange={(next) => setForm({ ...form, soft_skills: next })}
+            />
           </div>
 
           {/* Professional Certifications */}
