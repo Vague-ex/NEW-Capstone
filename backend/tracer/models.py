@@ -24,6 +24,23 @@ class Industry(models.Model):
 class JobTitle(models.Model):
 	"""DS6: Reference - Job Titles"""
 
+	class ISField(models.TextChoices):
+		"""
+		Which area of Information Systems a role belongs to.
+
+		This is the diagnostic axis: it answers "check the alignment of the job
+		field in IS" by naming *which* IS field a graduate landed in, rather
+		than only whether they landed in one. Alignment itself stays binary —
+		see is_bsis_aligned.
+		"""
+
+		SOFTWARE_DEV = "software_dev", "Software Development"
+		DATA_DB = "data_db", "Data / Database"
+		NETWORK_INFRA = "network_infra", "Network / Infrastructure"
+		IT_SUPPORT = "it_support", "IT Support"
+		SYSTEMS_ANALYSIS = "systems_analysis", "Systems Analysis"
+		NON_IS = "non_is", "Outside Information Systems"
+
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 	name = models.CharField(max_length=150, unique=True)
 	industry = models.ForeignKey(
@@ -33,11 +50,38 @@ class JobTitle(models.Model):
 		on_delete=models.SET_NULL,
 		related_name="job_titles",
 	)
+	is_field = models.CharField(
+		max_length=20,
+		choices=ISField.choices,
+		null=True,
+		blank=True,
+		db_index=True,
+		help_text="Which IS field this role sits in. NULL = not yet classified.",
+	)
+	# Denormalised from is_field rather than derived on read: reports aggregate
+	# over this constantly, and an unclassified title (is_field NULL) must stay
+	# distinguishable from one classified as non-IS. NULL here means "unknown",
+	# not "not aligned" — the two are reported separately.
+	is_bsis_aligned = models.BooleanField(
+		null=True,
+		blank=True,
+		db_index=True,
+		help_text="True when is_field is an IS field, False for non_is, NULL when unclassified.",
+	)
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
 		db_table = "tracer_job_titles"
 		ordering = ["name"]
+
+	def save(self, *args, **kwargs):
+		# Keep the denormalised flag honest no matter who writes the row —
+		# admin, seed command, or API.
+		if self.is_field:
+			self.is_bsis_aligned = self.is_field != self.ISField.NON_IS
+		else:
+			self.is_bsis_aligned = None
+		super().save(*args, **kwargs)
 
 	def __str__(self):
 		return self.name

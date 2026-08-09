@@ -39,7 +39,8 @@ from users.api import (
 from users.auth import require_admin, require_alumni
 from users.models import AccountStatus, AlumniAccount
 
-from .models import VerificationDecision
+from .alignment import resolve_alignment, summarize, verified_titles_by_alumni
+from .models import JobTitle, VerificationDecision
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,11 @@ def _avg(values: list[float]) -> str:
     if not values:
         return "—"
     return f"{(sum(values) / len(values)):.1f}"
+
+
+def _fmt_rate(rate: float | None) -> str:
+    """Format an already-computed percentage, or the em-dash used elsewhere."""
+    return "—" if rate is None else f"{rate:.1f}%"
 
 
 # ── 1. Batch Summary ──────────────────────────────────────────────────────
@@ -418,9 +424,80 @@ class BatchSummaryReportView(APIView):
             "rows": improvements_rows,
         }
 
+        # ── Curriculum alignment ──────────────────────────────────────────
+        # The panel asked that analytics answer "is this graduate's job aligned
+        # with the BSIS curriculum" rather than merely describing the job. This
+        # section reports the employer-verified rate SEPARATELY from the
+        # self-reported one, because blending them would present unverifiable
+        # tick-boxes as fact. Graduates whose alignment cannot be determined are
+        # counted as unknown, never as not-aligned.
+        accounts = list(qs)
+        verified_titles = verified_titles_by_alumni(a.id for a in accounts)
+
+        align_buckets: dict[int, list] = defaultdict(list)
+        field_counts: dict[str, int] = defaultdict(int)
+        for acc in accounts:
+            year = _grad_year(acc)
+            if year is None:
+                continue
+            emp = _first_prefetched(acc, "_prefetched_emp")
+            resolved = resolve_alignment(
+                verified_job_title=verified_titles.get(acc.id),
+                self_reported=(emp.current_job_related_to_bsis if emp is not None else None),
+            )
+            align_buckets[year].append(resolved)
+            if resolved.is_field:
+                field_counts[resolved.is_field] += 1
+
+        align_rows = []
+        for year in sorted(align_buckets):
+            s = summarize(align_buckets[year])
+            align_rows.append([
+                year, s["total"],
+                _fmt_rate(s["verified_rate"]), s["verified_n"],
+                _fmt_rate(s["self_reported_rate"]), s["self_reported_n"],
+                _fmt_rate(s["overall_rate"]), s["unknown"],
+            ])
+        if align_rows:
+            everything = [a for bucket in align_buckets.values() for a in bucket]
+            s = summarize(everything)
+            align_rows.append([
+                "Total", s["total"],
+                _fmt_rate(s["verified_rate"]), s["verified_n"],
+                _fmt_rate(s["self_reported_rate"]), s["self_reported_n"],
+                _fmt_rate(s["overall_rate"]), s["unknown"],
+            ])
+
+        section_e = {
+            "title": "Curriculum Alignment (BSIS)",
+            "columns": [
+                "Batch", "Alumni (N)",
+                "Verified Aligned", "Verified (n)",
+                "Self-Reported Aligned", "Self-Reported (n)",
+                "Overall Aligned", "Unknown",
+            ],
+            "rows": align_rows,
+        }
+
+        # Which IS fields verified graduates actually landed in — the diagnostic
+        # behind "check the alignment of the job field in IS".
+        field_rows = [
+            [JobTitle.ISField(f).label, n]
+            for f, n in sorted(field_counts.items(), key=lambda kv: -kv[1])
+        ]
+        section_f = {
+            "title": "IS Field Distribution (employer-verified titles)",
+            "columns": ["IS Field", "Graduates"],
+            "rows": field_rows,
+        }
+
         return _ok(
             "Batch Summary",
-            [section_a, section_b, section_c, section_d_strengths, section_d_improvements],
+            [
+                section_a, section_b, section_c,
+                section_d_strengths, section_d_improvements,
+                section_e, section_f,
+            ],
             filters,
         )
 

@@ -1,11 +1,18 @@
+from datetime import timedelta
+
 from django.core import signing
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from users.auth import generate_admin_access_token
 from users.models import AccountStatus, AlumniAccount, AlumniProfile, EmployerAccount, User
 
-from .models import EmploymentRecord, JobTitle, Region, VerificationDecision, VerificationToken
+from .alignment import resolve_alignment, verified_titles_by_alumni
+from .models import (
+	EmploymentProfile, EmploymentRecord, JobTitle, Region,
+	VerificationDecision, VerificationToken,
+)
 
 
 class RegionReferenceApiTests(TestCase):
@@ -360,3 +367,118 @@ class EmployerVerifiableGraduateListTests(TestCase):
 			**self._pending_auth_headers(),
 		)
 		self.assertEqual(response.status_code, 200)
+
+
+class CurriculumAlignmentReportTests(TestCase):
+	"""
+	End-to-end cover for the Phase 3 alignment work: an employer-verified job
+	title must override the graduate's self-report, and graduates whose
+	alignment cannot be determined must be counted as unknown rather than
+	quietly folded into "not aligned".
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		self.admin = User.objects.create_user(
+			email="reports-admin@example.com",
+			password="AdminPass123!",
+			role=User.Role.ADMIN,
+			is_staff=True,
+		)
+		self.headers = {
+			"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(self.admin.id)}"
+		}
+
+		self.dev_title = JobTitle.objects.create(
+			name="Web Developer", is_field=JobTitle.ISField.SOFTWARE_DEV
+		)
+		self.non_is_title = JobTitle.objects.create(
+			name="Cashier", is_field=JobTitle.ISField.NON_IS
+		)
+
+	def _make_alumni(self, email, year, self_reported=None):
+		user = User.objects.create_user(
+			email=email, password="TestPass123!", role=User.Role.ALUMNI
+		)
+		account = AlumniAccount.objects.create(
+			user=user, account_status=AccountStatus.ACTIVE
+		)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="A", last_name="B", graduation_year=year
+		)
+		if self_reported is not None:
+			EmploymentProfile.objects.create(
+				alumni=account, current_job_related_to_bsis=self_reported
+			)
+		return account
+
+	def _verify(self, account, job_title):
+		# VerificationDecision.employer_account is still NOT NULL today, so a
+		# verified decision cannot exist without an employer account. Phase 2
+		# (employer de-accounting) makes this column nullable; until then the
+		# fixture has to supply one.
+		employer_user = User.objects.create_user(
+			email=f"hr-{account.id}@example.com",
+			password="TestPass123!",
+			role=User.Role.EMPLOYER,
+		)
+		employer = EmployerAccount.objects.create(
+			user=employer_user,
+			company_email=employer_user.email,
+			company_name="Verifier Corp",
+			account_status=AccountStatus.ACTIVE,
+		)
+		token = VerificationToken.objects.create(
+			alumni=account, expires_at=timezone.now() + timedelta(days=7)
+		)
+		VerificationDecision.objects.create(
+			token=token,
+			employer_account=employer,
+			decision=VerificationDecision.Decision.CONFIRM,
+			verified_job_title=job_title,
+		)
+
+	def test_model_derives_alignment_from_is_field(self):
+		self.assertTrue(self.dev_title.is_bsis_aligned)
+		self.assertFalse(self.non_is_title.is_bsis_aligned)
+		unclassified = JobTitle.objects.create(name="Mystery Role")
+		self.assertIsNone(unclassified.is_bsis_aligned)
+
+	def test_verified_title_overrides_self_report(self):
+		# Graduate claims aligned; employer-verified title says otherwise.
+		account = self._make_alumni("overridden@example.com", 2022, self_reported=True)
+		self._verify(account, self.non_is_title)
+
+		resolved = resolve_alignment(
+			verified_job_title=verified_titles_by_alumni([account.id]).get(account.id),
+			self_reported=True,
+		)
+		self.assertFalse(resolved.is_aligned)
+		self.assertTrue(resolved.is_verified)
+
+	def test_report_splits_verified_from_self_reported(self):
+		verified = self._make_alumni("v@example.com", 2022, self_reported=False)
+		self._verify(verified, self.dev_title)
+		self._make_alumni("s@example.com", 2022, self_reported=True)
+		self._make_alumni("u@example.com", 2022)  # no data at all -> unknown
+
+		response = self.client.get(
+			"/api/admin/reports/batch-summary/"
+			"?batch_start=2020&batch_end=2025&include_unverified=false",
+			**self.headers,
+		)
+		self.assertEqual(response.status_code, 200)
+
+		sections = {s["title"]: s for s in response.data["sections"]}
+		self.assertIn("Curriculum Alignment (BSIS)", sections)
+		row = sections["Curriculum Alignment (BSIS)"]["rows"][0]
+		# [batch, N, verified%, verified_n, self%, self_n, overall%, unknown]
+		self.assertEqual(row[1], 3)
+		self.assertEqual(row[2], "100.0%")   # verified: the dev title, aligned
+		self.assertEqual(row[3], 1)
+		self.assertEqual(row[4], "100.0%")   # self-reported: the one True
+		self.assertEqual(row[5], 1)
+		self.assertEqual(row[7], 1)          # the third stays unknown
+
+		fields = sections["IS Field Distribution (employer-verified titles)"]
+		self.assertIn(["Software Development", 1], [list(r) for r in fields["rows"]])
