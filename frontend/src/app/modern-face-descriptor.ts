@@ -10,8 +10,23 @@ export const MOUTH_CLOSED_MAR_THRESHOLD = 0.25;
 // Eye-aspect-ratio below this means the eyes are closed (a blink). Open eyes
 // sit around 0.30–0.35; a firm close drops well under 0.20.
 export const EYE_CLOSED_EAR_THRESHOLD = 0.21;
-export const HEAD_TURN_YAW_THRESHOLD_DEG = 20;
+// Eyes must climb back above this to count as re-opened. Kept above the closed
+// threshold so a single noisy frame hovering at the boundary cannot flip the
+// blink state machine back and forth.
+export const EYE_OPEN_EAR_THRESHOLD = 0.26;
+// Lowered from 20°. The identity descriptor is now taken from a dedicated
+// frontal frame, so a turn no longer has to produce a recognisable face — it
+// only has to prove motion. A gentler angle is far easier to hit and holds up
+// better on laptop webcams, where the 2D yaw estimate is noisy.
+export const HEAD_TURN_YAW_THRESHOLD_DEG = 12;
 export const FRONTAL_YAW_TOLERANCE_DEG = 15;
+// A natural blink lasts roughly 100–400 ms, so the eyes must reopen within this
+// window. Anything longer is someone holding their eyes shut, which a still
+// photo of a closed-eyed face could also produce.
+export const BLINK_MAX_CLOSED_MS = 1200;
+// How often the live video should be sampled for liveness. Must stay well under
+// the duration of a blink or blinks are missed entirely between frames.
+export const FACE_SAMPLE_INTERVAL_MS = 120;
 
 export type HeadTurnDirection = 'left' | 'right';
 
@@ -166,13 +181,24 @@ export function estimateHeadYawDegrees(positions: Point2D[]): number {
     const leftEyeOuter = positions[45];
     const noseTip = positions[30];
 
-    const eyeMidX = (rightEyeOuter.x + leftEyeOuter.x) / 2;
-    const interOcular = Math.abs(leftEyeOuter.x - rightEyeOuter.x);
+    // Measure the nose offset ALONG the eye line rather than along the raw X
+    // axis. Both the eye vector and the nose offset rotate together when the
+    // head tilts, so projecting one onto the other cancels roll out entirely —
+    // the previous X-only version drifted badly whenever someone leaned their
+    // head, which read as a turn they had not made.
+    const eyeVecX = leftEyeOuter.x - rightEyeOuter.x;
+    const eyeVecY = leftEyeOuter.y - rightEyeOuter.y;
+    const interOcular = Math.sqrt(eyeVecX * eyeVecX + eyeVecY * eyeVecY);
     if (interOcular <= 0) {
         return 0;
     }
 
-    const normalized = (noseTip.x - eyeMidX) / (interOcular / 2);
+    const eyeMidX = (rightEyeOuter.x + leftEyeOuter.x) / 2;
+    const eyeMidY = (rightEyeOuter.y + leftEyeOuter.y) / 2;
+    const offsetAlongEyeLine =
+        ((noseTip.x - eyeMidX) * eyeVecX + (noseTip.y - eyeMidY) * eyeVecY) / interOcular;
+
+    const normalized = offsetAlongEyeLine / (interOcular / 2);
     const clamped = Math.max(-1, Math.min(1, normalized));
     return clamped * 45;
 }
@@ -223,6 +249,88 @@ export async function extractFaceLandmarksFromVideo(
         return null;
     }
     return positions.map((p) => ({ x: p.x, y: p.y }));
+}
+
+export interface BlinkDetector {
+    /** Feed one sampled frame. Returns true on the frame the blink completes. */
+    push(positions: Point2D[] | null, now?: number): boolean;
+    /** True once a full open -> closed -> open cycle has been observed. */
+    hasBlinked(): boolean;
+    /** Lowest eye-aspect-ratio seen so far, for the liveness audit record. */
+    minEyeAspectRatio(): number;
+    reset(): void;
+}
+
+/**
+ * Blink liveness as a small state machine.
+ *
+ * A plain "are the eyes closed?" threshold is not proof of life — a still photo
+ * of someone mid-blink satisfies it. Requiring the eyes to be seen OPEN, then
+ * CLOSED, then OPEN again within `BLINK_MAX_CLOSED_MS` requires actual motion
+ * over time, which a static image cannot produce.
+ *
+ * Call `push` on every sampled frame; sample at roughly 10 Hz or faster, since
+ * a real blink lasts only 100–400 ms and slower polling will miss it entirely.
+ */
+export function createBlinkDetector(): BlinkDetector {
+    type Phase = 'awaiting_open' | 'eyes_open' | 'eyes_closed' | 'blinked';
+    let phase: Phase = 'awaiting_open';
+    let closedAt = 0;
+    let minEar = 1;
+
+    return {
+        push(positions, now = Date.now()) {
+            if (!positions) {
+                // Lost the face. Do not reset a completed blink, but drop any
+                // half-finished one so a detection gap cannot be stitched
+                // together into a blink that never happened.
+                if (phase === 'eyes_closed') phase = 'awaiting_open';
+                return false;
+            }
+
+            const ear = computeEyeAspectRatio(positions);
+            if (ear < minEar) minEar = ear;
+
+            switch (phase) {
+                case 'awaiting_open':
+                case 'eyes_open':
+                    if (ear <= EYE_CLOSED_EAR_THRESHOLD) {
+                        // Only counts if we had already confirmed open eyes,
+                        // otherwise someone starting with eyes shut is halfway
+                        // through a blink they never made.
+                        if (phase === 'eyes_open') {
+                            phase = 'eyes_closed';
+                            closedAt = now;
+                        }
+                    } else if (ear >= EYE_OPEN_EAR_THRESHOLD) {
+                        phase = 'eyes_open';
+                    }
+                    return false;
+
+                case 'eyes_closed':
+                    if (ear >= EYE_OPEN_EAR_THRESHOLD) {
+                        if (now - closedAt <= BLINK_MAX_CLOSED_MS) {
+                            phase = 'blinked';
+                            return true;
+                        }
+                        // Held shut too long to be a blink — start over.
+                        phase = 'eyes_open';
+                    }
+                    return false;
+
+                case 'blinked':
+                default:
+                    return false;
+            }
+        },
+        hasBlinked: () => phase === 'blinked',
+        minEyeAspectRatio: () => minEar,
+        reset() {
+            phase = 'awaiting_open';
+            closedAt = 0;
+            minEar = 1;
+        },
+    };
 }
 
 export function computeLivenessSignal(positions: Point2D[]): LivenessSignal {

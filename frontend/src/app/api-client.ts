@@ -261,7 +261,7 @@ export interface AlumniLoginGps {
 }
 
 export interface AlumniLoginLivenessSignal {
-    challenge: 'mouth_open' | 'head_turn' | 'head_turn_left' | 'head_turn_right';
+    challenge: 'blink' | 'mouth_open' | 'head_turn' | 'head_turn_left' | 'head_turn_right';
     mouthAspectRatio: number;
     yawDegrees: number;
     completedAt: string;

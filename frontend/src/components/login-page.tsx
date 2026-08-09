@@ -21,14 +21,18 @@ import {
   extractFaceLandmarksFromVideo,
   computeMouthAspectRatio,
   estimateHeadYawDegrees,
-  MOUTH_OPEN_MAR_THRESHOLD,
+  createBlinkDetector,
   HEAD_TURN_YAW_THRESHOLD_DEG,
   FRONTAL_YAW_TOLERANCE_DEG,
+  FACE_SAMPLE_INTERVAL_MS,
 } from "../app/modern-face-descriptor";
 
-type LoginChallenge = 'mouth_open' | 'head_turn';
+// The open-mouth challenge was removed per the 2026 panel revision and replaced
+// with a blink, which is both less awkward in public and a stronger signal — a
+// still photo cannot produce the open→closed→open transition a blink requires.
+type LoginChallenge = 'blink' | 'head_turn';
 
-const LOGIN_CHALLENGES: LoginChallenge[] = ['mouth_open', 'head_turn'];
+const LOGIN_CHALLENGES: LoginChallenge[] = ['blink', 'head_turn'];
 
 function pickRandomLoginChallenge(): LoginChallenge {
   return LOGIN_CHALLENGES[Math.floor(Math.random() * LOGIN_CHALLENGES.length)];
@@ -36,12 +40,12 @@ function pickRandomLoginChallenge(): LoginChallenge {
 
 function describeChallenge(challenge: LoginChallenge): { title: string; hint: string } {
   switch (challenge) {
-    case 'mouth_open':
-      return { title: 'Open your mouth', hint: 'Open wide and hold for a moment' };
+    case 'blink':
+      return { title: 'Blink once', hint: 'A single natural blink is enough' };
     case 'head_turn':
       // Direction-agnostic: the selfie preview is mirrored, so we accept a turn
       // to either side instead of guessing left/right.
-      return { title: 'Turn your head', hint: 'Turn to either side' };
+      return { title: 'Turn your head', hint: 'Turn slightly to either side' };
   }
 }
 
@@ -224,8 +228,8 @@ export function LoginPage() {
   }, [cameraOn, scanStage, faceAuthBusy]);
 
   // Liveness challenge loop: runs AFTER a frontal frame is captured. Samples
-  // landmarks every ~1s, checks the prompted action (mouth open / head turn),
-  // and on a held 3-2-1 countdown submits the already-captured frontal frame.
+  // landmarks every FACE_SAMPLE_INTERVAL_MS and checks the prompted action
+  // (blink / head turn), then submits the already-captured frontal frame.
   // On timeout, fall back to the retry button.
   useEffect(() => {
     if (!cameraOn || scanStage !== "challenge" || faceAuthBusy) {
@@ -248,12 +252,22 @@ export function LoginPage() {
       stopCamera();
     }, LIVENESS_TIMEOUT_MS);
 
+    const blinkDetector = createBlinkDetector();
+
     autoDetectInterval.current = setInterval(async () => {
       if (faceAuthBusy) return;
       const video = videoRef.current;
       if (!video || video.videoWidth === 0) return;
       try {
         const landmarks = await extractFaceLandmarksFromVideo(video);
+
+        // Blink is a transition over time, so it must see every frame —
+        // including the ones with no face, which reset a half-finished blink.
+        let passed = false;
+        if (challenge === 'blink') {
+          passed = blinkDetector.push(landmarks);
+        }
+
         if (!landmarks) {
           // Lost the face - reset any running countdown.
           countdownValRef.current = null;
@@ -263,10 +277,7 @@ export function LoginPage() {
         const mar = computeMouthAspectRatio(landmarks);
         const yaw = estimateHeadYawDegrees(landmarks);
 
-        let passed = false;
-        if (challenge === 'mouth_open') {
-          passed = mar >= MOUTH_OPEN_MAR_THRESHOLD;
-        } else if (challenge === 'head_turn') {
+        if (challenge === 'head_turn') {
           // Either direction counts (mirror-proof).
           passed = Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG;
         }
@@ -292,7 +303,7 @@ export function LoginPage() {
         setLivenessPassed(true);
         void runGraduateFaceAuthentication();
       } catch { /* silent - keep polling */ }
-    }, 1000);
+    }, FACE_SAMPLE_INTERVAL_MS);
 
     return () => {
       if (autoDetectInterval.current) {

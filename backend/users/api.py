@@ -1551,13 +1551,20 @@ class AlumniRegisterView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        required_files = ["face_front", "face_left", "face_right"]
+        # Registration stores ONE frontal photo. The blink and head-turn stages
+        # prove liveness but deliberately save no image: face-api's recogniser
+        # is only reliable near-frontal, so turned frames were never usable for
+        # matching anyway. face_left / face_right stay accepted-but-optional so
+        # older clients mid-upgrade keep working.
+        required_files = ["face_front"]
+        optional_files = ["face_left", "face_right"]
         missing_files = [name for name in required_files if name not in request.FILES]
         if missing_files:
             return Response(
                 {"detail": f"Missing biometric images: {', '.join(missing_files)}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        upload_files = required_files + [n for n in optional_files if n in request.FILES]
 
         graduation_year = _extract_year(graduation_date)
         master_record = _find_master_record(
@@ -1580,7 +1587,7 @@ class AlumniRegisterView(APIView):
         timestamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
 
         try:
-            for scan_key in required_files:
+            for scan_key in upload_files:
                 scan_file = request.FILES[scan_key]
                 object_path = f"face-registration/{storage_key}/{timestamp}_{scan_key}.jpg"
                 face_scan_urls[scan_key] = upload_image_bytes(
@@ -1665,7 +1672,8 @@ class AlumniRegisterView(APIView):
                 account_status=AccountStatus.PENDING,
             )
 
-            # 2b. Create FaceScan DB records for all three registration angles
+            # 2b. Create FaceScan DB records for whichever angles were uploaded
+            # (normally just face_front).
             _captured_at = timezone.now()
             for _scan_key in ["face_front", "face_left", "face_right"]:
                 _url = face_scan_urls.get(_scan_key)

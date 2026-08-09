@@ -22,9 +22,11 @@ import {
   computeMouthAspectRatio,
   estimateHeadYawDegrees,
   MOUTH_OPEN_MAR_THRESHOLD,
-  MOUTH_CLOSED_MAR_THRESHOLD,
   HEAD_TURN_YAW_THRESHOLD_DEG,
   FRONTAL_YAW_TOLERANCE_DEG,
+  createBlinkDetector,
+  FACE_SAMPLE_INTERVAL_MS,
+  type BlinkDetector,
   type HeadTurnDirection,
   type LivenessSignal,
 } from '../app/modern-face-descriptor';
@@ -82,9 +84,11 @@ export interface PersonalFormData {
 }
 
 export interface BiometricData {
-  front: Blob;
-  left: Blob;
-  right: Blob;
+  // A single frontal photo. Identity is established from this frame alone; the
+  // liveness gestures that follow prove presence but are never used to build
+  // the face template, because face-api's recogniser is only reliable on
+  // near-frontal faces and folding turned frames in degraded the match.
+  image: Blob;
   descriptor: number[] | null;
   descriptorSamples: number[][];
   livenessSignals: LivenessSignal[];
@@ -100,7 +104,7 @@ const PERSONAL_STEP_CONFIG = [
   { n: 4 as PersonalStep, label: 'Verify Identity' },
 ];
 
-type LivenessChallengeKind = 'neutral' | 'head_turn_left' | 'head_turn_right';
+type LivenessChallengeKind = 'neutral' | 'blink' | 'head_turn_left' | 'head_turn_right';
 
 interface ShotInstruction {
   label: string;
@@ -108,13 +112,32 @@ interface ShotInstruction {
   kind: LivenessChallengeKind;
 }
 
-function buildShotInstructions(): ShotInstruction[] {
+// Stage 1 is the only one that saves a photo — it captures the frontal frame
+// the face template is built from. Stages 2 and 3 are pure liveness gates: a
+// blink (which a still photo cannot fake) followed by one randomised head turn
+// (which a pre-recorded video cannot anticipate).
+function buildShotInstructions(turnDirection: HeadTurnDirection): ShotInstruction[] {
   return [
     { label: 'Look Forward', desc: 'Face the camera, keep your mouth closed', kind: 'neutral' },
-    { label: 'Turn Left', desc: 'Turn your head to your left', kind: 'head_turn_left' },
-    { label: 'Turn Right', desc: 'Turn your head to your right', kind: 'head_turn_right' },
+    { label: 'Blink', desc: 'Blink once, naturally', kind: 'blink' },
+    turnDirection === 'left'
+      ? { label: 'Turn Left', desc: 'Turn your head slightly to your left', kind: 'head_turn_left' }
+      : { label: 'Turn Right', desc: 'Turn your head slightly to your right', kind: 'head_turn_right' },
   ];
 }
+
+// How long a gesture must be held before it counts, and how often we sample.
+// The old loop polled once per second, so a turn had to be held for two to
+// three seconds and any wobble reset it — that was the main reason the turn
+// felt impossible. Blinks last only 100–400 ms, so they cannot be detected at
+// 1 Hz at all.
+const FRONTAL_HOLD_MS = 720;
+const TURN_HOLD_MS = 360;
+// Frames in the identity burst, and the gap between them. All three are
+// frontal, so averaging them is a genuine noise reduction rather than the
+// pose-mixing the previous implementation did.
+const IDENTITY_BURST_FRAMES = 3;
+const IDENTITY_BURST_GAP_MS = 200;
 
 // Laplacian-variance blur gate: a frame is rejected when variance < threshold.
 // Kept deliberately lenient — angled head-turn shots have fewer edges and were
@@ -285,7 +308,8 @@ export default function RegisterAlumniPersonal({
   const [cameraOn, setCameraOn] = useState(false);
   const [shotIndex, setShotIndex] = useState(0);
   const [previews, setPreviews] = useState<string[]>([]);
-  const [capturedShots, setCapturedShots] = useState<Blob[]>([]);
+  // The one frontal photo kept from the identity burst.
+  const [identityShot, setIdentityShot] = useState<Blob | null>(null);
   const [descriptorSamples, setDescriptorSamples] = useState<number[][]>([]);
   const [livenessSignals, setLivenessSignals] = useState<LivenessSignal[]>([]);
   const [checkingBlur, setCheckingBlur] = useState(false);
@@ -297,14 +321,20 @@ export default function RegisterAlumniPersonal({
   const [faceDetected, setFaceDetected] = useState(false);
   const [autoCountdown, setAutoCountdown] = useState<number | null>(null);
   const detectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const countdownValRef = useRef<number | null>(null);
   const capturingRef = useRef(false);
+  // Timestamp the current gesture was first satisfied, so "hold" is measured in
+  // real milliseconds rather than in detector ticks.
+  const holdStartRef = useRef<number | null>(null);
+  const blinkDetectorRef = useRef<BlinkDetector>(createBlinkDetector());
   // Randomized head-turn direction (per session) prevents replay with a fixed
   // pre-recorded video.
   const [headTurnDirection] = useState<HeadTurnDirection>(
     () => (Math.random() < 0.5 ? 'left' : 'right'),
   );
-  const shotInstructions = useMemo(() => buildShotInstructions(), []);
+  const shotInstructions = useMemo(
+    () => buildShotInstructions(headTurnDirection),
+    [headTurnDirection],
+  );
 
   useEffect(() => { return () => stopCamera(); }, []);
 
@@ -314,9 +344,9 @@ export default function RegisterAlumniPersonal({
     if (step === 4) void ensureModernFaceModelsLoaded();
   }, [step]);
 
-  // Returns true when the live frame satisfies the current slot's liveness
-  // gesture (neutral / mouth open / head turn). Mirrors the per-slot checks in
-  // captureShot, but as a pure boolean for the auto-capture detector.
+  // Returns true when the live frame satisfies the current stage's pose. Blink
+  // is deliberately absent here: it is a transition over time, not a property
+  // of one frame, so it is handled by the blink detector in the loop below.
   const isSlotConditionMet = (positions: { x: number; y: number }[]): boolean => {
     const challenge = shotInstructions[shotIndex];
     if (!challenge) return false;
@@ -336,16 +366,19 @@ export default function RegisterAlumniPersonal({
     return false;
   };
 
-  // Real-time auto-capture loop. While the camera is live and shots remain,
-  // sample the video ~1x/sec: when the slot's gesture is held, run a 3-2-1
-  // countdown and auto-capture; if the gesture breaks, the countdown resets.
+  // Real-time liveness loop, sampled every FACE_SAMPLE_INTERVAL_MS.
+  //
+  // Stage 1 (neutral) holds a frontal pose briefly, then fires the identity
+  // burst — the only stage that saves a photo. Stage 2 (blink) waits for a full
+  // open→closed→open transition. Stage 3 (turn) holds a gentle yaw. Neither
+  // liveness stage captures an image, so neither can pollute the face template.
   useEffect(() => {
     const clearDetect = () => {
       if (detectIntervalRef.current) {
         clearInterval(detectIntervalRef.current);
         detectIntervalRef.current = null;
       }
-      countdownValRef.current = null;
+      holdStartRef.current = null;
     };
 
     if (!cameraOn || shotIndex >= shotInstructions.length) {
@@ -355,6 +388,11 @@ export default function RegisterAlumniPersonal({
       return;
     }
 
+    const challenge = shotInstructions[shotIndex];
+    if (challenge.kind === 'blink') {
+      blinkDetectorRef.current.reset();
+    }
+
     detectIntervalRef.current = setInterval(async () => {
       if (capturingRef.current) return;
       const video = videoRef.current;
@@ -362,30 +400,47 @@ export default function RegisterAlumniPersonal({
       try {
         const landmarks = await extractFaceLandmarksFromVideo(video);
         setFaceDetected(!!landmarks);
-        const met = landmarks ? isSlotConditionMet(landmarks) : false;
-        if (met) {
-          const cur = countdownValRef.current;
-          if (cur === null) {
-            countdownValRef.current = 2;
-            setAutoCountdown(2);
-          } else if (cur > 1) {
-            countdownValRef.current = cur - 1;
-            setAutoCountdown(cur - 1);
-          } else {
-            // Reached 1 -> capture now.
-            countdownValRef.current = null;
-            setAutoCountdown(null);
+
+        if (challenge.kind === 'blink') {
+          const blinked = blinkDetectorRef.current.push(landmarks);
+          if (blinked) {
             capturingRef.current = true;
-            void captureShot();
+            void completeLivenessStage(landmarks);
           }
-        } else {
-          countdownValRef.current = null;
-          setAutoCountdown(null);
+          return;
         }
+
+        const met = landmarks ? isSlotConditionMet(landmarks) : false;
+        if (!met) {
+          holdStartRef.current = null;
+          setAutoCountdown(null);
+          return;
+        }
+
+        const now = Date.now();
+        if (holdStartRef.current === null) holdStartRef.current = now;
+        const heldFor = now - holdStartRef.current;
+        const required = challenge.kind === 'neutral' ? FRONTAL_HOLD_MS : TURN_HOLD_MS;
+
+        if (heldFor >= required) {
+          holdStartRef.current = null;
+          setAutoCountdown(null);
+          capturingRef.current = true;
+          if (challenge.kind === 'neutral') {
+            void captureIdentityBurst();
+          } else {
+            void completeLivenessStage(landmarks);
+          }
+          return;
+        }
+
+        // Show the remaining hold as a coarse 1-second-ish countdown so the
+        // existing on-screen counter still reads naturally.
+        setAutoCountdown(Math.max(1, Math.ceil((required - heldFor) / 1000)));
       } catch {
         /* transient detection error - keep polling */
       }
-    }, 1000);
+    }, FACE_SAMPLE_INTERVAL_MS);
 
     return clearDetect;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -668,117 +723,121 @@ export default function RegisterAlumniPersonal({
     setCameraOn(false);
   };
 
-  const captureShot = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    // Block the auto-capture detector while a capture (manual or automatic) is
-    // in flight, and clear any running countdown.
-    capturingRef.current = true;
-    countdownValRef.current = null;
+  // Grab one frame off the live video as a JPEG data URL.
+  const grabFrame = (): string | null => {
+    if (!videoRef.current || !canvasRef.current) return null;
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return null;
+    canvasRef.current.width = videoRef.current.videoWidth;
+    canvasRef.current.height = videoRef.current.videoHeight;
+    ctx.drawImage(videoRef.current, 0, 0);
+    return canvasRef.current.toDataURL('image/jpeg', 0.9);
+  };
+
+  const advanceStage = () => {
+    const isLastStage = shotIndex >= shotInstructions.length - 1;
+    setShotIndex((i) => i + 1);
+    if (isLastStage) stopCamera();
+  };
+
+  /**
+   * Stage 1 only. Captures IDENTITY_BURST_FRAMES frontal frames a short gap
+   * apart and averages their descriptors into the face template. Every frame is
+   * frontal, so averaging genuinely cancels per-frame noise — unlike the old
+   * flow, which averaged a frontal frame with two turned ones and produced a
+   * template that matched none of them well. Only the first frame is kept as
+   * the stored photo.
+   */
+  const captureIdentityBurst = async () => {
     setAutoCountdown(null);
     setStepError('');
     setCheckingBlur(true);
 
     try {
-      const ctx = canvasRef.current.getContext('2d');
-      if (!ctx) {
+      const firstDataUrl = grabFrame();
+      if (!firstDataUrl) {
         setStepError('Unable to capture image. Please try again.');
-        setCheckingBlur(false);
         return;
       }
 
-      canvasRef.current.width = videoRef.current.videoWidth;
-      canvasRef.current.height = videoRef.current.videoHeight;
-      ctx.drawImage(videoRef.current, 0, 0);
-
-      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.9);
-      const isBlurry = await isImageBlurry({ dataUrl, threshold: FACE_BLUR_THRESHOLD });
-      if (isBlurry) {
-        setStepError('Image too blurry. Please try again.');
-        setCheckingBlur(false);
+      if (await isImageBlurry({ dataUrl: firstDataUrl, threshold: FACE_BLUR_THRESHOLD })) {
+        setStepError('Image too blurry — hold still and make sure the lighting is good.');
         return;
       }
 
-      const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
-      if (!descriptor) {
-        setStepError('Could not detect face. Please try again.');
-        setCheckingBlur(false);
-        return;
-      }
-
-      const landmarks = await extractFaceLandmarksFromDataUrl(dataUrl);
+      const landmarks = await extractFaceLandmarksFromDataUrl(firstDataUrl);
       if (!landmarks) {
         setStepError('Could not read facial landmarks. Please try again.');
-        setCheckingBlur(false);
         return;
       }
-      const mar = computeMouthAspectRatio(landmarks);
       const yaw = estimateHeadYawDegrees(landmarks);
-      const livenessSignal: LivenessSignal = {
-        mouthAspectRatio: mar,
-        yawDegrees: yaw,
-        detected: true,
-      };
-
-      const challenge = shotInstructions[shotIndex];
-      if (challenge.kind === 'neutral') {
-        if (Math.abs(yaw) > FRONTAL_YAW_TOLERANCE_DEG) {
-          setStepError('Please face the camera directly for the first shot.');
-          setCheckingBlur(false);
-          return;
-        }
-        if (mar > MOUTH_OPEN_MAR_THRESHOLD) {
-          setStepError('Please close your mouth for the first shot.');
-          setCheckingBlur(false);
-          return;
-        }
-      } else if (challenge.kind === 'head_turn_left') {
-        // Non-mirrored feed: turning to your left yields a positive yaw.
-        if (yaw < HEAD_TURN_YAW_THRESHOLD_DEG) {
-          setStepError('Please turn your head further to your left.');
-          setCheckingBlur(false);
-          return;
-        }
-        if (mar > MOUTH_CLOSED_MAR_THRESHOLD * 2) {
-          setStepError('Please close your mouth while turning your head.');
-          setCheckingBlur(false);
-          return;
-        }
-      } else if (challenge.kind === 'head_turn_right') {
-        // Non-mirrored feed: turning to your right yields a negative yaw.
-        if (yaw > -HEAD_TURN_YAW_THRESHOLD_DEG) {
-          setStepError('Please turn your head further to your right.');
-          setCheckingBlur(false);
-          return;
-        }
-        if (mar > MOUTH_CLOSED_MAR_THRESHOLD * 2) {
-          setStepError('Please close your mouth while turning your head.');
-          setCheckingBlur(false);
-          return;
-        }
+      if (Math.abs(yaw) > FRONTAL_YAW_TOLERANCE_DEG) {
+        setStepError('Please face the camera directly.');
+        return;
+      }
+      if (computeMouthAspectRatio(landmarks) > MOUTH_OPEN_MAR_THRESHOLD) {
+        setStepError('Please close your mouth for the identity photo.');
+        return;
       }
 
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-
-      if (shotIndex === 0) {
-        setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+      const samples: number[][] = [];
+      const first = await extractFaceDescriptorFromDataUrl(firstDataUrl);
+      if (!first) {
+        setStepError('Could not detect your face. Please try again.');
+        return;
       }
-      setPreviews((p) => [...p, dataUrl]);
-      setCapturedShots((c) => [...c, blob]);
-      setDescriptorSamples((d) => [...d, descriptor]);
-      setLivenessSignals((l) => [...l, livenessSignal]);
+      samples.push(first);
 
-      const isLastShot = shotIndex >= shotInstructions.length - 1;
-      setShotIndex((i) => i + 1);
-      if (isLastShot) {
-        stopCamera();
+      // Remaining burst frames are best-effort: a dropped frame just means a
+      // slightly noisier template, never a failed registration.
+      for (let i = 1; i < IDENTITY_BURST_FRAMES; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, IDENTITY_BURST_GAP_MS));
+        const extraUrl = grabFrame();
+        if (!extraUrl) continue;
+        const extraLandmarks = await extractFaceLandmarksFromDataUrl(extraUrl);
+        if (!extraLandmarks) continue;
+        if (Math.abs(estimateHeadYawDegrees(extraLandmarks)) > FRONTAL_YAW_TOLERANCE_DEG) continue;
+        const extra = await extractFaceDescriptorFromDataUrl(extraUrl);
+        if (extra) samples.push(extra);
       }
 
-      setCheckingBlur(false);
+      const blob = await (await fetch(firstDataUrl)).blob();
+
+      setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
+      setPreviews([firstDataUrl]);
+      setIdentityShot(blob);
+      setDescriptorSamples(samples);
+      setLivenessSignals((l) => [
+        ...l,
+        { mouthAspectRatio: computeMouthAspectRatio(landmarks), yawDegrees: yaw, detected: true },
+      ]);
+      advanceStage();
     } catch (err) {
       console.error(err);
       setStepError('Error capturing image. Please try again.');
+    } finally {
       setCheckingBlur(false);
+      capturingRef.current = false;
+    }
+  };
+
+  /**
+   * Stages 2 and 3 (blink, head turn). Records the measured signal for the
+   * audit trail and advances. Deliberately saves no photo and no descriptor.
+   */
+  const completeLivenessStage = async (landmarks: { x: number; y: number }[] | null) => {
+    try {
+      setStepError('');
+      setAutoCountdown(null);
+      setLivenessSignals((l) => [
+        ...l,
+        {
+          mouthAspectRatio: landmarks ? computeMouthAspectRatio(landmarks) : 0,
+          yawDegrees: landmarks ? estimateHeadYawDegrees(landmarks) : 0,
+          detected: !!landmarks,
+        },
+      ]);
+      advanceStage();
     } finally {
       capturingRef.current = false;
     }
@@ -786,7 +845,7 @@ export default function RegisterAlumniPersonal({
 
   const retakeAll = () => {
     setPreviews([]);
-    setCapturedShots([]);
+    setIdentityShot(null);
     setDescriptorSamples([]);
     setLivenessSignals([]);
     setShotIndex(0);
@@ -794,28 +853,25 @@ export default function RegisterAlumniPersonal({
     setStepError('');
     setCheckingBlur(false);
     capturingRef.current = false;
-    countdownValRef.current = null;
+    holdStartRef.current = null;
+    blinkDetectorRef.current.reset();
     setAutoCountdown(null);
     setFaceDetected(false);
     void startCamera();
   };
 
   const handleBiometricSubmit = async () => {
-    if (capturedShots.length < 3) {
+    if (!identityShot || shotIndex < shotInstructions.length) {
       setStepError('Please complete all liveness challenges.');
       return;
     }
 
     setIsSaving(true);
     try {
+      // Averaged across the frontal burst only — see captureIdentityBurst.
       const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
       const biometricData: BiometricData = {
-        // The three slots map to: look-forward / turn-left / turn-right.
-        // Field names (front/left/right) are retained so the backend's existing
-        // FaceScan rows and Supabase paths don't require a migration.
-        front: capturedShots[0],
-        left: capturedShots[1],
-        right: capturedShots[2],
+        image: identityShot,
         descriptor: averagedDescriptor,
         descriptorSamples,
         livenessSignals,
@@ -1402,21 +1458,15 @@ export default function RegisterAlumniPersonal({
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                     Are you currently pursuing or have you completed further studies? *
                   </label>
-                  <div className="space-y-2">
-                    {[
-                      { label: 'No - only my BSIS Bachelor\'s degree', value: 'none' as const },
-                      { label: 'Yes, currently enrolled', value: 'enrolled' as const },
-                      { label: 'Yes, already completed', value: 'completed' as const },
-                    ].map((opt) => (
-                      <RadioOption
-                        key={opt.value}
-                        label={opt.label}
-                        value={opt.value}
-                        current={form.furtherStudies}
-                        onSelect={(v) => setF('furtherStudies', v as PersonalFormData['furtherStudies'])}
-                      />
-                    ))}
-                  </div>
+                  <select
+                    value={form.furtherStudies}
+                    onChange={(e) => setF('furtherStudies', e.target.value as PersonalFormData['furtherStudies'])}
+                    className={inputCls}
+                  >
+                    <option value="none">No - only my BSIS Bachelor&apos;s degree</option>
+                    <option value="enrolled">Yes, currently enrolled</option>
+                    <option value="completed">Yes, already completed</option>
+                  </select>
                 </div>
 
                 {(form.furtherStudies === 'enrolled' || form.furtherStudies === 'completed') && (
@@ -1540,9 +1590,9 @@ export default function RegisterAlumniPersonal({
                       <Camera className="size-5 text-emerald-600" />
                     </div>
                     <div>
-                      <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Biometric Registration</h2>
+                      <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Face Recognition</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        Three quick challenges to prove you are present in real time: face forward, then turn your head left and right.
+                        We take one photo, then two quick checks to confirm you are present in real time: blink, then a small head turn.
                       </p>
                     </div>
                   </div>
@@ -1554,8 +1604,8 @@ export default function RegisterAlumniPersonal({
                       <p style={{ fontWeight: 700 }}>Before you begin</p>
                       <p className="mt-0.5">
                         Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
-                        Make sure your face is well-lit. You will be asked to face the camera, then turn your head left
-                        and right - each on a separate capture.
+                        Make sure your face is well-lit. You will be asked to face the camera for one photo, then to blink
+                        and turn your head slightly. Only the first photo is saved.
                       </p>
                     </div>
                   </div>
@@ -1625,19 +1675,15 @@ export default function RegisterAlumniPersonal({
                     />
                     <canvas ref={canvasRef} className="hidden" />
 
-                    {/* All shots captured - 3-column thumbnail grid */}
-                    {allCaptured && (
-                      <div className="absolute inset-0 grid grid-cols-3 gap-0.5">
-                        {previews.map((preview, i) => (
-                          <div key={i} className="relative overflow-hidden">
-                            <img src={preview} alt={`Shot ${i + 1}`} className="w-full h-full object-cover object-center" />
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1.5">
-                              <p className="text-white text-center" style={{ fontWeight: 600, fontSize: '0.55rem' }}>
-                                {shotInstructions[i].label}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+                    {/* Verification complete - the single stored identity photo */}
+                    {allCaptured && previews[0] && (
+                      <div className="absolute inset-0">
+                        <img src={previews[0]} alt="Identity photo" className="w-full h-full object-cover object-center" />
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
+                          <p className="text-white text-center" style={{ fontWeight: 600, fontSize: '0.65rem' }}>
+                            Identity photo · liveness verified
+                          </p>
+                        </div>
                       </div>
                     )}
 
@@ -1710,15 +1756,27 @@ export default function RegisterAlumniPersonal({
                           title="Stop camera">
                           <VideoOff className="size-4" />
                         </button>
-                        <button onClick={() => { void captureShot(); }}
-                          disabled={checkingBlur}
-                          className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm transition"
-                          style={{ fontWeight: 600 }}>
-                          {checkingBlur
-                            ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity</>
-                            : <><Camera className="size-4" /> Capture now ({shotIndex + 1}/{shotInstructions.length})</>
-                          }
-                        </button>
+                        {/* Manual capture applies only to the identity photo.
+                            The blink and head-turn stages are liveness gates —
+                            they save nothing, so there is nothing to trigger by
+                            hand; they simply detect and advance. */}
+                        {shotInstructions[shotIndex]?.kind === 'neutral' ? (
+                          <button onClick={() => { capturingRef.current = true; void captureIdentityBurst(); }}
+                            disabled={checkingBlur}
+                            className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white py-2.5 rounded-xl text-sm transition"
+                            style={{ fontWeight: 600 }}>
+                            {checkingBlur
+                              ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity</>
+                              : <><Camera className="size-4" /> Capture photo</>
+                            }
+                          </button>
+                        ) : (
+                          <div className="flex-1 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 py-2.5 rounded-xl text-sm"
+                            style={{ fontWeight: 600 }}>
+                            <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                            {shotInstructions[shotIndex]?.desc}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

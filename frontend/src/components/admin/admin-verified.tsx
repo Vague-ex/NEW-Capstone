@@ -147,17 +147,18 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
               {/* Face photo strip */}
               {(() => {
                 const faceScans = getFaceScans(a);
-                const hasFace = !!(faceScans.front || faceScans.left || faceScans.right);
-                if (!hasFace) return null;
+                // Registrations from Aug 2026 onward store a single frontal
+                // photo, so only render the angles that actually exist —
+                // otherwise every new alumni shows two "Missing" tiles, which
+                // reads as a fault rather than the intended design.
+                const present = (['front', 'left', 'right'] as const).filter((k) => faceScans[k]);
+                if (present.length === 0) return null;
                 return (
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['front', 'left', 'right'] as const).map((k) => (
+                  <div className={`grid gap-2 ${present.length === 1 ? 'grid-cols-1 max-w-[140px]' : 'grid-cols-3'}`}>
+                    {present.map((k) => (
                       <div key={k} className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
                         <div className="h-20">
-                          {faceScans[k]
-                            ? <img src={faceScans[k]} alt={k} className="w-full h-full object-cover object-center" />
-                            : <div className="w-full h-full flex items-center justify-center text-gray-500 text-[10px]">Missing</div>
-                          }
+                          <img src={faceScans[k]} alt={k} className="w-full h-full object-cover object-center" />
                         </div>
                         <p className="text-center text-[10px] text-gray-300 py-1 capitalize">{k}</p>
                       </div>

@@ -256,18 +256,23 @@ export function RegisterAlumni() {
       if (biometricData) {
         payload.append('face_descriptor', JSON.stringify(biometricData.descriptor));
         payload.append('face_descriptor_samples', JSON.stringify(biometricData.descriptorSamples));
-        payload.append('face_front', biometricData.front, `face_front_${Date.now()}.jpg`);
-        payload.append('face_left', biometricData.left, `face_left_${Date.now()}.jpg`);
-        payload.append('face_right', biometricData.right, `face_right_${Date.now()}.jpg`);
-        // Liveness signals collected per slot during the 3-challenge capture
-        // (neutral / mouth_open / head_turn). Stored as-is on the backend
-        // under biometric_template.liveness_signals.
+        // One frontal photo only. The blink and head-turn stages prove liveness
+        // but intentionally save no image, so there is nothing else to upload.
+        payload.append('face_front', biometricData.image, `face_front_${Date.now()}.jpg`);
+        // Per-stage liveness measurements, stored on the backend under
+        // biometric_template.liveness_signals. slot_kinds must mirror the
+        // stages actually performed — it previously claimed a mouth_open
+        // challenge that the flow had already stopped asking for.
         payload.append(
           'liveness_signals',
           JSON.stringify({
             head_turn_direction: biometricData.headTurnDirection,
             samples: biometricData.livenessSignals,
-            slot_kinds: ['neutral', 'mouth_open', 'head_turn'],
+            slot_kinds: [
+              'neutral',
+              'blink',
+              `head_turn_${biometricData.headTurnDirection}`,
+            ],
             captured_at: new Date().toISOString(),
           }),
         );
