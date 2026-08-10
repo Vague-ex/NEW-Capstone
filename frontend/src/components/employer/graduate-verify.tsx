@@ -638,7 +638,7 @@ export function GraduateVerify() {
                 {selectedGraduate.biometricCaptured && (
                   <div className="flex items-center gap-2 bg-emerald-50 rounded-lg px-3 py-2">
                     <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
-                    <p className="text-emerald-700 text-xs" style={{ fontWeight: 500 }}>Biometric identity verified with GPS timestamp</p>
+                    <p className="text-emerald-700 text-xs" style={{ fontWeight: 500 }}>Face recognition identity verified with GPS timestamp</p>
                   </div>
                 )}
                 <p className="text-gray-400 text-xs bg-gray-50 rounded-lg px-3 py-2 flex items-start gap-1.5">

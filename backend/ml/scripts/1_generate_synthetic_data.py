@@ -149,7 +149,6 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
             "alumni_id": f"SYN-{batch}-{alumni_idx:04d}",
             "gender": gender,
             "scholarship": scholarship,
-            "general_average_range": grade_range,
             "academic_honors": honors,
             "prior_work_experience": prior_work,
             "ojt_relevance": ojt_relevance,
@@ -240,7 +239,6 @@ def generate_row(rng: np.random.Generator, batch: int, alumni_idx: int) -> dict:
         "alumni_id": f"SYN-{batch}-{alumni_idx:04d}",
         "gender": gender,
         "scholarship": scholarship,
-        "general_average_range": grade_range,
         "academic_honors": honors,
         "prior_work_experience": prior_work,
         "ojt_relevance": ojt_relevance,
@@ -294,7 +292,7 @@ def main() -> None:
     raw_path = DATA_DIR / "raw_training_data.csv"
     raw_fields = [
         "alumni_id", "batch", "gender", "scholarship",
-        "general_average_range", "academic_honors", "prior_work_experience",
+        "academic_honors", "prior_work_experience",
         "ojt_relevance", "has_portfolio", "pursuing_postgrad", "completed_postgrad",
         "technical_skill_count", "soft_skill_count",
         "job_applications_count", "job_source",
@@ -317,7 +315,7 @@ def main() -> None:
     processed_fields = [
         "alumni_id", "batch",
         "batch_code", "gender", "scholarship",
-        "general_average_range", "academic_honors", "prior_work_experience",
+        "academic_honors", "prior_work_experience",
         "ojt_relevance", "has_portfolio", "pursuing_postgrad", "completed_postgrad",
         "technical_skill_count", "soft_skill_count",
         "job_applications_count",
@@ -340,7 +338,6 @@ def main() -> None:
                 "batch_code": row["batch"] - 2020,
                 "gender": row["gender"],
                 "scholarship": row["scholarship"],
-                "general_average_range": row["general_average_range"],
                 "academic_honors": row["academic_honors"],
                 "prior_work_experience": row["prior_work_experience"],
                 "ojt_relevance": row["ojt_relevance"],

@@ -1,12 +1,11 @@
 {
-  "trained_at": "2026-06-05T10:58:23.584460+00:00",
+  "trained_at": "2026-08-10T11:50:38.538732+00:00",
   "n_samples": 230,
-  "n_features": 31,
+  "n_features": 30,
   "features": [
     "batch_code",
     "gender",
     "scholarship",
-    "general_average_range",
     "academic_honors",
     "prior_work_experience",
     "ojt_relevance",
@@ -43,28 +42,28 @@
       "best_model": "random_forest",
       "candidates": {
         "linear_regression": {
-          "cv_mean": -0.22150432251131483,
-          "cv_std": 0.7801607785340865,
+          "cv_mean": -0.3269410210029574,
+          "cv_std": 0.8845153055483903,
           "scoring": "r2",
           "n_samples": 162,
-          "train_r2": 0.4752740410037424,
-          "train_mae": 0.884070906886113
+          "train_r2": 0.4246969163114497,
+          "train_mae": 0.9530081899555326
         },
         "ridge": {
-          "cv_mean": -0.21085489566357568,
-          "cv_std": 0.7661850916886989,
+          "cv_mean": -0.31552553685623924,
+          "cv_std": 0.8679482503821995,
           "scoring": "r2",
           "n_samples": 162,
-          "train_r2": 0.47525501560461214,
-          "train_mae": 0.8817580715863054
+          "train_r2": 0.42468233766989927,
+          "train_mae": 0.9505208868331108
         },
         "random_forest": {
-          "cv_mean": 0.25096495304100613,
-          "cv_std": 0.22858612932064012,
+          "cv_mean": 0.309548192927184,
+          "cv_std": 0.2815414997373727,
           "scoring": "r2",
           "n_samples": 162,
-          "train_r2": 0.8736169498941133,
-          "train_mae": 0.36603142085416956
+          "train_r2": 0.8723183316559754,
+          "train_mae": 0.37472502898205634
         }
       }
     },
@@ -74,8 +73,8 @@
       "best_model": "random_forest",
       "candidates": {
         "logistic_regression": {
-          "cv_mean": 0.8836494967690284,
-          "cv_std": 0.028599408913158732,
+          "cv_mean": 0.871802890310353,
+          "cv_std": 0.04324997596411081,
           "scoring": "f1",
           "n_samples": 230,
           "train_accuracy": 0.8695652173913043,
@@ -94,8 +93,8 @@
           "train_f1": 0.9255663430420712
         },
         "gradient_boosting": {
-          "cv_mean": 0.8542409362120559,
-          "cv_std": 0.030414147104162095,
+          "cv_mean": 0.8551416491893871,
+          "cv_std": 0.04536653078410047,
           "scoring": "f1",
           "n_samples": 230,
           "train_accuracy": 1.0,

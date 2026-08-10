@@ -1962,7 +1962,11 @@ def _build_live_df():
             "batch_code":             int(p.graduation_year) - BASE_YEAR,
             "gender":                 1 if (p.gender or "").upper().startswith("F") else 0,
             "scholarship":            1 if (p.scholarship or "").strip() else 0,
-            "general_average_range":  int(p.general_average_range or 0),
+            # general_average_range was removed from the survey per the 2026
+            # panel revision. It is NOT reintroduced here: post-revision
+            # registrants have NULL, and `int(x or 0)` encoded that as 0 —
+            # which is the "Below 75" bucket, not a neutral value, biasing
+            # every such prediction downward.
             "academic_honors":        int(p.academic_honors or 1),
             "prior_work_experience":  int(bool(p.prior_work_experience)),
             "ojt_relevance":          int(p.ojt_relevance or 0),
@@ -2467,7 +2471,7 @@ class TrainingDataExportView(APIView):
         output = StringIO()
         fieldnames = [
             'alumni_id', 'batch', 'gender', 'scholarship',
-            'general_average_range', 'academic_honors', 'prior_work_experience',
+            'academic_honors', 'prior_work_experience',
             'ojt_relevance', 'has_portfolio', 'pursuing_postgrad', 'completed_postgrad',
             'job_applications_count', 'job_source', 'first_job_sector',
             'first_job_status', 'technical_skill_count', 'soft_skill_count',
@@ -2491,7 +2495,6 @@ class TrainingDataExportView(APIView):
                 'batch': profile.graduation_year,
                 'gender': 1 if profile.gender and profile.gender.upper() == 'F' else 0,
                 'scholarship': 1 if profile.scholarship else 0,
-                'general_average_range': profile.general_average_range,
                 'academic_honors': profile.academic_honors,
                 'prior_work_experience': 1 if profile.prior_work_experience else 0,
                 'ojt_relevance': profile.ojt_relevance,
@@ -2549,7 +2552,6 @@ class DataQualityReportView(APIView):
 
         # Mock field error summary - in production, would query validation logs
         field_error_summary = {
-            'general_average_range': 0,
             'employment_status': 0,
             'time_to_hire_months': 0,
             'work_address': 0,

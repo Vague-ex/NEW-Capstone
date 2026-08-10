@@ -329,7 +329,7 @@ export function EmployerDashboard() {
             icon={TrendingUp} iconBg="bg-green-50" iconColor="text-green-700" />
           <StatCard label="Avg. Verification"
             value={total > 0 ? `${Math.round((myAlumni.filter(a => a.biometricCaptured).length / total) * 100)}%` : '-'}
-            sub="Biometric verified"
+            sub="Face recognition verified"
             icon={CheckCircle2} iconBg="bg-amber-50" iconColor="text-amber-600" />
         </div>
 

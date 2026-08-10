@@ -3,54 +3,54 @@
     "time_to_hire": {
       "n_samples": 162,
       "model": "RandomForestRegressor",
-      "r2": 0.8736169498941133,
-      "mae": 0.36603142085416956,
+      "r2": 0.8723183316559754,
+      "mae": 0.37472502898205634,
       "residual_summary": {
-        "mean": -0.003995028400650584,
-        "std": 0.6815854827018414,
-        "min": -2.403547149122807,
-        "max": 4.910409902597403
+        "mean": 0.00701430946464269,
+        "std": 0.6850541251565527,
+        "min": -2.200597756410257,
+        "max": 5.025699044011544
       },
       "top_features": [
         {
           "feature": "ojt_relevance",
-          "importance": 0.37154030194861143
+          "importance": 0.3751857862413737
         },
         {
           "feature": "job_applications_count",
-          "importance": 0.20248219286293567
+          "importance": 0.2123225119626141
         },
         {
           "feature": "batch_code",
-          "importance": 0.07884150428029153
+          "importance": 0.0695817782555665
         },
         {
           "feature": "technical_skill_count",
-          "importance": 0.051879960136228684
-        },
-        {
-          "feature": "general_average_range",
-          "importance": 0.050211953183738396
-        },
-        {
-          "feature": "first_status_1",
-          "importance": 0.04471427296631996
+          "importance": 0.0617906340099289
         },
         {
           "feature": "first_sector_1",
-          "importance": 0.03730872806720442
+          "importance": 0.04883405703553056
         },
         {
-          "feature": "prior_work_experience",
-          "importance": 0.024620662864708247
+          "feature": "first_status_1",
+          "importance": 0.04253468147958689
         },
         {
           "feature": "soft_skill_count",
-          "importance": 0.023744280874553058
+          "importance": 0.03314203725391178
+        },
+        {
+          "feature": "prior_work_experience",
+          "importance": 0.029017434138537423
         },
         {
           "feature": "has_portfolio",
-          "importance": 0.014341493186718844
+          "importance": 0.019966672371783806
+        },
+        {
+          "feature": "current_sector_1",
+          "importance": 0.01581111381248404
         }
       ]
     },
@@ -74,43 +74,43 @@
       "top_features": [
         {
           "feature": "job_source_7",
-          "importance": 0.24523137730189273
+          "importance": 0.2747786907421574
         },
         {
           "feature": "current_sector_2",
-          "importance": 0.12262938888721574
+          "importance": 0.11638719201084348
         },
         {
           "feature": "first_sector_2",
-          "importance": 0.06369199567098373
+          "importance": 0.06300274783195722
         },
         {
           "feature": "technical_skill_count",
-          "importance": 0.04622711744094435
-        },
-        {
-          "feature": "first_status_2",
-          "importance": 0.04211495782894802
-        },
-        {
-          "feature": "soft_skill_count",
-          "importance": 0.0399325744537217
-        },
-        {
-          "feature": "first_status_1",
-          "importance": 0.03771530164013923
+          "importance": 0.0458705161229463
         },
         {
           "feature": "batch_code",
-          "importance": 0.037702715581563025
+          "importance": 0.03732524889872376
+        },
+        {
+          "feature": "first_status_2",
+          "importance": 0.037197358747060226
         },
         {
           "feature": "job_source_2",
-          "importance": 0.03485126683385705
+          "importance": 0.036640454470374534
+        },
+        {
+          "feature": "soft_skill_count",
+          "importance": 0.03643728723153785
+        },
+        {
+          "feature": "first_status_1",
+          "importance": 0.03363078889201462
         },
         {
           "feature": "job_applications_count",
-          "importance": 0.03414695683282727
+          "importance": 0.03331611422546114
         }
       ]
     }

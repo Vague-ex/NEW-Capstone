@@ -157,7 +157,7 @@ function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName:
           <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
             {isMatched
               ? 'Your name was found in the BSIS graduate list. Your account has been automatically verified and is ready to use.'
-              : 'Your account and CHED Graduate Tracer survey have been submitted. The BSIS Admin will review your biometric submission and verify your identity.'}
+              : 'Your account and CHED Graduate Tracer survey have been submitted. The BSIS Admin will review your face recognition scan and verify your identity.'}
           </p>
           <button
             onClick={() => navigate('/alumni/dashboard')}

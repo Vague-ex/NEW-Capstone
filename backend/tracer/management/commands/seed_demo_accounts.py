@@ -304,7 +304,9 @@ class Command(BaseCommand):
             graduation_year=grad_year,
             scholarship=rng.choice(["", "CHED Scholar", "DOST Scholar", "University Scholar"]),
             highest_attainment="Graduate",
-            general_average_range=avg,
+            # general_average_range is no longer collected by the survey, so
+            # seeds stop writing it too. `avg` is still drawn because honors
+            # derive from it.
             academic_honors=honors_map[avg],
             prior_work_experience=rng.random() < 0.45,
             ojt_relevance=rng.choice([2, 3, 3, 3]),

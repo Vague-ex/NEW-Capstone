@@ -3,13 +3,51 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
 import type { AlumniRecord } from '../../data/app-data';
-import { fetchEmployerRequests, fetchPendingAlumni, fetchVerifiedAlumni } from '../../app/api-client';
+import { fetchEmployerRequests, fetchPendingAlumni, fetchVerifiedAlumni, fetchReport } from '../../app/api-client';
 import {
   Users, Briefcase, Camera, Building2, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
   ClipboardCheck, Upload,
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import type { ReportPayload } from '../../app/api-client';
+
+/** Earliest batch the tracer covers; the report is filtered from here to now. */
+const ALIGNMENT_BATCH_START = 2019;
+
+interface AlignmentSummary {
+  total: number;
+  verifiedRate: string;
+  verifiedN: number;
+  selfReportedRate: string;
+  selfReportedN: number;
+  overallRate: string;
+  unknown: number;
+}
+
+/**
+ * Pull the "Total" row out of the Curriculum Alignment section of the
+ * batch-summary report. Column order is fixed by reports_api.py:
+ *   [Batch, Alumni(N), Verified%, Verified n, Self%, Self n, Overall%, Unknown]
+ */
+function readAlignmentTotals(payload: ReportPayload): AlignmentSummary | null {
+  const section = payload.sections?.find((s) => s.title === 'Curriculum Alignment (BSIS)');
+  if (!section || section.rows.length === 0) return null;
+  // The backend appends a "Total" row after the per-batch rows; fall back to
+  // the last row so a single-batch dataset still renders.
+  const row = section.rows.find((r) => String(r[0]) === 'Total') ?? section.rows[section.rows.length - 1];
+  if (!row) return null;
+  const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+  return {
+    total: num(row[1]),
+    verifiedRate: String(row[2] ?? '—'),
+    verifiedN: num(row[3]),
+    selfReportedRate: String(row[4] ?? '—'),
+    selfReportedN: num(row[5]),
+    overallRate: String(row[6] ?? '—'),
+    unknown: num(row[7]),
+  };
+}
 
 function countPendingEmployerRequests(records: Array<Record<string, unknown>>): number {
   return records.filter((record) => {
@@ -43,6 +81,7 @@ export function AdminNewDashboard() {
   const [pendingAlumni, setPendingAlumni] = useState<AlumniRecord[]>([]);
   const [verifiedAlumni, setVerifiedAlumni] = useState<AlumniRecord[]>([]);
   const [pendingEmployers, setPendingEmployers] = useState(0);
+  const [alignment, setAlignment] = useState<AlignmentSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
 
@@ -54,10 +93,19 @@ export function AdminNewDashboard() {
         setLoading(true);
       }
 
-      const [pendingResult, verifiedResult, employerResult] = await Promise.allSettled([
+      const [pendingResult, verifiedResult, employerResult, alignmentResult] = await Promise.allSettled([
           fetchPendingAlumni(),
           fetchVerifiedAlumni(),
           fetchEmployerRequests(),
+          // Curriculum alignment comes from the batch-summary report rather
+          // than being recomputed here. One definition lives in
+          // tracer/alignment.py; recomputing client-side would let the
+          // dashboard and /admin/reports quietly disagree.
+          fetchReport('batch-summary', {
+            batchStart: ALIGNMENT_BATCH_START,
+            batchEnd: new Date().getFullYear(),
+            includeUnverified: false,
+          }),
         ]);
 
       if (!active) return;
@@ -93,9 +141,18 @@ export function AdminNewDashboard() {
         errorMessages.push(message);
       }
 
+      if (alignmentResult.status === 'fulfilled') {
+        setAlignment(readAlignmentTotals(alignmentResult.value));
+      } else {
+        const message = alignmentResult.reason instanceof Error
+          ? alignmentResult.reason.message
+          : 'Curriculum alignment could not be refreshed.';
+        errorMessages.push(message);
+      }
+
       if (errorMessages.length === 0) {
         setFetchError('');
-      } else if (errorMessages.length === 3) {
+      } else if (errorMessages.length === 4) {
         setFetchError(errorMessages[0]);
       } else {
         setFetchError('Some dashboard sections could not refresh. Showing last available values.');
@@ -334,6 +391,63 @@ export function AdminNewDashboard() {
             icon={Clock} iconBg="bg-amber-50" iconColor="text-amber-600"
             trend={pendingAlumni.length > 0 ? 'Action needed' : undefined} trendUp={false} />
         </div>
+
+        {/* Curriculum alignment — the headline the panel revision asked for.
+            Employer-verified and self-reported rates are shown side by side
+            rather than blended, because only the verified figure is evidence. */}
+        {alignment && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-[#166534]/10 shrink-0">
+                  <ClipboardCheck className="size-5 text-[#166534]" />
+                </div>
+                <div>
+                  <h3 className="text-gray-800" style={{ fontWeight: 700 }}>BSIS Curriculum Alignment</h3>
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    Whether graduates&apos; current jobs align with the BSIS curriculum, across {alignment.total} graduate{alignment.total === 1 ? '' : 's'}.
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '2rem', lineHeight: 1 }}>
+                  {alignment.overallRate}
+                </p>
+                <p className="text-gray-400 text-xs mt-1">overall aligned</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5">
+                <p className="text-emerald-900 text-xs" style={{ fontWeight: 700 }}>Employer-verified</p>
+                <p className="text-emerald-700 mt-1" style={{ fontWeight: 800, fontSize: '1.35rem' }}>
+                  {alignment.verifiedRate}
+                </p>
+                <p className="text-emerald-800/70 text-[11px] mt-0.5">
+                  {alignment.verifiedN === 0
+                    ? 'No employer confirmations yet'
+                    : `from ${alignment.verifiedN} confirmed job title${alignment.verifiedN === 1 ? '' : 's'}`}
+                </p>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5">
+                <p className="text-gray-800 text-xs" style={{ fontWeight: 700 }}>Self-reported</p>
+                <p className="text-gray-700 mt-1" style={{ fontWeight: 800, fontSize: '1.35rem' }}>
+                  {alignment.selfReportedRate}
+                </p>
+                <p className="text-gray-500 text-[11px] mt-0.5">
+                  {`from ${alignment.selfReportedN} survey answer${alignment.selfReportedN === 1 ? '' : 's'}`}
+                </p>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3.5">
+                <p className="text-gray-800 text-xs" style={{ fontWeight: 700 }}>Not determined</p>
+                <p className="text-gray-700 mt-1" style={{ fontWeight: 800, fontSize: '1.35rem' }}>
+                  {alignment.unknown}
+                </p>
+                <p className="text-gray-500 text-[11px] mt-0.5">excluded from the rates above</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-2 gap-5">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
