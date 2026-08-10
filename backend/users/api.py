@@ -27,6 +27,7 @@ from .auth import (
     require_admin as _require_admin,
     require_alumni as _require_alumni,
 )
+from .names import derive_last_name
 from .models import (
     AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
     EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, User,
@@ -2796,17 +2797,22 @@ class MasterlistBulkCreateView(APIView):
         if not isinstance(entries, list) or not entries:
             return Response({"detail": "entries list is required."}, status=status.HTTP_400_BAD_REQUEST)
         created = []
-        for entry in entries:
+        skipped = []
+        duplicates = 0
+        for position, entry in enumerate(entries, start=1):
             name = (entry.get("name") or "").strip()
             year = entry.get("graduation_year") or entry.get("graduationYear")
             if not name or not year:
+                skipped.append({"row": position, "name": name, "reason": "missing name or graduation year"})
                 continue
             try:
                 year_int = int(year)
             except (TypeError, ValueError):
+                skipped.append({"row": position, "name": name, "reason": f"invalid graduation year {year!r}"})
                 continue
-            parts = name.split()
-            last = parts[-1] if len(parts) > 1 else name
+            # Registration matches the graduate's family name against
+            # last_name exactly, so a wrong surname locks them out entirely.
+            last = derive_last_name(name)
             obj, was_created = GraduateMasterRecord.objects.get_or_create(
                 full_name__iexact=name,
                 batch_year=year_int,
@@ -2814,7 +2820,20 @@ class MasterlistBulkCreateView(APIView):
             )
             if was_created:
                 created.append({"id": str(obj.id), "name": obj.full_name, "batch_year": obj.batch_year})
-        return Response({"created": len(created), "entries": created}, status=status.HTTP_201_CREATED)
+            else:
+                duplicates += 1
+        # Skipped rows are reported rather than silently dropped: a coordinator
+        # uploading 500 rows needs to know which ones did not land.
+        return Response(
+            {
+                "created": len(created),
+                "duplicates": duplicates,
+                "skipped": len(skipped),
+                "skippedRows": skipped[:50],
+                "entries": created,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # region DEBUG-ONLY:CurrenChanDebug

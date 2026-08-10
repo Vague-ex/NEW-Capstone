@@ -18,6 +18,7 @@ from .api import (
 	PendingAlumniListView,
 )
 from .models import AccountStatus, AlumniAccount, FaceScan, EmployerAccount, LoginAudit, User
+from .names import derive_last_name
 from tracer.models import EmploymentRecord, VerificationDecision, VerificationToken
 
 
@@ -349,3 +350,38 @@ class EmployerStatusAndLoginMetadataTests(TestCase):
 			str(approved_response.data.get("employer", {}).get("status", "")).lower(),
 			"approved",
 		)
+
+
+class MasterlistNameParsingTests(SimpleTestCase):
+	"""
+	Registration rejects a graduate whose submitted family name does not equal
+	GraduateMasterRecord.last_name, so a mis-parsed surname locks a real person
+	out of the system entirely. These cases are the shapes that actually occur
+	in the registrar's exports.
+	"""
+
+	def test_generational_suffix_does_not_become_the_surname(self):
+		self.assertEqual(derive_last_name("Rolly Lerit Samson Jr."), "Samson")
+		self.assertEqual(derive_last_name("Jose Rizal Jr"), "Rizal")
+		self.assertEqual(derive_last_name("Pedro Penduko Sr."), "Penduko")
+
+	def test_compound_surname_particles_are_kept(self):
+		self.assertEqual(derive_last_name("Jose Dela Cruz"), "Dela Cruz")
+		self.assertEqual(derive_last_name("Regie Calago De La Torre"), "De La Torre")
+		self.assertEqual(derive_last_name("Sarah Joy De Los Santos"), "De Los Santos")
+		self.assertEqual(derive_last_name("Luis Del Rosario"), "Del Rosario")
+
+	def test_suffix_and_particle_together(self):
+		self.assertEqual(derive_last_name("Juan Dela Cruz III"), "Dela Cruz")
+
+	def test_comma_format_is_read_surname_first(self):
+		self.assertEqual(derive_last_name("Samson, Rolly Lerit"), "Samson")
+		self.assertEqual(derive_last_name("Dela Cruz, Juan"), "Dela Cruz")
+
+	def test_ordinary_and_degenerate_names(self):
+		self.assertEqual(derive_last_name("Maria Santos"), "Santos")
+		self.assertEqual(derive_last_name("  Ana   Marie   Reyes  "), "Reyes")
+		self.assertEqual(derive_last_name("Madonna"), "Madonna")
+		self.assertEqual(derive_last_name(""), "")
+		# Never consume the only given name.
+		self.assertEqual(derive_last_name("Dela Cruz"), "Cruz")
