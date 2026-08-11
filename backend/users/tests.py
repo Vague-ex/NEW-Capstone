@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from datetime import timedelta
 from unittest.mock import patch
@@ -22,11 +23,19 @@ from .names import derive_last_name
 from tracer.models import EmploymentRecord, VerificationDecision, VerificationToken
 
 
-class AuthDatabaseErrorHandlingTests(SimpleTestCase):
+class AuthDatabaseErrorHandlingTests(TestCase):
+	"""
+	Was a SimpleTestCase, which forbids database access. That held when the
+	tests were written, but login now consults LoginAttemptThrottle before
+	authenticating, so every case died on DatabaseOperationForbidden before it
+	could assert anything. TestCase gives the throttle a real database while
+	the mocks still drive the failure being tested.
+	"""
+
 	def setUp(self):
 		self.factory = APIRequestFactory()
 
-	@patch("users.api._authenticate_by_email", side_effect=OperationalError("dns lookup failed"))
+	@patch("users.api._authenticate_by_email_specific", side_effect=OperationalError("dns lookup failed"))
 	def test_admin_login_returns_503_when_database_unavailable(self, _mock_authenticate):
 		request = self.factory.post(
 			"/api/auth/admin/login/",
@@ -52,7 +61,7 @@ class AuthDatabaseErrorHandlingTests(SimpleTestCase):
 		self.assertEqual(response.status_code, 503)
 		self.assertEqual(response.data.get("retryable"), True)
 
-	@patch("users.api._authenticate_by_email", side_effect=OperationalError("dns lookup failed"))
+	@patch("users.api._authenticate_by_email_specific", side_effect=OperationalError("dns lookup failed"))
 	def test_alumni_login_returns_503_when_database_unavailable(self, _mock_authenticate):
 		request = self.factory.post(
 			"/api/auth/alumni/login/",
@@ -69,13 +78,19 @@ class AuthDatabaseErrorHandlingTests(SimpleTestCase):
 		self.assertEqual(response.status_code, 503)
 		self.assertEqual(response.data.get("retryable"), True)
 
-	@patch("users.api._authenticate_by_email")
+	@patch("users.api._authenticate_by_email_specific")
 	def test_admin_login_success_still_returns_200(self, mock_authenticate):
-		mock_authenticate.return_value = SimpleNamespace(
-			id=uuid4(),
-			email="admin@example.com",
-			role=User.Role.ADMIN,
-			is_staff=True,
+		# _authenticate_by_email_specific returns (user, error), so the mock has
+		# to as well — it previously returned a bare object, which the view
+		# could not unpack.
+		mock_authenticate.return_value = (
+			SimpleNamespace(
+				id=uuid4(),
+				email="admin@example.com",
+				role=User.Role.ADMIN,
+				is_staff=True,
+			),
+			None,
 		)
 
 		request = self.factory.post(
@@ -109,6 +124,10 @@ class EmployerRegisterContractTests(TestCase):
 			"credential_email": "token-corp@example.com",
 			"password": "StrongPass123!",
 			"confirm_password": "StrongPass123!",
+			# industry and contact_name became required after this test was
+			# written; the real form (register-employer.tsx) sends both.
+			"industry": "IT and BPO",
+			"contact_name": "Reggie Cruz",
 		}
 
 		response = self.client.post(
@@ -302,11 +321,24 @@ class EmployerStatusAndLoginMetadataTests(TestCase):
 	def test_alumni_login_updates_last_login_and_creates_audit(self, _mock_upload):
 		self.assertIsNone(self.alumni_user.last_login)
 
+		# Graduate login is gated on an enrolled face reference, so the account
+		# needs one — without it the view correctly refuses with 403 and the
+		# audit path under test is never reached. The descriptor is compared
+		# against the one the client submits, so enrolling and presenting the
+		# same vector exercises the match without needing face-api in tests.
+		descriptor = [0.01 * (i % 7) for i in range(128)]
+		self.alumni_account.biometric_template = json.dumps({
+			"face_descriptor": descriptor,
+			"registration_face_scans": {"face_front": "https://example.com/front.jpg"},
+		})
+		self.alumni_account.save(update_fields=["biometric_template"])
+
 		response = self.client.post(
 			"/api/auth/alumni/login/",
 			{
 				"email": "alumni-meta@example.com",
 				"password": "AlumniPass123!",
+				"face_descriptor": json.dumps(descriptor),
 				"face_scan": SimpleUploadedFile(
 					"face.jpg",
 					b"image-bytes",

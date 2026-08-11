@@ -4,6 +4,9 @@ import type { RouteObject } from 'react-router';
 import { LoginPage } from './components/login-page';
 import { RegisterAlumni } from './components/register-alumni';
 import { RegisterEmployer } from './components/register-employer';
+// Public employer verification — reached only by a one-time link from a
+// graduate. No account, no session; see components/verify/.
+import { EmployerVerificationPage } from './components/verify/employer-verification-page';
 
 // Employer Portal (separate route)
 import { EmployerPortal } from './components/employer/employer-portal';
@@ -35,6 +38,9 @@ import { AdminSettings } from './components/admin/admin-settings';
 export const routes: RouteObject[] = [
   // ── Single Login Entry Point ──
   { path: '/', Component: LoginPage },
+
+  // ── Public employer verification (one-time link, no account) ──
+  { path: '/verify/:tokenId', Component: EmployerVerificationPage },
 
   // ── Registration ──
   { path: '/register/alumni', Component: RegisterAlumni },

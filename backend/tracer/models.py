@@ -337,6 +337,11 @@ class VerificationToken(models.Model):
 	status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
 	created_at = models.DateTimeField(auto_now_add=True)
 	used_at = models.DateTimeField(null=True, blank=True)
+	#: Address the graduate asked us to send this link to. Recorded so a
+	#: decision answered from a different address can be flagged as forwarded —
+	#: usually legitimate within a company, but worth an admin seeing.
+	invited_email = models.EmailField(max_length=254, blank=True)
+	created_ip = models.GenericIPAddressField(null=True, blank=True)
 
 	class Meta:
 		db_table = "tracer_verification_tokens"
@@ -378,9 +383,14 @@ class VerificationDecision(models.Model):
 		OTHER = "other", "Other"
 
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	# Nullable since employers verify by one-time link and have no account.
+	# Historical rows keep their FK; link-based decisions identify the verifier
+	# through the verifier_* fields below instead.
 	employer_account = models.ForeignKey(
 		"users.EmployerAccount",
-		on_delete=models.CASCADE,
+		null=True,
+		blank=True,
+		on_delete=models.SET_NULL,
 		related_name="verification_decisions",
 	)
 	token = models.ForeignKey(
@@ -390,6 +400,21 @@ class VerificationDecision(models.Model):
 		on_delete=models.SET_NULL,
 		related_name="decisions",
 	)
+
+	# Who answered the link. The token proves WHICH graduate is being verified
+	# (token -> alumni FK); these record WHO vouched for them, which the link
+	# alone cannot establish. Captured for the audit trail and for the
+	# self-verification checks.
+	verifier_name = models.CharField(max_length=200, blank=True)
+	verifier_email = models.EmailField(max_length=254, blank=True, db_index=True)
+	verifier_position = models.CharField(max_length=200, blank=True)
+	#: Address the alumnus sent the invite to — may differ from verifier_email
+	#: when the link is legitimately forwarded within a company.
+	invited_email = models.EmailField(max_length=254, blank=True)
+	verifier_ip = models.GenericIPAddressField(null=True, blank=True)
+	flagged_for_review = models.BooleanField(default=False, db_index=True)
+	flag_reason = models.CharField(max_length=255, blank=True)
+
 	verified_employer_name = models.CharField(max_length=255, blank=True)
 	verified_job_title = models.ForeignKey(
 		JobTitle,
@@ -459,7 +484,15 @@ class VerificationDecision(models.Model):
 		]
 
 	def __str__(self):
-		return f"{self.employer_account.company_name} - {self.decision}"
+		# Must not dereference employer_account: it is null for link-based
+		# decisions, and this runs in Django admin and manage.py shell.
+		who = (
+			self.verified_employer_name
+			or self.verifier_name
+			or self.verifier_email
+			or "Unknown verifier"
+		)
+		return f"{who} - {self.decision}"
 
 
 class EmploymentProfile(models.Model):

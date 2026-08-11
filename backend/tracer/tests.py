@@ -151,6 +151,9 @@ class VerificationTokenFlowTests(TestCase):
 		token = VerificationToken.objects.get(token_id=token_id)
 		self.assertEqual(token.status, VerificationToken.Status.PENDING)
 
+		# No auth header: holding the token IS the authorisation. The verifier
+		# identifies themselves instead, since the token proves which graduate
+		# is being verified but not who is vouching for them.
 		decision_response = self.client.post(
 			f"/api/verification/tokens/{token_id}/decision/",
 			{
@@ -158,9 +161,11 @@ class VerificationTokenFlowTests(TestCase):
 				"verified_employer_name": "Acme Corp",
 				"verified_job_title_id": str(self.job_title.id),
 				"comment": "Confirmed by HR",
+				"verifier_name": "Maria Reyes",
+				"verifier_email": "maria@acme.com",
+				"verifier_position": "HR Manager",
 			},
 			format="json",
-			**self._auth_headers(),
 		)
 		self.assertEqual(decision_response.status_code, 200)
 
@@ -172,47 +177,110 @@ class VerificationTokenFlowTests(TestCase):
 			self.employment_record.verification_status,
 			EmploymentRecord.VerificationStatus.VERIFIED,
 		)
-		self.assertEqual(self.employment_record.employer_account_id, self.employer_account.id)
 
-		decision_payload = decision_response.data.get("decision", {})
-		self.assertEqual(decision_payload.get("isHeld"), False)
+		decision = VerificationDecision.objects.get()
+		# The whole point of the design: no employer account, yet the decision
+		# still resolves to the right graduate through the token's FK.
+		self.assertIsNone(decision.employer_account_id)
+		self.assertEqual(decision.verifier_email, "maria@acme.com")
+		self.assertEqual(decision.token.alumni_id, self.alumni_account.id)
 
-		self.assertEqual(VerificationDecision.objects.count(), 1)
-
-	def test_pending_employer_decision_is_saved_on_hold(self):
+	def test_graduate_cannot_verify_themselves(self):
 		issue_response = self.client.post(
 			"/api/verification/tokens/issue/",
 			{"employment_record_id": str(self.employment_record.id)},
 			format="json",
-			**self._pending_auth_headers(),
+			**self._auth_headers(),
 		)
-		self.assertEqual(issue_response.status_code, 201)
-
 		token_id = issue_response.data["token"]["id"]
-		decision_response = self.client.post(
+
+		response = self.client.post(
 			f"/api/verification/tokens/{token_id}/decision/",
 			{
 				"decision": "confirm",
-				"verified_employer_name": "Pending Corp",
-				"comment": "Pending account submission",
+				"verifier_name": "Alumni Themselves",
+				"verifier_email": self.alumni_user.email,
 			},
 			format="json",
-			**self._pending_auth_headers(),
 		)
-		self.assertEqual(decision_response.status_code, 200)
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(VerificationDecision.objects.count(), 0)
 
-		decision_payload = decision_response.data.get("decision", {})
-		self.assertEqual(decision_payload.get("isHeld"), True)
+	def test_verifier_identity_is_required(self):
+		issue_response = self.client.post(
+			"/api/verification/tokens/issue/",
+			{"employment_record_id": str(self.employment_record.id)},
+			format="json",
+			**self._auth_headers(),
+		)
+		token_id = issue_response.data["token"]["id"]
 
-		token = VerificationToken.objects.get(token_id=token_id)
-		self.assertEqual(token.status, VerificationToken.Status.USED)
+		response = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{"decision": "confirm"},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 400)
 
-		self.employment_record.refresh_from_db()
+	def test_multiple_live_links_can_each_be_answered(self):
+		"""
+		A graduate may invite more than one verifier (HR and a direct
+		supervisor). Minting a second link must not revoke the first, and
+		answering one must not kill the other — that was the old behaviour and
+		it silently broke the second employer's link.
+		"""
+		alumni_id = str(self.alumni_account.id)
+		first = self.client.post(f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json")
+		second = self.client.post(f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json")
+		self.assertEqual(first.status_code, 201)
+		self.assertEqual(second.status_code, 201)
+
+		first_id = first.data["token"]["id"]
+		second_id = second.data["token"]["id"]
+		self.assertNotEqual(first_id, second_id)
+
+		# Both remain usable after the second is minted.
+		for token_id in (first_id, second_id):
+			self.assertEqual(
+				VerificationToken.objects.get(token_id=token_id).status,
+				VerificationToken.Status.PENDING,
+			)
+
+		answered = self.client.post(
+			f"/api/verification/tokens/{first_id}/decision/",
+			{"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com"},
+			format="json",
+		)
+		self.assertEqual(answered.status_code, 200)
+
+		# The sibling link survives and can still be answered independently.
 		self.assertEqual(
-			self.employment_record.verification_status,
-			EmploymentRecord.VerificationStatus.PENDING,
+			VerificationToken.objects.get(token_id=second_id).status,
+			VerificationToken.Status.PENDING,
 		)
-		self.assertIsNone(self.employment_record.employer_account_id)
+		second_answer = self.client.post(
+			f"/api/verification/tokens/{second_id}/decision/",
+			{"decision": "confirm", "verifier_name": "Supervisor", "verifier_email": "boss@acme.com"},
+			format="json",
+		)
+		self.assertEqual(second_answer.status_code, 200)
+		self.assertEqual(VerificationDecision.objects.count(), 2)
+
+	def test_used_link_cannot_be_reused(self):
+		alumni_id = str(self.alumni_account.id)
+		token_id = self.client.post(
+			f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json",
+		).data["token"]["id"]
+
+		payload = {"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com"}
+		self.assertEqual(
+			self.client.post(f"/api/verification/tokens/{token_id}/decision/", payload, format="json").status_code,
+			200,
+		)
+		self.assertEqual(
+			self.client.post(f"/api/verification/tokens/{token_id}/decision/", payload, format="json").status_code,
+			400,
+		)
 
 	def test_issue_requires_employer_token(self):
 		response = self.client.post(

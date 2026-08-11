@@ -212,34 +212,33 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   const workLeafletMapRef = useRef<unknown>(null);
   const workMarkerRef = useRef<unknown>(null);
 
-  const [employerPortalLink, setEmployerPortalLink] = useState(
-    typeof window === 'undefined' ? '/employer' : `${window.location.origin}/employer`,
-  );
+  // Empty until a token is minted: without a token there is no meaningful link
+  // to share, since the token is what ties the response back to this graduate.
+  const [employerPortalLink, setEmployerPortalLink] = useState('');
   // Answer to the "is your evaluator the same as before?" modal question.
   // null = not asked / not a work change; true = same evaluator; false = a
   // different evaluator at (possibly) the same company.
   const [evaluatorSame, setEvaluatorSame] = useState<boolean | null>(null);
 
-  // Open the share modal and mint a graduate-initiated invite token so the
-  // link the graduate copies routes a (new) evaluator straight to this
-  // graduate's evaluation. Falls back to the generic portal link on failure.
+  // Mint a one-time verification token and build the link the graduate sends
+  // to their employer. The token row holds an `alumni` foreign key, so the
+  // response comes back tied to this graduate automatically — the employer
+  // never has to identify them, and never needs an account.
   const openShareLinkWithInvite = async () => {
     setShareLinkModalOpen(true);
+    setEmployerLinkStatus('');
     if (!alumniId) return;
     try {
       const res = await createAlumniVerificationInvite(alumniId);
       const tokenId = res?.token?.id;
       if (tokenId) {
         const base = typeof window === 'undefined' ? '' : window.location.origin;
-        const params = new URLSearchParams({ invite: tokenId });
-        const companyName = res?.companyName || form.currentJobCompany || '';
-        if (companyName) params.set('company', companyName);
-        // Route the (possibly new) evaluator into employer registration framed
-        // as "join {Company} as an evaluator" — company prefilled & locked.
-        setEmployerPortalLink(`${base}/register/employer?${params.toString()}`);
+        setEmployerPortalLink(`${base}/verify/${tokenId}`);
+      } else {
+        setEmployerLinkStatus('Could not create a verification link. Please try again.');
       }
     } catch {
-      /* keep the generic /employer link already set */
+      setEmployerLinkStatus('Could not create a verification link. Please try again.');
     }
   };
 
@@ -251,7 +250,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   const handleShareLink = async () => {
     try {
       await navigator.clipboard.writeText(employerPortalLink);
-      setEmployerLinkStatus('Employer Portal link copied. Share it with your employer.');
+      setEmployerLinkStatus('Verification link copied. Send it to your employer or HR supervisor.');
     } catch {
       setEmployerLinkStatus('Copy not available. Share the link below manually.');
     }
@@ -1342,18 +1341,21 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 <Building2 className="size-5 text-amber-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Share the Employer Portal link</p>
+                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Share your verification link</p>
                 <p className="text-gray-500 text-xs mt-0.5">Your employer needs this link to confirm your new role.</p>
               </div>
             </div>
             <div className="px-5 py-4 text-sm text-gray-700 space-y-3 overflow-y-auto">
               <p>
-                To verify your employment, your <span style={{ fontWeight: 600 }}>employer or HR supervisor</span> must confirm your record through the Employer Portal.
-                Copy the link below and send it to them. They register for free and verify your status in minutes.
+                To verify your employment, your <span style={{ fontWeight: 600 }}>employer or HR supervisor</span> just opens the link below and answers a few questions.
+                <span style={{ fontWeight: 600 }}> No account or sign-up is needed.</span> The link already identifies you, so they never have to look you up.
               </p>
               <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-xs font-mono break-all text-gray-700">
-                {employerPortalLink}
+                {employerPortalLink || 'Creating your link…'}
               </div>
+              <p className="text-gray-400 text-xs">
+                This link works once and expires in 7 days. You can create another for a different contact.
+              </p>
               {employerLinkStatus && (
                 <p className="flex items-center gap-1.5 text-xs text-emerald-700" style={{ fontWeight: 600 }}>
                   <CheckCircle2 className="size-4 text-emerald-500" /> {employerLinkStatus}

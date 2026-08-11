@@ -16,6 +16,7 @@ import {
   type AlumniLoginLivenessSignal,
 } from "../app/api-client";
 import ForgotPasswordModal from "./auth/forgot-password";
+import { captureGps } from "../app/geolocation";
 import {
   ensureModernFaceModelsLoaded,
   extractFaceDescriptorFromDataUrl,
@@ -54,28 +55,6 @@ const LIVENESS_TIMEOUT_MS = 10000;
 const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "login" | "facescan";
-
-/**
- * Best-effort GPS capture for the login audit. Resolves to null on denial,
- * unavailability, or timeout - callers must tolerate nulls.
- */
-async function captureLoginGps(timeoutMs = 4000): Promise<{ lat: number; lng: number; acc: number } | null> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), timeoutMs);
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        clearTimeout(timer);
-        resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(null);
-      },
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: timeoutMs },
-    );
-  });
-}
 
 /**
  * Capture a video frame clipped to the oval face guide.
@@ -448,7 +427,7 @@ export function LoginPage() {
       // to a fresh capture only if it's somehow missing.
       const { blob: faceBlob, descriptor } =
         frontalCaptureRef.current ?? (await captureFaceScanBlob());
-      const gps = await captureLoginGps();
+      const gps = await captureGps();
       const response = await alumniLogin(
         credential.trim(),
         password,

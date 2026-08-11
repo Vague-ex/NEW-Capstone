@@ -269,6 +269,14 @@ export function RegisterAlumni() {
         // One frontal photo only. The blink and head-turn stages prove liveness
         // but intentionally save no image, so there is nothing else to upload.
         payload.append('face_front', biometricData.image, `face_front_${Date.now()}.jpg`);
+        // GPS stamp for the identity audit trail (PRD Module A). The backend has
+        // always read these keys; the registration form simply never sent them,
+        // so every graduate on record has a null capture location.
+        if (biometricData.gps) {
+          payload.append('gps_lat', String(biometricData.gps.lat));
+          payload.append('gps_lng', String(biometricData.gps.lng));
+          payload.append('gps_accuracy_m', String(biometricData.gps.acc));
+        }
         // Per-stage liveness measurements, stored on the backend under
         // biometric_template.liveness_signals. slot_kinds must mirror the
         // stages actually performed — it previously claimed a mouth_open

@@ -3,7 +3,9 @@ import re
 from datetime import date, timedelta
 
 from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db import DatabaseError, OperationalError
 from django.utils import timezone
@@ -35,6 +37,9 @@ from .models import (
 _EMPLOYER_TOKEN_SALT = "users.employer.access"
 _EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8
 _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS = 7
+# Concurrent live links per employment record. Several verifiers may hold one
+# at once (HR plus a direct supervisor), but not without limit.
+_VERIFICATION_MAX_LIVE_LINKS = 5
 _COMPANY_STOP_WORDS = {
     "philippines",
     "corp",
@@ -253,7 +258,13 @@ def _serialize_verification_decision(decision: VerificationDecision) -> dict:
         "verifiedJobTitleId": str(decision.verified_job_title_id) if decision.verified_job_title_id else None,
         "verifiedJobTitleName": decision.verified_job_title.name if decision.verified_job_title else None,
         "decidedAt": decision.decided_at.isoformat(),
-        "employerId": str(decision.employer_account_id),
+        # Null for link-based decisions, which have no employer account.
+        "employerId": str(decision.employer_account_id) if decision.employer_account_id else None,
+        "verifierName": decision.verifier_name,
+        "verifierEmail": decision.verifier_email,
+        "verifierPosition": decision.verifier_position,
+        "flaggedForReview": decision.flagged_for_review,
+        "flagReason": decision.flag_reason,
         "isHeld": decision.is_held,
         "heldActivatedAt": decision.held_activated_at.isoformat() if decision.held_activated_at else None,
         "evaluationSubmitted": decision.evaluation_submitted,
@@ -1090,16 +1101,55 @@ class AlumniVerificationInviteView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-            with transaction.atomic():
-                VerificationToken.objects.filter(
-                    employment_record=record,
-                    status=VerificationToken.Status.PENDING,
-                ).update(status=VerificationToken.Status.REVOKED)
+            invited_email = str(request.data.get("employer_email") or "").strip().lower()
+            if invited_email:
+                try:
+                    validate_email(invited_email)
+                except DjangoValidationError:
+                    return Response(
+                        {"detail": "employer_email must be a valid email address."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                alumni_email = (getattr(record.alumni.user, "email", "") or "").strip().lower()
+                if alumni_email and invited_email == alumni_email:
+                    return Response(
+                        {"detail": "You cannot send a verification link to your own address."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
+            # Cap outstanding links. Previously a new invite revoked the old
+            # one, which capped things implicitly; now that several verifiers
+            # can hold live links at once, the cap has to be explicit or
+            # "one link per employer" becomes unbounded link generation.
+            live_links = VerificationToken.objects.filter(
+                employment_record=record,
+                status=VerificationToken.Status.PENDING,
+                expires_at__gt=timezone.now(),
+            ).count()
+            if live_links >= _VERIFICATION_MAX_LIVE_LINKS:
+                return Response(
+                    {
+                        "detail": (
+                            f"You already have {live_links} active verification links for this job. "
+                            "Wait for one to be used or to expire before creating another."
+                        )
+                    },
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+
+            forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+            created_ip = forwarded or request.META.get("REMOTE_ADDR") or None
+
+            with transaction.atomic():
+                # Prior pending tokens are intentionally left alone: a graduate
+                # may invite more than one verifier (HR and a direct
+                # supervisor), and each needs a link that still works.
                 token = VerificationToken.objects.create(
                     alumni=record.alumni,
                     employment_record=record,
                     expires_at=timezone.now() + timedelta(days=ttl_days),
+                    invited_email=invited_email,
+                    created_ip=created_ip,
                 )
         except (OperationalError, DatabaseError):
             return _database_unavailable_response()
@@ -1110,6 +1160,7 @@ class AlumniVerificationInviteView(APIView):
                 "token": _serialize_verification_token(token),
                 "employmentRecord": _serialize_employment_record(record),
                 "companyName": record.employer_name_input,
+                "invitedEmail": token.invited_email,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -1412,19 +1463,32 @@ class VerificationTokenDetailView(APIView):
                 p.strip() for p in [profile.first_name, profile.middle_name, profile.last_name] if p and p.strip()
             )
         if not alumni_name:
-            alumni_name = token.alumni.user.email
+            # Deliberately NOT the email address — see the data-minimisation
+            # note below. A nameless profile is rare and a placeholder is
+            # preferable to leaking contact details.
+            alumni_name = "BSIS Graduate"
 
-        return Response(
+        # This endpoint is public: anyone holding (or forwarded) the link can
+        # read it. It therefore returns only what an employer needs to identify
+        # the graduate they are vouching for — name, programme, batch. The
+        # graduate's email address is NOT included; a stranger with a forwarded
+        # link has no reason to receive their contact details.
+        response = Response(
             {
                 "token": _serialize_verification_token(token),
                 "alumni": {
                     "id": str(token.alumni_id),
                     "name": alumni_name,
-                    "email": token.alumni.user.email,
+                    "program": "BSIS",
+                    "batchYear": getattr(profile, "graduation_year", None) if profile else None,
                 },
                 "employmentRecord": _serialize_employment_record(token.employment_record),
             }
         )
+        # Keep the graduate's details out of shared caches and search engines.
+        response["Cache-Control"] = "no-store"
+        response["X-Robots-Tag"] = "noindex, nofollow"
+        return response
 
 
 class VerificationTokenDecisionView(APIView):
@@ -1433,9 +1497,26 @@ class VerificationTokenDecisionView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, token_id):
-        employer_account, error_response = _require_employer(request, allow_pending=True)
-        if error_response:
-            return error_response
+        # No employer login. Holding a valid, unused token IS the authorisation
+        # to answer — the token's alumni FK already establishes whose
+        # employment this is. What the token cannot establish is WHO is
+        # answering, so the verifier identifies themselves here and that
+        # identity is recorded for the audit trail.
+        verifier_name = str(request.data.get("verifier_name") or "").strip()
+        verifier_email = str(request.data.get("verifier_email") or "").strip().lower()
+        verifier_position = str(request.data.get("verifier_position") or "").strip()
+        if not verifier_name or not verifier_email:
+            return Response(
+                {"detail": "verifier_name and verifier_email are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_email(verifier_email)
+        except DjangoValidationError:
+            return Response(
+                {"detail": "verifier_email must be a valid email address."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         raw_decision = str(request.data.get("decision") or "").strip().lower()
         valid_decisions = {
@@ -1506,20 +1587,53 @@ class VerificationTokenDecisionView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+        # Hard reject: a graduate cannot verify themselves. This is the one
+        # self-verification case that can be blocked outright rather than only
+        # flagged, because the addresses are directly comparable.
+        alumni_email = (getattr(token.alumni.user, "email", "") or "").strip().lower()
+        if alumni_email and verifier_email == alumni_email:
+            return Response(
+                {"detail": "A graduate cannot verify their own employment. Ask your employer to complete this."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         verified_employer_name = str(
             request.data.get("verified_employer_name")
-            or employer_account.company_name
             or employment_record.employer_name_input
             or ""
         ).strip()
         comment = str(request.data.get("comment") or "").strip()
-        is_held_decision = employer_account.account_status == AccountStatus.PENDING
+        # Held decisions existed only to park answers from employers awaiting
+        # admin approval. With no accounts there is nothing to wait for, so a
+        # link-based decision always applies immediately.
+        is_held_decision = False
+        forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+        verifier_ip = forwarded or request.META.get("REMOTE_ADDR") or None
+
+        # Soft flags. None of these block the submission — they surface rows an
+        # admin should eyeball, which is the honest defence against
+        # self-verification once accounts are gone.
+        flags: list[str] = []
+        if token.invited_email and verifier_email != token.invited_email.strip().lower():
+            flags.append("answered from a different address than the invite")
+        if token.created_ip and verifier_ip and token.created_ip == verifier_ip:
+            flags.append("link created and answered from the same device")
+        if (timezone.now() - token.created_at).total_seconds() < 60:
+            flags.append("answered less than a minute after the link was created")
+        flag_reason = "; ".join(flags)[:255]
 
         try:
             with transaction.atomic():
                 decision = VerificationDecision.objects.create(
-                    employer_account=employer_account,
+                    employer_account=None,
                     token=token,
+                    verifier_name=verifier_name,
+                    verifier_email=verifier_email,
+                    verifier_position=verifier_position,
+                    invited_email=token.invited_email or "",
+                    verifier_ip=verifier_ip,
+                    flagged_for_review=bool(flags),
+                    flag_reason=flag_reason,
                     verified_employer_name=verified_employer_name,
                     verified_job_title=verified_job_title,
                     decision=raw_decision,
@@ -1529,7 +1643,6 @@ class VerificationTokenDecisionView(APIView):
                 )
 
                 if not is_held_decision:
-                    employment_record.employer_account = employer_account
                     employment_record.employer_name_input = (
                         verified_employer_name or employment_record.employer_name_input
                     )
@@ -1544,7 +1657,6 @@ class VerificationTokenDecisionView(APIView):
                     )
                     employment_record.save(
                         update_fields=[
-                            "employer_account",
                             "employer_name_input",
                             "job_title",
                             "job_title_input",
@@ -1556,10 +1668,11 @@ class VerificationTokenDecisionView(APIView):
                 token.employment_record = employment_record
                 token.mark_used()
 
-                VerificationToken.objects.filter(
-                    employment_record=employment_record,
-                    status=VerificationToken.Status.PENDING,
-                ).exclude(token_id=token.token_id).update(status=VerificationToken.Status.REVOKED)
+                # Sibling pending tokens are deliberately NOT revoked here. A
+                # graduate may send links to more than one verifier (an HR
+                # contact and a direct supervisor, say), and each must be able
+                # to answer independently. Revoking them would silently kill
+                # the other employer's link the moment the first one replied.
         except (OperationalError, DatabaseError):
             return _database_unavailable_response()
 

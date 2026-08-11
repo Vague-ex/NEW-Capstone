@@ -531,17 +531,27 @@ export async function updateAlumniEmployment(
  */
 export async function createAlumniVerificationInvite(
     alumniId: string,
-): Promise<{ message?: string; token?: { id?: string }; companyName?: string }> {
+    employerEmail?: string,
+): Promise<{ message?: string; token?: { id?: string }; companyName?: string; invitedEmail?: string }> {
     const response = await fetch(
         `${API_BASE_URL}/api/verification/alumni/${alumniId}/invite/`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
+            // Recorded as invited_email so a decision answered from a
+            // different address can be flagged as forwarded.
+            body: JSON.stringify(employerEmail ? { employer_email: employerEmail } : {}),
         },
     );
     await throwIfNotOk(response);
     return response.json();
+}
+
+/** Shape returned by the public token landing endpoint. Carries no graduate email. */
+export interface VerificationTokenDetail {
+    token?: { id?: string; status?: string; expiresAt?: string };
+    alumni?: { id?: string; name?: string; program?: string; batchYear?: number | null };
+    employmentRecord?: Record<string, unknown> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -565,7 +575,8 @@ export async function issueVerificationToken(
     };
 }
 
-export async function fetchVerificationToken(tokenId: string): Promise<unknown> {
+export async function fetchVerificationToken(tokenId: string): Promise<VerificationTokenDetail> {
+    // Public: holding the link is the authorisation. No auth header.
     const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/`);
     await throwIfNotOk(response);
     return response.json();
@@ -578,11 +589,17 @@ export async function submitVerificationDecision(
         comment?: string;
         verified_employer_name?: string;
         verified_job_title_id?: string;
+        // Who is answering. Required — the token proves which graduate is being
+        // verified, but not who is vouching for them.
+        verifier_name: string;
+        verifier_email: string;
+        verifier_position?: string;
     } & Partial<EmployerEvaluationPayload>,
 ): Promise<{ message?: string; decision?: VerificationDecisionResponse; employmentRecord?: unknown }> {
     const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/decision/`, {
         method: 'POST',
-        headers: withEmployerAuthHeaders({ 'Content-Type': 'application/json' }),
+        // No employer auth header: employers have no accounts.
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     });
     await throwIfNotOk(response);

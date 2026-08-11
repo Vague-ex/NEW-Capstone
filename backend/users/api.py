@@ -93,6 +93,27 @@ def _safe_int(value):
         return None
 
 
+def _mark_logged_in(user) -> None:
+    """
+    Stamp User.last_login on a successful sign-in.
+
+    These views authenticate with `_authenticate_by_email` rather than
+    `django.contrib.auth.login()`, so the `user_logged_in` signal that normally
+    maintains this column never fires — it stayed NULL for every account and
+    every role. Best-effort: a failed stamp must never block a valid login.
+    """
+    if user is None:
+        return
+    try:
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
+    except (OperationalError, DatabaseError, AttributeError):  # pragma: no cover
+        # AttributeError guards callers holding a stand-in rather than a real
+        # User. Stamping the audit column is best-effort and must never be the
+        # reason a valid sign-in fails.
+        pass
+
+
 def _as_bool(value) -> bool:
     """
     Coerce a multipart form value to a bool.
@@ -265,7 +286,12 @@ def _download_image_bytes(url: str) -> bytes | None:
 
 
 def _parse_face_descriptor(raw_value) -> list[float] | None:
-    payload = _safe_json_loads(raw_value)
+    # Accept an already-decoded list as well as a JSON string. Descriptors
+    # arrive as JSON on the request, but come back as real lists once
+    # biometric_template has been decoded — and _safe_json_loads returns {} for
+    # a list, so routing everything through it silently rejected every stored
+    # descriptor and disabled descriptor matching for all accounts.
+    payload = raw_value if isinstance(raw_value, list) else _safe_json_loads(raw_value)
     if not isinstance(payload, list):
         return None
 
@@ -282,7 +308,8 @@ def _parse_face_descriptor(raw_value) -> list[float] | None:
 
 
 def _parse_face_descriptor_samples(raw_value) -> list[list[float]]:
-    payload = _safe_json_loads(raw_value)
+    # Same already-decoded-list handling as _parse_face_descriptor above.
+    payload = raw_value if isinstance(raw_value, list) else _safe_json_loads(raw_value)
     if not isinstance(payload, list):
         return []
 
@@ -743,20 +770,22 @@ def _needs_retracking(account: AlumniAccount) -> bool:
     return (timezone.now() - emp.updated_at).days >= _RETRACKING_THRESHOLD_DAYS
 
 
+def _to_float(value):
+    """Coerce a form value to float, or None when absent / non-numeric."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _extract_login_gps(request) -> tuple[float | None, float | None, float | None]:
     """Pull gps_lat / gps_lng / gps_accuracy_m from the login request.
 
     Out-of-range or non-numeric values are silently coerced to None — a corrupt
     GPS reading must never block an otherwise valid login.
     """
-    def _to_float(value):
-        if value in (None, ""):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
     lat = _to_float(request.data.get("gps_lat"))
     lng = _to_float(request.data.get("gps_lng"))
     accuracy = _to_float(request.data.get("gps_accuracy_m"))
@@ -939,18 +968,26 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
 
     lat_raw = gps.get("lat") if isinstance(gps, dict) else None
     lng_raw = gps.get("lng") if isinstance(gps, dict) else None
-    lat = None
-    lng = None
-    try:
-        if lat_raw not in (None, ""):
-            lat = float(lat_raw)
-    except (TypeError, ValueError):
-        lat = None
-    try:
-        if lng_raw not in (None, ""):
-            lng = float(lng_raw)
-    except (TypeError, ValueError):
-        lng = None
+    lat = _to_float(lat_raw)
+    lng = _to_float(lng_raw)
+
+    # Fall back to the FaceScan row's own coordinates. The scan row is the
+    # queryable audit record and may carry a fix the JSON blob does not —
+    # registrations before the GPS capture fix wrote neither, but seeded and
+    # admin-corrected rows can have one.
+    if lat is None or lng is None:
+        try:
+            _scans = getattr(account, "_prefetched_scans", None)
+            _scan = (
+                (_scans[0] if _scans else None)
+                if _scans is not None
+                else account.face_scans.filter(scan_type="face_front").order_by("-captured_at").first()
+            )
+            if _scan is not None:
+                lat = lat if lat is not None else _to_float(_scan.gps_lat)
+                lng = lng if lng is not None else _to_float(_scan.gps_lng)
+        except (OperationalError, DatabaseError):
+            pass
 
     # Prefer the WorkAddress lat/lng (entered/saved per Part VII of the survey)
     # over the GPS capture meta from registration.
@@ -1055,8 +1092,14 @@ def _employer_request_payload(account: EmployerAccount) -> dict:
 
 
 def _generate_employer_access_token(user_id: str) -> str:
-    """Generate a signed access token for employer authentication."""
-    payload = {"uid": str(user_id)}
+    """
+    Generate a signed access token for employer authentication.
+
+    `role` is informational only — `_require_employer` re-checks the role
+    against the database on every request — but it is included so tokens minted
+    here match the shape asserted by the tests and produced elsewhere.
+    """
+    payload = {"uid": str(user_id), "role": User.Role.EMPLOYER}
     return signing.dumps(
         payload,
         salt=_EMPLOYER_TOKEN_SALT,
@@ -1090,7 +1133,12 @@ class AdminLoginView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        user, auth_error = _authenticate_by_email_specific(email=email, password=password)
+        try:
+            user, auth_error = _authenticate_by_email_specific(email=email, password=password)
+        except (OperationalError, DatabaseError):
+            # A database outage must read as "retry shortly", not as bad
+            # credentials — otherwise an outage looks like a wrong password.
+            return _temporary_admin_data_unavailable_response("Authentication")
         if not user:
             now_locked, lockout_secs = throttle_register_fail(throttle_id, "admin")
             payload = {"detail": auth_error}
@@ -1112,6 +1160,7 @@ class AdminLoginView(APIView):
             response._has_been_logged = True
             return response
 
+        _mark_logged_in(user)
         throttle_reset(throttle_id)
         return Response(
             {
@@ -1673,6 +1722,11 @@ class AlumniRegisterView(APIView):
             "survey_data": survey_data,
         }
 
+        # Parsed once so both the JSON blob and the FaceScan rows carry the same
+        # location, and so a malformed value degrades to NULL instead of raising.
+        _capture_gps_lat = _to_float(request.data.get("gps_lat"))
+        _capture_gps_lng = _to_float(request.data.get("gps_lng"))
+
         capture_meta = {
             "captured_at": request.data.get("capture_time") or timezone.now().isoformat(),
             "gps": {
@@ -1739,6 +1793,11 @@ class AlumniRegisterView(APIView):
                         scan_type=_scan_key,
                         url=_url,
                         captured_at=_captured_at,
+                        # The FaceScan row is the queryable audit record, so the
+                        # capture location belongs here too — not only inside
+                        # the biometric_template JSON blob.
+                        gps_lat=_capture_gps_lat,
+                        gps_lng=_capture_gps_lng,
                     )
 
             # 3. Create AlumniProfile (personal + academic + pre-employment info)
@@ -1884,6 +1943,11 @@ class EmployerRegisterView(APIView):
             {
                 "message": "Employer registration submitted. Account is pending admin approval.",
                 "accessToken": access_token,
+                # tokenType / expiresIn are part of the declared client contract
+                # (see AlumniAuthResponse and the employer types in
+                # api-client.ts) and every other token response emits them.
+                "tokenType": "Bearer",
+                "expiresIn": _EMPLOYER_TOKEN_TTL_SECONDS,
                 "user": {
                     "id": str(user.id),
                     "email": user.email,
@@ -1924,7 +1988,12 @@ class EmployerLoginView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        user = _authenticate_by_email(email=credential_email, password=password)
+        try:
+            user = _authenticate_by_email(email=credential_email, password=password)
+        except (OperationalError, DatabaseError):
+            # A database outage must read as "retry shortly", not as bad
+            # credentials — otherwise an outage looks like a wrong password.
+            return _temporary_admin_data_unavailable_response("Authentication")
         if not user:
             now_locked, lockout_secs = throttle_register_fail(throttle_id, "employer")
             payload = {"detail": "Invalid credential email or password."}
@@ -1953,6 +2022,7 @@ class EmployerLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        _mark_logged_in(user)
         throttle_reset(throttle_id)
         access_token = _generate_employer_access_token(user.id)
 
@@ -2001,7 +2071,12 @@ class AlumniLoginView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        user, auth_error = _authenticate_by_email_specific(email=email, password=password)
+        try:
+            user, auth_error = _authenticate_by_email_specific(email=email, password=password)
+        except (OperationalError, DatabaseError):
+            # A database outage must read as "retry shortly", not as bad
+            # credentials — otherwise an outage looks like a wrong password.
+            return _temporary_admin_data_unavailable_response("Authentication")
         if not user:
             now_locked, lockout_secs = throttle_register_fail(throttle_id, "graduate")
             payload = {"detail": auth_error}
@@ -2156,6 +2231,7 @@ class AlumniLoginView(APIView):
         except (OperationalError, DatabaseError):  # pragma: no cover - audit is best-effort
             pass
 
+        _mark_logged_in(alumni_account.user)
         throttle_reset(throttle_id)
         return Response(
             {

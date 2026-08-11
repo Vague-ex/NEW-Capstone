@@ -31,6 +31,7 @@ import {
   type LivenessSignal,
 } from '../app/modern-face-descriptor';
 import { API_BASE_URL } from '../app/api-client';
+import { captureGps, type GpsFix } from '../app/geolocation';
 import {
   useReferenceData,
   provincesApi,
@@ -93,6 +94,12 @@ export interface BiometricData {
   descriptorSamples: number[][];
   livenessSignals: LivenessSignal[];
   headTurnDirection: HeadTurnDirection;
+  /**
+   * Where the identity photo was taken. PRD Module A requires the capture to
+   * carry date, time and GPS for the audit trail; null when the browser denies
+   * or cannot provide a fix, which must never block registration.
+   */
+  gps: GpsFix | null;
 }
 
 //  Constants
@@ -310,6 +317,7 @@ export default function RegisterAlumniPersonal({
   const [previews, setPreviews] = useState<string[]>([]);
   // The one frontal photo kept from the identity burst.
   const [identityShot, setIdentityShot] = useState<Blob | null>(null);
+  const [identityGps, setIdentityGps] = useState<GpsFix | null>(null);
   const [descriptorSamples, setDescriptorSamples] = useState<number[][]>([]);
   const [livenessSignals, setLivenessSignals] = useState<LivenessSignal[]>([]);
   const [checkingBlur, setCheckingBlur] = useState(false);
@@ -803,6 +811,12 @@ export default function RegisterAlumniPersonal({
 
       const blob = await (await fetch(firstDataUrl)).blob();
 
+      // Stamp the capture with its location for the audit trail (PRD Module A).
+      // Requested here rather than on page load so the browser prompt appears
+      // in context, and awaited only after the photo is secured so a slow or
+      // denied fix cannot cost the user their capture.
+      setIdentityGps(await captureGps());
+
       setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
       setPreviews([firstDataUrl]);
       setIdentityShot(blob);
@@ -876,6 +890,7 @@ export default function RegisterAlumniPersonal({
         descriptorSamples,
         livenessSignals,
         headTurnDirection,
+        gps: identityGps,
       };
       await onComplete(form, biometricData, matchStatus);
     } catch (err) {
