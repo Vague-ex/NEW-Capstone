@@ -550,3 +550,61 @@ class CurriculumAlignmentReportTests(TestCase):
 
 		fields = sections["IS Field Distribution (employer-verified titles)"]
 		self.assertIn(["Software Development", 1], [list(r) for r in fields["rows"]])
+
+
+class PublicVerificationLandingTests(TestCase):
+	"""
+	The landing page behind a verification link is fully public — anyone the
+	link reaches, or is forwarded to, can read it. These pin the two properties
+	that follow from that, which VerificationTokenFlowTests does not cover:
+	what the page may disclose, and who may be invited in the first place.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		self.user = User.objects.create_user(
+			email="grad-link@example.com", password="TestPass123!", role=User.Role.ALUMNI
+		)
+		self.alumni = AlumniAccount.objects.create(
+			user=self.user, account_status=AccountStatus.ACTIVE
+		)
+		AlumniProfile.objects.create(
+			alumni=self.alumni, first_name="Ana", last_name="Reyes", graduation_year=2022
+		)
+		EmploymentRecord.objects.create(
+			alumni=self.alumni,
+			employer_name_input="Acme Corp",
+			job_title_input="Backend Developer",
+			employment_status=EmploymentRecord.EmploymentStatus.EMPLOYED,
+			verification_status=EmploymentRecord.VerificationStatus.PENDING,
+			is_current=True,
+		)
+
+	def _invite(self, employer_email=None):
+		body = {"employer_email": employer_email} if employer_email else {}
+		return self.client.post(
+			f"/api/verification/alumni/{self.alumni.id}/invite/", body, format="json"
+		)
+
+	def test_landing_identifies_the_graduate_without_leaking_their_email(self):
+		token_id = self._invite().data["token"]["id"]
+
+		# No credentials at all — holding the link is the whole authorisation.
+		response = self.client.get(f"/api/verification/tokens/{token_id}/")
+		self.assertEqual(response.status_code, 200)
+
+		alumni = response.data["alumni"]
+		self.assertEqual(alumni["name"], "Ana Reyes")
+		self.assertEqual(alumni["batchYear"], 2022)
+		# An employer needs to know WHO they are vouching for, not how to
+		# contact them. A forwarded link must not disclose the address.
+		self.assertNotIn("email", alumni)
+		self.assertNotIn("grad-link@example.com", str(response.data))
+		self.assertEqual(response["Cache-Control"], "no-store")
+		self.assertIn("noindex", response["X-Robots-Tag"])
+
+	def test_graduate_cannot_invite_their_own_address(self):
+		# The decision endpoint already refuses self-verification; this closes
+		# the same hole one step earlier, at invite time.
+		response = self._invite("grad-link@example.com")
+		self.assertEqual(response.status_code, 400)

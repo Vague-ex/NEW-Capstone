@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
 import type { AlumniRecord } from '../../data/app-data';
-import { fetchEmployerRequests, fetchPendingAlumni, fetchVerifiedAlumni, fetchReport } from '../../app/api-client';
+import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport } from '../../app/api-client';
 import {
-  Users, Briefcase, Camera, Building2, TrendingUp, Map as MapIcon,
+  Users, Briefcase, Camera, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
   ClipboardCheck, Upload,
 } from 'lucide-react';
@@ -49,12 +49,6 @@ function readAlignmentTotals(payload: ReportPayload): AlignmentSummary | null {
   };
 }
 
-function countPendingEmployerRequests(records: Array<Record<string, unknown>>): number {
-  return records.filter((record) => {
-    const statusValue = String(record.status ?? record.accountStatus ?? '').toLowerCase();
-    return statusValue === 'pending';
-  }).length;
-}
 
 function parseDateTimestamp(value: unknown): number {
   if (typeof value !== 'string' || !value.trim()) return 0;
@@ -80,7 +74,6 @@ export function AdminNewDashboard() {
   const navigate = useNavigate();
   const [pendingAlumni, setPendingAlumni] = useState<AlumniRecord[]>([]);
   const [verifiedAlumni, setVerifiedAlumni] = useState<AlumniRecord[]>([]);
-  const [pendingEmployers, setPendingEmployers] = useState(0);
   const [alignment, setAlignment] = useState<AlignmentSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
@@ -93,10 +86,9 @@ export function AdminNewDashboard() {
         setLoading(true);
       }
 
-      const [pendingResult, verifiedResult, employerResult, alignmentResult] = await Promise.allSettled([
+      const [pendingResult, verifiedResult, alignmentResult] = await Promise.allSettled([
           fetchPendingAlumni(),
           fetchVerifiedAlumni(),
-          fetchEmployerRequests(),
           // Curriculum alignment comes from the batch-summary report rather
           // than being recomputed here. One definition lives in
           // tracer/alignment.py; recomputing client-side would let the
@@ -130,16 +122,6 @@ export function AdminNewDashboard() {
         errorMessages.push(message);
       }
 
-      if (employerResult.status === 'fulfilled') {
-        setPendingEmployers(
-          countPendingEmployerRequests(employerResult.value as Array<Record<string, unknown>>),
-        );
-      } else {
-        const message = employerResult.reason instanceof Error
-          ? employerResult.reason.message
-          : 'Employer request data could not be refreshed.';
-        errorMessages.push(message);
-      }
 
       if (alignmentResult.status === 'fulfilled') {
         setAlignment(readAlignmentTotals(alignmentResult.value));
@@ -152,7 +134,7 @@ export function AdminNewDashboard() {
 
       if (errorMessages.length === 0) {
         setFetchError('');
-      } else if (errorMessages.length === 4) {
+      } else if (errorMessages.length === 3) {
         setFetchError(errorMessages[0]);
       } else {
         setFetchError('Some dashboard sections could not refresh. Showing last available values.');
@@ -307,15 +289,6 @@ export function AdminNewDashboard() {
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
-    {
-      icon: Building2,
-      label: 'Employer Requests',
-      sub: `${pendingEmployers} pending`,
-      path: '/admin/employers',
-      color: 'text-violet-600',
-      bg: 'bg-violet-50',
-      badge: pendingEmployers,
-    },
     { icon: Upload, label: 'Batch Upload', sub: 'Add new graduate IDs', path: '/admin/batch-upload', color: 'text-blue-600', bg: 'bg-blue-50' },
     { icon: MapIcon, label: 'Geomapping', sub: 'Employment location clusters', path: '/admin/map', color: 'text-teal-600', bg: 'bg-teal-50' },
     { icon: BarChart2, label: 'Analytics & Reports', sub: 'Charts and data export', path: '/admin/analytics', color: 'text-purple-600', bg: 'bg-purple-50' },
@@ -360,21 +333,6 @@ export function AdminNewDashboard() {
           </div>
         )}
 
-        {!loading && pendingEmployers > 0 && (
-          <div className="flex items-center gap-3 bg-violet-50 border border-violet-200 rounded-xl p-4">
-            <Building2 className="size-5 text-violet-500 shrink-0" />
-            <div className="flex-1">
-              <p className="text-violet-800 text-sm" style={{ fontWeight: 600 }}>
-                {pendingEmployers} employer access request{pendingEmployers !== 1 ? 's' : ''} pending
-              </p>
-            </div>
-            <button onClick={() => navigate('/admin/employers')}
-              className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs px-3 py-1.5 rounded-lg transition shrink-0"
-              style={{ fontWeight: 600 }}>
-              Review <ArrowRight className="size-3" />
-            </button>
-          </div>
-        )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Total Registered" value={totalRegistered} sub={`${pendingAlumni.length} pending · ${verifiedCount} verified`}

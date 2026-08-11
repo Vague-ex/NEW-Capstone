@@ -3,15 +3,15 @@ import { useNavigate, useLocation } from 'react-router';
 import Image from 'next/image';
 import {
   GraduationCap, LayoutDashboard, LogOut,
-  Building2, Search, BarChart2, Map, Upload,
+  BarChart2, Map, Upload,
   ChevronRight, Bell, Shield, Star, Briefcase,
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
   Settings, UserCheck,
 } from 'lucide-react';
-import { ADMIN_ACCESS_TOKEN_KEY, fetchEmployerRequests, fetchPendingAlumni } from '../../app/api-client';
+import { ADMIN_ACCESS_TOKEN_KEY, fetchPendingAlumni } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 
-type PortalRole = 'alumni' | 'employer' | 'admin';
+type PortalRole = 'alumni' | 'admin';
 
 interface NavItem {
   label: string;
@@ -26,17 +26,11 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
     { label: 'Employment', path: '/alumni/employment', icon: Briefcase },
     { label: 'Edit Profile', path: '/alumni/profile', icon: UserCircle },
   ],
-  employer: [
-    { label: 'Dashboard', path: '/employer/dashboard', icon: LayoutDashboard },
-    { label: 'Verify Employment', path: '/employer/verify', icon: Search },
-    { label: 'View Graduates', path: '/employer/graduates', icon: UserCheck },
-  ],
   admin: [
     { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Pending Verification', path: '/admin/unverified', icon: ClipboardCheck },
     { label: 'Verified Graduates', path: '/admin/verified', icon: CheckCircle2 },
     { label: 'Batch Upload', path: '/admin/batch-upload', icon: Upload },
-    { label: 'Employer Requests', path: '/admin/employers', icon: Building2 },
     { label: 'Geomapping', path: '/admin/map', icon: Map },
     { label: 'Analytics & Reports', path: '/admin/analytics', icon: BarChart2 },
     { label: 'Settings', path: '/admin/settings', icon: Settings }, // import Settings from lucide-react
@@ -52,15 +46,6 @@ const ROLE_CONFIG = {
     sessionKey: 'alumni_user',
     username: 'BSIS Graduate',
     subtitle: 'Carlos Hilado Memorial State University · BSIS',
-  },
-  employer: {
-    label: 'Employer Portal',
-    color: 'from-[#166534] to-[#052e16]',
-    accent: 'bg-[#15803d]',
-    logoutPath: '/employer',
-    sessionKey: 'employer_user',
-    username: 'Company Partner',
-    subtitle: 'Recruitment Access',
   },
   admin: {
     label: 'Admin Portal',
@@ -81,19 +66,12 @@ interface PortalLayoutProps {
   notificationCount?: number;
 }
 
-function countPendingEmployerRequests(records: Array<Record<string, unknown>>): number {
-  return records.filter((record) => {
-    const statusValue = String(record.status ?? record.accountStatus ?? '').toLowerCase();
-    return statusValue === 'pending';
-  }).length;
-}
 
 export function PortalLayout({ role, children, pageTitle, pageSubtitle, notificationCount = 0 }: PortalLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingAlumniCount, setPendingAlumniCount] = useState(0);
-  const [pendingEmployerCount, setPendingEmployerCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifButtonRef = useRef<HTMLButtonElement>(null);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
@@ -111,10 +89,6 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       const u = JSON.parse(sessionStorage.getItem('alumni_user') || '{}');
       if (u.name) displayName = u.name.split(' ')[0];
       if (u.schoolId) displaySub = `ID: ${u.schoolId}`;
-    } else if (role === 'employer') {
-      const u = JSON.parse(sessionStorage.getItem('employer_user') || '{}');
-      if (u.company) displayName = u.company;
-      if (u.industry) displaySub = u.industry;
     }
   } catch { /* noop */ }
 
@@ -166,18 +140,14 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     let active = true;
     const updateAdminNotificationCount = async () => {
       try {
-        const [pendingAlumni, employerRequests] = await Promise.all([
-          fetchPendingAlumni(),
-          fetchEmployerRequests(),
-        ]);
+        const pendingAlumni = await fetchPendingAlumni();
         if (!active) return;
 
-        const pendingEmployers = countPendingEmployerRequests(
-          employerRequests as Array<Record<string, unknown>>,
-        );
-        const totalPending = pendingAlumni.length + pendingEmployers;
+        // Employer requests no longer exist — employers verify by one-time
+        // link and never await approval, so pending graduates are the only
+        // thing the admin bell counts.
+        const totalPending = pendingAlumni.length;
         setPendingAlumniCount(pendingAlumni.length);
-        setPendingEmployerCount(pendingEmployers);
 
         const previousTotal = lastKnownAdminPendingRef.current;
         if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
@@ -229,10 +199,10 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   };
 
   const bellNotificationCount = role === 'admin'
-    ? pendingAlumniCount + pendingEmployerCount
+    ? pendingAlumniCount
     : notificationCount;
 
-  const RoleIcon = role === 'admin' ? Shield : role === 'employer' ? Building2 : GraduationCap;
+  const RoleIcon = role === 'admin' ? Shield : GraduationCap;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -277,11 +247,6 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               {item.path === '/admin/unverified' && pendingAlumniCount > 0 && !isActive && (
                 <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
                   {pendingAlumniCount}
-                </span>
-              )}
-              {item.path === '/admin/employers' && pendingEmployerCount > 0 && !isActive && (
-                <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
-                  {pendingEmployerCount}
                 </span>
               )}
             </button>
@@ -368,7 +333,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-gray-800 text-sm" style={{ fontWeight: 600 }}>Notifications</p>
                     </div>
-                    {pendingAlumniCount === 0 && pendingEmployerCount === 0 ? (
+                    {pendingAlumniCount === 0 ? (
                       <div className="px-4 py-5 text-center text-gray-400 text-xs">No pending items</div>
                     ) : (
                       <div>
@@ -383,20 +348,6 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                             <div>
                               <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingAlumniCount} Graduates Pending Verification</p>
                               <p className="text-gray-400 text-xs">Awaiting face recognition review</p>
-                            </div>
-                          </button>
-                        )}
-                        {pendingEmployerCount > 0 && (
-                          <button
-                            onClick={() => { navigate('/admin/employers'); setNotifOpen(false); }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left ${pendingAlumniCount > 0 ? 'border-t border-gray-50' : ''}`}
-                          >
-                            <span className="flex size-8 items-center justify-center rounded-full bg-blue-100 shrink-0">
-                              <Building2 className="size-4 text-blue-600" />
-                            </span>
-                            <div>
-                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingEmployerCount} Employer Request{pendingEmployerCount !== 1 ? 's' : ''}</p>
-                              <p className="text-gray-400 text-xs">Awaiting access approval</p>
                             </div>
                           </button>
                         )}

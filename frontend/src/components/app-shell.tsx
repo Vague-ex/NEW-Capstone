@@ -33,15 +33,6 @@ function ensurePreviewSession() {
         skills: ['Web Development', 'Database Management'],
     };
 
-    const previewEmployer = {
-        name: 'Preview Employer',
-        email: 'preview.employer@company.com',
-        company: 'Preview Tech Solutions',
-        companyName: 'Preview Tech Solutions',
-        industry: 'Information Technology',
-        status: 'approved',
-    };
-
     try {
         const alumniRaw = sessionStorage.getItem('alumni_user');
         const alumni = alumniRaw ? JSON.parse(alumniRaw) : null;
@@ -49,18 +40,11 @@ function ensurePreviewSession() {
             sessionStorage.setItem('alumni_user', JSON.stringify(previewAlumni));
         }
 
-        const employerRaw = sessionStorage.getItem('employer_user');
-        const employer = employerRaw ? JSON.parse(employerRaw) : null;
-        if (!employer || typeof employer !== 'object' || !employer.company) {
-            sessionStorage.setItem('employer_user', JSON.stringify(previewEmployer));
-        }
-
         if (sessionStorage.getItem('admin_authenticated') !== 'true') {
             sessionStorage.setItem('admin_authenticated', 'true');
         }
     } catch {
         sessionStorage.setItem('alumni_user', JSON.stringify(previewAlumni));
-        sessionStorage.setItem('employer_user', JSON.stringify(previewEmployer));
         sessionStorage.setItem('admin_authenticated', 'true');
     }
 

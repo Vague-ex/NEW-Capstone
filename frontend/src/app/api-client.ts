@@ -3,7 +3,6 @@ export const API_BASE_URL = (
 ).replace(/\/$/, '');
 
 export const ADMIN_ACCESS_TOKEN_KEY = 'admin_access_token';
-export const EMPLOYER_ACCESS_TOKEN_KEY = 'employer_access_token';
 export const ALUMNI_ACCESS_TOKEN_KEY = 'alumni_access_token';
 
 export class ApiClientError extends Error {
@@ -123,51 +122,6 @@ export interface EmployerEvaluationPayload {
     rating_commitment_to_social_equity: EmployerEvaluationRating;
 }
 
-export interface EmployerAccountResponse {
-    id?: string;
-    company?: string;
-    companyName?: string;
-    industry?: string;
-    contact?: string;
-    contactName?: string;
-    position?: string;
-    email?: string;
-    credentialEmail?: string;
-    phone?: string;
-    website?: string;
-    status?: string;
-    accountStatus?: string;
-    date?: string;
-    desiredSkills?: Array<{ id: string; name: string; category: string | null }>;
-}
-
-export interface EmployerVerifiableGraduateResponse {
-    id?: string;
-    employmentRecordId?: string;
-    name?: string;
-    email?: string;
-    graduationYear?: number | null;
-    verificationStatus?: string;
-    employmentStatus?: string;
-    jobTitle?: string;
-    jobTitleId?: string | null;
-    company?: string;
-    industry?: string;
-    workLocation?: string;
-    regionId?: string | null;
-    jobAlignment?: string;
-    dateUpdated?: string;
-    skills?: string[];
-    biometricCaptured?: boolean;
-    biometricDate?: string | null;
-    lat?: number;
-    lng?: number;
-    // Re-evaluation context (only present on the reeval-pending feed):
-    previousCompany?: string;
-    previousJobTitle?: string;
-    previousVerifiedAt?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -196,11 +150,6 @@ function readAdminAccessToken(): string | null {
     return sessionStorage.getItem(ADMIN_ACCESS_TOKEN_KEY);
 }
 
-function readEmployerAccessToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return sessionStorage.getItem(EMPLOYER_ACCESS_TOKEN_KEY);
-}
-
 function readAlumniAccessToken(): string | null {
     if (typeof window === 'undefined') return null;
     return sessionStorage.getItem(ALUMNI_ACCESS_TOKEN_KEY);
@@ -221,7 +170,6 @@ export function withAlumniAuthHeaders(
 export function clearAccessTokens(): void {
     if (typeof window === 'undefined') return;
     sessionStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
-    sessionStorage.removeItem(EMPLOYER_ACCESS_TOKEN_KEY);
     sessionStorage.removeItem(ALUMNI_ACCESS_TOKEN_KEY);
 }
 
@@ -229,17 +177,6 @@ function withAdminAuthHeaders(
     headers: Record<string, string> = {},
 ): Record<string, string> {
     const token = readAdminAccessToken();
-    if (!token) return headers;
-    return {
-        ...headers,
-        Authorization: `Bearer ${token}`,
-    };
-}
-
-function withEmployerAuthHeaders(
-    headers: Record<string, string> = {},
-): Record<string, string> {
-    const token = readEmployerAccessToken();
     if (!token) return headers;
     return {
         ...headers,
@@ -323,31 +260,6 @@ export async function alumniLogin(
     const response = await fetch(`${API_BASE_URL}/api/auth/alumni/login/`, {
         method: 'POST',
         body: payload,
-    });
-    await throwIfNotOk(response);
-    return response.json();
-}
-
-export async function employerLogin(
-    email: string,
-    password: string,
-): Promise<{ employer?: EmployerAccountResponse; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/employer/login/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-    });
-    await throwIfNotOk(response);
-    return response.json();
-}
-
-export async function registerEmployer(
-    payload: Record<string, string>,
-): Promise<{ employer?: EmployerAccountResponse; accessToken?: string; tokenType?: 'Bearer'; expiresIn?: number }> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/employer/register/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
     });
     await throwIfNotOk(response);
     return response.json();
@@ -472,31 +384,6 @@ export async function fetchAlumniAccountStatus(alumniId: string): Promise<unknow
     return data?.alumni ?? data;
 }
 
-export async function fetchEmployerAccountStatus(
-    employerId: string,
-): Promise<EmployerAccountResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/employer/account/${employerId}/`, {
-        headers: withEmployerAuthHeaders(),
-    });
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return (data?.employer ?? data ?? {}) as EmployerAccountResponse;
-}
-
-export async function updateEmployerDesiredSkills(
-    employerId: string,
-    skillIds: string[],
-): Promise<EmployerAccountResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/employer/account/${employerId}/`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...withEmployerAuthHeaders() },
-        body: JSON.stringify({ desired_skill_ids: skillIds }),
-    });
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return (data?.employer ?? data ?? {}) as EmployerAccountResponse;
-}
-
 export async function updateAlumniEmployment(
     alumniId: string,
     payload: {
@@ -558,23 +445,6 @@ export interface VerificationTokenDetail {
 // Employer verification endpoints (DS7)
 // ---------------------------------------------------------------------------
 
-export async function issueVerificationToken(
-    payload: { alumni_id?: string; employment_record_id?: string; expires_in_days?: number },
-): Promise<{ message?: string; token?: VerificationTokenResponse; employmentRecord?: unknown }> {
-    const response = await fetch(`${API_BASE_URL}/api/verification/tokens/issue/`, {
-        method: 'POST',
-        headers: withEmployerAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(payload),
-    });
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return {
-        message: typeof data?.message === 'string' ? data.message : undefined,
-        token: data?.token,
-        employmentRecord: data?.employmentRecord,
-    };
-}
-
 export async function fetchVerificationToken(tokenId: string): Promise<VerificationTokenDetail> {
     // Public: holding the link is the authorisation. No auth header.
     const response = await fetch(`${API_BASE_URL}/api/verification/tokens/${tokenId}/`);
@@ -608,87 +478,6 @@ export async function submitVerificationDecision(
         message: typeof data?.message === 'string' ? data.message : undefined,
         decision: data?.decision,
         employmentRecord: data?.employmentRecord,
-    };
-}
-
-export async function fetchEmployerVerifiableGraduates(
-    params?: { q?: string; year?: number | string },
-): Promise<EmployerVerifiableGraduateResponse[]> {
-    const query = new URLSearchParams();
-    if (params?.q && params.q.trim()) {
-        query.set('q', params.q.trim());
-    }
-    if (params?.year !== undefined && params.year !== null && String(params.year).trim() !== '') {
-        query.set('year', String(params.year).trim());
-    }
-
-    const qs = query.toString();
-    const response = await fetch(
-        `${API_BASE_URL}/api/verification/employer/graduates/${qs ? `?${qs}` : ''}`,
-        {
-            headers: withEmployerAuthHeaders(),
-        },
-    );
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return Array.isArray(data)
-        ? data
-        : (Array.isArray(data?.results) ? data.results : []);
-}
-
-/**
- * Graduates this employer previously CONFIRMED whose CURRENT employment
- * record is now pending re-evaluation (because the graduate changed their
- * company or job title). Backed by EmployerReevaluationPendingListView.
- */
-export async function fetchEmployerReevalPending(): Promise<EmployerVerifiableGraduateResponse[]> {
-    const response = await fetch(
-        `${API_BASE_URL}/api/verification/employer/reeval-pending/`,
-        {
-            headers: withEmployerAuthHeaders(),
-        },
-    );
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return Array.isArray(data)
-        ? data
-        : (Array.isArray(data?.results) ? data.results : []);
-}
-
-// Candidates (View Graduates) - only available to ACTIVE employers.
-export interface EmployerCandidateSkill {
-    id: string;
-    name: string;
-    category: string | null;
-}
-
-export interface EmployerCandidate {
-    id: string;
-    name: string;
-    graduationYear: number | null;
-    email: string;
-    facebookUrl: string;
-    skills: EmployerCandidateSkill[];
-    matchedSkillIds: string[];
-    matchCount: number;
-}
-
-export interface EmployerCandidatesResponse {
-    results: EmployerCandidate[];
-    count: number;
-    desiredSkillCount: number;
-}
-
-export async function fetchEmployerCandidates(): Promise<EmployerCandidatesResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/employer/candidates/`, {
-        headers: withEmployerAuthHeaders(),
-    });
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return {
-        results: Array.isArray(data?.results) ? data.results : [],
-        count: typeof data?.count === 'number' ? data.count : 0,
-        desiredSkillCount: typeof data?.desiredSkillCount === 'number' ? data.desiredSkillCount : 0,
     };
 }
 
@@ -735,33 +524,6 @@ export async function reviewAlumniRequest(
 // ---------------------------------------------------------------------------
 // Admin - Employer endpoints
 // ---------------------------------------------------------------------------
-
-export async function fetchEmployerRequests(): Promise<unknown[]> {
-    const response = await fetch(`${API_BASE_URL}/api/admin/employers/requests/`, {
-        headers: withAdminAuthHeaders(),
-    });
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return Array.isArray(data) ? data : (data.results ?? []);
-}
-
-export async function reviewEmployerRequest(
-    employerId: string,
-    action: 'approve' | 'reject',
-    reason?: string,
-): Promise<{ employer?: unknown }> {
-    const response = await fetch(
-        `${API_BASE_URL}/api/admin/employers/requests/${employerId}/${action}/`,
-        {
-            method: 'POST',
-            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify(action === 'reject' ? { reason: reason ?? '' } : {}),
-        },
-    );
-    await throwIfNotOk(response);
-    const data = await response.json();
-    return { employer: data?.employer ?? data };
-}
 
 // ---------------------------------------------------------------------------
 // Admin - User management (admin accounts)
@@ -927,7 +689,6 @@ export async function fetchAnalyticsPredictions(
     await throwIfNotOk(response);
     return response.json();
 }
-
 
 export interface ReportSection {
     title: string;

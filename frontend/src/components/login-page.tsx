@@ -690,13 +690,10 @@ export function LoginPage() {
                   onClose={() => setForgotOpen(false)}
                 />
 
+                {/* No employer sign-in. Employers never hold an account —
+                    they verify employment through a one-time link the graduate
+                    sends them, which lands on /verify/:tokenId. */}
                 <p className="text-center text-gray-400 text-xs mt-5">
-                  Employer?{" "}
-                  <button onClick={() => navigate("/employer")} className="text-[#166534] hover:underline" style={{ fontWeight: 600 }}>
-                    Go to Employer Portal →
-                  </button>
-                </p>
-                <p className="text-center text-gray-400 text-xs mt-2">
                   New Graduate?{" "}
                   <button onClick={() => navigate("/register/alumni")} className="text-[#166534] hover:underline" style={{ fontWeight: 600 }}>
                     Create account →
