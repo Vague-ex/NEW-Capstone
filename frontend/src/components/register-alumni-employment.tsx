@@ -302,15 +302,22 @@ const sectorMapper = (selection: string | null): string => ({
 export interface RegisterAlumniEmploymentProps {
   onComplete: (employmentData: EmploymentFormData) => Promise<void>;
   onBack: () => void;
+  /** Seeded when the graduate is sent back to fix a rejected answer, so the
+   *  whole survey does not have to be retyped. */
+  initialForm?: EmploymentFormData | null;
+  /** Server-reported problems, keyed by field name. */
+  fieldErrors?: Record<string, string> | null;
 }
 
 export default function RegisterAlumniEmployment({
   onComplete,
   onBack,
+  initialForm,
+  fieldErrors,
 }: RegisterAlumniEmploymentProps) {
   const { data: referenceData } = useReferenceData();
   const [step, setStep] = useState<EmploymentStep>(1);
-  const [form, setForm] = useState<EmploymentFormData>(INITIAL_EMPLOYMENT_FORM);
+  const [form, setForm] = useState<EmploymentFormData>(initialForm ?? INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   // "Is your current job the same as your first job?" - copies the first-job
@@ -598,6 +605,28 @@ export default function RegisterAlumniEmployment({
           />
         </div>
       </div>
+
+      {/* Server-rejected answers. Shown on a correction pass so the graduate
+          can see exactly which fields to fix — everything else they entered is
+          still here. */}
+      {fieldErrors && Object.keys(fieldErrors).length > 0 && (
+        <div className="mb-6 p-4 border border-red-200 bg-red-50 rounded-lg flex gap-3">
+          <AlertCircle className="text-red-600 flex-shrink-0" size={20} />
+          <div className="text-sm">
+            <p className="text-red-800" style={{ fontWeight: 700 }}>
+              Please correct {Object.keys(fieldErrors).length === 1 ? 'this answer' : 'these answers'}
+            </p>
+            <ul className="mt-1 list-disc list-inside text-red-700 space-y-0.5">
+              {Object.entries(fieldErrors).map(([field, message]) => (
+                <li key={field}>{message}</li>
+              ))}
+            </ul>
+            <p className="text-red-600/80 text-xs mt-1.5">
+              Your other answers have been kept.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Error Display */}
       {stepError && (

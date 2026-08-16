@@ -138,6 +138,8 @@ function buildShotInstructions(turnDirection: HeadTurnDirection): ShotInstructio
 // three seconds and any wobble reset it — that was the main reason the turn
 // felt impossible. Blinks last only 100–400 ms, so they cannot be detected at
 // 1 Hz at all.
+/** Stages in the capture flow: frontal photo, blink, head turn. */
+const CAPTURE_STAGE_COUNT = 3;
 const FRONTAL_HOLD_MS = 720;
 const TURN_HOLD_MS = 360;
 // Frames in the identity burst, and the gap between them. All three are
@@ -287,13 +289,24 @@ export type MasterlistMatchStatus = 'idle' | 'checking' | 'matched' | 'unmatched
 
 export default function RegisterAlumniPersonal({
   onComplete,
+  initialForm,
+  initialBiometric,
+  fieldErrors,
 }: {
   onComplete: (formData: PersonalFormData, biometricData?: BiometricData, matchStatus?: MasterlistMatchStatus) => void | Promise<void>;
+  /** Seeded when the graduate is sent back to fix a rejected field, so nothing
+   *  they already typed is lost. */
+  initialForm?: PersonalFormData | null;
+  /** An existing face capture. Present on a correction pass so the camera step
+   *  is not repeated — re-scanning is the most costly thing to lose. */
+  initialBiometric?: BiometricData | null;
+  /** Server-reported problems, keyed by field name. */
+  fieldErrors?: Record<string, string> | null;
 }) {
   const navigate = useNavigate();
 
   // Form state
-  const [form, setForm] = useState<PersonalFormData>(INITIAL_PERSONAL_FORM);
+  const [form, setForm] = useState<PersonalFormData>(initialForm ?? INITIAL_PERSONAL_FORM);
   const [step, setStep] = useState<PersonalStep>(1);
   const [stepError, setStepError] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
@@ -313,13 +326,20 @@ export default function RegisterAlumniPersonal({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraOn, setCameraOn] = useState(false);
-  const [shotIndex, setShotIndex] = useState(0);
+  // Seeded from an earlier capture when the graduate is sent back to fix a
+  // rejected field. Starting past the last stage marks the scan complete, so
+  // they are never made to face the camera twice for one registration.
+  const [shotIndex, setShotIndex] = useState(initialBiometric ? CAPTURE_STAGE_COUNT : 0);
   const [previews, setPreviews] = useState<string[]>([]);
   // The one frontal photo kept from the identity burst.
-  const [identityShot, setIdentityShot] = useState<Blob | null>(null);
-  const [identityGps, setIdentityGps] = useState<GpsFix | null>(null);
-  const [descriptorSamples, setDescriptorSamples] = useState<number[][]>([]);
-  const [livenessSignals, setLivenessSignals] = useState<LivenessSignal[]>([]);
+  const [identityShot, setIdentityShot] = useState<Blob | null>(initialBiometric?.image ?? null);
+  const [identityGps, setIdentityGps] = useState<GpsFix | null>(initialBiometric?.gps ?? null);
+  const [descriptorSamples, setDescriptorSamples] = useState<number[][]>(
+    initialBiometric?.descriptorSamples ?? [],
+  );
+  const [livenessSignals, setLivenessSignals] = useState<LivenessSignal[]>(
+    initialBiometric?.livenessSignals ?? [],
+  );
   const [checkingBlur, setCheckingBlur] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [cameraError, setCameraError] = useState('');
@@ -345,6 +365,15 @@ export default function RegisterAlumniPersonal({
   );
 
   useEffect(() => { return () => stopCamera(); }, []);
+
+  // Rebuild the thumbnail from a carried-over capture so the verification step
+  // shows the existing photo rather than an empty frame on a correction pass.
+  useEffect(() => {
+    if (!initialBiometric?.image) return;
+    const url = URL.createObjectURL(initialBiometric.image);
+    setPreviews([url]);
+    return () => URL.revokeObjectURL(url);
+  }, [initialBiometric]);
 
   // Warm up the face models as soon as the user reaches the verification step
   // so the first detection isn't delayed by a cold model load.
@@ -926,6 +955,26 @@ export default function RegisterAlumniPersonal({
 
       <div className="flex-1 flex flex-col items-center px-4 py-8">
         <div className="w-full max-w-lg">
+          {/* Answers the server refused, shown on a correction pass. Everything
+              else the graduate entered — including their face capture — is
+              still held, so only these need fixing. */}
+          {fieldErrors && Object.keys(fieldErrors).length > 0 && (
+            <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5">
+              <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <p className="text-red-800" style={{ fontWeight: 700 }}>
+                  Please correct {Object.keys(fieldErrors).length === 1 ? 'this answer' : 'these answers'}
+                </p>
+                <ul className="mt-1 list-disc list-inside text-red-700 space-y-0.5">
+                  {Object.entries(fieldErrors).map(([field, message]) => (
+                    <li key={field}>{message}</li>
+                  ))}
+                </ul>
+                <p className="text-red-600/80 mt-1.5">Your other details and face scan have been kept.</p>
+              </div>
+            </div>
+          )}
+
           {/* Stepper */}
           <div className="flex items-center mb-8">
             {PERSONAL_STEP_CONFIG.map((s, i) => (

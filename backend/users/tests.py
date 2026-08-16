@@ -417,3 +417,64 @@ class MasterlistNameParsingTests(SimpleTestCase):
 		self.assertEqual(derive_last_name(""), "")
 		# Never consume the only given name.
 		self.assertEqual(derive_last_name("Dela Cruz"), "Cruz")
+
+
+class RegistrationCleanDataGateTests(TestCase):
+	"""
+	The clean-data gate on AlumniRegisterView.
+
+	It runs before the Supabase upload and before any row is written, so a
+	rejection leaves no orphaned image and no half-built account — and the
+	response carries enough for the client to return the graduate to the form
+	that owns the bad answer instead of restarting registration.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+
+	def _payload(self, **survey_overrides):
+		survey = {
+			"employment_status": "employed_full_time",
+			"academic_honors": 1,
+			"time_to_hire_months": 3,
+			"first_job_sector": "private",
+		}
+		survey.update(survey_overrides)
+		return {
+			"email": "gate-test@example.com",
+			"password": "StrongPass123!",
+			"confirm_password": "StrongPass123!",
+			"first_name": "Ana",
+			"family_name": "Reyes",
+			"gender": "Female",
+			"birth_date": "2000-05",
+			"mobile": "+639171234567",
+			"city": "Talisay",
+			"province": "Negros Occidental",
+			"graduation_date": "2022-06",
+			"survey_data": json.dumps(survey),
+			"face_front": SimpleUploadedFile("face.jpg", b"image-bytes", content_type="image/jpeg"),
+		}
+
+	def test_impossible_answer_is_rejected_with_field_and_step(self):
+		response = self.client.post(
+			"/api/auth/alumni/register/",
+			self._payload(time_to_hire_months=-5),
+			format="multipart",
+		)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("time_to_hire_months", response.data["field_errors"])
+		# The client needs to know WHICH form owns the problem.
+		self.assertEqual(response.data["step"], "employment")
+
+	def test_rejection_creates_no_account(self):
+		self.client.post(
+			"/api/auth/alumni/register/",
+			self._payload(employment_status="banana"),
+			format="multipart",
+		)
+		# Nothing may survive a refused registration — not the user, not the
+		# account. The gate runs before any write for exactly this reason.
+		self.assertFalse(User.objects.filter(email="gate-test@example.com").exists())
+		self.assertEqual(AlumniAccount.objects.count(), 0)

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.core import signing
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -9,6 +9,9 @@ from users.auth import generate_admin_access_token
 from users.models import AccountStatus, AlumniAccount, AlumniProfile, EmployerAccount, User
 
 from .alignment import resolve_alignment, verified_titles_by_alumni
+from .validators import (
+	SurveyDataValidator, flat_to_sections, validate_registration_payload,
+)
 from .models import (
 	EmploymentProfile, EmploymentRecord, JobTitle, Region,
 	VerificationDecision, VerificationToken,
@@ -608,3 +611,117 @@ class PublicVerificationLandingTests(TestCase):
 		# the same hole one step earlier, at invite time.
 		response = self._invite("grad-link@example.com")
 		self.assertEqual(response.status_code, 400)
+
+
+class RegistrationValidationGateTests(SimpleTestCase):
+	"""
+	The clean-data gate on the registration intake.
+
+	SurveyDataValidator was written for the alumni portal's eight-section
+	payload. Registration posts a flat one. These tests pin the adapter that
+	bridges them, and the rule corrections needed to stop the validator
+	rejecting legitimate graduates.
+	"""
+
+	CLEAN_SURVEY = {
+		'employment_status': 'employed_full_time',
+		'academic_honors': 1,
+		'ojt_relevance': 3,
+		'time_to_hire_months': 3,
+		'first_job_sector': 'private',
+		'first_job_status': 'regular',
+		'first_job_applications_count': 2,
+		'first_job_source': 'personal_network',
+		'current_job_sector': 'private',
+		'location_type': True,
+		'city_municipality': 'Talisay',
+		'province': 'Negros Occidental',
+		'region': 'Region VI',
+		'technical_skill_count': 5,
+		'soft_skill_count': 4,
+	}
+	CLEAN_PERSONAL = {
+		'first_name': 'Ana', 'last_name': 'Reyes', 'gender': 'Female',
+		'birth_date': '2000-05', 'mobile': '+639171234567',
+		'city': 'Talisay', 'province': 'Negros Occidental',
+		'graduation_date': '2022-06', 'graduation_year': 2022,
+	}
+
+	def test_flat_payload_cannot_be_validated_without_the_adapter(self):
+		"""
+		The regression that motivates the adapter. 'employment_status' is both a
+		section name and a field name, so the raw flat dict makes the validator
+		call .get() on a string. Whether it crashed or passed vacuously, wiring
+		it in directly would not have validated anything.
+		"""
+		with self.assertRaises(AttributeError):
+			SurveyDataValidator().validate_comprehensive_survey(self.CLEAN_SURVEY)
+
+	def test_adapter_populates_every_section(self):
+		sections = flat_to_sections(self.CLEAN_SURVEY, self.CLEAN_PERSONAL)
+		self.assertEqual(len(sections), 8)
+		self.assertIn('first_job_details', sections)
+		# Absent stays absent — the adapter must not invent empty values.
+		sparse = flat_to_sections({'employment_status': 'seeking'}, {})
+		self.assertNotIn('competency_assessment', sparse)
+
+	def test_clean_payload_is_accepted(self):
+		result = validate_registration_payload(self.CLEAN_SURVEY, self.CLEAN_PERSONAL)
+		self.assertTrue(result['is_valid'])
+		self.assertEqual(result['blocking_errors'], [])
+		self.assertIsNone(result['step'])
+
+	def test_impossible_values_are_rejected_with_the_owning_step(self):
+		bad = dict(self.CLEAN_SURVEY, time_to_hire_months=-5,
+				   employment_status='banana', first_job_sector='nonsense')
+		result = validate_registration_payload(bad, self.CLEAN_PERSONAL)
+
+		self.assertFalse(result['is_valid'])
+		self.assertEqual(result['step'], 'employment')
+		for field in ('time_to_hire_months', 'employment_status', 'first_job_sector'):
+			self.assertIn(field, result['field_errors'])
+
+	def test_missing_optional_answers_warn_rather_than_block(self):
+		"""
+		The employment form legitimately skips whole sections — a graduate who
+		was never employed has no first-job details. Absence must not cost them
+		their registration.
+		"""
+		sparse = {'employment_status': 'never_employed'}
+		result = validate_registration_payload(sparse, self.CLEAN_PERSONAL)
+		self.assertTrue(result['is_valid'])
+		# Absent sections are not validated, so the signal is the completeness
+		# score rather than warnings. It must actually fall — the old
+		# calculation divided a field count by a section count and clamped to
+		# 100, so it read "perfect" for a nearly empty survey.
+		self.assertLess(result['completeness_score'], 60.0)
+		full = validate_registration_payload(self.CLEAN_SURVEY, self.CLEAN_PERSONAL)
+		self.assertEqual(full['completeness_score'], 100.0)
+
+	def test_graduation_years_outside_the_old_hard_coded_range_are_accepted(self):
+		"""
+		BATCH_RANGE was (2020, 2025). The masterlist holds 2019 batches and a
+		2026 graduate is already registered, so the old bound rejected real
+		people and would have broken again every January.
+		"""
+		for year in (2019, 2026):
+			result = validate_registration_payload(
+				self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=year)
+			)
+			self.assertTrue(result['is_valid'], f'year {year} should be accepted')
+
+		future = validate_registration_payload(
+			self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=2999)
+		)
+		self.assertFalse(future['is_valid'])
+
+	def test_month_and_year_birth_dates_do_not_error(self):
+		"""
+		The form collects "YYYY-MM" and legacy rows hold "MM/DD"; neither parses
+		with fromisoformat. The old rule raised a hard error for every record.
+		"""
+		for value in ('2000-05', '2000-05-14', '03/05', 'nonsense'):
+			result = validate_registration_payload(
+				self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, birth_date=value)
+			)
+			self.assertTrue(result['is_valid'], f'birth_date {value!r} must not block')

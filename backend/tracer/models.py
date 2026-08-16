@@ -644,6 +644,15 @@ class EmploymentProfile(models.Model):
 		default="pending",
 		help_text="Survey completion status"
 	)
+	# Outcome of the clean-data gate at registration: {status,
+	# completeness_score, warnings}. Blocking errors never reach storage — the
+	# registration is refused — so anything recorded here is a soft issue an
+	# admin can review and correct. NULL means the record predates the gate.
+	validation_result = models.JSONField(
+		null=True,
+		blank=True,
+		help_text="Validation status, completeness score and warnings captured at intake.",
+	)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 

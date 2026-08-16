@@ -14,6 +14,26 @@ from typing import Dict, List, Optional, Tuple, Any
 from django.core.exceptions import ValidationError
 
 
+def _parse_birth_date(value) -> Optional[Any]:
+    """
+    Best-effort birth-date parse across the formats this system actually holds.
+
+    The registration form collects month + year, and older rows use "MM/DD".
+    Returns a date, or None when nothing matches — callers treat None as a
+    warning, never as grounds to reject a registration.
+    """
+    if not isinstance(value, str):
+        return getattr(value, "year", None) and value or None
+
+    raw = value.strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%m/%d/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 class ValidationStatus(Enum):
     """Validation result status"""
     VALID = "valid"
@@ -47,7 +67,11 @@ class FieldValidationRules:
 
     # Continuous/Range Fields
     TIME_TO_HIRE_VALID = {1, 3, 4.5, 9, 18, 30}
-    BATCH_RANGE = (2020, 2025)
+    # Was hard-coded (2020, 2025), which rejected real graduates: the masterlist
+    # holds 2019 batches and a 2026 graduate is already registered. A fixed upper
+    # bound also silently breaks every January. Anchored to the current year so
+    # the rule ages with the system.
+    BATCH_RANGE = (2000, datetime.now().year + 1)
     AGE_RANGE = (18, 70)
 
     # Count Ranges
@@ -154,23 +178,28 @@ class SurveyDataValidator:
                 'error': f"Invalid gender: {data['gender']}"
             })
 
-        # Validate birth date format and age
+        # Validate birth date format and age.
+        #
+        # The form collects month + year only ("YYYY-MM"), and legacy rows hold
+        # "MM/DD". Neither parses with datetime.fromisoformat, so the previous
+        # YYYY-MM-DD-only rule raised a hard error for *every* record — it would
+        # have blocked all registration had it ever been enforced at intake.
         if data.get('birth_date'):
-            try:
-                birth_date = datetime.fromisoformat(data['birth_date']).date() if isinstance(data['birth_date'], str) else data['birth_date']
-                age = (datetime.now().date() - birth_date).days // 365
+            parsed = _parse_birth_date(data['birth_date'])
+            if parsed is None:
+                self.warnings.append({
+                    'section': 'personal_information',
+                    'field': 'birth_date',
+                    'warning': f"Unrecognised birth date format: {data['birth_date']!r}"
+                })
+            else:
+                age = (datetime.now().date() - parsed).days // 365
                 if not (FieldValidationRules.AGE_RANGE[0] <= age <= FieldValidationRules.AGE_RANGE[1]):
                     self.warnings.append({
                         'section': 'personal_information',
                         'field': 'birth_date',
                         'warning': f'Age {age} outside typical range {FieldValidationRules.AGE_RANGE}'
                     })
-            except (ValueError, AttributeError):
-                self.errors.append({
-                    'section': 'personal_information',
-                    'field': 'birth_date',
-                    'error': 'Invalid date format. Use YYYY-MM-DD'
-                })
 
         # Validate mobile format (basic check)
         if data.get('mobile') and not (len(data['mobile']) >= 10):
@@ -470,14 +499,39 @@ class SurveyDataValidator:
         else:
             return ValidationStatus.VALID
 
+    #: Fields each section marks complete. Used as the completeness denominator
+    #: so the score means "how much of the survey was answered".
+    TRACKED_FIELDS = {
+        'personal_information': (
+            'first_name', 'last_name', 'gender', 'birth_date', 'mobile', 'city', 'province',
+        ),
+        'educational_background': ('graduation_date', 'graduation_year'),
+        'academic_preemployment': ('academic_honors', 'ojt_relevance'),
+        'employment_status': ('employment_status',),
+        'first_job_details': (
+            'time_to_hire_months', 'first_job_sector', 'first_job_status',
+            'first_job_applications_count', 'first_job_source',
+        ),
+        'current_job_details': ('current_job_sector', 'location_type'),
+        'work_address': ('city_municipality', 'province', 'region'),
+        'competency_assessment': ('technical_skill_count', 'soft_skill_count'),
+    }
+
     def _calculate_completeness(self, survey_data: Dict) -> float:
-        """Calculate data completeness percentage"""
-        total_sections = len(survey_data)
-        if total_sections == 0:
+        """
+        Percentage of trackable survey fields that were actually answered.
+
+        Previously this divided a FIELD count by a SECTION count and clamped to
+        100 — seven completed fields across three sections gave 233%, capped to
+        100. The score could essentially never read below 100, which made the
+        data-quality metric report perfect health for a nearly empty survey.
+        """
+        expected = {f for fields in self.TRACKED_FIELDS.values() for f in fields}
+        if not expected:
             return 0.0
 
-        completed_fields = sum(1 for v in self.field_completeness.values() if v)
-        return min(100.0, (completed_fields / total_sections) * 100)
+        completed = {f for f, ok in self.field_completeness.items() if ok}
+        return round(100.0 * len(completed & expected) / len(expected), 1)
 
 
 def validate_survey_data(func):
@@ -504,3 +558,137 @@ def validate_survey_data(func):
         return func(request, *args, **kwargs)
 
     return wrapper
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Registration intake adapter
+#
+# SurveyDataValidator expects the eight-section shape that the alumni portal's
+# ComprehensiveSurveySubmissionView posts. Registration posts a FLAT payload
+# instead — the shape users/api.py and users/survey_translator.py consume.
+#
+# Handing the flat payload straight to the validator is the trap: every
+# `if 'section' in survey_data` check evaluates False, zero rules run, and the
+# result comes back is_valid=True. That looks like clean data is enforced while
+# nothing is being checked. The adapter below exists so the same rules apply to
+# both intakes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Field-level failures serious enough to refuse the registration. Everything
+#: else is recorded as a warning and saved. The distinction is deliberate: a
+#: value that is *present but impossible* corrupts analytics, whereas a value
+#: that is merely *absent* is normal — the employment form legitimately skips
+#: whole sections for graduates who were never employed.
+BLOCKING_FIELDS = frozenset({
+    'employment_status',
+    'graduation_year',
+    'academic_honors',
+    'ojt_relevance',
+    'time_to_hire_months',
+    'first_job_sector',
+    'first_job_status',
+    'first_job_source',
+    'first_job_applications_count',
+    'current_job_sector',
+    'location_type',
+    'latitude',
+    'longitude',
+    'technical_skill_count',
+    'soft_skill_count',
+    'gender',
+})
+
+#: Which registration form owns each section, so a rejection can send the
+#: graduate back to the right step instead of the beginning.
+_SECTION_STEP = {
+    'personal_information': 'personal',
+    'educational_background': 'personal',
+    'academic_preemployment': 'employment',
+    'employment_status': 'employment',
+    'first_job_details': 'employment',
+    'current_job_details': 'employment',
+    'work_address': 'employment',
+    'competency_assessment': 'employment',
+}
+
+
+def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
+    """
+    Regroup the flat registration payload into the sectioned shape the
+    validator expects.
+
+    `survey` is the parsed survey_data blob; `personal` is the top-level form
+    data (names, birth date, address, graduation), which registration sends as
+    sibling fields rather than inside survey_data.
+    """
+    survey = survey or {}
+    personal = personal or {}
+
+    def pick(source: Dict, *keys: str) -> Dict:
+        """Copy only keys that are actually present, so absent stays absent."""
+        return {k: source[k] for k in keys if k in source and source[k] not in (None, '')}
+
+    sections: Dict[str, Dict] = {}
+
+    personal_info = pick(
+        personal, 'first_name', 'last_name', 'gender', 'birth_date', 'mobile', 'city', 'province'
+    )
+    if personal_info:
+        sections['personal_information'] = personal_info
+
+    education = pick(personal, 'graduation_date', 'graduation_year')
+    if education:
+        sections['educational_background'] = education
+
+    for name, keys in (
+        ('academic_preemployment', ('academic_honors', 'ojt_relevance')),
+        ('employment_status', ('employment_status',)),
+        ('first_job_details', (
+            'time_to_hire_months', 'first_job_sector', 'first_job_status',
+            'first_job_applications_count', 'first_job_source',
+            'first_job_related_to_bsis',
+        )),
+        ('current_job_details', (
+            'current_job_sector', 'location_type', 'current_job_related_to_bsis',
+        )),
+        ('work_address', (
+            'city_municipality', 'province', 'region', 'latitude', 'longitude',
+        )),
+        ('competency_assessment', ('technical_skill_count', 'soft_skill_count')),
+    ):
+        block = pick(survey, *keys)
+        if block:
+            sections[name] = block
+
+    # employment_status is required by the validator and always collected, so
+    # surface it even when blank rather than skipping the section entirely.
+    if 'employment_status' not in sections and 'employment_status' in survey:
+        sections['employment_status'] = {'employment_status': survey.get('employment_status')}
+
+    return sections
+
+
+def validate_registration_payload(survey: Dict, personal: Optional[Dict] = None) -> Dict:
+    """
+    Validate a flat registration payload with the same rules as the portal.
+
+    Returns the validator's result plus:
+      blocking_errors — refuse the registration, keyed by field
+      field_errors    — {field: message} for the client to highlight
+      step            — which registration form owns the first blocking field
+    """
+    sections = flat_to_sections(survey, personal)
+    result = SurveyDataValidator().validate_comprehensive_survey(sections)
+
+    blocking = [e for e in result['errors'] if e.get('field') in BLOCKING_FIELDS]
+    non_blocking = [e for e in result['errors'] if e.get('field') not in BLOCKING_FIELDS]
+
+    # A missing-but-required field is demoted to a warning: the graduate is
+    # saved and flagged rather than turned away over an optional answer.
+    result['warnings'] = list(result['warnings']) + non_blocking
+    result['blocking_errors'] = blocking
+    result['field_errors'] = {e['field']: e['error'] for e in blocking if e.get('field')}
+    result['is_valid'] = not blocking
+    result['step'] = _SECTION_STEP.get(blocking[0].get('section'), 'employment') if blocking else None
+    result['sections_validated'] = sorted(sections.keys())
+    return result

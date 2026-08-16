@@ -39,6 +39,7 @@ from .throttling import (
     register_failed_attempt as throttle_register_fail,
     reset_attempts as throttle_reset,
 )
+from tracer.validators import validate_registration_payload
 from tracer.models import (
     AlumniSkill, CompetencyProfile, EmploymentProfile, EmploymentRecord,
     Skill, SkillCategory, VerificationDecision, VerificationToken, WorkAddress,
@@ -1476,8 +1477,10 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "terms_accepted_at": timezone.now() if _as_bool(personal_data.get("terms_accepted")) else None,
         "geomap_consent": _as_bool(personal_data.get("geomap_consent")),
 
-        # Academic Profile (from survey_data - Section 3)
-        "general_average_range": survey_data.get("general_average_range"),
+        # Academic Profile (from survey_data - Section 3).
+        # general_average_range is intentionally absent: the form stopped
+        # collecting it in the 2026 revision, so reading it here only ever wrote
+        # None. The column remains for historical rows.
         "academic_honors": survey_data.get("academic_honors"),
         "prior_work_experience": survey_data.get("prior_work_experience", False),
         "ojt_relevance": survey_data.get("ojt_relevance"),
@@ -1672,6 +1675,42 @@ class AlumniRegisterView(APIView):
         upload_files = required_files + [n for n in optional_files if n in request.FILES]
 
         graduation_year = _extract_year(graduation_date)
+
+        # ── Clean-data gate ──────────────────────────────────────────────────
+        # Run BEFORE the Supabase upload and before any row is written, so a
+        # rejection leaves no orphaned image and no partial account.
+        #
+        # Registration posts a flat payload while the validator expects the
+        # portal's sectioned shape, so it goes through the adapter — handing the
+        # flat dict straight to SurveyDataValidator raises AttributeError,
+        # because 'employment_status' is both a section name and a field name.
+        _survey_for_validation = _safe_json_loads(request.data.get("survey_data"))
+        _validation = validate_registration_payload(
+            _survey_for_validation,
+            {
+                "first_name": first_name,
+                "last_name": family_name,
+                "gender": request.data.get("gender"),
+                "birth_date": request.data.get("birth_date"),
+                "mobile": request.data.get("mobile"),
+                "city": request.data.get("city"),
+                "province": request.data.get("province"),
+                "graduation_date": graduation_date,
+                "graduation_year": graduation_year,
+            },
+        )
+        if not _validation["is_valid"]:
+            # Only values that are present-but-impossible reach here. `step`
+            # lets the client return the graduate to the form that owns the
+            # problem instead of restarting registration.
+            return Response(
+                {
+                    "detail": "Some answers could not be accepted. Please correct them and submit again.",
+                    "field_errors": _validation["field_errors"],
+                    "step": _validation["step"],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         master_record = _find_master_record(
             family_name=family_name,
             first_name=first_name,
@@ -1813,6 +1852,15 @@ class AlumniRegisterView(APIView):
                 emp_dict = _extract_employment_profile_data(survey_data)
                 employment_profile = EmploymentProfile.objects.create(
                     alumni=alumni_account,
+                    # Record the soft issues the clean-data gate let through, so
+                    # an admin can see which records are dirty rather than
+                    # having to trust that everything stored is pristine.
+                    validation_result={
+                        "status": _validation["status"],
+                        "completeness_score": _validation["completeness_score"],
+                        "warnings": _validation["warnings"],
+                        "sections_validated": _validation["sections_validated"],
+                    },
                     **emp_dict
                 )
 

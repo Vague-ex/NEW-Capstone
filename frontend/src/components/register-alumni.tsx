@@ -13,7 +13,7 @@ import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-r
 import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData, type MasterlistMatchStatus } from './register-alumni-personal';
 import RegisterAlumniEmployment, { type EmploymentFormData } from './register-alumni-employment';
 import RegisterTerms, { type ConsentData } from './register-terms';
-import { registerAlumni } from '../app/api-client';
+import { registerAlumni, ApiClientError } from '../app/api-client';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,8 @@ interface RegistrationState {
   submitError: string | null;
   firstName: string;
   matchStatus: MasterlistMatchStatus;
+  /** Per-field problems the server rejected, shown on the owning form. */
+  fieldErrors: Record<string, string> | null;
 }
 
 type Action =
@@ -39,6 +41,7 @@ type Action =
   | { type: 'GO_TO_COMPLETE'; firstName: string }
   | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
   | { type: 'SET_ERROR'; error: string }
+  | { type: 'NEEDS_CORRECTION'; step: RegistrationStage; fieldErrors: Record<string, string> }
   | { type: 'SET_MATCH_STATUS'; matchStatus: MasterlistMatchStatus }
   | { type: 'RETRY' };
 
@@ -51,6 +54,7 @@ const INITIAL_STATE: RegistrationState = {
   submitError: null,
   firstName: '',
   matchStatus: 'idle',
+  fieldErrors: null,
 };
 
 function reducer(state: RegistrationState, action: Action): RegistrationState {
@@ -71,6 +75,18 @@ function reducer(state: RegistrationState, action: Action): RegistrationState {
       return { ...state, isSubmitting: action.isSubmitting, submitError: null };
     case 'SET_ERROR':
       return { ...state, stage: 'error', isSubmitting: false, submitError: action.error };
+    case 'NEEDS_CORRECTION':
+      // Deliberately NOT the 'error' stage: personalData, employmentData and
+      // biometricData all stay in state, so the graduate returns to the form
+      // that owns the bad answer with everything else intact — no retyping and
+      // no second face scan.
+      return {
+        ...state,
+        stage: action.step,
+        isSubmitting: false,
+        submitError: null,
+        fieldErrors: action.fieldErrors,
+      };
     case 'SET_MATCH_STATUS':
       return { ...state, matchStatus: action.matchStatus };
     case 'RETRY':
@@ -300,6 +316,20 @@ export function RegisterAlumni() {
       sessionStorage.setItem('alumni_user', JSON.stringify(response.alumni));
       dispatch({ type: 'GO_TO_COMPLETE', firstName: personalData.firstName });
     } catch (error: unknown) {
+      // The clean-data gate rejects impossible answers with the field(s) at
+      // fault and the form that owns them. Route there rather than dropping the
+      // graduate into a dead-end error screen that discards their work.
+      const payload = error instanceof ApiClientError
+        ? (error.payload as { field_errors?: Record<string, string>; step?: string } | undefined)
+        : undefined;
+      if (payload?.field_errors && Object.keys(payload.field_errors).length > 0) {
+        dispatch({
+          type: 'NEEDS_CORRECTION',
+          step: payload.step === 'personal' ? 'personal' : 'employment',
+          fieldErrors: payload.field_errors,
+        });
+        return;
+      }
       const message = error instanceof Error ? error.message : 'Registration failed. Please try again.';
       dispatch({ type: 'SET_ERROR', error: message });
     }
@@ -393,6 +423,8 @@ export function RegisterAlumni() {
             <RegisterAlumniEmployment
               onComplete={handleEmploymentComplete}
               onBack={handleEmploymentBack}
+              initialForm={state.employmentData}
+              fieldErrors={state.fieldErrors}
             />
           </div>
         </div>
@@ -401,5 +433,12 @@ export function RegisterAlumni() {
   }
 
   // Default: personal stage
-  return <RegisterAlumniPersonal onComplete={handlePersonalComplete} />;
+  return (
+    <RegisterAlumniPersonal
+      onComplete={handlePersonalComplete}
+      initialForm={state.personalData}
+      initialBiometric={state.biometricData}
+      fieldErrors={state.fieldErrors}
+    />
+  );
 }

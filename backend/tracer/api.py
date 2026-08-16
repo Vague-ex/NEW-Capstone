@@ -2065,6 +2065,16 @@ def _build_live_df():
         .prefetch_related("alumni__employment_profiles", "alumni__competency_profiles")
     )
 
+    # Impute a missing OJT relevance with the median of the answers we do have,
+    # rather than letting `or 0` fill it in. On a 0–3 scale 0 is a real answer
+    # ("not relevant at all"), so coercing NULL to 0 does not mean "unknown" —
+    # it silently assigns the worst rating, the same defect that made a missing
+    # GPA read as "Below 75".
+    _known_ojt = sorted(
+        v for v in profiles.values_list("ojt_relevance", flat=True) if v is not None
+    )
+    _ojt_fallback = _known_ojt[len(_known_ojt) // 2] if _known_ojt else 0
+
     rows: list[dict] = []
     for p in profiles:
         emp  = p.alumni.employment_profiles.first()
@@ -2082,7 +2092,7 @@ def _build_live_df():
             # every such prediction downward.
             "academic_honors":        int(p.academic_honors or 1),
             "prior_work_experience":  int(bool(p.prior_work_experience)),
-            "ojt_relevance":          int(p.ojt_relevance or 0),
+            "ojt_relevance":          int(p.ojt_relevance if p.ojt_relevance is not None else _ojt_fallback),
             "has_portfolio":          int(bool(p.has_portfolio)),
             "pursuing_postgrad":      1 if getattr(p, "further_studies_status", "") == "enrolled" else 0,
             "completed_postgrad":     1 if getattr(p, "further_studies_status", "") == "completed" else 0,
