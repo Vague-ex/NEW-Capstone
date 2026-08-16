@@ -621,12 +621,17 @@ export async function createMasterlistEntries(
 export interface BatchPrediction {
     batch: number;
     n_alumni: number;
-    actual_employment_rate: number;
+    /** Graduates in this batch whose employment outcome is actually known. */
+    n_with_outcome?: number;
+    // The actual_* fields are null when a batch has no answers to average.
+    // Null means "no data" — rendering it as 0 would claim a 0% employment
+    // rate or an instant time-to-hire that nobody reported.
+    actual_employment_rate: number | null;
     predicted_employment_rate: number;
-    actual_mean_time_to_hire_months: number;
+    actual_mean_time_to_hire_months: number | null;
     predicted_mean_time_to_hire_months: number;
-    actual_bsis_first_rate: number;
-    actual_bsis_current_rate: number;
+    actual_bsis_first_rate: number | null;
+    actual_bsis_current_rate: number | null;
     time_to_hire_distribution: Record<string, number>;
 }
 
@@ -664,6 +669,12 @@ export interface AnalyticsPredictionsResponse {
     per_batch: BatchPrediction[];
     forecast: BatchForecast[];
     skill_forecast: SkillForecast[];
+    /** Where the numbers came from: real graduates, or the training CSV when
+     *  the live query fails. These must never look the same on screen. */
+    data_source?: 'live' | 'synthetic_fallback';
+    /** Where the MODEL came from. It is fitted on simulated records only. */
+    training_source?: 'synthetic';
+    training_n?: number;
     model_metadata: {
         trained_at: string;
         n_samples: number;

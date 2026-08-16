@@ -2109,6 +2109,7 @@ def _build_live_df():
             row[col] = 0
 
         if emp:
+            row["has_outcome"] = 1
             row["employment_status"]        = 1 if emp.employment_status in _EMPLOYED_STATUSES else 0
             row["time_to_hire_months"]      = emp.time_to_hire_months
             row["bsis_related_job_first"]   = (
@@ -2131,6 +2132,10 @@ def _build_live_df():
                     row[mapping[attr]] = 1
         else:
             row.update(
+                # The MODEL still needs a numeric value here, but "no employment
+                # profile" is not the same fact as "not employed". has_outcome
+                # marks the difference so the ACTUAL rate can exclude the row
+                # instead of counting an unknown graduate as unemployed.
                 employment_status=0,
                 time_to_hire_months=None,
                 bsis_related_job_first=None,
@@ -2138,6 +2143,7 @@ def _build_live_df():
                 job_applications_count=0,
                 location_type=0,
             )
+            row["has_outcome"] = 0
 
         rows.append(row)
 
@@ -2159,7 +2165,11 @@ def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
     pred_emp = models["employment_status"].predict(X).astype(int)
     pred_tth = models["time_to_hire"].predict(X)
 
-    actual_emp = subset["employment_status"].astype(int).to_numpy()
+    # Actual rates are computed only over graduates whose outcome we actually
+    # know. The synthetic training CSV has no has_outcome column, so everything
+    # in it counts — it is fully populated by construction.
+    known = subset[subset["has_outcome"] == 1] if "has_outcome" in subset.columns else subset
+    actual_emp = known["employment_status"].astype(int).to_numpy()
     actual_first = subset["bsis_related_job_first"].dropna().astype(int)
     actual_curr = subset["bsis_related_job_current"].dropna().astype(int)
     actual_tth = subset["time_to_hire_months"].dropna().to_numpy()
@@ -2175,14 +2185,19 @@ def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
         else:
             buckets[">12 months"] += 1
 
+    # Absent actuals are returned as null, never 0.0. A batch with no
+    # time-to-hire answers is "no data", not "hired instantly" — the same
+    # defect that made a missing GPA read as "Below 75" and unknown alignment
+    # read as "not aligned".
     return {
         "n_alumni": int(len(subset)),
-        "actual_employment_rate": float(actual_emp.mean()) if len(actual_emp) else 0.0,
+        "n_with_outcome": int(len(actual_emp)),
+        "actual_employment_rate": float(actual_emp.mean()) if len(actual_emp) else None,
         "predicted_employment_rate": float(pred_emp.mean()),
-        "actual_mean_time_to_hire_months": float(actual_tth.mean()) if len(actual_tth) else 0.0,
+        "actual_mean_time_to_hire_months": float(actual_tth.mean()) if len(actual_tth) else None,
         "predicted_mean_time_to_hire_months": float(np.mean(pred_tth)),
-        "actual_bsis_first_rate": float(actual_first.mean()) if len(actual_first) else 0.0,
-        "actual_bsis_current_rate": float(actual_curr.mean()) if len(actual_curr) else 0.0,
+        "actual_bsis_first_rate": float(actual_first.mean()) if len(actual_first) else None,
+        "actual_bsis_current_rate": float(actual_curr.mean()) if len(actual_curr) else None,
         "time_to_hire_distribution": buckets,
     }
 
@@ -2493,11 +2508,13 @@ class AdminAnalyticsPredictionsView(APIView):
             if live_df is not None and not live_df.empty:
                 _django_cache.set("analytics_live_df", live_df, 90)
 
-        working_df = (
-            live_df if (live_df is not None and not live_df.empty)
-            else artifacts["df"]
-        )
-        if live_df is not None and not live_df.empty:
+        _live_ok = live_df is not None and not live_df.empty
+        working_df = live_df if _live_ok else artifacts["df"]
+        # Reported to the client, not just logged. Without this the response is
+        # identical whether the numbers describe real graduates or the 230
+        # simulated training rows, and the page would label them the same way.
+        data_source = "live" if _live_ok else "synthetic_fallback"
+        if _live_ok:
             _log.info("Analytics: using live DB data (%d rows)", len(live_df))
         else:
             _log.warning("Analytics: live DB empty or unavailable — falling back to training CSV")
@@ -2531,6 +2548,14 @@ class AdminAnalyticsPredictionsView(APIView):
             "per_batch": per_batch,
             "forecast": forecast,
             "skill_forecast": skill_forecast,
+            # Where the NUMBERS came from: real graduates, or the training CSV.
+            "data_source": data_source,
+            # Where the MODEL came from. It is fitted entirely on simulated
+            # records and has never seen a real graduate, so every predicted
+            # figure must be presented as a simulation compared against reality
+            # — not as a forecast derived from this cohort.
+            "training_source": "synthetic",
+            "training_n": meta.get("n_samples"),
             "model_metadata": {
                 "trained_at": meta.get("trained_at"),
                 "n_samples": meta.get("n_samples"),

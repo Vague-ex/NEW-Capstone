@@ -5,7 +5,7 @@ import {
   LineChart, BarChart,
 } from 'recharts';
 import {
-  TrendingUp, Clock, Zap, Brain, AlertCircle, Cpu, Table as TableIcon, Sparkles,
+  TrendingUp, Clock, Zap, Brain, AlertCircle, AlertTriangle, Cpu, Table as TableIcon, Sparkles,
   Lightbulb, ArrowUpRight,
 } from 'lucide-react';
 import {
@@ -16,8 +16,21 @@ import {
   SkillForecast,
 } from '../../app/api-client';
 
-function pct(v: number): string {
+function pct(v: number | null | undefined): string {
+  // Null means the batch had no answers to average. Rendering it as 0% would
+  // assert a real 0% employment rate that nobody reported.
+  if (v == null) return '—';
   return `${(v * 100).toFixed(1)}%`;
+}
+
+function months(v: number | null | undefined): string {
+  if (v == null) return '—';
+  return v.toFixed(1);
+}
+
+/** Chart points: null leaves a gap in the line instead of plotting a false 0. */
+function pctPoint(v: number | null | undefined): number | null {
+  return v == null ? null : +(v * 100).toFixed(1);
 }
 
 export function AdminAnalyticsPredictions() {
@@ -70,7 +83,7 @@ export function AdminAnalyticsPredictions() {
   const employmentSeries = useMemo<EmpRow[]>(() => {
     const historical: EmpRow[] = perBatch.map((c) => ({
       year: String(c.batch),
-      actual: +(c.actual_employment_rate * 100).toFixed(1),
+      actual: pctPoint(c.actual_employment_rate),
       forecast: null,
       forecastBand: null,
     }));
@@ -95,7 +108,9 @@ export function AdminAnalyticsPredictions() {
   const hireSeries = useMemo<HireRow[]>(() => {
     const historical: HireRow[] = perBatch.map((c) => ({
       year: String(c.batch),
-      actual: +c.actual_mean_time_to_hire_months.toFixed(2),
+      actual: c.actual_mean_time_to_hire_months == null
+        ? null
+        : +c.actual_mean_time_to_hire_months.toFixed(2),
       forecast: null,
       forecastBand: null,
     }));
@@ -121,8 +136,8 @@ export function AdminAnalyticsPredictions() {
     () =>
       perBatch.map((c) => ({
         year: String(c.batch),
-        firstJob: +(c.actual_bsis_first_rate * 100).toFixed(1),
-        currentJob: +(c.actual_bsis_current_rate * 100).toFixed(1),
+        firstJob: pctPoint(c.actual_bsis_first_rate),
+        currentJob: pctPoint(c.actual_bsis_current_rate),
       })),
     [perBatch],
   );
@@ -146,8 +161,8 @@ export function AdminAnalyticsPredictions() {
   );
 
   const batches = perBatch.map((c) => c.batch);
-  const observedHire = overall?.actual_mean_time_to_hire_months ?? 0;
-  const observedEmp = overall?.actual_employment_rate ?? 0;
+  const observedHire = overall?.actual_mean_time_to_hire_months ?? null;
+  const observedEmp = overall?.actual_employment_rate ?? null;
   const nextForecast = forecastList[0];
 
   return (
@@ -216,6 +231,42 @@ export function AdminAnalyticsPredictions() {
         )}
       </div>
 
+      {/* Model provenance. The predictor is fitted entirely on simulated
+          records and has never seen a real graduate, so every "predicted"
+          figure below is a simulation being compared against reality — not a
+          forecast derived from this cohort. Stated up front rather than left
+          for a reader to infer from the sample size in the footnote. */}
+      {data?.training_source === 'synthetic' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
+          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <p style={{ fontWeight: 700 }}>Predictions come from a model trained on simulated data</p>
+            <p className="mt-0.5">
+              The model was fitted on {data.training_n ?? '—'} synthetic records and has never
+              seen a real graduate. Figures labelled <em>predicted</em> show what that
+              simulation expects; figures labelled <em>actual</em> are your real graduates.
+              The comparison shows how the two differ — it is not a forecast produced from
+              real outcomes. The model will be retrained once enough real responses exist.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Louder than the banner above: the numbers themselves are simulated. */}
+      {data?.data_source === 'synthetic_fallback' && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-2.5 items-start">
+          <AlertTriangle className="size-4 text-red-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-red-900 leading-relaxed">
+            <p style={{ fontWeight: 700 }}>Showing simulated rows, not real graduates</p>
+            <p className="mt-0.5">
+              Live graduate data could not be loaded, so both the actual and predicted
+              figures on this page come from the training file. Do not read these as real
+              outcomes. Check the server log for the cause.
+            </p>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-2 items-start text-sm text-red-700">
           <AlertCircle className="size-4 mt-0.5" />
@@ -231,7 +282,7 @@ export function AdminAnalyticsPredictions() {
           {
             label: 'Observed Employment Rate',
             value: pct(observedEmp),
-            sub: `${overall?.n_alumni ?? 0} graduates in sample`,
+            sub: `${overall?.n_with_outcome ?? overall?.n_alumni ?? 0} of ${overall?.n_alumni ?? 0} graduates with a known outcome`,
             icon: TrendingUp,
             bg: 'bg-emerald-50',
             color: 'text-emerald-600',
@@ -239,7 +290,7 @@ export function AdminAnalyticsPredictions() {
           },
           {
             label: 'Observed Time-to-Hire',
-            value: `${observedHire.toFixed(1)}mo`,
+            value: observedHire == null ? '—' : `${observedHire.toFixed(1)}mo`,
             sub: 'Mean across employed graduates',
             icon: Clock,
             bg: 'bg-blue-50',
@@ -752,7 +803,7 @@ export function AdminAnalyticsPredictions() {
                         </td>
                         <td className="py-2.5 pr-4">
                           <span className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
-                            {c.actual_mean_time_to_hire_months.toFixed(1)}
+                            {months(c.actual_mean_time_to_hire_months)}
                           </span>
                         </td>
                         <td className="py-2.5 pr-4">

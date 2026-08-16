@@ -725,3 +725,103 @@ class RegistrationValidationGateTests(SimpleTestCase):
 				self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, birth_date=value)
 			)
 			self.assertTrue(result['is_valid'], f'birth_date {value!r} must not block')
+
+
+class PredictionComparisonTests(TestCase):
+	"""
+	The model is trained on synthetic data and APPLIED to real graduates, so the
+	comparison path is where things silently break: a feature drifts and the
+	model quietly receives the wrong column, or a missing actual is reported as
+	a real zero.
+
+	TestCase, not SimpleTestCase — _build_live_df() queries the database, and a
+	fixture is created below so the parity check runs for real instead of
+	skipping on an empty table.
+	"""
+
+	def setUp(self):
+		user = User.objects.create_user(
+			email="pred-test@example.com", password="TestPass123!", role=User.Role.ALUMNI
+		)
+		self.alumni = AlumniAccount.objects.create(
+			user=user, account_status=AccountStatus.ACTIVE
+		)
+		AlumniProfile.objects.create(
+			alumni=self.alumni, first_name="Ana", last_name="Reyes", graduation_year=2022
+		)
+		EmploymentProfile.objects.create(
+			alumni=self.alumni,
+			employment_status="employed_full_time",
+			time_to_hire_months=3,
+		)
+
+	def _artifacts(self):
+		from tracer.api import _load_ml_artifacts
+		return _load_ml_artifacts()
+
+	def test_model_artifacts_load(self):
+		artifacts = self._artifacts()
+		self.assertNotIn("error", artifacts, artifacts.get("error"))
+		self.assertIn("features", artifacts)
+
+	def test_live_frame_supplies_every_feature_the_model_expects(self):
+		"""
+		Train/serve parity. If _build_live_df stops emitting a feature the model
+		was trained on, prediction does not raise — it degrades silently, which
+		is far worse. This is the guard against that.
+		"""
+		from tracer.api import _build_live_df
+
+		artifacts = self._artifacts()
+		expected = list(artifacts["features"])
+
+		live = _build_live_df()
+		self.assertFalse(live.empty, "fixture graduate should produce a live row")
+
+		missing = [f for f in expected if f not in live.columns]
+		self.assertEqual(missing, [], f"live frame is missing trained features: {missing}")
+
+	def test_real_employment_statuses_collapse_to_the_trained_binary(self):
+		"""
+		The model was trained on a binary target. Real data holds five strings,
+		so the collapse has to agree with what the model learned.
+		"""
+		from tracer.api import _EMPLOYED_STATUSES
+
+		for status in ("employed_full_time", "employed_part_time", "self_employed"):
+			self.assertIn(status, _EMPLOYED_STATUSES, f"{status} must count as employed")
+		for status in ("seeking", "not_seeking", "never_employed"):
+			self.assertNotIn(status, _EMPLOYED_STATUSES, f"{status} must not count as employed")
+
+	def test_absent_actuals_are_reported_as_null_not_zero(self):
+		"""
+		A batch with no answers must report None. Zero would assert a real 0%
+		employment rate and an instant time-to-hire that nobody reported.
+		"""
+		import pandas as pd
+		from tracer.api import _aggregate_for_batch
+
+		artifacts = self._artifacts()
+		feats = list(artifacts["features"])
+
+		row = {f: 0 for f in feats}
+		row.update(
+			batch=2024,
+			has_outcome=0,
+			employment_status=0,
+			time_to_hire_months=None,
+			bsis_related_job_first=None,
+			bsis_related_job_current=None,
+		)
+		local = {**artifacts, "df": pd.DataFrame([row])}
+
+		result = _aggregate_for_batch(local, 2024)
+		self.assertIsNone(result["actual_mean_time_to_hire_months"])
+		self.assertIsNone(result["actual_bsis_first_rate"])
+		self.assertIsNone(result["actual_bsis_current_rate"])
+		# has_outcome=0 means the graduate is excluded from the actual rate
+		# rather than silently counted as unemployed.
+		self.assertIsNone(result["actual_employment_rate"])
+		self.assertEqual(result["n_with_outcome"], 0)
+		# A prediction is still produced — the model always has an opinion.
+		self.assertIsNotNone(result["predicted_employment_rate"])
