@@ -1,0 +1,16 @@
+# Reinstalled inside the image for the correct platform; copying the host's
+# node_modules is the most common cause of a broken Next.js container.
+node_modules/
+.next/
+out/
+
+.env
+.env.*
+!.env.example
+
+.git/
+.gitignore
+README.md
+npm-debug.log*
+.DS_Store
+coverage/

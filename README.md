@@ -1,123 +1,162 @@
-# NEW-Capstone
+# Graduate Tracer System with Predictive Employability Trend Analysis
 
-Graduate Tracer System with a Django backend and Next.js frontend.
+Carlos Hilado Memorial State University – Talisay Campus · BSIS Program
 
-## Project Structure
+A Django REST API and Next.js front end that traces BSIS graduate employment
+outcomes, verifies identity by face recognition, collects employer confirmation
+through one-time links, and reports how well graduates' jobs align with the BSIS
+curriculum.
 
-- `backend/`: Django API server
-- `frontend/`: Next.js app
-- `Figmanuts/`: design/migration reference app assets
+---
 
-## Backend Setup
+## Project structure
 
-1. Create/activate your virtual environment.
-2. Install dependencies:
+| Path | What it is |
+|---|---|
+| `backend/` | Django 5.2 REST API |
+| `frontend/` | Next.js 16 / React 19 app |
+| `backend/ml/` | Predictive model: data generation, training, evaluation |
+| `documentations/` | DFDs, ERD, use cases, test documentation |
+| `Figmanuts/` | Design reference assets |
+
+**Database:** PostgreSQL hosted on Supabase. Nothing runs Postgres locally.
+
+---
+
+## Backend setup
+
+Dependencies are declared in **`backend/requirements.txt`** — that is the file
+listing every package the virtual environment needs.
 
 ```bash
+# 1. Activate the virtual environment
+venv\Scripts\activate
+
+# 2. Install dependencies
 cd backend
 ..\venv\Scripts\python.exe -m pip install -r requirements.txt
-```
 
-3. Run the backend:
+# 3. Configure environment (never commit this file)
+copy .env.example .env
 
-```bash
-cd backend
+# 4. Apply migrations
+..\venv\Scripts\python.exe manage.py migrate
+
+# 5. Run
 ..\venv\Scripts\python.exe manage.py runserver
 ```
 
-## Frontend Setup
+> **Use `venv\`, not `.venv\`.** Both directories exist. `venv` is the complete
+> environment (50 packages); `.venv` is a stale partial one (19 packages) that
+> is missing `psycopg2`. Using `.venv` or the system Python fails with
+> `No module named 'psycopg2'` even though the package *is* installed — just
+> not in the environment you ran.
 
-1. Install dependencies:
+### Verify which database you are on
+
+The settings fall back to SQLite when `DATABASE_URL` is unset, which silently
+invalidates any migration rehearsal. Confirm before trusting a result:
+
+```bash
+..\venv\Scripts\python.exe manage.py shell -c "from django.db import connection; print(connection.vendor)"
+```
+
+Expect `postgresql`. If it prints `sqlite`, your `.env` is not being read.
+
+### Tests
+
+```bash
+cd backend
+..\venv\Scripts\python.exe manage.py test users tracer
+```
+
+47 tests covering validation, authentication, link verification, alignment
+resolution and name parsing. See `documentations/whitebox-testing.txt`.
+
+---
+
+## Frontend setup
 
 ```bash
 cd frontend
-npm install
+npm install          # postinstall copies the face-recognition model weights
+npm run dev
 ```
 
-2. Face model files are copied automatically during install via postinstall.
+Manual fallback if the model weights are missing (PowerShell):
 
-If you need to copy manually (fallback):
-
-```bash
+```powershell
 cd frontend
 if (-not (Test-Path "public/modern-face-models")) { New-Item -ItemType Directory -Path "public/modern-face-models" | Out-Null }
 Copy-Item -Path "node_modules/modern-face-api/weights/*" -Destination "public/modern-face-models" -Recurse -Force
 ```
 
-3. Run the frontend:
+Checks:
 
 ```bash
-cd frontend
-npm run dev
+npx tsc --noEmit     # type safety
+npm run lint
+npm run build
 ```
+
+---
+
+## Running with Docker
+
+```bash
+cp backend/.env.example backend/.env
+docker compose up --build
+```
+
+Front end on `:3000`, API on `:8000`. See **`DOCKER.md`** — particularly that
+`NEXT_PUBLIC_API_URL` is baked in at build time and that migrations do not run
+automatically.
+
+---
+
+## Machine learning pipeline
+
+```bash
+cd backend
+..\venv\Scripts\python.exe ml/scripts/1_generate_synthetic_data.py
+..\venv\Scripts\python.exe ml/scripts/2_train_models.py
+..\venv\Scripts\python.exe ml/scripts/3_evaluate_models.py
+```
+
+> The model is trained on **synthetic data** and applied to real graduates for
+> comparison. It has never been fitted on real outcomes — there are too few of
+> them for 30 features. The analytics page states this on screen, and it should
+> be stated in any write-up too.
+
+---
+
+## Deployment
+
+Currently front end on Vercel, API on Render, database on Supabase.
+
+**Known issue:** Render blocks outbound SMTP, so Gmail email sending fails
+there. Either set `RESEND_API_KEY` (with a verified sender) or move to a host
+that permits SMTP, where the existing Gmail settings work unchanged.
+
+When moving hosts, these environment variables must be updated:
+
+| Variable | Consequence if stale |
+|---|---|
+| `ALLOWED_HOSTS` | Django rejects every request |
+| `CORS_ALLOWED_ORIGINS` | Browser blocks all API calls |
+| `CSRF_TRUSTED_ORIGINS` | Admin login fails |
+| `GRADUATE_LOGIN_URL` | **Employer verification links break** — it is embedded in the emails |
+| `NEXT_PUBLIC_API_URL` | Build-time; requires a front-end rebuild |
+
+Set `DEBUG=False` in production. It defaults to `True`, and with debug on
+`ALLOWED_HOSTS` becomes `["*"]` and tracebacks expose database credentials.
+
+---
 
 ## Notes
 
-- Face model files in `frontend/public/modern-face-models/` are intentionally gitignored.
-- Run lint when needed:
-
-```bash
-cd frontend
-npm run lint
-```
-
-## Test Production Deployment (Vercel + Railway)
-
-Recommended for this project:
-
-- Frontend: Vercel (`frontend/`)
-- Backend: Railway (`backend/`)
-- Database/Storage: existing Supabase configuration
-
-### 1) Safety First: Use an isolated branch
-
-```bash
-git checkout main
-git pull
-git checkout -b test_prod
-git push -u origin test_prod
-```
-
-Do all test-production changes and deploy verification from `test_prod` before merging to main.
-
-### 2) Backend on Railway
-
-1. Create a Railway project/service using `backend/` as the service root.
-2. Railway will use `backend/Procfile`:
-	- `web: gunicorn core.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120`
-3. Add backend environment variables from `backend/.env.example` with real values.
-4. Run migrations in Railway once after first deploy:
-
-```bash
-python manage.py migrate
-```
-
-5. Verify API is reachable from your Railway public URL.
-
-### 3) Frontend on Vercel
-
-1. Import the `frontend/` directory as a Vercel project.
-2. Set environment variables from `frontend/.env.example`.
-3. Required variable:
-	- `NEXT_PUBLIC_API_URL=https://<your-railway-backend-domain>`
-4. Optional variable for employer-sharing links:
-	- `NEXT_PUBLIC_EMPLOYER_PORTAL_URL=/employer` (same domain path)
-	- or absolute URL if you use a different portal domain.
-5. Deploy and verify browser requests are hitting Railway API, not localhost.
-
-### 4) Production behavior checks
-
-- Backend requires strict values when `DEBUG=False`:
-  - `ALLOWED_HOSTS`
-  - `CORS_ALLOWED_ORIGINS`
-  - `CSRF_TRUSTED_ORIGINS`
-- Do not use wildcard CORS in production.
-- Keep `SECRET_KEY` unique and private.
-
-### 5) Smoke test checklist
-
-1. Alumni login and profile edit routes.
-2. Employer registration and login.
-3. Employer dashboard data loading.
-4. Alumni employment form employer-link copy and open behavior.
-5. No CORS/CSRF errors in browser console/network.
+- Face model weights in `frontend/public/modern-face-models/` are gitignored.
+- Employers have **no accounts**. They verify through a one-time link at
+  `/verify/:tokenId`.
+- Migrations are never applied automatically. Run `manage.py migrate` yourself
+  after deploying.

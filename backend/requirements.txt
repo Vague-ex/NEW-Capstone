@@ -1,14 +1,46 @@
+# Backend dependencies for the virtual environment and the Docker image.
+#
+#   ..\venv\Scripts\python.exe -m pip install -r requirements.txt
+#
+# Versions are pinned exactly and kept in sync with the venv these were
+# developed and tested against. Docker builds from this file, so a version
+# here that differs from the venv means the container runs code that was
+# never tested locally.
+#
+# Do not bulk-upgrade close to a deadline. Every pin below is a version the
+# full test suite has passed on.
+
+# ── Web framework ────────────────────────────────────────────────────────────
 Django==5.2.13
 djangorestframework==3.17.1
 django-cors-headers==4.9.0
-psycopg2-binary==2.9.9
+
+# ── Database ─────────────────────────────────────────────────────────────────
+# Required by Django's postgresql backend. Never imported directly by our code;
+# without it Django refuses to start against Supabase.
+psycopg2-binary==2.9.11
+
+# ── Machine learning (predictive employability model) ────────────────────────
 scikit-learn==1.8.0
 pandas==2.3.3
 numpy==2.4.4
 joblib==1.5.3
-matplotlib==3.9.2
+matplotlib==3.10.9
+
+# ── Face recognition support ─────────────────────────────────────────────────
+# headless: no GUI bindings, which is what a server needs. The full
+# opencv-python pulls in GTK/X11 libraries a container has no use for.
 opencv-python-headless==4.13.0.92
+
+# ── Reference data ───────────────────────────────────────────────────────────
+# PSGC region/province/city dataset, used by `manage.py seed_locations`.
+barangay==2026.1.13.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
 python-dotenv==1.0.0
 requests==2.31.0
+
+# ── Production server ────────────────────────────────────────────────────────
+# Not needed for `manage.py runserver`, so it is normally absent from a local
+# venv. It IS installed in the Docker image, which runs gunicorn.
 gunicorn==21.2.0
-barangay==2026.1.13.0

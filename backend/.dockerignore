@@ -1,0 +1,26 @@
+# Secrets must never enter the image — they are supplied at runtime instead.
+.env
+.env.*
+*.pem
+*.key
+
+# Local virtualenvs: wrong platform, and huge.
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local database and collected output; regenerated in the image.
+db.sqlite3
+staticfiles/
+media/
+
+# Never ship the ML training corpus or generated plots. The trained model
+# artifacts (.joblib, model_metadata.json) ARE needed and are not excluded.
+ml/data/*.csv
+ml/models/reports/
+
+.pytest_cache/
+.coverage
+htmlcov/

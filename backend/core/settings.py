@@ -250,6 +250,12 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Required by `collectstatic`, which the Docker image runs at build time.
+# Gunicorn serves no static files of its own, so without a collected
+# STATIC_ROOT the Django admin at /admin/ renders as unstyled HTML.
+# nginx (or WhiteNoise) serves this directory in production.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

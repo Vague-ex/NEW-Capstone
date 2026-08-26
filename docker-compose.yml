@@ -1,0 +1,44 @@
+# Graduate Tracer System — local and VPS deployment.
+#
+#   docker compose up --build
+#   frontend  http://localhost:3000
+#   backend   http://localhost:8000
+#
+# The database stays external (Supabase). Nothing here runs Postgres, so
+# there is no volume to back up and no risk of a container wiping your data.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: gradtracer-backend
+    restart: unless-stopped
+    env_file:
+      # Secrets live here, never in the image. Copy backend/.env.example.
+      - ./backend/.env
+    environment:
+      # Explicit rather than inherited: a production container must never
+      # start in debug mode, which would serve tracebacks containing the
+      # database credentials to anyone who triggers an error.
+      DEBUG: "False"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Trained model artifacts, so the model can be retrained and swapped
+      # without rebuilding the image.
+      - ./backend/ml/models:/app/ml/models
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* is baked in at BUILD time. Point this at the public
+        # backend URL before building for a real deployment — changing it
+        # afterwards requires a rebuild, not just a restart.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    image: gradtracer-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
