@@ -10,6 +10,7 @@
 import { useReducer, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
+import { clearRegistrationDrafts } from './registration-draft';
 import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData, type MasterlistMatchStatus } from './register-alumni-personal';
 import RegisterAlumniEmployment, { type EmploymentFormData } from './register-alumni-employment';
 import RegisterTerms, { type ConsentData } from './register-terms';
@@ -314,6 +315,10 @@ export function RegisterAlumni() {
 
       const response = await registerAlumni(payload);
       sessionStorage.setItem('alumni_user', JSON.stringify(response.alumni));
+      // Registration succeeded, so the drafts have served their purpose. Left
+      // behind, the next graduate to register in this tab would inherit these
+      // answers as their own starting point.
+      clearRegistrationDrafts();
       dispatch({ type: 'GO_TO_COMPLETE', firstName: personalData.firstName });
     } catch (error: unknown) {
       // The clean-data gate rejects impossible answers with the field(s) at

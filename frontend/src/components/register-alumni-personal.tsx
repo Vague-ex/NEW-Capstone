@@ -6,11 +6,12 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router';
+import { PERSONAL_DRAFT_KEY, saveDraft, loadDraft, hasDraft } from './registration-draft';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle,
   User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
   ChevronRight, ChevronLeft, Circle,
-  BookOpen,
+  BookOpen, ShieldCheck,
 } from 'lucide-react';
 import isImageBlurry from 'is-image-blurry';
 import {
@@ -308,6 +309,9 @@ export default function RegisterAlumniPersonal({
   // Form state
   const [form, setForm] = useState<PersonalFormData>(initialForm ?? INITIAL_PERSONAL_FORM);
   const [step, setStep] = useState<PersonalStep>(1);
+  // True when this mount recovered a draft, so step 1 can explain why the
+  // password box is empty when everything else is already filled in.
+  const [draftRestored, setDraftRestored] = useState(false);
   const [stepError, setStepError] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -363,6 +367,34 @@ export default function RegisterAlumniPersonal({
     () => buildShotInstructions(headTurnDirection),
     [headTurnDirection],
   );
+
+  // ── Draft recovery ─────────────────────────────────────────────────────────
+  // The parent keeps personal data in React state, which survives moving
+  // between the personal and employment forms but NOT a page refresh. The
+  // employment form already persisted itself; this half never did, so a
+  // refresh during the first three steps discarded everything.
+  useEffect(() => {
+    if (initialForm) return; // parent state wins; it is fresher than any draft
+    if (!hasDraft(PERSONAL_DRAFT_KEY)) return;
+    const restored = loadDraft(PERSONAL_DRAFT_KEY, INITIAL_PERSONAL_FORM);
+    // The persist effect fires once on mount with a pristine form, so a draft
+    // existing is not proof anything was typed. Only announce a restore when
+    // there is something a person would actually recognise as their own work.
+    const meaningful = Boolean(
+      restored.email || restored.firstName || restored.familyName || restored.mobile,
+    );
+    if (!meaningful) return;
+    setForm(restored);
+    setDraftRestored(true);
+    // Deliberately stay on step 1. The password is never persisted, so a
+    // restore that jumped to step 3 would look complete and then fail at
+    // submit with an empty credential. Step 1 asks for it up front.
+  }, [initialForm]);
+
+  useEffect(() => {
+    // saveDraft strips password/confirmPassword before writing.
+    saveDraft(PERSONAL_DRAFT_KEY, form as unknown as Record<string, unknown>);
+  }, [form]);
 
   useEffect(() => { return () => stopCamera(); }, []);
 
@@ -1008,6 +1040,16 @@ export default function RegisterAlumniPersonal({
           {step === 1 && (
             <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
               <SectionHeader icon={Lock} title="Create Your Account" subtitle="Set up your login credentials for the Graduate Portal." />
+
+              {draftRestored && (
+                <div className="gt-fade flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 mb-5">
+                  <ShieldCheck className="size-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-emerald-800 text-sm">
+                    We restored the details you had already entered. For your security your
+                    password was not saved, so please enter it again to continue.
+                  </p>
+                </div>
+              )}
 
               {stepError && (
                 <div ref={errorRef} className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-3.5 mb-5 scroll-mt-24">

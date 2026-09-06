@@ -9,6 +9,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { EMPLOYMENT_DRAFT_KEY, saveDraft, loadDraft } from './registration-draft';
 import {
   Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
   AlertCircle, CheckCircle2, Code, Users, Loader, X,
@@ -345,21 +346,17 @@ export default function RegisterAlumniEmployment({
     }
   }, [stepError]);
 
-  // Restore form from sessionStorage on mount
+  // Restore form from sessionStorage on mount.
+  // loadDraft merges over the defaults rather than replacing the object, so a
+  // draft written before a field was added restores with that field at its
+  // default instead of undefined.
   useEffect(() => {
-    const stored = sessionStorage.getItem('employmentFormData');
-    if (stored) {
-      try {
-        setForm(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to restore form data:', e);
-      }
-    }
+    setForm((prev) => loadDraft(EMPLOYMENT_DRAFT_KEY, prev));
   }, []);
 
   // Persist form to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem('employmentFormData', JSON.stringify(form));
+    saveDraft(EMPLOYMENT_DRAFT_KEY, form as unknown as Record<string, unknown>);
   }, [form]);
 
   // Get available regions (from Supabase or fallback)
