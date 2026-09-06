@@ -3,8 +3,8 @@ Stage 1: Synthetic Dataset Generator for BSIS Graduate Tracer
 
 Generates realistic alumni records (2020-2025 batches) based on the questionnaire
 spec in PredictiveModelContext.md. Outputs:
-    EyeOfTheTiger/data/raw_training_data.csv     - Human-readable labels
-    EyeOfTheTiger/data/processed_training_data.csv - Model-ready numeric encoding
+    backend/ml/data/raw_training_data.csv       - Human-readable labels
+    backend/ml/data/processed_training_data.csv - Model-ready numeric encoding
 
 The data-generating process encodes realistic signal so downstream regression/
 classification models can actually learn the coefficients described in the spec:

@@ -135,6 +135,17 @@ class VerificationTokenFlowTests(TestCase):
 			salt="users.employer.access",
 		)
 
+	def _invite(self):
+		"""
+		Mint a token the way the system actually does now: the GRADUATE
+		requests verification. The old employer-token issue endpoint was
+		removed with the employer accounts.
+		"""
+		return self.client.post(
+			f"/api/verification/alumni/{self.alumni_account.id}/invite/",
+			{}, format="json",
+		)
+
 	def _auth_headers(self) -> dict:
 		return {"HTTP_AUTHORIZATION": f"Bearer {self.employer_token}"}
 
@@ -142,12 +153,7 @@ class VerificationTokenFlowTests(TestCase):
 		return {"HTTP_AUTHORIZATION": f"Bearer {self.pending_employer_token}"}
 
 	def test_issue_and_confirm_verification_token(self):
-		issue_response = self.client.post(
-			"/api/verification/tokens/issue/",
-			{"employment_record_id": str(self.employment_record.id)},
-			format="json",
-			**self._auth_headers(),
-		)
+		issue_response = self._invite()
 		self.assertEqual(issue_response.status_code, 201)
 
 		token_id = issue_response.data["token"]["id"]
@@ -189,12 +195,7 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertEqual(decision.token.alumni_id, self.alumni_account.id)
 
 	def test_graduate_cannot_verify_themselves(self):
-		issue_response = self.client.post(
-			"/api/verification/tokens/issue/",
-			{"employment_record_id": str(self.employment_record.id)},
-			format="json",
-			**self._auth_headers(),
-		)
+		issue_response = self._invite()
 		token_id = issue_response.data["token"]["id"]
 
 		response = self.client.post(
@@ -210,12 +211,7 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertEqual(VerificationDecision.objects.count(), 0)
 
 	def test_verifier_identity_is_required(self):
-		issue_response = self.client.post(
-			"/api/verification/tokens/issue/",
-			{"employment_record_id": str(self.employment_record.id)},
-			format="json",
-			**self._auth_headers(),
-		)
+		issue_response = self._invite()
 		token_id = issue_response.data["token"]["id"]
 
 		response = self.client.post(
@@ -284,160 +280,6 @@ class VerificationTokenFlowTests(TestCase):
 			self.client.post(f"/api/verification/tokens/{token_id}/decision/", payload, format="json").status_code,
 			400,
 		)
-
-	def test_issue_requires_employer_token(self):
-		response = self.client.post(
-			"/api/verification/tokens/issue/",
-			{"employment_record_id": str(self.employment_record.id)},
-			format="json",
-		)
-		self.assertEqual(response.status_code, 401)
-
-
-class EmployerVerifiableGraduateListTests(TestCase):
-	def setUp(self):
-		self.client = APIClient()
-
-		self.employer_user = User.objects.create_user(
-			email="talent@example.com",
-			password="TestPass123!",
-			role=User.Role.EMPLOYER,
-		)
-		self.employer_account = EmployerAccount.objects.create(
-			user=self.employer_user,
-			company_email="talent@example.com",
-			company_name="Accenture Philippines",
-			account_status=AccountStatus.ACTIVE,
-		)
-		self.employer_token = signing.dumps(
-			{"uid": str(self.employer_user.id), "role": User.Role.EMPLOYER},
-			salt="users.employer.access",
-		)
-
-		self.pending_employer_user = User.objects.create_user(
-			email="pending-talent@example.com",
-			password="TestPass123!",
-			role=User.Role.EMPLOYER,
-		)
-		self.pending_employer_account = EmployerAccount.objects.create(
-			user=self.pending_employer_user,
-			company_email="pending-talent@example.com",
-			company_name="Accenture Philippines",
-			account_status=AccountStatus.PENDING,
-		)
-		self.pending_employer_token = signing.dumps(
-			{"uid": str(self.pending_employer_user.id), "role": User.Role.EMPLOYER},
-			salt="users.employer.access",
-		)
-
-		self.match_alumni_user = User.objects.create_user(
-			email="maria@example.com",
-			password="TestPass123!",
-			role=User.Role.ALUMNI,
-		)
-		self.match_alumni = AlumniAccount.objects.create(
-			user=self.match_alumni_user,
-			account_status=AccountStatus.ACTIVE,
-		)
-		AlumniProfile.objects.create(
-			alumni=self.match_alumni,
-			first_name="Maria",
-			last_name="Santos",
-			graduation_year=2022,
-		)
-		EmploymentRecord.objects.create(
-			alumni=self.match_alumni,
-			employer_name_input="Accenture Technology Services PH",
-			job_title_input="Systems Analyst",
-			employment_status=EmploymentRecord.EmploymentStatus.EMPLOYED,
-			verification_status=EmploymentRecord.VerificationStatus.PENDING,
-			is_current=True,
-		)
-
-		self.partial_match_user = User.objects.create_user(
-			email="john@example.com",
-			password="TestPass123!",
-			role=User.Role.ALUMNI,
-		)
-		self.partial_match_alumni = AlumniAccount.objects.create(
-			user=self.partial_match_user,
-			account_status=AccountStatus.ACTIVE,
-		)
-		AlumniProfile.objects.create(
-			alumni=self.partial_match_alumni,
-			first_name="John",
-			last_name="Reyes",
-			graduation_year=2021,
-		)
-		EmploymentRecord.objects.create(
-			alumni=self.partial_match_alumni,
-			employer_name_input="Accenture",
-			job_title_input="QA Specialist",
-			employment_status=EmploymentRecord.EmploymentStatus.EMPLOYED,
-			verification_status=EmploymentRecord.VerificationStatus.PENDING,
-			is_current=True,
-		)
-
-		self.non_match_user = User.objects.create_user(
-			email="other@example.com",
-			password="TestPass123!",
-			role=User.Role.ALUMNI,
-		)
-		self.non_match_alumni = AlumniAccount.objects.create(
-			user=self.non_match_user,
-			account_status=AccountStatus.ACTIVE,
-		)
-		AlumniProfile.objects.create(
-			alumni=self.non_match_alumni,
-			first_name="Paolo",
-			last_name="Dela Cruz",
-			graduation_year=2022,
-		)
-		EmploymentRecord.objects.create(
-			alumni=self.non_match_alumni,
-			employer_name_input="Different Company Inc",
-			job_title_input="Support Engineer",
-			employment_status=EmploymentRecord.EmploymentStatus.EMPLOYED,
-			verification_status=EmploymentRecord.VerificationStatus.PENDING,
-			is_current=True,
-		)
-
-	def _auth_headers(self) -> dict:
-		return {"HTTP_AUTHORIZATION": f"Bearer {self.employer_token}"}
-
-	def _pending_auth_headers(self) -> dict:
-		return {"HTTP_AUTHORIZATION": f"Bearer {self.pending_employer_token}"}
-
-	def test_lists_current_graduates_with_same_or_similar_company_name(self):
-		response = self.client.get(
-			"/api/verification/employer/graduates/",
-			**self._auth_headers(),
-		)
-		self.assertEqual(response.status_code, 200)
-
-		results = response.data.get("results", [])
-		result_ids = {entry.get("id") for entry in results}
-		self.assertIn(str(self.match_alumni.id), result_ids)
-		self.assertIn(str(self.partial_match_alumni.id), result_ids)
-		self.assertNotIn(str(self.non_match_alumni.id), result_ids)
-
-	def test_supports_name_and_year_filters(self):
-		response = self.client.get(
-			"/api/verification/employer/graduates/?q=maria&year=2022",
-			**self._auth_headers(),
-		)
-		self.assertEqual(response.status_code, 200)
-
-		results = response.data.get("results", [])
-		self.assertEqual(len(results), 1)
-		self.assertEqual(results[0].get("name"), "Maria Santos")
-
-	def test_pending_employer_can_access_verifiable_graduate_list(self):
-		response = self.client.get(
-			"/api/verification/employer/graduates/",
-			**self._pending_auth_headers(),
-		)
-		self.assertEqual(response.status_code, 200)
 
 
 class CurriculumAlignmentReportTests(TestCase):

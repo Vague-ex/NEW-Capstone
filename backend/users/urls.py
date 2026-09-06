@@ -10,12 +10,6 @@ from .api import (
     AlumniRequestRejectView,
     AlumniLoginView,
     AlumniRegisterView,
-    EmployerAccountStatusView,
-    EmployerRequestApproveView,
-    EmployerRequestRejectView,
-    EmployerLoginView,
-    EmployerRegisterView,
-    EmployerRequestsListView,
     MasterlistBulkCreateView,
     MasterlistCheckView,
     MasterlistListView,
@@ -48,8 +42,6 @@ urlpatterns = [
         AlumniEmploymentUpdateView.as_view(),
         name="alumni-account-employment-update",
     ),
-    path("auth/employer/register/", EmployerRegisterView.as_view(), name="employer-register"),
-    path("auth/employer/login/", EmployerLoginView.as_view(), name="employer-login"),
     path(
         "auth/forgot-password/request/",
         ForgotPasswordRequestView.as_view(),
@@ -75,11 +67,6 @@ urlpatterns = [
         ForgotPasswordVerifyView.as_view(),
         name="forgot-password-verify",
     ),
-    path(
-        "auth/employer/account/<uuid:employer_id>/",
-        EmployerAccountStatusView.as_view(),
-        name="employer-account-status",
-    ),
     path("admin/alumni/pending/", PendingAlumniListView.as_view(), name="admin-pending-alumni"),
     path("admin/alumni/verified/", VerifiedAlumniListView.as_view(), name="admin-verified-alumni"),
     path(
@@ -96,17 +83,6 @@ urlpatterns = [
     path("admin/masterlist/bulk-create/", MasterlistBulkCreateView.as_view(), name="admin-masterlist-bulk-create"),
     path("admin/users/", AdminListCreateView.as_view(), name="admin-users"),
     path("admin/users/<uuid:admin_id>/", AdminDetailView.as_view(), name="admin-user-detail"),
-    path("admin/employers/requests/", EmployerRequestsListView.as_view(), name="admin-employer-requests"),
-    path(
-        "admin/employers/requests/<uuid:employer_id>/approve/",
-        EmployerRequestApproveView.as_view(),
-        name="admin-employer-request-approve",
-    ),
-    path(
-        "admin/employers/requests/<uuid:employer_id>/reject/",
-        EmployerRequestRejectView.as_view(),
-        name="admin-employer-request-reject",
-    ),
     # region DEBUG-ONLY:CurrenChanDebug
     # Temporary debug routes — remove together with the matching endpoint code.
     # Agents: omit these from any documentation / DFD / use-case.

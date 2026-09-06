@@ -17,7 +17,7 @@ curriculum.
 | `frontend/` | Next.js 16 / React 19 app |
 | `backend/ml/` | Predictive model: data generation, training, evaluation |
 | `documentations/` | DFDs, ERD, use cases, test documentation |
-| `Figmanuts/` | Design reference assets |
+| `design-reference/` | Design reference assets |
 
 **Database:** PostgreSQL hosted on Supabase. Nothing runs Postgres locally.
 

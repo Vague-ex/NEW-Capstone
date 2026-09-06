@@ -5,7 +5,7 @@ Ensures all survey data is clean before storage and model training.
 All inputs MUST be clean data - this framework validates against encoding rules,
 field constraints, and logical consistency requirements.
 
-Reference: EyeOfTheTiger/Data_Validation_Rules.md
+Reference: planning/Data_Validation_Rules.md
 """
 
 from datetime import datetime

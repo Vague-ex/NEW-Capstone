@@ -31,11 +31,8 @@ from .models import (
     VerificationToken,
 )
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-_EMPLOYER_TOKEN_SALT = "users.employer.access"
-_EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8
 _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS = 7
 # Concurrent live links per employment record. Several verifiers may hold one
 # at once (HR plus a direct supervisor), but not without limit.
@@ -54,7 +51,6 @@ _COMPANY_STOP_WORDS = {
     "of",
 }
 
-
 def _database_unavailable_response() -> Response:
     return Response(
         {
@@ -64,87 +60,11 @@ def _database_unavailable_response() -> Response:
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 
-
 def _extract_bearer_token(request) -> str:
     header = request.headers.get("Authorization") or ""
     if not header.lower().startswith("bearer "):
         return ""
     return header[7:].strip()
-
-
-def _require_employer(request, *, allow_pending: bool = False) -> tuple[EmployerAccount | None, Response | None]:
-    token = _extract_bearer_token(request)
-    if not token:
-        return None, Response(
-            {"detail": "Authentication credentials were not provided."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    try:
-        payload = signing.loads(
-            token,
-            salt=_EMPLOYER_TOKEN_SALT,
-            max_age=_EMPLOYER_TOKEN_TTL_SECONDS,
-        )
-    except SignatureExpired:
-        return None, Response(
-            {"detail": "Employer access token has expired."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-    except BadSignature:
-        return None, Response(
-            {"detail": "Invalid employer access token."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    user_id = payload.get("uid")
-    if not user_id:
-        return None, Response(
-            {"detail": "Invalid employer access token."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    try:
-        user = User.objects.filter(id=user_id, role=User.Role.EMPLOYER, is_active=True).first()
-        employer_account = (
-            EmployerAccount.objects.select_related("user")
-            .filter(user=user)
-            .first()
-        )
-    except (OperationalError, DatabaseError):
-        return None, _database_unavailable_response()
-
-    if not user or not employer_account:
-        return None, Response(
-            {"detail": "Employer account was not found."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    if employer_account.account_status in {
-        AccountStatus.REJECTED,
-        AccountStatus.SUSPENDED,
-    }:
-        return None, Response(
-            {
-                "detail": (
-                    f"Employer account access blocked ({employer_account.account_status}). "
-                    "Contact the administrator."
-                ),
-            },
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    if employer_account.account_status != AccountStatus.ACTIVE and not (
-        allow_pending and employer_account.account_status == AccountStatus.PENDING
-    ):
-        return None, Response(
-            {
-                "detail": "Employer account is not active. Approval is required before verification actions.",
-            },
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    return employer_account, None
 
 def _serialize_skill(s) -> dict:
     return {
@@ -155,7 +75,6 @@ def _serialize_skill(s) -> dict:
         "is_active": s.is_active,
     }
 
-
 def _serialize_category(c) -> dict:
     return {
         "id": str(c.id),
@@ -163,14 +82,12 @@ def _serialize_category(c) -> dict:
         "is_active": c.is_active,
     }
 
-
 def _serialize_industry(i) -> dict:
     return {
         "id": str(i.id),
         "name": i.name,
         "is_active": i.is_active,
     }
-
 
 def _serialize_job_title(j) -> dict:
     return {
@@ -181,7 +98,6 @@ def _serialize_job_title(j) -> dict:
         "is_active": j.is_active,
     }
 
-
 def _serialize_region(r) -> dict:
     return {
         "id": str(r.id),
@@ -190,7 +106,6 @@ def _serialize_region(r) -> dict:
         "psgc_id": r.psgc_id or "",
         "is_active": r.is_active,
     }
-
 
 def _serialize_province(p: Province) -> dict:
     return {
@@ -201,7 +116,6 @@ def _serialize_province(p: Province) -> dict:
         "psgc_id": p.psgc_id,
         "is_active": p.is_active,
     }
-
 
 def _serialize_city(c: CityMunicipality) -> dict:
     return {
@@ -215,7 +129,6 @@ def _serialize_city(c: CityMunicipality) -> dict:
         "is_city": c.is_city,
         "is_active": c.is_active,
     }
-
 
 def _serialize_employment_record(record: EmploymentRecord | None) -> dict:
     if not record:
@@ -236,7 +149,6 @@ def _serialize_employment_record(record: EmploymentRecord | None) -> dict:
         "updatedAt": record.updated_at.isoformat(),
     }
 
-
 def _serialize_verification_token(token: VerificationToken) -> dict:
     return {
         "id": str(token.token_id),
@@ -247,7 +159,6 @@ def _serialize_verification_token(token: VerificationToken) -> dict:
         "employmentRecordId": str(token.employment_record_id) if token.employment_record_id else None,
         "createdAt": token.created_at.isoformat(),
     }
-
 
 def _serialize_verification_decision(decision: VerificationDecision) -> dict:
     return {
@@ -270,7 +181,6 @@ def _serialize_verification_decision(decision: VerificationDecision) -> dict:
         "evaluationSubmitted": decision.evaluation_submitted,
         "evaluationSubmittedAt": decision.evaluation_submitted_at.isoformat() if decision.evaluation_submitted_at else None,
     }
-
 
 def _extract_evaluation_payload(request) -> tuple[dict | None, str | None]:
     """Validate and shape the Employer's Confidential Feedback Form payload.
@@ -341,7 +251,6 @@ def _extract_evaluation_payload(request) -> tuple[dict | None, str | None]:
     kwargs.update(rating_values)
     return kwargs, None
 
-
 def _split_company_keywords(value: str) -> list[str]:
     normalized = re.sub(r"[^a-z0-9]+", " ", (value or "").strip().lower()).strip()
     if not normalized:
@@ -351,7 +260,6 @@ def _split_company_keywords(value: str) -> list[str]:
         for word in normalized.split()
         if len(word) >= 4 and word not in _COMPANY_STOP_WORDS
     ]
-
 
 def _companies_match(employer_company: str, graduate_company: str) -> bool:
     employer_value = (employer_company or "").strip().lower()
@@ -374,7 +282,6 @@ def _companies_match(employer_company: str, graduate_company: str) -> bool:
         for graduate_word in graduate_words
     )
 
-
 def _build_alumni_name(record: EmploymentRecord) -> str:
     alumni = record.alumni
     profile = getattr(alumni, "profile", None)
@@ -392,7 +299,6 @@ def _build_alumni_name(record: EmploymentRecord) -> str:
 
     return alumni.user.email
 
-
 def _resolve_graduation_year(record: EmploymentRecord) -> int | None:
     alumni = record.alumni
     profile = getattr(alumni, "profile", None)
@@ -401,7 +307,6 @@ def _resolve_graduation_year(record: EmploymentRecord) -> int | None:
     if alumni.master_record_id and alumni.master_record:
         return int(alumni.master_record.batch_year)
     return None
-
 
 def _serialize_employer_verifiable_graduate(record: EmploymentRecord) -> dict:
     alumni = record.alumni
@@ -459,7 +364,6 @@ def _serialize_employer_verifiable_graduate(record: EmploymentRecord) -> dict:
 
     return payload
 
-
 # ── Skills ─────────────────────────────────────────────────────────────────────
 
 class SkillListView(APIView):
@@ -495,7 +399,6 @@ class SkillListView(APIView):
                 return Response({"detail": "Category not found."}, status=status.HTTP_400_BAD_REQUEST)
         skill = Skill.objects.create(name=name, category=category)
         return Response({"skill": _serialize_skill(skill)}, status=status.HTTP_201_CREATED)
-
 
 class SkillDetailView(APIView):
     """PATCH /api/reference/skills/<pk>/   → update name / category / is_active
@@ -545,7 +448,6 @@ class SkillDetailView(APIView):
         skill.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 # ── Skill Categories ───────────────────────────────────────────────────────────
 
 class SkillCategoryListView(APIView):
@@ -568,7 +470,6 @@ class SkillCategoryListView(APIView):
             return Response({"detail": "Category already exists."}, status=status.HTTP_409_CONFLICT)
         cat = SkillCategory.objects.create(name=name)
         return Response({"category": _serialize_category(cat)}, status=status.HTTP_201_CREATED)
-
 
 class SkillCategoryDetailView(APIView):
     parser_classes = [JSONParser]
@@ -602,7 +503,6 @@ class SkillCategoryDetailView(APIView):
         cat.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 # ── Industries ─────────────────────────────────────────────────────────────────
 
 class IndustryListView(APIView):
@@ -625,7 +525,6 @@ class IndustryListView(APIView):
             return Response({"detail": "Industry already exists."}, status=status.HTTP_409_CONFLICT)
         ind = Industry.objects.create(name=name)
         return Response({"industry": _serialize_industry(ind)}, status=status.HTTP_201_CREATED)
-
 
 class IndustryDetailView(APIView):
     parser_classes = [JSONParser]
@@ -659,7 +558,6 @@ class IndustryDetailView(APIView):
         ind.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 # ── Job Titles ─────────────────────────────────────────────────────────────────
 
 class JobTitleListView(APIView):
@@ -689,7 +587,6 @@ class JobTitleListView(APIView):
                 return Response({"detail": "Industry not found."}, status=status.HTTP_400_BAD_REQUEST)
         jt = JobTitle.objects.create(name=name, industry=industry)
         return Response({"job_title": _serialize_job_title(jt)}, status=status.HTTP_201_CREATED)
-
 
 class JobTitleDetailView(APIView):
     parser_classes = [JSONParser]
@@ -732,7 +629,6 @@ class JobTitleDetailView(APIView):
         jt.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 # ── Regions ────────────────────────────────────────────────────────────────────
 
 class RegionListView(APIView):
@@ -771,7 +667,6 @@ class RegionListView(APIView):
 
         region = Region.objects.create(code=code, name=name)
         return Response({"region": _serialize_region(region)}, status=status.HTTP_201_CREATED)
-
 
 class RegionDetailView(APIView):
     parser_classes = [JSONParser]
@@ -823,9 +718,7 @@ class RegionDetailView(APIView):
         region.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 # ── Provinces ──────────────────────────────────────────────────────────────────
-
 
 class ProvinceListView(APIView):
     parser_classes = [JSONParser]
@@ -859,7 +752,6 @@ class ProvinceListView(APIView):
             return Response({"detail": "Province with that psgc_id already exists."}, status=status.HTTP_409_CONFLICT)
         province = Province.objects.create(name=name, region_id=region_id, psgc_id=psgc_id)
         return Response({"province": _serialize_province(province)}, status=status.HTTP_201_CREATED)
-
 
 class ProvinceDetailView(APIView):
     parser_classes = [JSONParser]
@@ -900,9 +792,7 @@ class ProvinceDetailView(APIView):
         province.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 # ── Cities / Municipalities ────────────────────────────────────────────────────
-
 
 class CityMunicipalityListView(APIView):
     parser_classes = [JSONParser]
@@ -950,7 +840,6 @@ class CityMunicipalityListView(APIView):
         )
         return Response({"city": _serialize_city(city)}, status=status.HTTP_201_CREATED)
 
-
 class CityMunicipalityDetailView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -993,75 +882,6 @@ class CityMunicipalityDetailView(APIView):
         city.is_active = False
         city.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class VerificationTokenIssueView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        employer_account, error_response = _require_employer(request, allow_pending=True)
-        if error_response:
-            return error_response
-
-        alumni_id = request.data.get("alumni_id")
-        employment_record_id = request.data.get("employment_record_id")
-
-        if not alumni_id and not employment_record_id:
-            return Response(
-                {"detail": "alumni_id or employment_record_id is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            record_query = EmploymentRecord.objects.select_related("job_title", "region", "alumni")
-            if employment_record_id:
-                record = record_query.filter(id=employment_record_id).first()
-            else:
-                record = record_query.filter(alumni_id=alumni_id, is_current=True).first()
-
-            if not record:
-                return Response(
-                    {"detail": "Employment record was not found."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            raw_ttl = request.data.get("expires_in_days")
-            ttl_days = _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS
-            if raw_ttl is not None:
-                try:
-                    ttl_days = max(1, min(int(raw_ttl), 30))
-                except (TypeError, ValueError):
-                    return Response(
-                        {"detail": "expires_in_days must be a valid number from 1 to 30."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-
-            with transaction.atomic():
-                VerificationToken.objects.filter(
-                    employment_record=record,
-                    status=VerificationToken.Status.PENDING,
-                ).update(status=VerificationToken.Status.REVOKED)
-
-                token = VerificationToken.objects.create(
-                    alumni=record.alumni,
-                    employment_record=record,
-                    expires_at=timezone.now() + timedelta(days=ttl_days),
-                )
-        except (OperationalError, DatabaseError):
-            return _database_unavailable_response()
-
-        return Response(
-            {
-                "message": "Verification token issued.",
-                "token": _serialize_verification_token(token),
-                "employmentRecord": _serialize_employment_record(record),
-                "issuedByEmployerId": str(employer_account.id),
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
 
 class AlumniVerificationInviteView(APIView):
     """Graduate-initiated verification invite.
@@ -1165,151 +985,6 @@ class AlumniVerificationInviteView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
-class EmployerVerifiableGraduateListView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        employer_account, error_response = _require_employer(request, allow_pending=True)
-        if error_response:
-            return error_response
-
-        employer_company = (
-            request.query_params.get("company")
-            or employer_account.company_name
-            or ""
-        ).strip()
-        query_text = (request.query_params.get("q") or "").strip().lower()
-        year_param = request.query_params.get("year")
-
-        filter_year = None
-        if year_param not in (None, ""):
-            try:
-                filter_year = int(str(year_param))
-            except (TypeError, ValueError):
-                return Response(
-                    {"detail": "year must be a valid number."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        try:
-            records = list(
-                EmploymentRecord.objects.select_related(
-                    "alumni__user",
-                    "alumni__profile",
-                    "alumni__master_record",
-                    "job_title__industry",
-                )
-                .prefetch_related("alumni__face_scans", "alumni__skills__skill")
-                .filter(
-                    is_current=True,
-                    alumni__account_status=AccountStatus.ACTIVE,
-                )
-                .order_by("-updated_at")
-            )
-        except (OperationalError, DatabaseError):
-            return _database_unavailable_response()
-
-        results: list[dict] = []
-        for record in records:
-            if employer_company and not _companies_match(employer_company, record.employer_name_input):
-                continue
-
-            graduate_payload = _serialize_employer_verifiable_graduate(record)
-
-            if filter_year is not None and graduate_payload.get("graduationYear") != filter_year:
-                continue
-
-            graduate_name = str(graduate_payload.get("name") or "").lower()
-            if query_text and query_text not in graduate_name:
-                continue
-
-            results.append(graduate_payload)
-
-        results.sort(key=lambda item: str(item.get("name") or "").lower())
-
-        return Response(
-            {
-                "results": results,
-                "count": len(results),
-                "company": employer_company,
-            }
-        )
-
-
-class EmployerReevaluationPendingListView(APIView):
-    """Graduates this employer previously CONFIRMED whose current employment
-    record is now ``is_current=True`` + ``verification_status=PENDING``.
-
-    Driven entirely by the existing ``EmploymentRecord.is_current`` archive
-    pattern and the ``VerificationDecision -> token -> employment_record``
-    FK chain. No new tables are introduced. The previous evaluation is
-    preserved because ``VerificationDecision`` rows remain attached to the
-    now-archived ``EmploymentRecord`` they were made against.
-    """
-
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        employer_account, error_response = _require_employer(request, allow_pending=False)
-        if error_response:
-            return error_response
-
-        try:
-            current_pending = list(
-                EmploymentRecord.objects.select_related(
-                    "alumni__user",
-                    "alumni__profile",
-                    "alumni__master_record",
-                    "job_title__industry",
-                )
-                .prefetch_related("alumni__face_scans", "alumni__skills__skill")
-                .filter(
-                    is_current=True,
-                    verification_status=EmploymentRecord.VerificationStatus.PENDING,
-                    alumni__account_status=AccountStatus.ACTIVE,
-                )
-                .filter(
-                    alumni__employment_records__is_current=False,
-                    alumni__employment_records__verification_tokens__decisions__employer_account=employer_account,
-                    alumni__employment_records__verification_tokens__decisions__decision=VerificationDecision.Decision.CONFIRM,
-                )
-                .distinct()
-                .order_by("-updated_at")
-            )
-        except (OperationalError, DatabaseError):
-            return _database_unavailable_response()
-
-        results: list[dict] = []
-        for record in current_pending:
-            payload = _serialize_employer_verifiable_graduate(record)
-            prior = (
-                EmploymentRecord.objects
-                .filter(
-                    alumni=record.alumni,
-                    is_current=False,
-                    verification_tokens__decisions__employer_account=employer_account,
-                    verification_tokens__decisions__decision=VerificationDecision.Decision.CONFIRM,
-                )
-                .order_by("-updated_at")
-                .first()
-            )
-            if prior:
-                payload["previousCompany"] = prior.employer_name_input
-                payload["previousJobTitle"] = prior.job_title_input
-                payload["previousVerifiedAt"] = prior.updated_at.date().isoformat()
-            results.append(payload)
-
-        return Response(
-            {
-                "results": results,
-                "count": len(results),
-            }
-        )
-
-
 def _candidate_is_unemployed(emp_profile) -> bool:
     """True when the alumni's latest EmploymentProfile is NOT an employed status.
 
@@ -1323,112 +998,6 @@ def _candidate_is_unemployed(emp_profile) -> bool:
         "employed_part_time",
         "self_employed",
     }
-
-
-class EmployerCandidatesListView(APIView):
-    """Unemployed alumni candidates surfaced to verified employers.
-
-    Each candidate carries their skill list + a match-count against the
-    employer's `desired_skills` so the frontend can sort or highlight matches.
-    """
-
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        # Employer must be ACTIVE (allow_pending defaults to False — pending
-        # accounts get a 403 here so candidate data isn't exposed early).
-        employer_account, error_response = _require_employer(request)
-        if error_response:
-            return error_response
-
-        from users.models import AlumniAccount as _AlumniAccount
-
-        try:
-            alumni_qs = (
-                _AlumniAccount.objects
-                .select_related("user", "profile", "master_record")
-                .prefetch_related(
-                    "employment_profiles",
-                    "skills__skill__category",
-                )
-                .filter(account_status=AccountStatus.ACTIVE)
-                .order_by("-updated_at")
-            )
-        except (OperationalError, DatabaseError):
-            return _database_unavailable_response()
-
-        # Desired skill IDs as a set for O(1) match lookup.
-        try:
-            desired_skill_id_set = {
-                str(s_id)
-                for s_id in employer_account.desired_skills.values_list("id", flat=True)
-            }
-        except Exception:  # pragma: no cover - defensive
-            desired_skill_id_set = set()
-
-        results: list[dict] = []
-        for alumni in alumni_qs:
-            emp_profile = alumni.employment_profiles.first()
-            if not _candidate_is_unemployed(emp_profile):
-                continue
-
-            profile = getattr(alumni, "profile", None)
-            if profile is None:
-                # No profile = no name / contact = skip
-                continue
-
-            full_name = " ".join(
-                part.strip()
-                for part in [profile.first_name, profile.middle_name, profile.last_name]
-                if part and part.strip()
-            ).strip()
-            if not full_name:
-                full_name = (
-                    alumni.master_record.full_name if alumni.master_record else None
-                ) or (alumni.user.email.split("@")[0] if alumni.user and alumni.user.email else "Alumni")
-
-            graduation_year = (
-                int(profile.graduation_year)
-                if profile.graduation_year
-                else (int(alumni.master_record.batch_year) if alumni.master_record and alumni.master_record.batch_year else None)
-            )
-
-            skill_payload: list[dict] = []
-            matched: list[str] = []
-            for entry in alumni.skills.all():
-                skill = entry.skill
-                if not skill or not skill.is_active:
-                    continue
-                skill_id = str(skill.id)
-                skill_payload.append({
-                    "id": skill_id,
-                    "name": skill.name,
-                    "category": skill.category.name if skill.category_id else None,
-                })
-                if skill_id in desired_skill_id_set:
-                    matched.append(skill_id)
-
-            results.append({
-                "id": str(alumni.id),
-                "name": full_name,
-                "graduationYear": graduation_year,
-                "email": alumni.user.email if alumni.user else "",
-                "facebookUrl": profile.facebook_url or "",
-                "skills": skill_payload,
-                "matchedSkillIds": matched,
-                "matchCount": len(matched),
-            })
-
-        # Sort: highest match count first, then by name.
-        results.sort(key=lambda r: (-r["matchCount"], (r["name"] or "").lower()))
-
-        return Response({
-            "results": results,
-            "count": len(results),
-            "desiredSkillCount": len(desired_skill_id_set),
-        })
-
 
 class VerificationTokenDetailView(APIView):
     authentication_classes = []
@@ -1489,7 +1058,6 @@ class VerificationTokenDetailView(APIView):
         response["Cache-Control"] = "no-store"
         response["X-Robots-Tag"] = "noindex, nofollow"
         return response
-
 
 class VerificationTokenDecisionView(APIView):
     parser_classes = [JSONParser]
@@ -1691,7 +1259,6 @@ class VerificationTokenDecisionView(APIView):
             }
         )
 
-
 # ── All Reference Data (single call) ──────────────────────────────────────────
 
 class ReferenceDataView(APIView):
@@ -1723,7 +1290,6 @@ class ReferenceDataView(APIView):
             "job_titles": [_serialize_job_title(j) for j in job_titles],
             "regions": [_serialize_region(r) for r in regions],
         })
-
 
 # ── Comprehensive Survey Submission ────────────────────────────────────────────
 
@@ -1886,7 +1452,6 @@ class ComprehensiveSurveySubmissionView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-
 # ── Survey Data Retrieval ──────────────────────────────────────────────────────
 
 class SurveyDataRetrievalView(APIView):
@@ -1980,11 +1545,9 @@ class SurveyDataRetrievalView(APIView):
             status=status.HTTP_200_OK
         )
 
-
 # ── Admin Analytics - Employability Predictions ────────────────────────────────
 
 _ML_CACHE: dict = {}
-
 
 def _load_ml_artifacts():
     """Lazy-load joblib models + processed population CSV. Only successful loads are cached."""
@@ -2014,7 +1577,6 @@ def _load_ml_artifacts():
     except Exception as exc:  # noqa: BLE001
         return {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
 
-
 # ── Live-DB feature encoding maps (must match training CSV OHE order) ──────────
 _JOB_SOURCE_COLS: dict[str, str] = {
     "personal_network": "job_source_1",
@@ -2042,7 +1604,6 @@ _CURRENT_SECTOR_COLS: dict[str, str] = {
     "entrepreneurial":"current_sector_3",
 }
 _EMPLOYED_STATUSES: frozenset[str] = frozenset({"employed_full_time", "employed_part_time", "self_employed"})
-
 
 def _build_live_df():
     """Build a feature DataFrame from live verified alumni — same schema as the training CSV.
@@ -2149,7 +1710,6 @@ def _build_live_df():
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-
 def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
     import numpy as np
     df = artifacts["df"]
@@ -2200,7 +1760,6 @@ def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
         "actual_bsis_current_rate": float(actual_curr.mean()) if len(actual_curr) else None,
         "time_to_hire_distribution": buckets,
     }
-
 
 def _compute_forecast(artifacts: dict, n_future: int = 2) -> list[dict]:
     """Project per-feature linear trend forward N batches; run through models.
@@ -2315,7 +1874,6 @@ def _compute_forecast(artifacts: dict, n_future: int = 2) -> list[dict]:
         })
 
     return forecasts
-
 
 def _compute_skill_forecast(n_future: int = 2, top_n: int = 10) -> list[dict]:
     """Per-skill batch-share linear trend, projected forward N batches.
@@ -2441,7 +1999,6 @@ def _compute_skill_forecast(n_future: int = 2, top_n: int = 10) -> list[dict]:
 
     out.sort(key=lambda r: r["relevance_score"], reverse=True)
     return out[:top_n]
-
 
 class AdminAnalyticsPredictionsView(APIView):
     """
@@ -2572,7 +2129,6 @@ class AdminAnalyticsPredictionsView(APIView):
             "timestamp": timezone.now().isoformat(),
         }, status=status.HTTP_200_OK)
 
-
 # ── Data Export for Model Training ────────────────────────────────────────────
 
 class TrainingDataExportView(APIView):
@@ -2671,7 +2227,6 @@ class TrainingDataExportView(APIView):
         response = HttpResponse(csv_content, content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="training_data_{start_batch}_{end_batch}.csv"'
         return response
-
 
 # ── Data Quality Report ────────────────────────────────────────────────────────
 

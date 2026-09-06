@@ -53,14 +53,14 @@ pnpm-debug.log*
 *.log
 
 # figma
-Figmanuts/
+design-reference/
 
 # modern-face-api model assets copied at runtime/setup
 frontend/public/modern-face-models/
 
 # misc
 django_setup_guide.md  
-EyeOfTheTiger/
+planning/
 .claude/
 documentations/
 graduates_bsis.csv

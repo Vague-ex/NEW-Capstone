@@ -55,7 +55,6 @@ try:
 except Exception:  # pragma: no cover - optional dependency guard
     np = None
 
-
 FACE_MATCH_THRESHOLD = 0.42
 MIN_FACE_SIZE_PX = 72
 MIN_FACE_AREA_RATIO = 0.045
@@ -65,13 +64,8 @@ FACE_DESCRIPTOR_MIN_SIMILARITY = 0.42
 FACE_DESCRIPTOR_DISTANCE_THRESHOLD = (1.0 - FACE_DESCRIPTOR_MIN_SIMILARITY) * FACE_DESCRIPTOR_SIMILARITY_SCALE
 
 # Employer authentication token constants
-_EMPLOYER_TOKEN_SALT = "users.employer.access"
-_EMPLOYER_TOKEN_TTL_SECONDS = 60 * 60 * 8  # 8 hours
-
-
 
 logger = logging.getLogger(__name__)
-
 
 def _safe_json_loads(raw_value):
     if raw_value in (None, ""):
@@ -83,7 +77,6 @@ def _safe_json_loads(raw_value):
     except (TypeError, json.JSONDecodeError):
         return {}
 
-
 def _safe_int(value):
     """Coerce form values to int; return None for empty / non-numeric input."""
     if value in (None, ""):
@@ -92,7 +85,6 @@ def _safe_int(value):
         return int(value)
     except (TypeError, ValueError):
         return None
-
 
 def _mark_logged_in(user) -> None:
     """
@@ -114,7 +106,6 @@ def _mark_logged_in(user) -> None:
         # reason a valid sign-in fails.
         pass
 
-
 def _as_bool(value) -> bool:
     """
     Coerce a multipart form value to a bool.
@@ -129,10 +120,8 @@ def _as_bool(value) -> bool:
         return False
     return str(value).strip().lower() in ("true", "1", "yes", "on")
 
-
 def _build_profile_name(first_name: str, middle_name: str, family_name: str) -> str:
     return " ".join(part.strip() for part in [first_name, middle_name, family_name] if part and part.strip())
-
 
 def _extract_year(value: str) -> int | None:
     if not value:
@@ -147,7 +136,6 @@ def _extract_year(value: str) -> int | None:
             except ValueError:
                 continue
     return None
-
 
 def _normalize_employment_status(value: str | None, fallback: str = "unemployed") -> str:
     normalized = (value or "").strip().lower().replace("_", "-")
@@ -180,7 +168,6 @@ def _normalize_employment_status(value: str | None, fallback: str = "unemployed"
     }
     return status_map.get(normalized, fallback)
 
-
 def _is_self_employment_label(value: str | None) -> bool:
     normalized = (value or "").strip().lower().replace("_", "-")
     if not normalized:
@@ -195,7 +182,6 @@ def _is_self_employment_label(value: str | None) -> bool:
             "entrepreneur",
         )
     )
-
 
 def _derive_employment_status_from_survey(survey_data, fallback: str = "unemployed") -> str:
     if not isinstance(survey_data, dict):
@@ -213,7 +199,6 @@ def _derive_employment_status_from_survey(survey_data, fallback: str = "unemploy
 
     return normalized_status
 
-
 def _temporary_admin_data_unavailable_response(resource_name: str):
     logger.warning("Transient database error while loading %s data.", resource_name, exc_info=True)
     return Response(
@@ -223,7 +208,6 @@ def _temporary_admin_data_unavailable_response(resource_name: str):
         },
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
     )
-
 
 def _authenticate_by_email(email: str, password: str) -> User | None:
     if not email or not password:
@@ -237,7 +221,6 @@ def _authenticate_by_email(email: str, password: str) -> User | None:
         return None
     return user
 
-
 def _authenticate_by_email_specific(email: str, password: str) -> tuple[User | None, str | None]:
     """Like _authenticate_by_email but returns a specific error string on failure."""
     if not email or not password:
@@ -248,7 +231,6 @@ def _authenticate_by_email_specific(email: str, password: str) -> tuple[User | N
     if not user.check_password(password):
         return None, "Incorrect password."
     return user, None
-
 
 def _find_master_record(
     family_name: str,
@@ -267,14 +249,12 @@ def _find_master_record(
         qs = qs.filter(batch_year=graduation_year)
     return qs.first()
 
-
 def _normalize_storage_key(raw_value: str) -> str:
     cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw_value.strip())
     normalized = "-".join(part for part in cleaned.split("-") if part)
     if normalized:
         return normalized
     return f"alumni-{timezone.now().strftime('%Y%m%d%H%M%S')}"
-
 
 def _download_image_bytes(url: str) -> bytes | None:
     if not url:
@@ -284,7 +264,6 @@ def _download_image_bytes(url: str) -> bytes | None:
             return response.read()
     except (HTTPError, URLError, TimeoutError):
         return None
-
 
 def _parse_face_descriptor(raw_value) -> list[float] | None:
     # Accept an already-decoded list as well as a JSON string. Descriptors
@@ -306,7 +285,6 @@ def _parse_face_descriptor(raw_value) -> list[float] | None:
     if len(parsed) != FACE_DESCRIPTOR_LENGTH:
         return None
     return parsed
-
 
 def _parse_face_descriptor_samples(raw_value) -> list[list[float]]:
     # Same already-decoded-list handling as _parse_face_descriptor above.
@@ -334,7 +312,6 @@ def _parse_face_descriptor_samples(raw_value) -> list[list[float]]:
 
     return parsed_samples
 
-
 def _average_face_descriptors(descriptors: list[list[float]]) -> list[float] | None:
     if np is None or not descriptors:
         return None
@@ -345,7 +322,6 @@ def _average_face_descriptors(descriptors: list[list[float]]) -> list[float] | N
 
     averaged = np.mean(matrix, axis=0)
     return [float(value) for value in averaged.tolist()]
-
 
 def _resolve_reference_descriptors(account: AlumniAccount) -> list[list[float]]:
     template = _safe_json_loads(account.biometric_template)
@@ -372,7 +348,6 @@ def _resolve_reference_descriptors(account: AlumniAccount) -> list[list[float]]:
         unique.append(descriptor)
     return unique
 
-
 def _descriptor_distance(reference_descriptor: list[float], login_descriptor: list[float]) -> float:
     if np is None:
         return 999.0
@@ -384,11 +359,9 @@ def _descriptor_distance(reference_descriptor: list[float], login_descriptor: li
 
     return float(np.linalg.norm(reference - login))
 
-
 def _descriptor_similarity(distance: float) -> float:
     similarity = 1.0 - (distance / FACE_DESCRIPTOR_SIMILARITY_SCALE)
     return max(0.0, min(1.0, similarity))
-
 
 def _verify_descriptor_match(
     login_descriptor: list[float],
@@ -402,7 +375,6 @@ def _verify_descriptor_match(
     best_similarity = _descriptor_similarity(best_distance)
     is_match = best_similarity >= FACE_DESCRIPTOR_MIN_SIMILARITY
     return is_match, best_distance, best_similarity
-
 
 def _extract_registration_scan_urls(account: AlumniAccount) -> list[str]:
     urls: list[str] = []
@@ -422,7 +394,6 @@ def _extract_registration_scan_urls(account: AlumniAccount) -> list[str]:
     # Preserve first-seen order while removing duplicates.
     return list(dict.fromkeys(urls))
 
-
 def _decode_image_for_cv(image_bytes: bytes):
     if cv2 is None or np is None or not image_bytes:
         return None
@@ -430,7 +401,6 @@ def _decode_image_for_cv(image_bytes: bytes):
     if buffer.size == 0:
         return None
     return cv2.imdecode(buffer, cv2.IMREAD_COLOR)
-
 
 def _extract_primary_face(image):
     if cv2 is None or image is None:
@@ -463,7 +433,6 @@ def _extract_primary_face(image):
     normalized = cv2.equalizeHist(normalized)
     return normalized
 
-
 def _face_similarity_score(reference_face, login_face) -> float:
     if cv2 is None or np is None:
         return 0.0
@@ -489,7 +458,6 @@ def _face_similarity_score(reference_face, login_face) -> float:
 
     combined_score = (cosine_score * 0.45) + (histogram_score * 0.25) + (template_score * 0.30)
     return max(0.0, min(combined_score, 1.0))
-
 
 def _verify_login_face(reference_urls: list[str], login_scan_bytes: bytes) -> tuple[bool, str, float]:
     if cv2 is None or np is None:
@@ -531,13 +499,11 @@ def _verify_login_face(reference_urls: list[str], login_scan_bytes: bytes) -> tu
 
     return True, "Face verification passed.", best_score
 
-
 _SECTOR_LABELS = {
     "government": "Government",
     "private": "Private",
     "entrepreneurial": "Entrepreneurial / Freelance / Self-Employed",
 }
-
 
 def _alumni_dashboard_queryset(qs):
     """Apply the prefetches needed by ``_admin_alumni_payload`` /
@@ -574,7 +540,6 @@ def _alumni_dashboard_queryset(qs):
         ),
     )
 
-
 def _first_prefetched(account, attr):
     """Return ``account._prefetched_<attr>[0]`` if available, falling back to
     a single query when the manager wasn't prefetched."""
@@ -582,7 +547,6 @@ def _first_prefetched(account, attr):
     if isinstance(cached, list):
         return cached[0] if cached else None
     return None
-
 
 def _normalized_view_from_tables(account: AlumniAccount) -> dict:
     """Read AlumniProfile / EmploymentProfile / WorkAddress / AlumniSkill rows for
@@ -743,7 +707,6 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
 
     return view
 
-
 def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
     """Overlay normalized-table values on top of the legacy JSON blob.
 
@@ -756,9 +719,7 @@ def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
             base[key] = value
     return base
 
-
 _RETRACKING_THRESHOLD_DAYS = 730
-
 
 def _needs_retracking(account: AlumniAccount) -> bool:
     """True when the alumni's latest EmploymentProfile is >2 years old."""
@@ -770,7 +731,6 @@ def _needs_retracking(account: AlumniAccount) -> bool:
         return False
     return (timezone.now() - emp.updated_at).days >= _RETRACKING_THRESHOLD_DAYS
 
-
 def _to_float(value):
     """Coerce a form value to float, or None when absent / non-numeric."""
     if value in (None, ""):
@@ -779,7 +739,6 @@ def _to_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
-
 
 def _extract_login_gps(request) -> tuple[float | None, float | None, float | None]:
     """Pull gps_lat / gps_lng / gps_accuracy_m from the login request.
@@ -799,7 +758,6 @@ def _extract_login_gps(request) -> tuple[float | None, float | None, float | Non
         accuracy = None
 
     return lat, lng, accuracy
-
 
 def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
@@ -875,7 +833,6 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "skills": skills,
         "requiresRetracking": _needs_retracking(account),
     }
-
 
 def _admin_alumni_payload(account: AlumniAccount) -> dict:
     template = _safe_json_loads(account.biometric_template)
@@ -1046,10 +1003,8 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "surveyData": survey_data,
     }
 
-
 def _pending_alumni_payload(account: AlumniAccount) -> dict:
     return _admin_alumni_payload(account)
-
 
 def _employer_request_payload(account: EmployerAccount) -> dict:
     status_value = account.account_status
@@ -1090,25 +1045,6 @@ def _employer_request_payload(account: EmployerAccount) -> dict:
         "dateUpdated": account.updated_at.date().isoformat(),
         "desiredSkills": desired_skills,
     }
-
-
-def _generate_employer_access_token(user_id: str) -> str:
-    """
-    Generate a signed access token for employer authentication.
-
-    `role` is informational only — `_require_employer` re-checks the role
-    against the database on every request — but it is included so tokens minted
-    here match the shape asserted by the tests and produced elsewhere.
-    """
-    payload = {"uid": str(user_id), "role": User.Role.EMPLOYER}
-    return signing.dumps(
-        payload,
-        salt=_EMPLOYER_TOKEN_SALT,
-        compress=True,
-    )
-
-
-
 
 class AdminLoginView(APIView):
     parser_classes = [JSONParser]
@@ -1192,12 +1128,10 @@ def _admin_credential_payload(cred: AdminCredential) -> dict:
         "updated_at": cred.updated_at.isoformat(),
     }
 
-
 def _normalize_admin_email(raw: object) -> str:
     if not isinstance(raw, str):
         return ""
     return raw.strip().lower()
-
 
 class AdminListCreateView(APIView):
     parser_classes = [JSONParser]
@@ -1288,7 +1222,6 @@ class AdminListCreateView(APIView):
             )
 
         return Response(_admin_credential_payload(cred), status=status.HTTP_201_CREATED)
-
 
 class AdminDetailView(APIView):
     parser_classes = [JSONParser]
@@ -1392,7 +1325,6 @@ class AdminDetailView(APIView):
         cred.user.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-
 _FACEBOOK_HOSTS = frozenset({
     "facebook.com",
     "www.facebook.com",
@@ -1403,7 +1335,6 @@ _FACEBOOK_HOSTS = frozenset({
     "www.fb.com",
     "fb.me",
 })
-
 
 def _sanitize_facebook_url(raw: object) -> str:
     """Return a validated Facebook profile URL, or "" when the input is empty
@@ -1430,7 +1361,6 @@ def _sanitize_facebook_url(raw: object) -> str:
     if (parsed.hostname or "").lower() not in _FACEBOOK_HOSTS:
         return ""
     return candidate
-
 
 def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict:
     """
@@ -1492,7 +1422,6 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "professional_certifications": survey_data.get("professional_certifications", []),
     }
 
-
 def _extract_employment_profile_data(survey_data: dict) -> dict:
     """
     Extract fields for EmploymentProfile from survey_data.
@@ -1531,7 +1460,6 @@ def _extract_employment_profile_data(survey_data: dict) -> dict:
         "survey_completion_status": "completed" if survey_data else "pending",
     }
 
-
 def _extract_work_address_data(survey_data: dict) -> dict:
     """
     Extract fields for WorkAddress from survey_data.
@@ -1553,7 +1481,6 @@ def _extract_work_address_data(survey_data: dict) -> dict:
         "latitude": survey_data.get("latitude"),
         "longitude": survey_data.get("longitude"),
     }
-
 
 def _create_alumni_skills(alumni_account, survey_data: dict) -> int:
     """
@@ -1607,7 +1534,6 @@ def _create_alumni_skills(alumni_account, survey_data: dict) -> int:
             created_count += 1
 
     return created_count
-
 
 class AlumniRegisterView(APIView):
     parser_classes = [MultiPartParser, FormParser]
@@ -1890,205 +1816,6 @@ class AlumniRegisterView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
-class EmployerRegisterView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        company_name = (request.data.get("company_name") or request.data.get("companyName") or "").strip()
-        industry = (request.data.get("industry") or "").strip()
-        website = (request.data.get("website") or "").strip()
-        company_address = (request.data.get("address") or request.data.get("company_address") or "").strip()
-        contact_name = (request.data.get("contact_name") or request.data.get("contactName") or "").strip()
-        position = (request.data.get("position") or "").strip()
-        credential_email = (
-            request.data.get("credential_email")
-            or request.data.get("credentialEmail")
-            or request.data.get("email")
-            or ""
-        ).strip().lower()
-        phone = (request.data.get("phone") or "").strip()
-        password = request.data.get("password") or ""
-        confirm_password = request.data.get("confirm_password") or request.data.get("confirmPassword") or ""
-
-        missing = []
-        for field_name, value in {
-            "company_name": company_name,
-            "industry": industry,
-            "contact_name": contact_name,
-            "credential_email": credential_email,
-            "password": password,
-            "confirm_password": confirm_password,
-        }.items():
-            if not value:
-                missing.append(field_name)
-
-        if missing:
-            return Response(
-                {"detail": f"Missing required fields: {', '.join(missing)}."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if password != confirm_password:
-            return Response(
-                {"detail": "Passwords do not match."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if len(password) < 8:
-            return Response(
-                {"detail": "Password must be at least 8 characters."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if User.objects.filter(email__iexact=credential_email).exists() or EmployerAccount.objects.filter(
-            company_email__iexact=credential_email
-        ).exists():
-            return Response(
-                {"detail": "This credential email is already registered."},
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        # Optional desired_skill_ids — JSON-encoded list of Skill UUIDs the
-        # employer wants in candidates. Silently drop invalid entries.
-        desired_skill_ids: list[str] = []
-        raw_desired = request.data.get("desired_skill_ids")
-        if raw_desired:
-            try:
-                parsed = json.loads(raw_desired) if isinstance(raw_desired, str) else raw_desired
-                if isinstance(parsed, list):
-                    desired_skill_ids = [str(x).strip() for x in parsed if str(x).strip()]
-            except (TypeError, json.JSONDecodeError):
-                desired_skill_ids = []
-
-        with transaction.atomic():
-            user = User.objects.create_user(
-                email=credential_email,
-                password=password,
-                role=User.Role.EMPLOYER,
-            )
-            employer_account = EmployerAccount.objects.create(
-                user=user,
-                company_email=credential_email,
-                company_name=company_name,
-                industry=industry,
-                contact_name=contact_name,
-                contact_position=position,
-                company_website=website,
-                company_phone=phone,
-                company_address=company_address,
-                account_status=AccountStatus.PENDING,
-            )
-            if desired_skill_ids:
-                skills_qs = Skill.objects.filter(id__in=desired_skill_ids, is_active=True)
-                employer_account.desired_skills.set(skills_qs)
-
-        access_token = _generate_employer_access_token(user.id)
-
-        return Response(
-            {
-                "message": "Employer registration submitted. Account is pending admin approval.",
-                "accessToken": access_token,
-                # tokenType / expiresIn are part of the declared client contract
-                # (see AlumniAuthResponse and the employer types in
-                # api-client.ts) and every other token response emits them.
-                "tokenType": "Bearer",
-                "expiresIn": _EMPLOYER_TOKEN_TTL_SECONDS,
-                "user": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "role": user.role,
-                },
-                "employer": _employer_request_payload(employer_account),
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class EmployerLoginView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        credential_email = (
-            request.data.get("credential_email")
-            or request.data.get("credentialEmail")
-            or request.data.get("email")
-            or ""
-        ).strip().lower()
-        password = request.data.get("password") or ""
-
-        if not credential_email or not password:
-            return Response(
-                {"detail": "Credential email and password are required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        throttle_id = throttle_identifier("employer", credential_email)
-        locked, secs_left = throttle_is_locked_out(throttle_id)
-        if locked:
-            return Response(
-                {"detail": "Too many failed attempts. Try again later.",
-                 "lockout_seconds": secs_left},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-
-        try:
-            user = _authenticate_by_email(email=credential_email, password=password)
-        except (OperationalError, DatabaseError):
-            # A database outage must read as "retry shortly", not as bad
-            # credentials — otherwise an outage looks like a wrong password.
-            return _temporary_admin_data_unavailable_response("Authentication")
-        if not user:
-            now_locked, lockout_secs = throttle_register_fail(throttle_id, "employer")
-            payload = {"detail": "Invalid credential email or password."}
-            if now_locked:
-                payload["lockout_seconds"] = lockout_secs
-                return Response(payload, status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response(payload, status=status.HTTP_401_UNAUTHORIZED)
-
-        if user.role != User.Role.EMPLOYER:
-            return Response(
-                {"detail": "This account is not an employer account."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            employer_account = user.employer_account
-        except EmployerAccount.DoesNotExist:
-            return Response(
-                {"detail": "Employer profile was not found for this account."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if employer_account.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
-            return Response(
-                {"detail": f"Account access blocked ({employer_account.account_status}). Contact the administrator."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        _mark_logged_in(user)
-        throttle_reset(throttle_id)
-        access_token = _generate_employer_access_token(user.id)
-
-        return Response(
-            {
-                "message": "Employer login successful.",
-                "accessToken": access_token,
-                "user": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "role": user.role,
-                },
-                "employer": _employer_request_payload(employer_account),
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
 class AlumniLoginView(APIView):
     parser_classes = [MultiPartParser, FormParser]
     authentication_classes = []
@@ -2293,7 +2020,6 @@ class AlumniLoginView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
 class AlumniAccountStatusView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -2313,7 +2039,6 @@ class AlumniAccountStatusView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 class AlumniEmploymentUpdateView(APIView):
     parser_classes = [JSONParser]
@@ -2413,77 +2138,6 @@ class AlumniEmploymentUpdateView(APIView):
             return _auth_error
         return self.post(request, alumni_id)
 
-
-class EmployerAccountStatusView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def get(self, request, employer_id):
-        employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
-        if not employer_account:
-            return Response(
-                {"detail": "Employer account was not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        return Response(
-            {
-                "employer": _employer_request_payload(employer_account),
-            },
-            status=status.HTTP_200_OK,
-        )
-
-    def patch(self, request, employer_id):
-        """Allow a signed-in employer to update their own desired skills list."""
-        # Lazy import — avoids any module-load order coupling between apps.
-        from tracer.api import _require_employer
-        from tracer.models import Skill
-
-        token_account, error_response = _require_employer(request, allow_pending=True)
-        if error_response:
-            return error_response
-
-        if str(token_account.id) != str(employer_id):
-            return Response(
-                {"detail": "You can only update your own employer account."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        raw = request.data.get("desired_skill_ids")
-        if raw is None:
-            return Response(
-                {"detail": "desired_skill_ids is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-            except (TypeError, json.JSONDecodeError):
-                return Response(
-                    {"detail": "desired_skill_ids must be a JSON list of UUIDs."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            parsed = raw
-        if not isinstance(parsed, list):
-            return Response(
-                {"detail": "desired_skill_ids must be a list."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        clean_ids = [str(x).strip() for x in parsed if str(x).strip()]
-        skills_qs = Skill.objects.filter(id__in=clean_ids, is_active=True)
-        token_account.desired_skills.set(skills_qs)
-
-        return Response(
-            {
-                "employer": _employer_request_payload(token_account),
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
 class PendingAlumniListView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -2509,7 +2163,6 @@ class PendingAlumniListView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
 class VerifiedAlumniListView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -2534,7 +2187,6 @@ class VerifiedAlumniListView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 class AlumniRequestApproveView(APIView):
     parser_classes = [JSONParser]
@@ -2569,7 +2221,6 @@ class AlumniRequestApproveView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-
 
 def _send_rejection_email(*, to_email: str, recipient_name: str, reason: str, is_employer: bool, company_name: str = "") -> None:
     """Best-effort branded rejection email, sent in a background thread.
@@ -2611,7 +2262,6 @@ def _send_rejection_email(*, to_email: str, recipient_name: str, reason: str, is
 
     threading.Thread(target=_deliver, daemon=True).start()
 
-
 def _send_approval_email(*, to_email: str, recipient_name: str, is_employer: bool, company_name: str = "") -> None:
     """Best-effort branded approval email, sent in a background thread so the
     admin's "Approve" action returns immediately."""
@@ -2646,7 +2296,6 @@ def _send_approval_email(*, to_email: str, recipient_name: str, is_employer: boo
     import threading
 
     threading.Thread(target=_deliver, daemon=True).start()
-
 
 class AlumniRequestRejectView(APIView):
     parser_classes = [JSONParser]
@@ -2702,166 +2351,6 @@ class AlumniRequestRejectView(APIView):
             status=status.HTTP_200_OK,
         )
 
-
-class EmployerRequestsListView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        _admin_user, _auth_error = _require_admin(request)
-        if _auth_error:
-            return _auth_error
-        try:
-            employer_accounts = EmployerAccount.objects.select_related("user").order_by("-created_at")
-            results = [_employer_request_payload(account) for account in employer_accounts]
-        except (OperationalError, DatabaseError):
-            return _temporary_admin_data_unavailable_response("Employer request")
-
-        return Response(
-            {
-                "count": len(results),
-                "results": results,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class EmployerRequestApproveView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request, employer_id):
-        _admin_user, _auth_error = _require_admin(request)
-        if _auth_error:
-            return _auth_error
-        employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
-        if not employer_account:
-            return Response(
-                {"detail": "Employer request was not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        employer_account.account_status = AccountStatus.ACTIVE
-        employer_account.save(update_fields=["account_status", "updated_at"])
-
-        # Activate any verification decisions this employer submitted while
-        # still pending. They were created with is_held=True and never applied
-        # to the employment record; now that the program chair has approved the
-        # employer, apply them (mirrors the non-held path in
-        # VerificationTokenDecisionView).
-        try:
-            with transaction.atomic():
-                held = (
-                    VerificationDecision.objects.select_related(
-                        "token", "token__employment_record", "verified_job_title"
-                    ).filter(employer_account=employer_account, is_held=True)
-                )
-                now = timezone.now()
-                for decision in held:
-                    decision.is_held = False
-                    decision.held_activated_at = now
-                    decision.save(update_fields=["is_held", "held_activated_at"])
-
-                    record = decision.token.employment_record if decision.token else None
-                    if record is None:
-                        continue
-                    record.employer_account = employer_account
-                    if decision.verified_employer_name:
-                        record.employer_name_input = decision.verified_employer_name
-                    if decision.verified_job_title:
-                        record.job_title = decision.verified_job_title
-                        if not record.job_title_input:
-                            record.job_title_input = decision.verified_job_title.name
-                    record.verification_status = (
-                        EmploymentRecord.VerificationStatus.VERIFIED
-                        if decision.decision == VerificationDecision.Decision.CONFIRM
-                        else EmploymentRecord.VerificationStatus.DENIED
-                    )
-                    record.save(
-                        update_fields=[
-                            "employer_account",
-                            "employer_name_input",
-                            "job_title",
-                            "job_title_input",
-                            "verification_status",
-                            "updated_at",
-                        ]
-                    )
-        except (OperationalError, DatabaseError):
-            logger.exception("Failed to activate held decisions for employer %s", employer_id)
-
-        _send_approval_email(
-            to_email=employer_account.company_email or (employer_account.user.email if employer_account.user else ""),
-            recipient_name=employer_account.contact_name or "",
-            is_employer=True,
-            company_name=employer_account.company_name or "",
-        )
-
-        return Response(
-            {
-                "message": "Employer request approved.",
-                "employer": _employer_request_payload(employer_account),
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class EmployerRequestRejectView(APIView):
-    parser_classes = [JSONParser]
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    def post(self, request, employer_id):
-        _admin_user, _auth_error = _require_admin(request)
-        if _auth_error:
-            return _auth_error
-        employer_account = EmployerAccount.objects.select_related("user").filter(id=employer_id).first()
-        if not employer_account:
-            return Response(
-                {"detail": "Employer request was not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        reason = (request.data.get("reason") or "").strip()
-        payload = _employer_request_payload(employer_account)
-        user = employer_account.user
-        to_email = employer_account.company_email or (user.email if user else "")
-
-        _send_rejection_email(
-            to_email=to_email,
-            recipient_name=employer_account.contact_name or "",
-            reason=reason,
-            is_employer=True,
-            company_name=employer_account.company_name or "",
-        )
-
-        # Hard delete so the email is freed for re-registration. Deleting the
-        # User cascades to the EmployerAccount and related rows; soft-reject as
-        # a fallback if the delete is blocked.
-        try:
-            if user:
-                user.delete()
-            else:
-                employer_account.delete()
-            message = "Employer request rejected and removed."
-        except Exception:
-            logger.exception("Hard delete failed for rejected employer %s; soft-rejecting", employer_id)
-            employer_account.account_status = AccountStatus.REJECTED
-            employer_account.rejection_reason = reason
-            employer_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
-            message = "Employer request rejected."
-
-        return Response(
-            {
-                "message": message,
-                "employer": payload,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
 class MasterlistCheckView(APIView):
     """Public: real-time check whether a name + graduation year exists in the masterlist."""
     authentication_classes = []
@@ -2879,7 +2368,6 @@ class MasterlistCheckView(APIView):
             "matched": record is not None,
             "name": record.full_name if record else None,
         })
-
 
 class MasterlistListView(APIView):
     """Admin: list all GraduateMasterRecord entries with totals + per-batch counts.
@@ -2906,7 +2394,6 @@ class MasterlistListView(APIView):
             "perBatch": [{"year": y, "count": c} for y, c in sorted(per_batch.items())],
             "entries": entries,
         })
-
 
 class MasterlistBulkCreateView(APIView):
     """Admin-only: bulk create GraduateMasterRecord entries from the batch-upload UI."""
@@ -2958,7 +2445,6 @@ class MasterlistBulkCreateView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
-
 
 # region DEBUG-ONLY:CurrenChanDebug
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3035,7 +2521,6 @@ class DebugAccountListView(APIView):
             "employer": employer_rows,
             "admin": admin_rows,
         }, status=status.HTTP_200_OK)
-
 
 class DebugAccountDeleteView(APIView):
     """Delete a single account by role + id. Cascades through FK on User."""

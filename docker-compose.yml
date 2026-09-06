@@ -5,7 +5,10 @@
 #   backend   http://localhost:8000
 #
 # The database stays external (Supabase). Nothing here runs Postgres, so
-# there is no volume to back up and no risk of a container wiping your data.
+# there is no database volume to back up. The only volumes are Caddy's
+# certificate store, which regenerates itself if lost.
+#
+# On the VPS, add TLS with:  docker compose --profile prod up -d --build
 
 services:
   backend:
@@ -22,7 +25,10 @@ services:
       # database credentials to anyone who triggers an error.
       DEBUG: "False"
     ports:
-      - "8000:8000"
+      # Loopback only: on the VPS the sole public listener is Caddy.
+      # Publishing 0.0.0.0:8000 would expose gunicorn over plain HTTP,
+      # bypassing TLS entirely.
+      - "127.0.0.1:8000:8000"
     volumes:
       # Trained model artifacts, so the model can be retrained and swapped
       # without rebuilding the image.
@@ -39,6 +45,34 @@ services:
     image: gradtracer-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
+
+  # Only starts with --profile prod, so local development never tries to
+  # obtain a certificate for a domain that does not resolve to this machine.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["prod"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Set both in the project .env beside docker-compose.yml.
+      SITE_DOMAIN: ${SITE_DOMAIN:?set SITE_DOMAIN, e.g. gradtracer.tech}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL for TLS certificate notices}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates MUST persist. Without this volume every restart requests
+      # a fresh certificate and Let's Encrypt rate-limits you (5 duplicate
+      # certificates per week), locking the site out of HTTPS for days.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:

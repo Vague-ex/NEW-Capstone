@@ -163,6 +163,29 @@ CSRF_TRUSTED_ORIGINS = _env_list(
 )
 
 
+# --- Running behind a TLS-terminating reverse proxy (Caddy on the VPS) ---
+# Caddy holds the certificate and forwards to gunicorn over plain HTTP inside
+# the Docker network. Without this header Django sees the forwarded request as
+# "http", so is_secure() returns False and every CSRF check against an https
+# origin fails -- logins break with no obvious cause in the logs.
+#
+# This trusts a header the client could otherwise forge, which is safe only
+# because gunicorn is never published to the internet: compose binds it to
+# 127.0.0.1 and Caddy is the sole public listener.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+# Session and CSRF cookies must not travel over plain HTTP in production.
+# Defaulting to "not DEBUG" keeps local development working, where there is
+# no certificate and a Secure cookie would simply never be sent back.
+SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = _env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+
+# Caddy already redirects http to https, so Django does not need to do it a
+# second time. Opt-in for deployments that expose gunicorn directly.
+SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", False)
+
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 

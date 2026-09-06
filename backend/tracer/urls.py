@@ -5,9 +5,6 @@ from .api import (
     CityMunicipalityDetailView,
     CityMunicipalityListView,
     ComprehensiveSurveySubmissionView,
-    EmployerCandidatesListView,
-    EmployerReevaluationPendingListView,
-    EmployerVerifiableGraduateListView,
     IndustryDetailView,
     IndustryListView,
     JobTitleDetailView,
@@ -26,7 +23,6 @@ from .api import (
     TrainingDataExportView,
     VerificationTokenDecisionView,
     VerificationTokenDetailView,
-    VerificationTokenIssueView,
 )
 from .reports_api import (
     BatchSummaryReportView,
@@ -70,27 +66,11 @@ urlpatterns = [
     path("reference/cities/<uuid:pk>/", CityMunicipalityDetailView.as_view(), name="city-detail"),
 
     # Employer verification tokens / decisions (DS7)
-    path("verification/tokens/issue/", VerificationTokenIssueView.as_view(), name="verification-token-issue"),
     # Graduate-initiated invite (graduate mints a token for their own current record)
     path(
         "verification/alumni/<uuid:alumni_id>/invite/",
         AlumniVerificationInviteView.as_view(),
         name="verification-alumni-invite",
-    ),
-    path(
-        "verification/employer/graduates/",
-        EmployerVerifiableGraduateListView.as_view(),
-        name="verification-employer-graduates",
-    ),
-    path(
-        "verification/employer/reeval-pending/",
-        EmployerReevaluationPendingListView.as_view(),
-        name="verification-employer-reeval-pending",
-    ),
-    path(
-        "employer/candidates/",
-        EmployerCandidatesListView.as_view(),
-        name="employer-candidates",
     ),
     path("verification/tokens/<uuid:token_id>/", VerificationTokenDetailView.as_view(), name="verification-token-detail"),
     path(

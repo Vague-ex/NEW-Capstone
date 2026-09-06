@@ -15,7 +15,6 @@ from rest_framework.test import APIRequestFactory
 from .api import (
 	AdminLoginView,
 	AlumniLoginView,
-	EmployerLoginView,
 	PendingAlumniListView,
 )
 from .models import AccountStatus, AlumniAccount, FaceScan, EmployerAccount, LoginAudit, User
@@ -48,18 +47,6 @@ class AuthDatabaseErrorHandlingTests(TestCase):
 		self.assertEqual(response.status_code, 503)
 		self.assertEqual(response.data.get("retryable"), True)
 
-	@patch("users.api._authenticate_by_email", side_effect=OperationalError("dns lookup failed"))
-	def test_employer_login_returns_503_when_database_unavailable(self, _mock_authenticate):
-		request = self.factory.post(
-			"/api/auth/employer/login/",
-			{"email": "employer@example.com", "password": "Password123!"},
-			format="json",
-		)
-
-		response = EmployerLoginView.as_view()(request)
-
-		self.assertEqual(response.status_code, 503)
-		self.assertEqual(response.data.get("retryable"), True)
 
 	@patch("users.api._authenticate_by_email_specific", side_effect=OperationalError("dns lookup failed"))
 	def test_alumni_login_returns_503_when_database_unavailable(self, _mock_authenticate):
@@ -112,47 +99,6 @@ class AuthDatabaseErrorHandlingTests(TestCase):
 
 		self.assertEqual(response.status_code, 401)
 		self.assertIn("detail", response.data)
-
-
-class EmployerRegisterContractTests(TestCase):
-	def setUp(self):
-		self.client = APIClient()
-
-	def test_register_returns_employer_access_token_and_pending_status(self):
-		payload = {
-			"company_name": "Token Corp",
-			"credential_email": "token-corp@example.com",
-			"password": "StrongPass123!",
-			"confirm_password": "StrongPass123!",
-			# industry and contact_name became required after this test was
-			# written; the real form (register-employer.tsx) sends both.
-			"industry": "IT and BPO",
-			"contact_name": "Reggie Cruz",
-		}
-
-		response = self.client.post(
-			"/api/auth/employer/register/",
-			payload,
-			format="json",
-		)
-
-		self.assertEqual(response.status_code, 201)
-		self.assertIn("accessToken", response.data)
-		self.assertEqual(response.data.get("tokenType"), "Bearer")
-		self.assertIsInstance(response.data.get("expiresIn"), int)
-		self.assertGreater(response.data.get("expiresIn"), 0)
-
-		token_payload = signing.loads(
-			response.data["accessToken"],
-			salt="users.employer.access",
-		)
-		self.assertEqual(token_payload.get("role"), User.Role.EMPLOYER)
-
-		employer_payload = response.data.get("employer", {})
-		self.assertEqual(str(employer_payload.get("status", "")).lower(), "pending")
-
-		employer = EmployerAccount.objects.get(company_email="token-corp@example.com")
-		self.assertEqual(employer.account_status, AccountStatus.PENDING)
 
 
 class EmployerApprovalHoldActivationTests(TestCase):
@@ -217,25 +163,6 @@ class EmployerApprovalHoldActivationTests(TestCase):
 
 	def _admin_headers(self) -> dict:
 		return {"HTTP_AUTHORIZATION": f"Bearer {self.admin_token}"}
-
-	def test_approving_employer_activates_held_decision(self):
-		response = self.client.post(
-			f"/api/admin/employers/requests/{self.pending_employer.id}/approve/",
-			format="json",
-			**self._admin_headers(),
-		)
-		self.assertEqual(response.status_code, 200)
-
-		self.held_decision.refresh_from_db()
-		self.assertFalse(self.held_decision.is_held)
-		self.assertIsNotNone(self.held_decision.held_activated_at)
-
-		self.employment_record.refresh_from_db()
-		self.assertEqual(
-			self.employment_record.verification_status,
-			EmploymentRecord.VerificationStatus.VERIFIED,
-		)
-		self.assertEqual(self.employment_record.employer_account_id, self.pending_employer.id)
 
 	def test_verified_alumni_payload_includes_face_gps_coordinates(self):
 		FaceScan.objects.create(
@@ -304,19 +231,6 @@ class EmployerStatusAndLoginMetadataTests(TestCase):
 		self.admin_user.refresh_from_db()
 		self.assertIsNotNone(self.admin_user.last_login)
 
-	def test_employer_login_updates_last_login(self):
-		self.assertIsNone(self.employer_user.last_login)
-
-		response = self.client.post(
-			"/api/auth/employer/login/",
-			{"email": "employer-meta@example.com", "password": "EmployerPass123!"},
-			format="json",
-		)
-
-		self.assertEqual(response.status_code, 200)
-		self.employer_user.refresh_from_db()
-		self.assertIsNotNone(self.employer_user.last_login)
-
 	@patch("users.api.upload_image_bytes", return_value="https://example.com/login-scan.jpg")
 	def test_alumni_login_updates_last_login_and_creates_audit(self, _mock_upload):
 		self.assertIsNone(self.alumni_user.last_login)
@@ -352,37 +266,6 @@ class EmployerStatusAndLoginMetadataTests(TestCase):
 		self.alumni_user.refresh_from_db()
 		self.assertIsNotNone(self.alumni_user.last_login)
 		self.assertEqual(LoginAudit.objects.filter(alumni=self.alumni_account).count(), 1)
-
-	def test_employer_account_status_endpoint_reflects_admin_approval(self):
-		token = signing.dumps(
-			{"uid": str(self.employer_user.id), "role": User.Role.EMPLOYER},
-			salt="users.employer.access",
-		)
-		headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
-
-		pending_response = self.client.get(
-			f"/api/auth/employer/account/{self.employer_account.id}/",
-			**headers,
-		)
-		self.assertEqual(pending_response.status_code, 200)
-		self.assertEqual(
-			str(pending_response.data.get("employer", {}).get("status", "")).lower(),
-			"pending",
-		)
-
-		self.employer_account.account_status = AccountStatus.ACTIVE
-		self.employer_account.save(update_fields=["account_status", "updated_at"])
-
-		approved_response = self.client.get(
-			f"/api/auth/employer/account/{self.employer_account.id}/",
-			**headers,
-		)
-		self.assertEqual(approved_response.status_code, 200)
-		self.assertEqual(
-			str(approved_response.data.get("employer", {}).get("status", "")).lower(),
-			"approved",
-		)
-
 
 class MasterlistNameParsingTests(SimpleTestCase):
 	"""

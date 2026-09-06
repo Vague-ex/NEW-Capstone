@@ -1,0 +1,34 @@
+# TLS termination for the Graduate Tracer System.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically. This is
+# what makes the face-capture and geolocation modules work at all: getUserMedia
+# and navigator.geolocation are secure-context APIs, and browsers do not expose
+# them to a page served over plain HTTP or from a bare IP address.
+#
+# Caddy sets X-Forwarded-Proto on every proxied request, which is the header
+# SECURE_PROXY_SSL_HEADER in core/settings.py relies on to see requests as
+# secure. Changing one without the other will break CSRF on all POSTs.
+
+{
+	email {$ACME_EMAIL}
+}
+
+# --- Frontend (Next.js) ---
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}
+
+# --- Backend (Django / gunicorn) ---
+api.{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# Caddy places no limit on request bodies by default. This is an explicit
+	# ceiling so one oversized upload cannot exhaust memory, set well above
+	# the largest ID photo and face-descriptor payload registration sends.
+	request_body {
+		max_size 25MB
+	}
+
+	reverse_proxy backend:8000
+}
