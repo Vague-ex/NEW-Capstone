@@ -5,7 +5,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from users.auth import generate_admin_access_token
+from users.auth import generate_admin_access_token, generate_alumni_access_token
 from users.models import AccountStatus, AlumniAccount, AlumniProfile, EmployerAccount, User
 
 from .alignment import resolve_alignment, verified_titles_by_alumni
@@ -135,6 +135,15 @@ class VerificationTokenFlowTests(TestCase):
 			salt="users.employer.access",
 		)
 
+	def _alumni_auth(self):
+		"""
+		The invite endpoint is graduate-owned: require_alumni resolves the token
+		to an AlumniAccount and refuses if it is not the one named in the URL.
+		"""
+		return {
+			"HTTP_AUTHORIZATION": f"Bearer {generate_alumni_access_token(self.alumni_account.user_id)}"
+		}
+
 	def _invite(self):
 		"""
 		Mint a token the way the system actually does now: the GRADUATE
@@ -143,7 +152,7 @@ class VerificationTokenFlowTests(TestCase):
 		"""
 		return self.client.post(
 			f"/api/verification/alumni/{self.alumni_account.id}/invite/",
-			{}, format="json",
+			{}, format="json", **self._alumni_auth(),
 		)
 
 	def _auth_headers(self) -> dict:
@@ -229,8 +238,8 @@ class VerificationTokenFlowTests(TestCase):
 		it silently broke the second employer's link.
 		"""
 		alumni_id = str(self.alumni_account.id)
-		first = self.client.post(f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json")
-		second = self.client.post(f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json")
+		first = self.client.post(f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json", **self._alumni_auth())
+		second = self.client.post(f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json", **self._alumni_auth())
 		self.assertEqual(first.status_code, 201)
 		self.assertEqual(second.status_code, 201)
 
@@ -265,10 +274,41 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertEqual(second_answer.status_code, 200)
 		self.assertEqual(VerificationDecision.objects.count(), 2)
 
+	def test_invite_requires_authentication(self):
+		"""
+		The invite mints a verification link for a specific graduate. It was
+		reachable with no credentials at all, so a third party could mint a link
+		for someone else's employment record and address it to an evaluator of
+		their choosing — the exact fabrication this flow exists to prevent.
+		"""
+		response = self.client.post(
+			f"/api/verification/alumni/{self.alumni_account.id}/invite/",
+			{}, format="json",
+		)
+		self.assertIn(response.status_code, (401, 403))
+		self.assertEqual(VerificationToken.objects.count(), 0)
+
+	def test_invite_rejects_a_different_graduates_token(self):
+		"""Being signed in is not enough; the caller must own the record."""
+		other_user = User.objects.create_user(
+			email="other.grad@example.com", password="pw-Other-123", role=User.Role.ALUMNI,
+		)
+		other_account = AlumniAccount.objects.create(
+			user=other_user, account_status=AccountStatus.ACTIVE,
+		)
+		response = self.client.post(
+			f"/api/verification/alumni/{self.alumni_account.id}/invite/",
+			{}, format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(other_account.user_id)}",
+		)
+		self.assertEqual(response.status_code, 403)
+		self.assertEqual(VerificationToken.objects.count(), 0)
+
 	def test_used_link_cannot_be_reused(self):
 		alumni_id = str(self.alumni_account.id)
 		token_id = self.client.post(
 			f"/api/verification/alumni/{alumni_id}/invite/", {}, format="json",
+			**self._alumni_auth(),
 		).data["token"]["id"]
 
 		payload = {"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com"}
@@ -425,10 +465,16 @@ class PublicVerificationLandingTests(TestCase):
 			is_current=True,
 		)
 
+	def _alumni_auth(self):
+		return {
+			"HTTP_AUTHORIZATION": f"Bearer {generate_alumni_access_token(self.alumni.user_id)}"
+		}
+
 	def _invite(self, employer_email=None):
 		body = {"employer_email": employer_email} if employer_email else {}
 		return self.client.post(
-			f"/api/verification/alumni/{self.alumni.id}/invite/", body, format="json"
+			f"/api/verification/alumni/{self.alumni.id}/invite/", body, format="json",
+			**self._alumni_auth(),
 		)
 
 	def test_landing_identifies_the_graduate_without_leaking_their_email(self):

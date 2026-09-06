@@ -2047,6 +2047,15 @@ class AlumniAccountStatusView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, alumni_id):
+        # This returns _session_payload_from_alumni — the same object handed out
+        # on login, including the graduate's name and their entire survey_data.
+        # It was previously unauthenticated, so anyone holding an alumni UUID
+        # could read that record without signing in. The POST below has always
+        # been guarded; the GET simply never was.
+        _alumni_account, _auth_error = _require_alumni(request, alumni_id=alumni_id)
+        if _auth_error:
+            return _auth_error
+
         alumni_account = AlumniAccount.objects.select_related("user", "master_record").filter(id=alumni_id).first()
         if not alumni_account:
             return Response(

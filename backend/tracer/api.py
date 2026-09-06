@@ -897,6 +897,15 @@ class AlumniVerificationInviteView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, alumni_id):
+        # The docstring above says this mints a token for the graduate's OWN
+        # record, but nothing enforced it: the view accepted any alumni_id from
+        # anyone. That let a third party mint a verification link for a graduate
+        # they do not own and address it to an employer of their choosing, which
+        # is precisely the fabrication this token flow exists to prevent.
+        _account, _auth_error = require_alumni(request, alumni_id=alumni_id)
+        if _auth_error:
+            return _auth_error
+
         try:
             record = (
                 EmploymentRecord.objects

@@ -10,6 +10,7 @@ from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from users.auth import generate_alumni_access_token
 from rest_framework.test import APIRequestFactory
 
 from .api import (
@@ -266,6 +267,50 @@ class EmployerStatusAndLoginMetadataTests(TestCase):
 		self.alumni_user.refresh_from_db()
 		self.assertIsNotNone(self.alumni_user.last_login)
 		self.assertEqual(LoginAudit.objects.filter(alumni=self.alumni_account).count(), 1)
+
+class AlumniAccountStatusAuthTests(TestCase):
+	"""
+	GET /api/auth/alumni/account/<id>/ returns _session_payload_from_alumni —
+	the same object issued on login, carrying the graduate's name and their
+	whole survey_data. It shipped unauthenticated, so anyone holding an alumni
+	UUID could read that record without signing in, while the POST on the very
+	same view was guarded. These tests keep the two halves in step.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		self.user = User.objects.create_user(
+			email="status-owner@example.com", password="OwnerPass123!", role=User.Role.ALUMNI,
+		)
+		self.account = AlumniAccount.objects.create(
+			user=self.user, account_status=AccountStatus.ACTIVE,
+		)
+
+	def _url(self):
+		return f"/api/auth/alumni/account/{self.account.id}/"
+
+	def test_anonymous_cannot_read_a_graduate_record(self):
+		response = self.client.get(self._url())
+		self.assertIn(response.status_code, (401, 403))
+
+	def test_owner_can_read_their_own_record(self):
+		response = self.client.get(
+			self._url(),
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(self.user.id)}",
+		)
+		self.assertEqual(response.status_code, 200)
+
+	def test_another_graduate_cannot_read_it(self):
+		other = User.objects.create_user(
+			email="status-other@example.com", password="OtherPass123!", role=User.Role.ALUMNI,
+		)
+		AlumniAccount.objects.create(user=other, account_status=AccountStatus.ACTIVE)
+		response = self.client.get(
+			self._url(),
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(other.id)}",
+		)
+		self.assertEqual(response.status_code, 403)
+
 
 class MasterlistNameParsingTests(SimpleTestCase):
 	"""

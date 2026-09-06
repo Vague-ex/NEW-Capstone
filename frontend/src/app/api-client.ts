@@ -378,7 +378,9 @@ export function forgotPasswordSetPassword(
 // ---------------------------------------------------------------------------
 
 export async function fetchAlumniAccountStatus(alumniId: string): Promise<unknown> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/alumni/account/${alumniId}/`);
+    const response = await fetch(`${API_BASE_URL}/api/auth/alumni/account/${alumniId}/`, {
+        headers: withAlumniAuthHeaders(),
+    });
     await throwIfNotOk(response);
     const data = await response.json();
     return data?.alumni ?? data;
@@ -424,7 +426,7 @@ export async function createAlumniVerificationInvite(
         `${API_BASE_URL}/api/verification/alumni/${alumniId}/invite/`,
         {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: withAlumniAuthHeaders({ 'Content-Type': 'application/json' }),
             // Recorded as invited_email so a decision answered from a
             // different address can be flagged as forwarded.
             body: JSON.stringify(employerEmail ? { employer_email: employerEmail } : {}),
