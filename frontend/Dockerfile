@@ -7,7 +7,11 @@
 # ---- deps: install once, cache across source edits --------------------------
 FROM node:22-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+# .npmrc carries `legacy-peer-deps=true`, which this project needs: React 19 is
+# newer than the peer range react-day-picker@8 declares. Without copying it the
+# container build fails with ERESOLVE even though the same install succeeds on a
+# developer machine, where npm reads .npmrc from the working directory.
+COPY package.json package-lock.json .npmrc ./
 # `npm ci` installs exactly the lockfile, which is what a reproducible build
 # needs — `npm install` may quietly resolve different versions.
 RUN npm ci

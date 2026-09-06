@@ -13,6 +13,14 @@
 	email {$ACME_EMAIL}
 }
 
+# --- www redirect ---
+# A CNAME for www points at the apex. Without a site block here Caddy would
+# have no certificate for that name, so anyone typing www.<domain> would get
+# a TLS warning rather than the site. Redirect it to the canonical apex.
+www.{$SITE_DOMAIN} {
+	redir https://{$SITE_DOMAIN}{uri} permanent
+}
+
 # --- Frontend (Next.js) ---
 {$SITE_DOMAIN} {
 	encode zstd gzip
