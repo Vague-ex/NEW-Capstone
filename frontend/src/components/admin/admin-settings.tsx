@@ -1015,7 +1015,7 @@ function SkillsView({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
       {/* Master rail */}
-      <div className="lg:col-span-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+      <div className="lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
           <FolderOpen className="size-4 text-[#1B3A6B]" />
           <h3 className="text-sm text-gray-800" style={{ fontWeight: 700 }}>
@@ -1062,7 +1062,7 @@ function SkillsView({
       </div>
 
       {/* Detail pane */}
-      <div className="lg:col-span-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
@@ -1171,7 +1171,7 @@ function JobsView({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
       {/* Master rail - industries */}
-      <div className="lg:col-span-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+      <div className="lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
           <Building2 className="size-4 text-[#1B3A6B]" />
           <h3 className="text-sm text-gray-800" style={{ fontWeight: 700 }}>
@@ -1218,7 +1218,7 @@ function JobsView({
       </div>
 
       {/* Detail pane - job titles */}
-      <div className="lg:col-span-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="mb-4">
           <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
             {headerLabel}

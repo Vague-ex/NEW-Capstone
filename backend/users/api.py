@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from datetime import date
 from urllib.error import HTTPError, URLError
@@ -59,9 +60,29 @@ FACE_MATCH_THRESHOLD = 0.42
 MIN_FACE_SIZE_PX = 72
 MIN_FACE_AREA_RATIO = 0.045
 FACE_DESCRIPTOR_LENGTH = 128
+
+# Display-only mapping from euclidean distance to a 0..1 "similarity" shown in
+# API responses. It does NOT decide a match — the distance threshold below does.
 FACE_DESCRIPTOR_SIMILARITY_SCALE = 1.5
-FACE_DESCRIPTOR_MIN_SIMILARITY = 0.42
-FACE_DESCRIPTOR_DISTANCE_THRESHOLD = (1.0 - FACE_DESCRIPTOR_MIN_SIMILARITY) * FACE_DESCRIPTOR_SIMILARITY_SCALE
+
+# face-api.js FaceRecognitionNet emits 128-d embeddings where euclidean distance
+# is the identity metric. Reference points from dlib/face-api:
+#
+#   same person, good capture        0.30 - 0.45
+#   same person, poor light/angle    0.45 - 0.60
+#   DIFFERENT people                 0.60 - 1.00+
+#   face-api.js documented default   0.60
+#
+# This was previously derived as (1 - 0.42) * 1.5 = 0.87, which sits well inside
+# the different-person band and let unrelated faces authenticate. 0.55 keeps a
+# margin below the 0.60 crossover; raise it toward 0.60 if legitimate users are
+# being rejected, but never past it.
+FACE_DESCRIPTOR_DISTANCE_THRESHOLD = float(
+    os.getenv("FACE_DESCRIPTOR_DISTANCE_THRESHOLD", "0.55")
+)
+FACE_DESCRIPTOR_MIN_SIMILARITY = max(
+    0.0, 1.0 - (FACE_DESCRIPTOR_DISTANCE_THRESHOLD / FACE_DESCRIPTOR_SIMILARITY_SCALE)
+)
 
 # Employer authentication token constants
 
