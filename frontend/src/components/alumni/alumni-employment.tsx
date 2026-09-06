@@ -298,15 +298,25 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
       const startLng = workLng ?? 121.7;
       const startZoom = workLat ? 13 : 6;
 
+      // Same reasoning as the admin map: work addresses resolve to PSGC
+      // regions, so anywhere outside the Philippines is unreachable data.
+      // Without bounds the pin can be dragged into the ocean off Peru.
+      const PH_BOUNDS = L.latLngBounds([3.0, 114.0], [23.0, 129.0]);
+
       const map = L.map(workMapContainerRef.current, {
         center: [startLat, startLng],
         zoom: startZoom,
+        minZoom: 5,
         scrollWheelZoom: false,
+        maxBounds: PH_BOUNDS,
+        maxBoundsViscosity: 1.0,
       });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 18,
+        noWrap: true,
+        bounds: PH_BOUNDS,
       }).addTo(map);
 
       const marker = L.marker([startLat, startLng], {

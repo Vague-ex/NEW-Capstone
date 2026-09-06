@@ -211,16 +211,30 @@ export function AdminMap() {
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
       });
 
+      // Leaflet by default lets you zoom out until the world tiles repeat and
+      // pan to anywhere on earth. Every marker here is geocoded from a PSGC
+      // region, so the data is Philippines-only and the extra freedom just
+      // lets users get lost. Bounds are padded well past the actual coastline
+      // (Batanes ~21.5N, Tawi-Tawi ~4.5N, Palawan ~116E, Mindanao ~127E).
+      const PH_BOUNDS = L.latLngBounds([3.0, 114.0], [23.0, 129.0]);
+
       const map = L.map(mapRef.current, {
         center: [11.5, 122.5],
         zoom: 6,
+        minZoom: 5,
         zoomControl: true,
         scrollWheelZoom: true,
+        maxBounds: PH_BOUNDS,
+        maxBoundsViscosity: 1.0,
       });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 18,
+        // Stops the horizontal world-repeat, and skips tile requests for
+        // areas that can never contain a marker.
+        noWrap: true,
+        bounds: PH_BOUNDS,
       }).addTo(map);
 
       leafletMapRef.current = map;
