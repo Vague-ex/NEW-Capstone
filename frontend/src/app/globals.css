@@ -43,3 +43,86 @@ select option {
   color: #111827;
   background-color: #ffffff;
 }
+/* ─── Motion system ──────────────────────────────────────────────────────────
+   Pure CSS so it costs nothing in the JS bundle and runs on first paint with
+   no hydration flash. The `motion` package is installed but deliberately not
+   imported — pulling it in would add ~40KB for effects these keyframes cover.
+
+   Every animation here starts from opacity:0, so the reduced-motion block at
+   the bottom must restore opacity as well as cancelling the animation.
+   Otherwise users with that setting get a blank page instead of a still one. */
+
+@keyframes gt-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes gt-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes gt-scale {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes gt-slide-right {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Entrances. `both` fill mode holds the from-state before the delay elapses,
+   which is what makes staggering look deliberate rather than flickery. */
+.gt-fade   { animation: gt-fade  .45s cubic-bezier(.22,.61,.36,1) both; }
+.gt-rise   { animation: gt-rise  .5s  cubic-bezier(.22,.61,.36,1) both; }
+.gt-scale  { animation: gt-scale .4s  cubic-bezier(.22,.61,.36,1) both; }
+.gt-slide  { animation: gt-slide-right .45s cubic-bezier(.22,.61,.36,1) both; }
+
+/* Stagger: children cascade instead of arriving as one block. Capped at 12 —
+   beyond that the tail feels slow rather than smooth. */
+.gt-stagger > *          { animation: gt-rise .5s cubic-bezier(.22,.61,.36,1) both; }
+.gt-stagger > *:nth-child(1)  { animation-delay: .04s; }
+.gt-stagger > *:nth-child(2)  { animation-delay: .08s; }
+.gt-stagger > *:nth-child(3)  { animation-delay: .12s; }
+.gt-stagger > *:nth-child(4)  { animation-delay: .16s; }
+.gt-stagger > *:nth-child(5)  { animation-delay: .20s; }
+.gt-stagger > *:nth-child(6)  { animation-delay: .24s; }
+.gt-stagger > *:nth-child(7)  { animation-delay: .28s; }
+.gt-stagger > *:nth-child(8)  { animation-delay: .32s; }
+.gt-stagger > *:nth-child(9)  { animation-delay: .36s; }
+.gt-stagger > *:nth-child(10) { animation-delay: .40s; }
+.gt-stagger > *:nth-child(11) { animation-delay: .44s; }
+.gt-stagger > *:nth-child(n+12) { animation-delay: .48s; }
+
+/* Explicit delay hooks for elements that are not siblings. */
+.gt-d1 { animation-delay: .08s; }
+.gt-d2 { animation-delay: .16s; }
+.gt-d3 { animation-delay: .24s; }
+.gt-d4 { animation-delay: .32s; }
+
+/* Interaction polish. Transform-only so these stay on the compositor and do
+   not trigger layout on a 1 vCPU box. */
+.gt-lift {
+  transition: transform .2s cubic-bezier(.22,.61,.36,1),
+              box-shadow .2s cubic-bezier(.22,.61,.36,1);
+  will-change: transform;
+}
+.gt-lift:hover { transform: translateY(-2px); }
+
+.gt-press { transition: transform .12s ease-out; }
+.gt-press:active { transform: scale(.97); }
+
+/* Accessibility. Cancels motion AND restores the end state — without the
+   explicit opacity/transform reset, everything above would stay invisible. */
+@media (prefers-reduced-motion: reduce) {
+  .gt-fade, .gt-rise, .gt-scale, .gt-slide,
+  .gt-stagger > *,
+  .gt-d1, .gt-d2, .gt-d3, .gt-d4 {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .gt-lift, .gt-press { transition: none !important; }
+  .gt-lift:hover, .gt-press:active { transform: none !important; }
+}

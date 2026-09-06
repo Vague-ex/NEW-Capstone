@@ -1006,7 +1006,7 @@ export default function RegisterAlumniPersonal({
 
           {/* STEP 1: Account Setup */}
           {step === 1 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
               <SectionHeader icon={Lock} title="Create Your Account" subtitle="Set up your login credentials for the Graduate Portal." />
 
               {stepError && (
@@ -1114,7 +1114,7 @@ export default function RegisterAlumniPersonal({
 
           {/* STEP 2: Personal Information */}
           {step === 2 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
               <SectionHeader icon={User} title="Personal Information" subtitle="Your basic details and contact information." />
 
               {stepError && (
@@ -1471,7 +1471,7 @@ export default function RegisterAlumniPersonal({
 
           {/* STEP 3: Education Background */}
           {step === 3 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
               <SectionHeader icon={BookOpen} title="Educational Background" subtitle="Your graduation and academic details." />
 
               {stepError && (
@@ -1647,7 +1647,7 @@ export default function RegisterAlumniPersonal({
           {step === 4 && (() => {
             const allCaptured = shotIndex >= shotInstructions.length;
             return (
-              <div className="space-y-4">
+              <div className="gt-rise space-y-4">
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                   <div className="flex items-start gap-3 mb-5">
                     <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 shrink-0">

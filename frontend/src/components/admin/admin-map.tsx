@@ -342,7 +342,7 @@ export function AdminMap() {
       <div className="space-y-4 h-full">
 
         {/* Local vs International Summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 gt-stagger">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-xl bg-[#166534]/10 shrink-0">
               <Home className="size-5 text-[#166534]" />

@@ -566,7 +566,7 @@ export function LoginPage() {
         <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full bg-white/5 blur-3xl" />
         <div className="absolute top-0 left-0 w-48 h-48 rounded-full bg-white/5 blur-3xl" />
 
-        <div className="relative">
+        <div className="relative gt-rise">
           <NextImage src={schoolLogo} alt="CHMSU Logo" width={88} height={88} className="size-22 object-contain mb-5" />
           <h1 className="text-white mb-1" style={{ fontWeight: 800, fontSize: "1.5rem", lineHeight: 1.2 }}>
             Carlos Hilado Memorial State University
@@ -574,7 +574,7 @@ export function LoginPage() {
           <p className="text-white/70 text-sm">BSIS Graduate Tracer System</p>
         </div>
 
-        <div className="relative space-y-5">
+        <div className="relative space-y-5 gt-stagger">
           {featureItems.map((item) => (
             <div key={item.title} className="flex items-start gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-white/10 shrink-0">
@@ -588,12 +588,12 @@ export function LoginPage() {
           ))}
         </div>
 
-        <p className="relative text-white/25 text-xs">© 2026 Carlos Hilado Memorial State University</p>
+        <p className="relative text-white/25 text-xs gt-fade gt-d4">© 2026 Carlos Hilado Memorial State University</p>
       </div>
 
       {/* ── Right / Form Panel ── */}
       <div className="flex-1 flex items-start lg:items-center justify-center px-4 pt-6 pb-10 lg:py-12 bg-gray-50">
-        <div className="w-full max-w-[400px]">
+        <div className="w-full max-w-[400px] gt-rise gt-d1">
 
           {/* Form card - elevated on mobile */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 lg:p-0 lg:bg-transparent lg:shadow-none lg:border-0">
@@ -671,7 +671,7 @@ export function LoginPage() {
                   <button
                     type="submit"
                     disabled={isLoading || lockoutSeconds > 0 || !credential.trim() || !password.trim()}
-                    className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60"
+                    className="w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white py-3 rounded-xl text-sm transition disabled:opacity-60 gt-press"
                     style={{ fontWeight: 600 }}
                   >
                     {lockoutSeconds > 0 ? (

@@ -334,7 +334,7 @@ export function AdminNewDashboard() {
         )}
 
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 gt-stagger">
           <StatCard label="Total Registered" value={totalRegistered} sub={`${pendingAlumni.length} pending · ${verifiedCount} verified`}
             icon={Users} iconBg="bg-[#166534]/10" iconColor="text-[#166534]" />
           <StatCard label="Employment Rate" value={`${empRate}%`}
@@ -407,7 +407,7 @@ export function AdminNewDashboard() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-2 gap-5">
+        <div className="grid lg:grid-cols-2 gap-5 gt-stagger">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <TrendingUp className="size-4 text-[#166534]" /> Employment Rate by Batch
@@ -471,7 +471,7 @@ export function AdminNewDashboard() {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-5">
+        <div className="grid lg:grid-cols-3 gap-5 gt-stagger">
           <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Batch Employment Breakdown</h3>

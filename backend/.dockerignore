@@ -16,9 +16,15 @@ db.sqlite3
 staticfiles/
 media/
 
-# Never ship the ML training corpus or generated plots. The trained model
-# artifacts (.joblib, model_metadata.json) ARE needed and are not excluded.
-ml/data/*.csv
+# Generated plots are build-time only. The trained model artifacts
+# (.joblib, model_metadata.json) ARE needed at runtime and are not excluded.
+#
+# ml/data/*.csv is also needed at runtime: the admin analytics endpoint reads
+# processed_training_data.csv to compare live graduates against the training
+# distribution (tracer/api.py, _load_ml). Excluding it makes that page fail
+# with "missing processed training data". The corpus is synthetic (230 rows,
+# ~20KB, no PII), so shipping it costs nothing. Revisit this if the model is
+# ever retrained on real alumni records.
 ml/models/reports/
 
 .pytest_cache/
