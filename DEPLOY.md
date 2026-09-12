@@ -174,6 +174,65 @@ account address, which is why it looked broken on Vercel.
 
 ---
 
+## 7b. Switching to the InsightFace engine (optional)
+
+The default engine is face-api.js, which runs in the browser and needs nothing
+on the server. To run server-side recognition instead:
+
+**1. Size the workers first.** Each gunicorn worker holds its own ONNX session,
+roughly 0.8-1.5 GB. Two of those on this 4 GB box, alongside Next.js and Caddy,
+get OOM-killed. Add to the project `.env` beside `docker-compose.yml`:
+
+```
+INSTALL_INSIGHTFACE=true
+GUNICORN_WORKERS=1
+GUNICORN_THREADS=4
+```
+
+One worker with threads is not a downgrade here: the workload is I/O-bound on
+Supabase, so threads recover the concurrency a second process would have given.
+
+**2. Select the engine** in `backend/.env`:
+
+```
+FACE_ENGINE=insightface
+```
+
+**3. Rebuild.** The build installs the wheels and bakes the model pack into the
+image, so the first request after a deploy is not a 125MB download:
+
+```bash
+docker compose --profile prod up -d --build
+```
+
+Expect this build to be noticeably slower than usual -- it downloads the model
+pack once. Subsequent builds reuse the layer.
+
+**4. Everyone must re-enrol.** Embeddings from different engines are not
+comparable, so every stored template becomes unusable and face login returns
+409 telling the graduate to re-enrol. This is deliberate: the alternative is a
+silent fallback to the weakest check in the system. Confirm it is working as
+intended rather than as a bug:
+
+```bash
+docker compose logs --tail=50 backend | grep "engine mismatch"
+```
+
+**5. Check memory under load** before trusting it:
+
+```bash
+docker stats --no-stream
+```
+
+Resident memory for the backend container should stay well under 2 GB. If it
+climbs toward 3 GB, drop `INSIGHTFACE_MODEL_PACK` to `buffalo_sc` and rebuild.
+
+To go back, remove `FACE_ENGINE` (or set it to `faceapi`), restore
+`GUNICORN_WORKERS=2`, and rebuild. Templates enrolled under face-api still work
+-- nothing about them was changed.
+
+---
+
 ## 8. Updating after a code change
 
 ```bash

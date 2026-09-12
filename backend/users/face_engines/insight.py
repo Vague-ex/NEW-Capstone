@@ -54,6 +54,11 @@ class InsightFaceEngine(FaceEngine):
             os.getenv("INSIGHTFACE_DISTANCE_THRESHOLD", "0.40")
         )
         self.model_pack = os.getenv("INSIGHTFACE_MODEL_PACK", self.DEFAULT_MODEL_PACK)
+        # Where the model pack lives. Defaults to insightface's own ~/.insightface,
+        # which is right for a developer machine but wrong in a container: the
+        # home directory is ephemeral, so every redeploy would re-download ~125MB
+        # during the first request. The image bakes the pack in and points here.
+        self.model_root = os.getenv("INSIGHTFACE_ROOT", "~/.insightface")
         self._app = None
         # The ONNX session is expensive to build and not safe to share across a
         # fork, so it is created on first use inside the worker rather than at
@@ -76,6 +81,7 @@ class InsightFaceEngine(FaceEngine):
 
             app = FaceAnalysis(
                 name=self.model_pack,
+                root=self.model_root,
                 # CPU only. The VPS has no GPU, and asking for CUDA providers
                 # that do not exist makes onnxruntime noisy on every call.
                 providers=["CPUExecutionProvider"],

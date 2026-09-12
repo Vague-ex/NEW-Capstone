@@ -14,6 +14,13 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        # Adds the server-side face engine and bakes its model pack into the
+        # image. Leave false unless FACE_ENGINE=insightface, since the wheels
+        # and the ~125MB pack are dead weight otherwise.
+        #   INSTALL_INSIGHTFACE=true docker compose --profile prod up -d --build
+        INSTALL_INSIGHTFACE: ${INSTALL_INSIGHTFACE:-false}
+        INSIGHTFACE_MODEL_PACK: ${INSIGHTFACE_MODEL_PACK:-buffalo_s}
     image: gradtracer-backend
     restart: unless-stopped
     env_file:
@@ -24,6 +31,13 @@ services:
       # start in debug mode, which would serve tracebacks containing the
       # database credentials to anyone who triggers an error.
       DEBUG: "False"
+      # Sizing follows the engine. face-api costs the server nothing, so 2
+      # workers is right. InsightFace gives each worker its own ONNX session at
+      # roughly 0.8-1.5 GB, and two of those on this 4 GB box alongside Next.js
+      # and Caddy get OOM-killed -- so 1 worker with threads, which the
+      # Supabase-bound workload does not suffer from.
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-1}
     ports:
       # Loopback only: on the VPS the sole public listener is Caddy.
       # Publishing 0.0.0.0:8000 would expose gunicorn over plain HTTP,

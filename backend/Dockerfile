@@ -25,6 +25,37 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# ── Optional: server-side face recognition (FACE_ENGINE=insightface) ─────────
+# Off by default, so an image that does not use it stays lean:
+#
+#   docker compose build --build-arg INSTALL_INSIGHTFACE=true backend
+#
+# Two pip calls on purpose. insightface declares opencv-python as a dependency
+# while this project uses opencv-python-HEADLESS; both install a module named
+# cv2, so a single resolve would silently swap the headless build for one that
+# needs GUI libraries this slim image does not have.
+ARG INSTALL_INSIGHTFACE=false
+COPY requirements-insightface.txt .
+RUN if [ "$INSTALL_INSIGHTFACE" = "true" ]; then \
+      pip install --no-cache-dir --only-binary=:all: --no-deps insightface==2.0 && \
+      pip install --no-cache-dir --only-binary=:all: \
+        onnx onnxruntime scikit-image tqdm requests scipy ; \
+    fi
+
+# Bake the model pack in rather than letting it download at runtime. The
+# container home directory is ephemeral, so otherwise every redeploy pays a
+# ~125MB download during the first request -- which looks exactly like a hang,
+# and fails outright if GitHub is unreachable from the VPS.
+ENV INSIGHTFACE_ROOT=/opt/insightface
+ARG INSIGHTFACE_MODEL_PACK=buffalo_s
+RUN if [ "$INSTALL_INSIGHTFACE" = "true" ]; then \
+      mkdir -p "$INSIGHTFACE_ROOT" && \
+      python -c "from insightface.app import FaceAnalysis; \
+FaceAnalysis(name='$INSIGHTFACE_MODEL_PACK', root='$INSIGHTFACE_ROOT', \
+providers=['CPUExecutionProvider'], \
+allowed_modules=['detection','recognition']).prepare(ctx_id=-1)" ; \
+    fi
+
 COPY . .
 
 # Collect admin CSS/JS into STATIC_ROOT. Without this the Django admin renders
@@ -38,7 +69,8 @@ RUN SECRET_KEY=build-only \
 
 # Never run as root in a container.
 RUN useradd --create-home --uid 10001 appuser \
- && chown -R appuser:appuser /app
+ && chown -R appuser:appuser /app \
+ && if [ -d /opt/insightface ]; then chown -R appuser:appuser /opt/insightface; fi
 USER appuser
 
 EXPOSE 8000
@@ -46,11 +78,27 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8000/api/reference/ || exit 1
 
-# 2 workers matches the Procfile. Raise it on a larger VPS: a common starting
-# point is (2 x CPU cores) + 1.
-CMD ["gunicorn", "core.wsgi:application", \
-     "--bind", "0.0.0.0:8000", \
-     "--workers", "2", \
-     "--timeout", "120", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+# Worker count is an env var because the right answer depends on the engine,
+# not on the image.
+#
+# Default 2 suits the browser-side face-api engine, which costs the server
+# nothing. With FACE_ENGINE=insightface each worker holds its own ONNX session,
+# roughly 0.8-1.5 GB, and two of those on a 4 GB VPS already running Next.js and
+# Caddy will be OOM-killed. Set GUNICORN_WORKERS=1 and GUNICORN_THREADS=4 there:
+# the workload is I/O-bound on Supabase, so threads recover the concurrency a
+# second process would have given.
+#
+# Do NOT add --preload with onnxruntime; forking after a session is initialised
+# is a known source of hangs.
+#
+# Shell form so the vars expand, with exec so gunicorn still becomes PID 1 and
+# receives SIGTERM directly.
+ENV GUNICORN_WORKERS=2 \
+    GUNICORN_THREADS=1
+CMD exec gunicorn core.wsgi:application \
+     --bind 0.0.0.0:8000 \
+     --workers "$GUNICORN_WORKERS" \
+     --threads "$GUNICORN_THREADS" \
+     --timeout 120 \
+     --access-logfile - \
+     --error-logfile -
