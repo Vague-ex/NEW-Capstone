@@ -101,9 +101,11 @@ const LANDMARK_GROUPS: { name: string; from: number; to: number; closed: boolean
 type VerifyStage = 'idle' | 'restarting' | 'aligning' | 'challenge' | 'submitting' | 'done';
 type VerifyChallenge = 'blink' | 'head_turn';
 
-// Mirrors the hold windows in register-alumni-personal.tsx (not exported there).
-const FRONTAL_HOLD_MS = 720;
+// Mirrors the hold window in register-alumni-personal.tsx (not exported there).
+// There is no frontal hold: login captures on the first frontal frame.
 const TURN_HOLD_MS = 360;
+// Same deadline login-page.tsx uses before giving up on the frontal lock.
+const ALIGN_TIMEOUT_MS = 15000;
 // How long the camera stays dark between "Verify" and the rehearsal, so the
 // restart is visible rather than instantaneous.
 const VERIFY_RESTART_MS = 1200;
@@ -246,6 +248,16 @@ export function AdminFaceDebug() {
     /** Descriptor grabbed during the frontal step, submitted after the gesture. */
     const pendingDescriptorRef = useRef<number[] | null>(null);
     const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const alignTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /**
+     * Last gate reading, so the timeout can say WHY it gave up rather than just
+     * that it did. Without this the stage fails opaquely, which on a diagnostics
+     * page is the one outcome that is never acceptable.
+     */
+    const lastGateRef = useRef<{ faceDetected: boolean; yaw: number }>({
+        faceDetected: false,
+        yaw: 0,
+    });
 
     useEffect(() => {
         verifyStageRef.current = verifyStage;
@@ -287,6 +299,31 @@ export function AdminFaceDebug() {
         },
         [],
     );
+
+    const clearAlignTimeout = useCallback(() => {
+        if (alignTimeoutRef.current) clearTimeout(alignTimeoutRef.current);
+        alignTimeoutRef.current = null;
+    }, []);
+
+    // Arm a deadline while aligning. login-page.tsx gives up after 15s with a
+    // readable message; spinning forever on an invisible failed gate is what
+    // made this stage look broken.
+    useEffect(() => {
+        if (verifyStage !== 'aligning') {
+            clearAlignTimeout();
+            return;
+        }
+        alignTimeoutRef.current = setTimeout(() => {
+            const { faceDetected, yaw } = lastGateRef.current;
+            setVerifyHint(
+                !faceDetected
+                    ? 'Gave up: no face detected at all. Check lighting and framing.'
+                    : `Gave up: last yaw was ${yaw.toFixed(1)}°, needs to be within ±${FRONTAL_YAW_TOLERANCE_DEG}°.`,
+            );
+            setVerifyStage('idle');
+        }, ALIGN_TIMEOUT_MS);
+        return clearAlignTimeout;
+    }, [verifyStage, clearAlignTimeout]);
 
     const stopCamera = useCallback(() => {
         if (loopRef.current) {
@@ -386,31 +423,35 @@ export function AdminFaceDebug() {
                 });
 
                 // ── Login rehearsal state machine ───────────────────────────
+                lastGateRef.current = {
+                    faceDetected: !!landmarks,
+                    yaw: landmarks ? estimateHeadYawDegrees(landmarks) : 0,
+                };
                 const stage = verifyStageRef.current;
                 if (stage === 'aligning' || stage === 'challenge') {
                     if (!landmarks) {
                         holdStartRef.current = null;
                     } else if (stage === 'aligning') {
+                        // Matches login-page.tsx exactly: yaw alone, and the
+                        // FIRST frontal frame captures. An earlier version here
+                        // also required a closed mouth and a 720 ms continuous
+                        // hold, which made the rehearsal harder to pass than the
+                        // login it is supposed to imitate.
                         const yaw = estimateHeadYawDegrees(landmarks);
-                        const mar = computeMouthAspectRatio(landmarks);
-                        const frontal =
-                            Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG &&
-                            mar <= MOUTH_OPEN_MAR_THRESHOLD;
-                        if (!frontal) {
-                            holdStartRef.current = null;
-                        } else {
-                            if (holdStartRef.current === null) holdStartRef.current = now;
-                            if (now - holdStartRef.current >= FRONTAL_HOLD_MS) {
-                                holdStartRef.current = null;
-                                const d = await grabDescriptor();
-                                if (d) {
-                                    pendingDescriptorRef.current = d;
-                                    detectorRef.current.reset();
-                                    setVerifyStage('challenge');
-                                    setVerifyHint('');
-                                } else {
-                                    setVerifyHint('Could not read a face — hold still.');
-                                }
+                        if (Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG) {
+                            const d = await grabDescriptor();
+                            if (d) {
+                                pendingDescriptorRef.current = d;
+                                detectorRef.current.reset();
+                                clearAlignTimeout();
+                                setVerifyStage('challenge');
+                                setVerifyHint('');
+                            } else {
+                                // Frontal enough for the landmark pass but the
+                                // descriptor net found nothing — usually motion
+                                // blur or low light. Keep polling; the timeout
+                                // is what stops this spinning forever.
+                                setVerifyHint('Frontal, but no descriptor yet — hold still, more light.');
                             }
                         }
                     } else {
@@ -467,9 +508,9 @@ export function AdminFaceDebug() {
                 loopRef.current = null;
             }
         };
-        // grabDescriptor is a useCallback([]) and never changes, so listing it
-        // satisfies the lint rule without the interval being torn down mid-capture.
-    }, [cameraOn, grabDescriptor]);
+        // Both are useCallback([]) and never change, so listing them satisfies
+        // the lint rule without the interval being torn down mid-capture.
+    }, [cameraOn, grabDescriptor, clearAlignTimeout]);
 
     const resetDetector = () => {
         // hardReset, not reset: the learned baseline must go too, or a reading
@@ -592,12 +633,22 @@ export function AdminFaceDebug() {
                                                 : `Turn your head ${turnDirection}`)}
                                         {verifyStage === 'submitting' && 'Comparing…'}
                                     </p>
-                                    <p className="mt-0.5 text-[0.68rem] text-white/60">
-                                        {verifyStage === 'aligning'
-                                            ? 'Holding a frontal frame — the descriptor is captured before the gesture'
-                                            : verifyStage === 'challenge'
-                                              ? 'Randomised each run, exactly as login does'
-                                              : verifyHint || 'Rehearsing a graduate login'}
+                                    <p className="mt-0.5 font-mono text-[0.68rem] text-white/70">
+                                        {verifyStage === 'aligning' &&
+                                            (metrics.faceDetected
+                                                ? `yaw ${metrics.yaw.toFixed(1)}° / ±${FRONTAL_YAW_TOLERANCE_DEG}° ${
+                                                      Math.abs(metrics.yaw) <= FRONTAL_YAW_TOLERANCE_DEG
+                                                          ? '✓'
+                                                          : '— turn to face the camera'
+                                                  }`
+                                                : 'no face detected')}
+                                        {verifyStage === 'challenge' &&
+                                            (verifyChallenge === 'blink'
+                                                ? `EAR ${metrics.ear.toFixed(3)} / cut ${blink.closedCut.toFixed(3)}`
+                                                : `yaw ${metrics.yaw.toFixed(1)}° / needs ${turnDirection === 'left' ? '≥' : '≤ -'}${HEAD_TURN_YAW_THRESHOLD_DEG}°`)}
+                                        {(verifyStage === 'restarting' ||
+                                            verifyStage === 'submitting') &&
+                                            (verifyHint || 'Rehearsing a graduate login')}
                                     </p>
                                 </div>
                             )}
@@ -899,6 +950,12 @@ export function AdminFaceDebug() {
                                         too loose.
                                     </p>
                                 </div>
+                            )}
+
+                            {verifyHint && verifyStage === 'idle' && (
+                                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-800">
+                                    {verifyHint}
+                                </p>
                             )}
 
                             {accountError && (
