@@ -607,7 +607,13 @@ export function LoginPage() {
 
       {/* ── Right / Form Panel ── */}
       <div className="flex-1 flex items-start lg:items-center justify-center px-4 pt-6 pb-10 lg:py-12 bg-gray-50">
-        <div className="w-full max-w-[400px] gt-rise gt-d1">
+        <div
+          className={`w-full gt-rise gt-d1 transition-[max-width] duration-300 ${
+            phase === "facescan"
+              ? "max-w-[420px] sm:max-w-[560px] lg:max-w-[680px]"
+              : "max-w-[400px]"
+          }`}
+        >
 
           {/* Form card - elevated on mobile */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 lg:p-0 lg:bg-transparent lg:shadow-none lg:border-0">
@@ -767,7 +773,7 @@ export function LoginPage() {
                 </div>
 
                 {/* Camera area */}
-                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center w-full max-w-[400px] mx-auto" style={{ aspectRatio: "4/3" }}>
+                <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 mx-auto flex items-center justify-center w-full max-w-[420px] sm:max-w-[560px] lg:max-w-[680px] aspect-[3/4] sm:aspect-[4/3]">
                   <video
                     ref={videoRef}
                     className={`absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "hidden" : ""}`}

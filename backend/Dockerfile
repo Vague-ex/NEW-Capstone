@@ -42,18 +42,25 @@ RUN if [ "$INSTALL_INSIGHTFACE" = "true" ]; then \
         onnx onnxruntime scikit-image tqdm requests scipy ; \
     fi
 
-# Bake the model pack in rather than letting it download at runtime. The
-# container home directory is ephemeral, so otherwise every redeploy pays a
-# ~125MB download during the first request -- which looks exactly like a hang,
-# and fails outright if GitHub is unreachable from the VPS.
+# Bake the model pack in rather than letting it download at runtime, then drop
+# the models the engine never loads.
+#
+# The container home directory is ephemeral, so a runtime download repeats on
+# every redeploy -- which looks exactly like a hang, and fails outright if
+# GitHub is unreachable from the VPS. And a pack ships landmark and gender/age
+# models alongside the detector and recogniser; under
+# allowed_modules=['detection','recognition'] those are never opened, so they
+# are pure image weight. In buffalo_s that is 143MB of 158MB.
+#
+# Saves DISK, not memory: an unloaded ONNX file creates no session and costs
+# nothing at runtime.
 ENV INSIGHTFACE_ROOT=/opt/insightface
 ARG INSIGHTFACE_MODEL_PACK=buffalo_s
+ENV INSIGHTFACE_MODEL_PACK=${INSIGHTFACE_MODEL_PACK}
+COPY scripts/prefetch_face_models.py ./scripts/
 RUN if [ "$INSTALL_INSIGHTFACE" = "true" ]; then \
       mkdir -p "$INSIGHTFACE_ROOT" && \
-      python -c "from insightface.app import FaceAnalysis; \
-FaceAnalysis(name='$INSIGHTFACE_MODEL_PACK', root='$INSIGHTFACE_ROOT', \
-providers=['CPUExecutionProvider'], \
-allowed_modules=['detection','recognition']).prepare(ctx_id=-1)" ; \
+      python scripts/prefetch_face_models.py ; \
     fi
 
 COPY . .

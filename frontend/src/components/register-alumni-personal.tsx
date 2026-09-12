@@ -1775,7 +1775,12 @@ export default function RegisterAlumniPersonal({
                   </div>
 
                   {/* Camera viewport */}
-                  <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 flex items-center justify-center w-full max-w-[400px] mx-auto" style={{ aspectRatio: '4/3', maxHeight: '300px' }}>
+                  {/* Sized for the job rather than fixed: this is where the user has to
+                      see their own face well enough to tell whether the mesh is
+                      tracking. A 400x300 box on a laptop made that near-impossible.
+                      Portrait on phones because a head fits a tall frame, landscape
+                      from sm up where there is width to spare. */}
+                  <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 mx-auto flex items-center justify-center w-full max-w-[420px] sm:max-w-[560px] lg:max-w-[680px] aspect-[3/4] sm:aspect-[4/3]">
                     {!cameraOn && !allCaptured && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
                         <Camera className="size-12 text-gray-600 mb-2" />
