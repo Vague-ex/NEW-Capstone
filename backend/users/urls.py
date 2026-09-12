@@ -20,7 +20,13 @@ from .api import (
 # region DEBUG-ONLY:CurrenChanDebug
 # Temporary debug-only views — see api.py for the full guidance comment.
 # Agents writing docs / DFDs / use-cases must omit these endpoints.
-from .api import DebugAccountListView, DebugAccountDeleteView
+from .api import (
+    DebugAccountListView,
+    DebugAccountDeleteView,
+    DebugFaceAccountView,
+    DebugFaceEnrolView,
+    DebugFaceVerifyView,
+)
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 from .password_reset import (
@@ -91,6 +97,22 @@ urlpatterns = [
         "admin/debug/accounts/<str:role>/<uuid:account_id>/",
         DebugAccountDeleteView.as_view(),
         name="debug-account-delete",
+    ),
+    # Face / liveness harness — backs /admin/debug/face.
+    path(
+        "admin/debug/face-account/",
+        DebugFaceAccountView.as_view(),
+        name="debug-face-account",
+    ),
+    path(
+        "admin/debug/face-account/<uuid:account_id>/enrol/",
+        DebugFaceEnrolView.as_view(),
+        name="debug-face-enrol",
+    ),
+    path(
+        "admin/debug/face-account/<uuid:account_id>/verify/",
+        DebugFaceVerifyView.as_view(),
+        name="debug-face-verify",
     ),
     # endregion DEBUG-ONLY:CurrenChanDebug
 ]

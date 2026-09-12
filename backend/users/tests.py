@@ -10,7 +10,7 @@ from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
-from users.auth import generate_alumni_access_token
+from users.auth import generate_admin_access_token, generate_alumni_access_token
 from rest_framework.test import APIRequestFactory
 
 from .api import (
@@ -310,6 +310,102 @@ class AlumniAccountStatusAuthTests(TestCase):
 			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(other.id)}",
 		)
 		self.assertEqual(response.status_code, 403)
+
+
+# region DEBUG-ONLY:CurrenChanDebug
+class DebugFaceHarnessTests(TestCase):
+	"""
+	Covers the /admin/debug/face backend. Remove together with the endpoints.
+
+	The point of the harness is that it reports the SAME distance production
+	would, so the test asserts on real comparison behaviour rather than on the
+	endpoint merely returning 200.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		self.admin_user = User.objects.create_user(
+			email="debugface-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+
+	def _auth(self):
+		return {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(self.admin_user.id)}"}
+
+	def _create(self):
+		return self.client.post("/api/admin/debug/face-account/", {}, format="json", **self._auth())
+
+	def test_endpoints_require_admin(self):
+		self.assertIn(self.client.post("/api/admin/debug/face-account/", {}, format="json").status_code, (401, 403))
+		self.assertIn(self.client.delete("/api/admin/debug/face-account/").status_code, (401, 403))
+
+	def test_create_enrol_and_verify_round_trip(self):
+		created = self._create()
+		self.assertEqual(created.status_code, 201)
+		account_id = created.data["id"]
+		self.assertTrue(created.data["email"].endswith("@debug.local"))
+
+		# Verifying before enrolment must not silently "pass".
+		descriptor = [0.01 * i for i in range(128)]
+		early = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/verify/",
+			{"face_descriptor": descriptor}, format="json", **self._auth(),
+		)
+		self.assertEqual(early.status_code, 409)
+
+		enrol = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/enrol/",
+			{"face_descriptor": descriptor, "face_descriptor_samples": [descriptor]},
+			format="json", **self._auth(),
+		)
+		self.assertEqual(enrol.status_code, 200)
+		self.assertEqual(enrol.data["dimensions"], 128)
+
+		same = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/verify/",
+			{"face_descriptor": descriptor}, format="json", **self._auth(),
+		)
+		self.assertEqual(same.status_code, 200)
+		self.assertTrue(same.data["isMatch"])
+		self.assertAlmostEqual(same.data["distance"], 0.0, places=3)
+
+		# A clearly different vector must fall outside the threshold.
+		other = [1.0 - 0.01 * i for i in range(128)]
+		diff = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/verify/",
+			{"face_descriptor": other}, format="json", **self._auth(),
+		)
+		self.assertEqual(diff.status_code, 200)
+		self.assertFalse(diff.data["isMatch"])
+		self.assertGreater(diff.data["distance"], diff.data["threshold"])
+
+	def test_enrol_refuses_a_non_debug_account(self):
+		"""A debug tool must never be able to overwrite a real graduate's face."""
+		victim_user = User.objects.create_user(
+			email="real.graduate@example.com", password="RealPass123!", role=User.Role.ALUMNI,
+		)
+		victim = AlumniAccount.objects.create(user=victim_user, account_status=AccountStatus.ACTIVE)
+		response = self.client.post(
+			f"/api/admin/debug/face-account/{victim.id}/enrol/",
+			{"face_descriptor": [0.0] * 128}, format="json", **self._auth(),
+		)
+		self.assertEqual(response.status_code, 403)
+
+	def test_purge_only_removes_debug_accounts(self):
+		self._create()
+		keep_user = User.objects.create_user(
+			email="keep.me@example.com", password="KeepPass123!", role=User.Role.ALUMNI,
+		)
+		AlumniAccount.objects.create(user=keep_user, account_status=AccountStatus.ACTIVE)
+
+		response = self.client.delete("/api/admin/debug/face-account/", **self._auth())
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["deleted"], 1)
+		self.assertTrue(AlumniAccount.objects.filter(user__email="keep.me@example.com").exists())
+		self.assertFalse(AlumniAccount.objects.filter(user__email__endswith="@debug.local").exists())
+
+
+# endregion DEBUG-ONLY:CurrenChanDebug
 
 
 class MasterlistNameParsingTests(SimpleTestCase):

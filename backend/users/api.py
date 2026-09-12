@@ -2596,4 +2596,184 @@ class DebugAccountDeleteView(APIView):
 
         return Response({"deleted": True, "role": role, "id": str(account_id)}, status=status.HTTP_200_OK)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FACE / LIVENESS DEBUG HARNESS — CurrenChanDebug
+# ─────────────────────────────────────────────────────────────────────────────
+# Backs /admin/debug/face. Lets a maintainer enrol a throwaway face and measure
+# a real match distance without pushing a fake graduate through the whole
+# registration survey.
+#
+# Deliberately reuses _resolve_reference_descriptors and _verify_descriptor_match
+# — the exact functions AlumniLoginView calls — so the number this reports is
+# the number production would compute. A separate comparison path here would
+# make the tool actively misleading.
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEBUG_FACE_EMAIL_DOMAIN = "debug.local"
+DEBUG_FACE_PASSWORD = "DebugFace123!"
+
+
+def _is_debug_face_account(account: AlumniAccount) -> bool:
+    """Both markers must agree before anything here will touch a row."""
+    template = _safe_json_loads(account.biometric_template)
+    email = (getattr(account.user, "email", "") or "").lower()
+    return bool(template.get("is_debug")) and email.endswith(f"@{DEBUG_FACE_EMAIL_DOMAIN}")
+
+
+class DebugFaceAccountView(APIView):
+    """Create a throwaway graduate to enrol a face against, or purge them all."""
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        stamp = timezone.now().strftime("%Y%m%d%H%M%S")
+        email = f"facetest+{stamp}@{DEBUG_FACE_EMAIL_DOMAIN}"
+        try:
+            user = User.objects.create_user(
+                email=email, password=DEBUG_FACE_PASSWORD, role=User.Role.ALUMNI,
+            )
+            account = AlumniAccount.objects.create(
+                user=user,
+                # ACTIVE so the login path is reachable; PENDING would bail out
+                # before the face comparison and defeat the purpose.
+                account_status=AccountStatus.ACTIVE,
+                biometric_template=json.dumps({"is_debug": True}),
+            )
+        except (DatabaseError, OperationalError) as exc:
+            return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(
+            {
+                "id": str(account.id),
+                "email": email,
+                "password": DEBUG_FACE_PASSWORD,
+                "status": account.account_status,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def delete(self, request):
+        """Purge every debug face account. Requires BOTH markers to match."""
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        removed = 0
+        try:
+            for account in AlumniAccount.objects.select_related("user").all():
+                if not _is_debug_face_account(account):
+                    continue
+                user = account.user
+                account.delete()
+                if user and not user.is_superuser:
+                    user.delete()
+                removed += 1
+        except (DatabaseError, OperationalError) as exc:
+            return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"deleted": removed}, status=status.HTTP_200_OK)
+
+
+class DebugFaceEnrolView(APIView):
+    """Store a descriptor on a debug account, the way registration would."""
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, account_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        account = AlumniAccount.objects.select_related("user").filter(id=account_id).first()
+        if not account:
+            return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _is_debug_face_account(account):
+            # Refuse to overwrite a real graduate's biometrics from a debug tool.
+            return Response(
+                {"detail": "Not a debug face account."}, status=status.HTTP_403_FORBIDDEN,
+            )
+
+        samples = _parse_face_descriptor_samples(request.data.get("face_descriptor_samples"))
+        descriptor = _parse_face_descriptor(request.data.get("face_descriptor"))
+        if descriptor is None and samples:
+            descriptor = _average_face_descriptors(samples)
+        if descriptor is None:
+            return Response(
+                {"detail": f"A {FACE_DESCRIPTOR_LENGTH}-float face_descriptor is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not samples:
+            samples = [descriptor]
+
+        template = _safe_json_loads(account.biometric_template)
+        template.update(
+            {
+                "is_debug": True,
+                "face_descriptor": descriptor,
+                "face_descriptor_samples": samples,
+                "enrolled_at": timezone.now().isoformat(),
+            }
+        )
+        account.biometric_template = json.dumps(template)
+        account.save(update_fields=["biometric_template"])
+
+        return Response(
+            {"enrolled": True, "samples": len(samples), "dimensions": len(descriptor)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class DebugFaceVerifyView(APIView):
+    """Compare a fresh descriptor against an enrolled one and report the numbers."""
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, account_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        account = AlumniAccount.objects.select_related("user").filter(id=account_id).first()
+        if not account:
+            return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        probe = _parse_face_descriptor(request.data.get("face_descriptor"))
+        if probe is None:
+            return Response(
+                {"detail": f"A {FACE_DESCRIPTOR_LENGTH}-float face_descriptor is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        references = _resolve_reference_descriptors(account)
+        if not references:
+            return Response(
+                {"detail": "No face enrolled on this account yet."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        is_match, distance, similarity = _verify_descriptor_match(
+            login_descriptor=probe, reference_descriptors=references,
+        )
+        return Response(
+            {
+                "isMatch": is_match,
+                "distance": round(distance, 4),
+                "similarity": round(similarity, 4),
+                "threshold": FACE_DESCRIPTOR_DISTANCE_THRESHOLD,
+                "referenceCount": len(references),
+            },
+            status=status.HTTP_200_OK,
+        )
+
 # endregion DEBUG-ONLY:CurrenChanDebug

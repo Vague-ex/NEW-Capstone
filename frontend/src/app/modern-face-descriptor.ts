@@ -270,6 +270,24 @@ export async function extractFaceLandmarksFromVideo(
     return positions.map((p) => ({ x: p.x, y: p.y }));
 }
 
+/**
+ * Everything the detector decided on the last frame it saw. Exposed purely so
+ * the debug page can show WHY a blink did or did not register — the adaptive
+ * cut-offs are derived per user at runtime, so without this they are invisible
+ * and the only way to tune them is guesswork.
+ */
+export interface BlinkDebugState {
+    phase: 'awaiting_open' | 'eyes_open' | 'eyes_closed' | 'blinked';
+    /** EAR on the most recent frame that contained a face. */
+    lastEar: number;
+    /** The learned per-user open-eye baseline (damped running max). */
+    openBaseline: number;
+    /** Derived cut-offs actually in force, after clamping. */
+    closedCut: number;
+    openCut: number;
+    minEar: number;
+}
+
 export interface BlinkDetector {
     /** Feed one sampled frame. Returns true on the frame the blink completes. */
     push(positions: Point2D[] | null, now?: number): boolean;
@@ -277,7 +295,19 @@ export interface BlinkDetector {
     hasBlinked(): boolean;
     /** Lowest eye-aspect-ratio seen so far, for the liveness audit record. */
     minEyeAspectRatio(): number;
+    /** Introspection for the debug page. Not used by the registration flow. */
+    debugState(): BlinkDebugState;
     reset(): void;
+    /**
+     * Like reset(), but also forgets the learned open-eye baseline.
+     *
+     * reset() deliberately keeps the baseline: within one capture session the
+     * user's eyes do not change, so re-learning it on every retake would just
+     * add latency. That becomes wrong the moment the LIGHTING changes or a
+     * different person sits down — which is precisely what happens on a debug
+     * page — so that case gets its own entry point.
+     */
+    hardReset(): void;
 }
 
 /**
@@ -301,6 +331,10 @@ export function createBlinkDetector(): BlinkDetector {
     // the camera is a good estimate of "eyes open" for THIS face. Damping stops
     // one noisy landmark frame from inflating it permanently.
     let openBaseline = 0;
+    // Last-frame values, recorded only so debugState() can report them.
+    let lastEar = 0;
+    let lastClosedCut = EYE_CLOSED_EAR_THRESHOLD;
+    let lastOpenCut = EYE_OPEN_EAR_THRESHOLD;
 
     return {
         push(positions, now = Date.now()) {
@@ -338,6 +372,10 @@ export function createBlinkDetector(): BlinkDetector {
                   )
                 : EYE_OPEN_EAR_THRESHOLD;
 
+            lastEar = ear;
+            lastClosedCut = closedCut;
+            lastOpenCut = openCut;
+
             switch (phase) {
                 case 'awaiting_open':
                 case 'eyes_open':
@@ -372,10 +410,27 @@ export function createBlinkDetector(): BlinkDetector {
         },
         hasBlinked: () => phase === 'blinked',
         minEyeAspectRatio: () => minEar,
+        debugState: () => ({
+            phase,
+            lastEar,
+            openBaseline,
+            closedCut: lastClosedCut,
+            openCut: lastOpenCut,
+            minEar,
+        }),
         reset() {
             phase = 'awaiting_open';
             closedAt = 0;
             minEar = 1;
+        },
+        hardReset() {
+            phase = 'awaiting_open';
+            closedAt = 0;
+            minEar = 1;
+            openBaseline = 0;
+            lastEar = 0;
+            lastClosedCut = EYE_CLOSED_EAR_THRESHOLD;
+            lastOpenCut = EYE_OPEN_EAR_THRESHOLD;
         },
     };
 }

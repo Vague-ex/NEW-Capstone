@@ -786,4 +786,78 @@ export async function deleteDebugAccount(role: DebugAccountRole, id: string): Pr
     });
     await throwIfNotOk(response);
 }
+
+// ── Face / liveness harness (backs /admin/debug/face) ───────────────────────
+
+export interface DebugFaceAccount {
+    id: string;
+    email: string;
+    password: string;
+    status: string;
+}
+
+export interface DebugFaceVerifyResult {
+    isMatch: boolean;
+    distance: number;
+    similarity: number;
+    threshold: number;
+    referenceCount: number;
+}
+
+export async function createDebugFaceAccount(): Promise<DebugFaceAccount> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/face-account/`, {
+        method: 'POST',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: '{}',
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+/** Removes every account carrying BOTH debug markers. Returns how many went. */
+export async function purgeDebugFaceAccounts(): Promise<number> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/face-account/`, {
+        method: 'DELETE',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Number(data?.deleted ?? 0);
+}
+
+export async function enrolDebugFace(
+    accountId: string,
+    descriptor: number[],
+    samples: number[][],
+): Promise<void> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/debug/face-account/${accountId}/enrol/`,
+        {
+            method: 'POST',
+            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ face_descriptor: descriptor, face_descriptor_samples: samples }),
+        },
+    );
+    await throwIfNotOk(response);
+}
+
+/**
+ * Compares a fresh descriptor against the enrolled one. The server runs the
+ * same comparison AlumniLoginView uses, so this distance is the real one.
+ */
+export async function verifyDebugFace(
+    accountId: string,
+    descriptor: number[],
+): Promise<DebugFaceVerifyResult> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/debug/face-account/${accountId}/verify/`,
+        {
+            method: 'POST',
+            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ face_descriptor: descriptor }),
+        },
+    );
+    await throwIfNotOk(response);
+    return response.json();
+}
 // #endregion DEBUG-ONLY:CurrenChanDebug

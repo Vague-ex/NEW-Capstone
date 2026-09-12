@@ -23,6 +23,9 @@ import { AdminBatchUpload } from './components/admin/admin-batch-upload';
 import { AdminMap } from './components/admin/admin-map';
 import { AdminAnalytics } from './components/admin/admin-analytics';
 import { AdminSettings } from './components/admin/admin-settings';
+// #region DEBUG-ONLY:CurrenChanDebug
+import { AdminFaceDebug } from './components/admin/admin-face-debug';
+// #endregion DEBUG-ONLY:CurrenChanDebug
 
 export const routes: RouteObject[] = [
   // ── Single Login Entry Point ──
@@ -50,6 +53,12 @@ export const routes: RouteObject[] = [
   { path: '/admin/map', Component: AdminMap },
   { path: '/admin/analytics', Component: AdminAnalytics },
   { path: '/admin/settings', Component: AdminSettings },
+
+  // #region DEBUG-ONLY:CurrenChanDebug
+  // URL-only, deliberately absent from the sidebar. Maintenance hatch, not
+  // a feature — omit from DFDs / use-case docs.
+  { path: '/admin/debug/face', Component: AdminFaceDebug },
+  // #endregion DEBUG-ONLY:CurrenChanDebug
 
   // Legacy fallbacks
   { path: '/admin', Component: AdminNewDashboard },
