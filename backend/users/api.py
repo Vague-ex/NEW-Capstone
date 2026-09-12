@@ -364,6 +364,35 @@ def _stored_template_engine(account: AlumniAccount) -> str:
     return resolve_stored_engine(template.get("engine"))
 
 
+def _has_face_enrolment(account: AlumniAccount) -> bool:
+    """
+    Does this account hold a face template at all, under ANY engine?
+
+    Distinct from _resolve_reference_descriptors, which answers the narrower
+    question of whether there is one usable by the ACTIVE engine. The
+    difference decides what login should do: an account with no template needs
+    to enrol, while one holding another engine's template needs to re-enrol.
+    Both end at the same screen, but conflating them with "no reference
+    available" produced a dead end the graduate could not act on.
+    """
+    template = _safe_json_loads(account.biometric_template)
+    if not isinstance(template, dict):
+        return False
+
+    engines = template.get("engines")
+    if isinstance(engines, dict):
+        for stored in engines.values():
+            if isinstance(stored, dict) and (
+                stored.get("face_descriptor") or stored.get("face_descriptor_samples")
+            ):
+                return True
+
+    # Legacy flat shape, which is how every pre-seam row is stored.
+    return bool(
+        template.get("face_descriptor") or template.get("face_descriptor_samples")
+    )
+
+
 def _resolve_reference_descriptors(account: AlumniAccount) -> list[list[float]]:
     template = _safe_json_loads(account.biometric_template)
     if not isinstance(template, dict):
@@ -1964,22 +1993,50 @@ class AlumniLoginView(APIView):
         reference_scan_urls = _extract_registration_scan_urls(alumni_account)
         reference_descriptors = _resolve_reference_descriptors(alumni_account)
 
+        # Two situations need the same thing from the graduate -- capture a new
+        # face -- so they return one actionable response rather than two dead
+        # ends:
+        #
+        #   not_enrolled    no template at all (new account, or reset by an admin)
+        #   engine_changed  a template exists but a different engine produced it
+        #
         # An engine change empties reference_descriptors, and without this the
-        # request would slide into the image-comparison fallback below -- which
+        # request would slide into the image-comparison fallback below, which
         # compares raw pixels and cannot distinguish identity at all. Switching
         # engines must force re-enrolment, never silently downgrade to the
         # weakest check in the system.
+        #
+        # A token is issued here because the password, the throttle and the
+        # account status have ALL already been checked above. That is the same
+        # trust registration itself runs on, where the password is set in the
+        # same breath as the first face capture -- and it is the only way out,
+        # since a face cannot be used to authorise replacing itself.
+        _active_engine_name = get_engine().name
         _stored_engine = _stored_template_engine(alumni_account)
-        if _stored_engine != get_engine().name:
+        _enrolled = _has_face_enrolment(alumni_account)
+
+        if not _enrolled or _stored_engine != _active_engine_name:
+            reason = "not_enrolled" if not _enrolled else "engine_changed"
+            detail = (
+                "This account has no face enrolled yet. Capture one to finish signing in."
+                if not _enrolled
+                else (
+                    "This account's face was enrolled with a different recognition "
+                    "engine. Capture it again to finish signing in."
+                )
+            )
+            throttle_reset(throttle_id)
             return Response(
                 {
-                    "detail": (
-                        "This account's face template was enrolled with a different "
-                        "recognition engine and must be re-enrolled before face login "
-                        "can be used."
-                    ),
-                    "storedEngine": _stored_engine,
-                    "activeEngine": get_engine().name,
+                    "detail": detail,
+                    "faceEnrolmentRequired": True,
+                    "reason": reason,
+                    "storedEngine": _stored_engine if _enrolled else None,
+                    "activeEngine": _active_engine_name,
+                    "alumni": _session_payload_from_alumni(alumni_account),
+                    "accessToken": _generate_alumni_access_token(alumni_account.user_id),
+                    "tokenType": "Bearer",
+                    "expiresIn": _ALUMNI_TOKEN_TTL_SECONDS,
                 },
                 status=status.HTTP_409_CONFLICT,
             )
@@ -2127,6 +2184,162 @@ class AlumniLoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+class AlumniFaceEnrolView(APIView):
+    """
+    Capture (or re-capture) the face template for the signed-in graduate.
+
+    Reached from login: when an account has no usable template, login verifies
+    the password, throttle and account status, then returns 409 with
+    faceEnrolmentRequired and an access token. This endpoint spends that token.
+
+    A face cannot authorise replacing itself, so the password is necessarily the
+    credential behind this -- which is the same basis registration runs on,
+    where the password is set alongside the first capture. It is deliberately
+    NOT reachable with a face login alone.
+
+    Accepts a multi-frame sweep. One frontal frame yields one reference vector,
+    so a later login at a slightly different angle has nothing close to match
+    against; several poses give the comparison something to work with.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        account, auth_error = _require_alumni(request)
+        if auth_error:
+            return auth_error
+
+        if account.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
+            return Response(
+                {"detail": f"Account access blocked ({account.account_status})."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        engine = get_engine()
+
+        image_files = request.FILES.getlist("face_images")
+        if not image_files and "face_image" in request.FILES:
+            image_files = [request.FILES["face_image"]]
+        if not image_files:
+            return Response(
+                {"detail": "At least one face image is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        image_blobs = [f.read() for f in image_files]
+
+        try:
+            if engine.requires_client_descriptor:
+                samples = _parse_face_descriptor_samples(
+                    request.data.get("face_descriptor_samples"), engine.dimensions
+                )
+                single = _parse_face_descriptor(
+                    request.data.get("face_descriptor"), engine.dimensions
+                )
+                if single and single not in samples:
+                    samples.append(single)
+            else:
+                # A sweep always contains some angles the detector cannot use.
+                # Skipping those beats failing the whole enrolment over one bad
+                # frame.
+                samples = []
+                for blob in image_blobs:
+                    embedding = engine.embed(image_bytes=blob)
+                    if embedding:
+                        samples.append(embedding)
+        except RuntimeError as exc:
+            return Response(
+                {"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        descriptor = engine.average(samples) if samples else None
+        if descriptor is None:
+            return Response(
+                {
+                    "detail": (
+                        f"No usable face could be read from the {len(image_blobs)} frame(s) "
+                        "sent. Move further from the camera so your whole head fits with "
+                        "room around it, and make sure the light is on your face."
+                    ),
+                    "framesSupplied": len(image_blobs),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Keep the frames. Beyond the audit trail the PRD requires, an engine
+        # change invalidates every embedding, and holding the originals means a
+        # future switch can be done offline instead of asking every graduate to
+        # come back.
+        storage_key_basis = (
+            account.master_record.full_name
+            if account.master_record
+            else (account.user.email or "").split("@")[0]
+        )
+        storage_key = _normalize_storage_key(storage_key_basis)
+        timestamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
+        scan_urls: dict[str, str] = {}
+        try:
+            for index, blob in enumerate(image_blobs):
+                key = "face_front" if index == 0 else f"face_pose_{index}"
+                scan_urls[key] = upload_image_bytes(
+                    file_bytes=blob,
+                    object_path=f"face-enrolment/{storage_key}/{timestamp}_{key}.jpg",
+                    content_type="image/jpeg",
+                )
+        except SupabaseStorageError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        template = _safe_json_loads(account.biometric_template)
+        if not isinstance(template, dict):
+            template = {}
+        template.update(
+            {
+                "face_descriptor": descriptor,
+                "face_descriptor_samples": samples,
+                "registration_face_scans": scan_urls,
+                "engine": engine.name,
+                "engine_dim": engine.dimensions,
+                "capture_meta": {
+                    "captured_at": timezone.now().isoformat(),
+                    "gps": _extract_login_gps(request),
+                    "frames": len(image_blobs),
+                    "samples": len(samples),
+                    "re_enrolled": True,
+                },
+                "sample_meta": _safe_json_loads(request.data.get("sample_meta")) or [],
+            }
+        )
+        # A template from the previous engine would otherwise sit alongside the
+        # new one and be picked up again if the engine were switched back to a
+        # face the graduate has since replaced.
+        template.pop("engines", None)
+
+        account.biometric_template = json.dumps(template)
+        account.face_photo_url = scan_urls.get("face_front", account.face_photo_url)
+        account.save(update_fields=["biometric_template", "face_photo_url"])
+
+        for key, url in scan_urls.items():
+            FaceScan.objects.create(
+                alumni=account,
+                scan_type="face_front" if key == "face_front" else "face_front",
+                url=url,
+                captured_at=timezone.now(),
+            )
+
+        return Response(
+            {
+                "message": "Face enrolled.",
+                "engine": engine.name,
+                "dimensions": engine.dimensions,
+                "framesSupplied": len(image_blobs),
+                "samples": len(samples),
+                "alumni": _session_payload_from_alumni(account),
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class AlumniAccountStatusView(APIView):
     parser_classes = [JSONParser]

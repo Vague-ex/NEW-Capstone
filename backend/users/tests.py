@@ -569,6 +569,145 @@ class DebugFaceHarnessTests(TestCase):
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 
+class FaceReEnrolmentTests(TestCase):
+	"""
+	An account whose template is unusable must be able to recover by capturing a
+	new face, not be locked out.
+
+	Before this, an engine switch returned a 409 the graduate could do nothing
+	about, and a cleared template fell through to the raw-pixel image fallback --
+	the weakest check in the system.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		self.password = "GraduatePass123!"
+		self.user = User.objects.create_user(
+			email="reenrol@example.com", password=self.password, role=User.Role.ALUMNI,
+		)
+		self.account = AlumniAccount.objects.create(
+			user=self.user, account_status=AccountStatus.ACTIVE,
+		)
+
+	def _login(self):
+		"""Login sends multipart with a face scan; the payload shape matters."""
+		return self.client.post(
+			"/api/auth/alumni/login/",
+			{
+				"email": self.user.email,
+				"password": self.password,
+				"face_scan": SimpleUploadedFile("s.jpg", b"x", content_type="image/jpeg"),
+			},
+			format="multipart",
+		)
+
+	def _set_template(self, template):
+		self.account.biometric_template = json.dumps(template)
+		self.account.save(update_fields=["biometric_template"])
+
+	def test_no_enrolment_asks_for_a_face_instead_of_refusing(self):
+		self._set_template({})
+		response = self._login()
+		self.assertEqual(response.status_code, 409)
+		self.assertTrue(response.data["faceEnrolmentRequired"])
+		self.assertEqual(response.data["reason"], "not_enrolled")
+		# A token is issued so the graduate can actually act on it -- a face
+		# cannot authorise replacing itself.
+		self.assertTrue(response.data["accessToken"])
+
+	def test_engine_mismatch_asks_for_a_face_rather_than_dead_ending(self):
+		self._set_template({
+			"face_descriptor": [0.01 * i for i in range(128)],
+			"engine": "insightface",
+		})
+		response = self._login()
+		self.assertEqual(response.status_code, 409)
+		self.assertTrue(response.data["faceEnrolmentRequired"])
+		self.assertEqual(response.data["reason"], "engine_changed")
+		self.assertEqual(response.data["storedEngine"], "insightface")
+		self.assertEqual(response.data["activeEngine"], "faceapi")
+
+	def test_cleared_template_never_reaches_the_pixel_fallback(self):
+		"""
+		The dangerous path: descriptors gone but scan URLs left behind used to
+		route login into raw-pixel comparison, which cannot tell people apart.
+		"""
+		self._set_template({
+			"registration_face_scans": {"face_front": "https://example.test/f.jpg"},
+		})
+		response = self._login()
+		self.assertEqual(response.status_code, 409)
+		self.assertTrue(response.data["faceEnrolmentRequired"])
+
+	def test_enrol_requires_authentication(self):
+		response = self.client.post(
+			"/api/auth/alumni/face/enrol/",
+			{"face_images": SimpleUploadedFile("f.jpg", b"x", content_type="image/jpeg")},
+			format="multipart",
+		)
+		self.assertIn(response.status_code, (401, 403))
+
+	def test_enrol_stores_a_template_and_unblocks_login(self):
+		self._set_template({"profile": {"survey_data": {"keep": "me"}}})
+		token = generate_alumni_access_token(self.user.id)
+		descriptor = [0.02 * i for i in range(128)]
+
+		with patch("users.api.upload_image_bytes", return_value="https://example.test/x.jpg"):
+			response = self.client.post(
+				"/api/auth/alumni/face/enrol/",
+				{
+					"face_images": SimpleUploadedFile("f.jpg", b"x", content_type="image/jpeg"),
+					"face_descriptor": json.dumps(descriptor),
+					"face_descriptor_samples": json.dumps([descriptor]),
+				},
+				format="multipart",
+				HTTP_AUTHORIZATION=f"Bearer {token}",
+			)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["engine"], "faceapi")
+
+		self.account.refresh_from_db()
+		stored = json.loads(self.account.biometric_template)
+		self.assertEqual(stored["engine"], "faceapi")
+		# Not bit-identical: engine.average round-trips through float32, which is
+		# the same precision the browser produces descriptors at anyway. Assert
+		# on what actually matters -- that the stored vector still matches the
+		# face it was built from.
+		self.assertEqual(len(stored["face_descriptor"]), 128)
+		engine = face_engines.engine_for("faceapi")
+		self.assertLess(engine.distance(stored["face_descriptor"], descriptor), 1e-3)
+		# Survey data lives in the same blob and must survive enrolment.
+		self.assertEqual(stored["profile"]["survey_data"]["keep"], "me")
+
+	def test_reset_command_clears_faces_but_keeps_survey_data(self):
+		from django.core.management import call_command
+
+		self._set_template({
+			"face_descriptor": [0.0] * 128,
+			"face_descriptor_samples": [[0.0] * 128],
+			"engine": "faceapi",
+			"registration_face_scans": {"face_front": "https://example.test/f.jpg"},
+			"profile": {"survey_data": {"keep": "me"}, "graduation_year": 2024},
+		})
+		self.account.face_photo_url = "https://example.test/f.jpg"
+		self.account.save(update_fields=["face_photo_url"])
+
+		# Dry run must change nothing.
+		call_command("reset_face_enrolment", email=self.user.email)
+		self.account.refresh_from_db()
+		self.assertIn("face_descriptor", json.loads(self.account.biometric_template))
+
+		call_command("reset_face_enrolment", email=self.user.email, confirm=True)
+		self.account.refresh_from_db()
+		stored = json.loads(self.account.biometric_template)
+		for key in ("face_descriptor", "face_descriptor_samples", "engine", "registration_face_scans"):
+			self.assertNotIn(key, stored)
+		self.assertEqual(self.account.face_photo_url, "")
+		# The half that is not biometric must be untouched.
+		self.assertEqual(stored["profile"]["survey_data"]["keep"], "me")
+		self.assertEqual(stored["profile"]["graduation_year"], 2024)
+
+
 class FaceEngineSeamTests(TestCase):
 	"""
 	The engine seam must be invisible until someone deliberately changes engine.

@@ -8,6 +8,7 @@ from .api import (
     AlumniAccountStatusView,
     AlumniRequestApproveView,
     AlumniRequestRejectView,
+    AlumniFaceEnrolView,
     AlumniLoginView,
     AlumniRegisterView,
     MasterlistBulkCreateView,
@@ -43,6 +44,9 @@ urlpatterns = [
     path("auth/alumni/register/", AlumniRegisterView.as_view(), name="alumni-register"),
     path("auth/alumni/masterlist-check/", MasterlistCheckView.as_view(), name="alumni-masterlist-check"),
     path("auth/alumni/login/", AlumniLoginView.as_view(), name="alumni-login"),
+    # Reached from a 409 faceEnrolmentRequired on login. Spends the token that
+    # response issues; a face cannot authorise replacing itself.
+    path("auth/alumni/face/enrol/", AlumniFaceEnrolView.as_view(), name="alumni-face-enrol"),
     path("auth/alumni/account/<uuid:alumni_id>/", AlumniAccountStatusView.as_view(), name="alumni-account-status"),
     path(
         "auth/alumni/account/<uuid:alumni_id>/employment/",
