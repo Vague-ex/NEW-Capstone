@@ -298,17 +298,18 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
       const startLng = workLng ?? 121.7;
       const startZoom = workLat ? 13 : 6;
 
-      // Same reasoning as the admin map: work addresses resolve to PSGC
-      // regions, so anywhere outside the Philippines is unreachable data.
-      // Without bounds the pin can be dragged into the ocean off Peru.
-      const PH_BOUNDS = L.latLngBounds([3.0, 114.0], [23.0, 129.0]);
+      // Same reasoning as the admin map, and it matters more here: this pin is
+      // how a graduate records where they work. WorkAddress.RegionChoices has
+      // an ABROAD option, so restricting the pin to the Philippines made it
+      // impossible for an overseas graduate to answer the question at all.
+      // The world is reachable; the edges of the world are not.
+      const WORLD_BOUNDS = L.latLngBounds([-85.05112878, -180], [85.05112878, 180]);
 
       const map = L.map(workMapContainerRef.current, {
         center: [startLat, startLng],
         zoom: startZoom,
-        minZoom: 5,
         scrollWheelZoom: false,
-        maxBounds: PH_BOUNDS,
+        maxBounds: WORLD_BOUNDS,
         maxBoundsViscosity: 1.0,
       });
 
@@ -316,8 +317,13 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 18,
         noWrap: true,
-        bounds: PH_BOUNDS,
+        bounds: WORLD_BOUNDS,
       }).addTo(map);
+
+      // Keep the world covering the container at minimum zoom - see admin-map.
+      const fitMinZoom = () => map.setMinZoom(map.getBoundsZoom(WORLD_BOUNDS, true));
+      fitMinZoom();
+      map.on('resize', fitMinZoom);
 
       const marker = L.marker([startLat, startLng], {
         icon: pinIcon,

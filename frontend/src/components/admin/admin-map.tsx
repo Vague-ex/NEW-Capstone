@@ -211,31 +211,42 @@ export function AdminMap() {
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
       });
 
-      // Leaflet by default lets you zoom out until the world tiles repeat and
-      // pan to anywhere on earth. Every marker here is geocoded from a PSGC
-      // region, so the data is Philippines-only and the extra freedom just
-      // lets users get lost. Bounds are padded well past the actual coastline
-      // (Batanes ~21.5N, Tawi-Tawi ~4.5N, Palawan ~116E, Mindanao ~127E).
-      const PH_BOUNDS = L.latLngBounds([3.0, 114.0], [23.0, 129.0]);
+      // Graduates work abroad: WorkAddress.RegionChoices includes ABROAD and
+      // `country` is a free field, so the map has to cover the whole world.
+      // What it must NOT do is let the world repeat sideways or let you drag
+      // off into empty space, which is Leaflet's default.
+      //
+      // Latitude stops at +/-85.05113 because that is where Web Mercator
+      // itself ends - past it there is no map to show, only blank canvas.
+      const WORLD_BOUNDS = L.latLngBounds([-85.05112878, -180], [85.05112878, 180]);
 
       const map = L.map(mapRef.current, {
+        // Open on the Philippines, where most graduates are, but let the user
+        // zoom out to find the ones who are not.
         center: [11.5, 122.5],
         zoom: 6,
-        minZoom: 5,
         zoomControl: true,
         scrollWheelZoom: true,
-        maxBounds: PH_BOUNDS,
+        maxBounds: WORLD_BOUNDS,
         maxBoundsViscosity: 1.0,
       });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 18,
-        // Stops the horizontal world-repeat, and skips tile requests for
-        // areas that can never contain a marker.
+        // Stops the horizontal world-repeat, and skips tile requests beyond
+        // the edges of the projection.
         noWrap: true,
-        bounds: PH_BOUNDS,
+        bounds: WORLD_BOUNDS,
       }).addTo(map);
+
+      // A fixed minZoom cannot be right for every screen: too low and the world
+      // is narrower than the container, leaving grey bars beside it. The second
+      // argument asks for the zoom at which the bounds COVER the viewport
+      // rather than fit inside it, which is exactly the no-grey condition.
+      const fitMinZoom = () => map.setMinZoom(map.getBoundsZoom(WORLD_BOUNDS, true));
+      fitMinZoom();
+      map.on('resize', fitMinZoom);
 
       leafletMapRef.current = map;
       setMapReady(true);
