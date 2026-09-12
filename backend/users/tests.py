@@ -865,6 +865,173 @@ class MasterlistNameParsingTests(SimpleTestCase):
 		self.assertEqual(derive_last_name("Dela Cruz"), "Cruz")
 
 
+class _FakeServerEngine:
+	"""
+	Stands in for InsightFace: embeds the image bytes itself, compares by a toy
+	distance. Records what it was asked to embed so tests can assert on it.
+	"""
+
+	name = "insightface"
+	dimensions = 4
+	distance_threshold = 0.4
+	requires_client_descriptor = False
+
+	# Image bytes -> embedding. Anything not listed has no detectable face.
+	VECTORS = {
+		b"front": [1.0, 0.0, 0.0, 0.0],
+		b"same-left": [0.9, 0.1, 0.0, 0.0],
+		b"same-right": [0.9, 0.0, 0.1, 0.0],
+		b"stranger": [0.0, 0.0, 0.0, 1.0],
+	}
+
+	def __init__(self):
+		self.embedded = []
+
+	def embed(self, *, image_bytes=None, client_descriptor=None):
+		self.embedded.append(image_bytes)
+		vector = self.VECTORS.get(image_bytes)
+		return list(vector) if vector else None
+
+	def distance(self, a, b):
+		return sum(abs(x - y) for x, y in zip(a, b))
+
+	def is_match(self, distance):
+		return distance <= self.distance_threshold
+
+	def average(self, descriptors):
+		return [sum(column) / len(descriptors) for column in zip(*descriptors)]
+
+
+class RegistrationSweepTests(TestCase):
+	"""
+	The enrolment sweep on AlumniRegisterView.
+
+	Registration sends a frontal photo plus several head-angle frames. A
+	server-side engine should build its template from all of them -- but only
+	from frames that are the same person as the frontal photo, since that is
+	the image an admin verifies.
+	"""
+
+	EMAIL = "sweep-test@example.com"
+
+	def setUp(self):
+		self.client = APIClient()
+		self.engine = _FakeServerEngine()
+
+	def _payload(self, front=b"front", poses=(), **extra):
+		payload = {
+			"email": self.EMAIL,
+			"password": "StrongPass123!",
+			"confirm_password": "StrongPass123!",
+			"first_name": "Ana",
+			"family_name": "Reyes",
+			"gender": "Female",
+			"birth_date": "2000-05",
+			"mobile": "+639171234567",
+			"city": "Talisay",
+			"province": "Negros Occidental",
+			"graduation_date": "2022-06",
+			"survey_data": json.dumps({
+				"employment_status": "employed_full_time",
+				"academic_honors": 1,
+				"time_to_hire_months": 3,
+				"first_job_sector": "private",
+			}),
+			"face_front": SimpleUploadedFile("face.jpg", front, content_type="image/jpeg"),
+		}
+		if poses:
+			payload["face_images"] = [
+				SimpleUploadedFile(f"pose_{i}.jpg", data, content_type="image/jpeg")
+				for i, data in enumerate(poses)
+			]
+		payload.update(extra)
+		return payload
+
+	def _register(self, payload, engine=None):
+		uploads = patch(
+			"users.api.upload_image_bytes",
+			side_effect=lambda **kw: f"https://storage.test/{kw['object_path']}",
+		)
+		if engine is None:
+			with uploads:
+				response = self.client.post("/api/auth/alumni/register/", payload, format="multipart")
+		else:
+			with uploads, patch("users.api.get_engine", return_value=engine):
+				response = self.client.post("/api/auth/alumni/register/", payload, format="multipart")
+		self.assertEqual(response.status_code, 201, getattr(response, "data", response))
+		account = AlumniAccount.objects.get(user__email=self.EMAIL)
+		return json.loads(account.biometric_template), account
+
+	def test_server_engine_embeds_the_front_and_every_pose(self):
+		template, account = self._register(
+			self._payload(poses=[b"same-left", b"same-right"]), self.engine,
+		)
+
+		self.assertEqual(self.engine.embedded, [b"front", b"same-left", b"same-right"])
+		self.assertEqual(len(template["face_descriptor_samples"]), 3)
+		self.assertEqual(template["capture_meta"]["frames"], 3)
+		self.assertEqual(template["capture_meta"]["samples"], 3)
+		self.assertEqual(len(template["registration_pose_scans"]), 2)
+		self.assertEqual(template["engine"], "insightface")
+
+	def test_pose_frames_never_become_the_reviewed_photo(self):
+		"""Admin review shows the newest face_front row; a turned frame must not be it."""
+		_, account = self._register(
+			self._payload(poses=[b"same-left", b"same-right"]), self.engine,
+		)
+		self.assertEqual(account.face_scans.count(), 1)
+		self.assertEqual(account.face_scans.get().scan_type, "face_front")
+		self.assertIn("face_front", account.face_photo_url)
+
+	def test_a_pose_of_someone_else_is_not_enrolled(self):
+		"""Leaning into frame mid-sweep must not add a second face to the account."""
+		template, _ = self._register(
+			self._payload(poses=[b"same-left", b"stranger"]), self.engine,
+		)
+
+		samples = template["face_descriptor_samples"]
+		self.assertEqual(len(samples), 2)
+		self.assertNotIn(_FakeServerEngine.VECTORS[b"stranger"], samples)
+		# The frame is still uploaded: it is evidence, just not a reference.
+		self.assertEqual(len(template["registration_pose_scans"]), 2)
+
+	def test_unreadable_front_enrols_nothing_even_with_good_poses(self):
+		"""With no frontal embedding there is nothing to check poses against."""
+		template, _ = self._register(
+			self._payload(front=b"blurry", poses=[b"same-left", b"same-right"]), self.engine,
+		)
+		self.assertIsNone(template["face_descriptor"])
+		self.assertEqual(template["face_descriptor_samples"], [])
+
+	def test_pose_frames_are_capped(self):
+		template, _ = self._register(
+			self._payload(poses=[b"same-left"] * 12), self.engine,
+		)
+		self.assertEqual(len(template["registration_pose_scans"]), api._MAX_REGISTRATION_POSE_FRAMES)
+		self.assertEqual(len(self.engine.embedded), 1 + api._MAX_REGISTRATION_POSE_FRAMES)
+
+	def test_registration_without_a_sweep_still_works(self):
+		"""A client that predates the sweep sends face_front alone."""
+		template, _ = self._register(self._payload(), self.engine)
+		self.assertEqual(len(template["face_descriptor_samples"]), 1)
+		self.assertEqual(template["registration_pose_scans"], {})
+
+	def test_faceapi_uses_client_descriptors_and_does_not_embed_poses(self):
+		"""The browser engine already chose its frontal frames; the server must not second-guess it."""
+		first = [0.01 * i for i in range(128)]
+		second = [0.02 * i for i in range(128)]
+		template, _ = self._register(
+			self._payload(
+				poses=[b"same-left"],
+				face_descriptor=json.dumps(first),
+				face_descriptor_samples=json.dumps([first, second]),
+			),
+		)
+		self.assertEqual(template["engine"], "faceapi")
+		self.assertEqual(template["face_descriptor_samples"], [first, second])
+		self.assertEqual(len(template["registration_pose_scans"]), 1)
+
+
 class RegistrationCleanDataGateTests(TestCase):
 	"""
 	The clean-data gate on AlumniRegisterView.

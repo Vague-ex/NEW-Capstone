@@ -24,12 +24,8 @@ import {
   computeMouthAspectRatio,
   estimateHeadYawDegrees,
   MOUTH_OPEN_MAR_THRESHOLD,
-  HEAD_TURN_YAW_THRESHOLD_DEG,
   FRONTAL_YAW_TOLERANCE_DEG,
-  createBlinkDetector,
   FACE_SAMPLE_INTERVAL_MS,
-  type BlinkDetector,
-  type HeadTurnDirection,
   type LivenessSignal,
 } from '../app/modern-face-descriptor';
 import { API_BASE_URL } from '../app/api-client';
@@ -86,16 +82,28 @@ export interface PersonalFormData {
   profEligibilityOther: string;
 }
 
+/** One pose from the enrolment sweep. */
+export interface SweepFrame {
+  blob: Blob;
+  /** For the thumbnail strip. The raw, un-mirrored frame. */
+  dataUrl: string;
+  /** The slot this frame filled, and the yaw actually measured. */
+  target: number;
+  yaw: number;
+}
+
 export interface BiometricData {
-  // A single frontal photo. Identity is established from this frame alone; the
-  // liveness gestures that follow prove presence but are never used to build
-  // the face template, because face-api's recogniser is only reliable on
-  // near-frontal faces and folding turned frames in degraded the match.
+  // The frontal identity photo -- the one a reviewer verifies against.
   image: Blob;
   descriptor: number[] | null;
+  // Browser (face-api) descriptors: the frontal burst plus any sweep frames
+  // inside the frontal tolerance. Turned frames get none, because face-api's
+  // recogniser is only reliable near-frontal.
   descriptorSamples: number[][];
   livenessSignals: LivenessSignal[];
-  headTurnDirection: HeadTurnDirection;
+  // Every sweep pose. A server-side engine embeds all of them, so its template
+  // covers several head angles instead of one.
+  sweepFrames: SweepFrame[];
   /**
    * Where the identity photo was taken. PRD Module A requires the capture to
    * carry date, time and GPS for the audit trail; null when the browser denies
@@ -113,7 +121,7 @@ const PERSONAL_STEP_CONFIG = [
   { n: 4 as PersonalStep, label: 'Verify Identity' },
 ];
 
-type LivenessChallengeKind = 'neutral' | 'blink' | 'head_turn_left' | 'head_turn_right';
+type LivenessChallengeKind = 'neutral' | 'sweep';
 
 interface ShotInstruction {
   label: string;
@@ -121,29 +129,55 @@ interface ShotInstruction {
   kind: LivenessChallengeKind;
 }
 
-// Stage 1 is the only one that saves a photo — it captures the frontal frame
-// the face template is built from. Stages 2 and 3 are pure liveness gates: a
-// blink (which a still photo cannot fake) followed by one randomised head turn
-// (which a pre-recorded video cannot anticipate).
-function buildShotInstructions(turnDirection: HeadTurnDirection): ShotInstruction[] {
-  return [
-    { label: 'Look Forward', desc: 'Face the camera, keep your mouth closed', kind: 'neutral' },
-    { label: 'Blink', desc: 'Blink once, naturally', kind: 'blink' },
-    turnDirection === 'left'
-      ? { label: 'Turn Left', desc: 'Turn your head slightly to your left', kind: 'head_turn_left' }
-      : { label: 'Turn Right', desc: 'Turn your head slightly to your right', kind: 'head_turn_right' },
-  ];
-}
+// Stage 1 saves the frontal identity photo. Stage 2 is the enrolment sweep,
+// which doubles as the liveness check: a flat photo held up to the camera
+// cannot produce a head turning through several angles, and the frames it
+// collects are the extra poses the face template is built from -- the
+// banking-app pattern.
+const SHOT_INSTRUCTIONS: ShotInstruction[] = [
+  { label: 'Look Forward', desc: 'Face the camera, keep your mouth closed', kind: 'neutral' },
+  { label: 'Turn Slowly', desc: 'Slowly turn your head left and right', kind: 'sweep' },
+];
 
 // How long a gesture must be held before it counts, and how often we sample.
 // The old loop polled once per second, so a turn had to be held for two to
 // three seconds and any wobble reset it — that was the main reason the turn
 // felt impossible. Blinks last only 100–400 ms, so they cannot be detected at
 // 1 Hz at all.
-/** Stages in the capture flow: frontal photo, blink, head turn. */
-const CAPTURE_STAGE_COUNT = 3;
+/** Stages in the capture flow: frontal photo, then the sweep. */
+const CAPTURE_STAGE_COUNT = 2;
 const FRONTAL_HOLD_MS = 720;
-const TURN_HOLD_MS = 360;
+
+/**
+ * Yaw angles the sweep collects, in degrees. Positive is the graduate's LEFT on
+ * the raw frame. The same set the admin face debug page uses.
+ *
+ * Stops around +/-24 on purpose: face-api's tiny detector, which drives live
+ * tracking here whatever engine the server runs, loses the face not far past
+ * that, so a wider target would simply never fill.
+ */
+const SWEEP_TARGETS = [-24, -12, 0, 12, 24];
+/** How close to a target the yaw must be for that slot to accept a frame. */
+const SWEEP_TOLERANCE_DEG = 7;
+/** Yaw that maps to the edge of the on-screen track. */
+const SWEEP_TRACK_RANGE_DEG = 32;
+/**
+ * Furthest (face-api euclidean) a frontal sweep frame may sit from the identity
+ * photo. The login threshold, so a face the login would reject is never folded
+ * into the template. The server applies the same rule with its own engine.
+ */
+const SWEEP_SAME_FACE_MAX_DISTANCE = 0.55;
+const SWEEP_POSE_LABELS: Record<number, string> = {
+  24: 'Left', 12: 'Slight left', 0: 'Front', [-12]: 'Slight right', [-24]: 'Right',
+};
+
+/** Screen position for a yaw on the MIRRORED preview: turning to your left
+ *  moves your face left on screen, and produces a positive yaw. */
+const yawToTrackPercent = (yaw: number) =>
+  Math.min(100, Math.max(0, 50 - (yaw / SWEEP_TRACK_RANGE_DEG) * 50));
+
+const faceDistance = (a: number[], b: number[]) =>
+  Math.sqrt(a.reduce((sum, v, i) => sum + (v - (b[i] ?? 0)) ** 2, 0));
 // Frames in the identity burst, and the gap between them. All three are
 // frontal, so averaging them is a genuine noise reduction rather than the
 // pose-mixing the previous implementation did.
@@ -361,16 +395,23 @@ export default function RegisterAlumniPersonal({
   // Timestamp the current gesture was first satisfied, so "hold" is measured in
   // real milliseconds rather than in detector ticks.
   const holdStartRef = useRef<number | null>(null);
-  const blinkDetectorRef = useRef<BlinkDetector>(createBlinkDetector());
-  // Randomized head-turn direction (per session) prevents replay with a fixed
-  // pre-recorded video.
-  const [headTurnDirection] = useState<HeadTurnDirection>(
-    () => (Math.random() < 0.5 ? 'left' : 'right'),
-  );
-  const shotInstructions = useMemo(
-    () => buildShotInstructions(headTurnDirection),
-    [headTurnDirection],
-  );
+  const shotInstructions = SHOT_INSTRUCTIONS;
+
+  // Enrolment sweep. One slot per target angle, each filled once, so holding
+  // still at 0 deg cannot flood the set with identical frontals and crowd out
+  // the angles that add information. The ref is what the sampling loop reads;
+  // the state is what renders. Seeded on a correction pass like the rest.
+  const emptySweep = (): (SweepFrame | null)[] => SWEEP_TARGETS.map(() => null);
+  const seededSweep = (): (SweepFrame | null)[] =>
+    SWEEP_TARGETS.map((t) => initialBiometric?.sweepFrames?.find((f) => f.target === t) ?? null);
+  const [sweep, setSweep] = useState<(SweepFrame | null)[]>(seededSweep);
+  const sweepSlotsRef = useRef<(SweepFrame | null)[]>(seededSweep());
+  // Averaged burst descriptor, so each frontal sweep frame can be checked
+  // against the identity photo before it joins the template.
+  const identityDescriptorRef = useRef<number[] | null>(initialBiometric?.descriptor ?? null);
+  // Live yaw marker, written straight to the DOM: the loop ticks several times
+  // a second and re-rendering this whole form that often stutters the video.
+  const yawMarkerRef = useRef<HTMLDivElement | null>(null);
 
   // ── Draft recovery ─────────────────────────────────────────────────────────
   // The parent keeps personal data in React state, which survives moving
@@ -417,9 +458,8 @@ export default function RegisterAlumniPersonal({
     if (step === 4) void ensureModernFaceModelsLoaded();
   }, [step]);
 
-  // Returns true when the live frame satisfies the current stage's pose. Blink
-  // is deliberately absent here: it is a transition over time, not a property
-  // of one frame, so it is handled by the blink detector in the loop below.
+  // Returns true when the live frame satisfies the identity stage's pose. The
+  // sweep has no single pose to hold; the loop fills it slot by slot.
   const isSlotConditionMet = (positions: { x: number; y: number }[]): boolean => {
     const challenge = shotInstructions[shotIndex];
     if (!challenge) return false;
@@ -428,23 +468,14 @@ export default function RegisterAlumniPersonal({
     if (challenge.kind === 'neutral') {
       return Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG && mar <= MOUTH_OPEN_MAR_THRESHOLD;
     }
-    // Non-mirrored feed: turning to your LEFT produces a positive yaw, turning to
-    // your RIGHT a negative yaw.
-    if (challenge.kind === 'head_turn_left') {
-      return yaw >= HEAD_TURN_YAW_THRESHOLD_DEG;
-    }
-    if (challenge.kind === 'head_turn_right') {
-      return yaw <= -HEAD_TURN_YAW_THRESHOLD_DEG;
-    }
     return false;
   };
 
   // Real-time liveness loop, sampled every FACE_SAMPLE_INTERVAL_MS.
   //
   // Stage 1 (neutral) holds a frontal pose briefly, then fires the identity
-  // burst — the only stage that saves a photo. Stage 2 (blink) waits for a full
-  // open→closed→open transition. Stage 3 (turn) holds a gentle yaw. Neither
-  // liveness stage captures an image, so neither can pollute the face template.
+  // burst. Stage 2 (sweep) fills one slot per target yaw as the head passes
+  // through it, and advances once every slot is in.
   useEffect(() => {
     const clearDetect = () => {
       if (detectIntervalRef.current) {
@@ -462,9 +493,6 @@ export default function RegisterAlumniPersonal({
     }
 
     const challenge = shotInstructions[shotIndex];
-    if (challenge.kind === 'blink') {
-      blinkDetectorRef.current.reset();
-    }
 
     detectIntervalRef.current = setInterval(async () => {
       if (capturingRef.current) return;
@@ -481,11 +509,19 @@ export default function RegisterAlumniPersonal({
           drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
         }
 
-        if (challenge.kind === 'blink') {
-          const blinked = blinkDetectorRef.current.push(landmarks);
-          if (blinked) {
+        if (challenge.kind === 'sweep') {
+          if (!landmarks) return;
+          const yaw = estimateHeadYawDegrees(landmarks);
+          if (yawMarkerRef.current) {
+            yawMarkerRef.current.style.left = `${yawToTrackPercent(yaw)}%`;
+          }
+          const slot = SWEEP_TARGETS.findIndex(
+            (target, i) =>
+              sweepSlotsRef.current[i] === null && Math.abs(yaw - target) <= SWEEP_TOLERANCE_DEG,
+          );
+          if (slot >= 0) {
             capturingRef.current = true;
-            void completeLivenessStage(landmarks);
+            void captureSweepSlot(slot, yaw, landmarks);
           }
           return;
         }
@@ -500,17 +536,13 @@ export default function RegisterAlumniPersonal({
         const now = Date.now();
         if (holdStartRef.current === null) holdStartRef.current = now;
         const heldFor = now - holdStartRef.current;
-        const required = challenge.kind === 'neutral' ? FRONTAL_HOLD_MS : TURN_HOLD_MS;
+        const required = FRONTAL_HOLD_MS;
 
         if (heldFor >= required) {
           holdStartRef.current = null;
           setAutoCountdown(null);
           capturingRef.current = true;
-          if (challenge.kind === 'neutral') {
-            void captureIdentityBurst();
-          } else {
-            void completeLivenessStage(landmarks);
-          }
+          void captureIdentityBurst();
           return;
         }
 
@@ -524,7 +556,7 @@ export default function RegisterAlumniPersonal({
 
     return clearDetect;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn, shotIndex, headTurnDirection]);
+  }, [cameraOn, shotIndex]);
 
   // Live cascading location data sourced from the reference API (same source
   // of truth used by the employment form / admin reference-data CRUD).
@@ -896,6 +928,7 @@ export default function RegisterAlumniPersonal({
       setPreviews([firstDataUrl]);
       setIdentityShot(blob);
       setDescriptorSamples(samples);
+      identityDescriptorRef.current = averageFaceDescriptors(samples);
       setLivenessSignals((l) => [
         ...l,
         { mouthAspectRatio: computeMouthAspectRatio(landmarks), yawDegrees: yaw, detected: true },
@@ -911,8 +944,8 @@ export default function RegisterAlumniPersonal({
   };
 
   /**
-   * Stages 2 and 3 (blink, head turn). Records the measured signal for the
-   * audit trail and advances. Deliberately saves no photo and no descriptor.
+   * Closes the sweep: records the measured signal for the audit trail and
+   * advances, which stops the camera.
    */
   const completeLivenessStage = async (landmarks: { x: number; y: number }[] | null) => {
     try {
@@ -932,18 +965,79 @@ export default function RegisterAlumniPersonal({
     }
   };
 
+  /**
+   * Stage 2. Saves the frame for one sweep slot. Frames inside the frontal
+   * tolerance also contribute a face-api descriptor, but only when it matches
+   * the identity photo.
+   */
+  const captureSweepSlot = async (
+    slot: number,
+    yaw: number,
+    landmarks: { x: number; y: number }[],
+  ) => {
+    let handedOff = false;
+    try {
+      const dataUrl = grabFrame();
+      if (!dataUrl) return;
+      const blob = await (await fetch(dataUrl)).blob();
+
+      if (Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG) {
+        const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
+        // No readable face in a frontal frame: leave the slot open, the next
+        // tick retries it.
+        if (!descriptor) return;
+        const identity = identityDescriptorRef.current;
+        if (identity && faceDistance(descriptor, identity) > SWEEP_SAME_FACE_MAX_DISTANCE) {
+          setStepError('A different face was detected. Make sure only you are in front of the camera.');
+          return;
+        }
+        setDescriptorSamples((prev) => [...prev, descriptor]);
+      }
+
+      sweepSlotsRef.current[slot] = { blob, dataUrl, target: SWEEP_TARGETS[slot], yaw };
+      setSweep([...sweepSlotsRef.current]);
+      setStepError('');
+      if (sweepSlotsRef.current.every((f) => f !== null)) {
+        handedOff = true;
+        await completeLivenessStage(landmarks);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      // completeLivenessStage releases the flag itself once it has run.
+      if (!handedOff) capturingRef.current = false;
+    }
+  };
+
+  // Some cameras lose the face before +/-24 deg. Once the front and at least
+  // one pose on each side are in, the graduate may stop rather than be stuck
+  // turning further than the detector can follow. Both sides are still
+  // required, so the liveness property holds.
+  const sweepCount = sweep.filter((f) => f !== null).length;
+  const sweepHasBothSides =
+    sweep[SWEEP_TARGETS.indexOf(0)] !== null &&
+    sweep.some((f) => f !== null && f.target < 0) &&
+    sweep.some((f) => f !== null && f.target > 0);
+  const finishSweepEarly = () => {
+    if (capturingRef.current) return;
+    capturingRef.current = true;
+    void completeLivenessStage(null);
+  };
+
   const retakeAll = () => {
     setPreviews([]);
     setIdentityShot(null);
     setDescriptorSamples([]);
     setLivenessSignals([]);
+    sweepSlotsRef.current = emptySweep();
+    setSweep(emptySweep());
+    identityDescriptorRef.current = null;
     setShotIndex(0);
     setCaptureTime(null);
     setStepError('');
     setCheckingBlur(false);
     capturingRef.current = false;
     holdStartRef.current = null;
-    blinkDetectorRef.current.reset();
     setAutoCountdown(null);
     setFaceDetected(false);
     void startCamera();
@@ -951,20 +1045,21 @@ export default function RegisterAlumniPersonal({
 
   const handleBiometricSubmit = async () => {
     if (!identityShot || shotIndex < shotInstructions.length) {
-      setStepError('Please complete all liveness challenges.');
+      setStepError('Please take the front photo and finish turning your head left and right.');
       return;
     }
 
     setIsSaving(true);
     try {
-      // Averaged across the frontal burst only — see captureIdentityBurst.
+      // Averaged across every frontal sample: the burst, plus the frontal sweep
+      // frames that matched it.
       const averagedDescriptor = averageFaceDescriptors(descriptorSamples);
       const biometricData: BiometricData = {
         image: identityShot,
         descriptor: averagedDescriptor,
         descriptorSamples,
         livenessSignals,
-        headTurnDirection,
+        sweepFrames: sweep.filter((f): f is SweepFrame => f !== null),
         gps: identityGps,
       };
       await onComplete(form, biometricData, matchStatus);
@@ -1000,7 +1095,11 @@ export default function RegisterAlumniPersonal({
       </div>
 
       <div className="flex-1 flex flex-col items-center px-4 py-8">
-        <div className="w-full max-w-lg">
+        {/* Widens on the camera step the same way the login does, so the video
+            reaches the same size. The +48px is this card's own padding. */}
+        <div className={`w-full transition-[max-width] duration-300 ${
+          step === 4 ? 'max-w-lg sm:max-w-[608px] lg:max-w-[728px]' : 'max-w-lg'
+        }`}>
           {/* Answers the server refused, shown on a correction pass. Everything
               else the graduate entered — including their face capture — is
               still held, so only these need fixing. */}
@@ -1712,7 +1811,7 @@ export default function RegisterAlumniPersonal({
                     <div>
                       <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Face Recognition</h2>
                       <p className="text-gray-500 text-xs mt-0.5">
-                        We take one photo, then two quick checks to confirm you are present in real time: blink, then a small head turn.
+                        We take one front photo, then ask you to slowly turn your head left and right. The turn confirms you are really there and captures your face from a few angles.
                       </p>
                     </div>
                   </div>
@@ -1724,8 +1823,8 @@ export default function RegisterAlumniPersonal({
                       <p style={{ fontWeight: 700 }}>Before you begin</p>
                       <p className="mt-0.5">
                         Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
-                        Make sure your face is well-lit. You will be asked to face the camera for one photo, then to blink
-                        and turn your head slightly. Only the first photo is saved.
+                        Make sure your face is well-lit. You will face the camera for one photo, then slowly turn your
+                        head left and right. The front photo and a few angled frames are saved for verification.
                       </p>
                     </div>
                   </div>
@@ -1746,8 +1845,8 @@ export default function RegisterAlumniPersonal({
                   {/* Shot progress tiles */}
                   <div className="flex gap-2 mb-4">
                     {shotInstructions.map((s, i) => {
-                      // The open-mouth liveness step saves no preview, so derive
-                      // completion from shotIndex rather than previews[i].
+                      // Only the front photo has a preview, so derive completion
+                      // from shotIndex rather than previews[i].
                       const done = shotIndex > i;
                       return (
                       <div key={i} className={`flex-1 rounded-xl border p-2.5 text-center transition ${
@@ -1819,15 +1918,77 @@ export default function RegisterAlumniPersonal({
                     {/* Face guide overlay when camera is live */}
                     {cameraOn && !allCaptured && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        {/* Guide ring: solid emerald while counting down, soft
-                            emerald when a face is detected, dashed white idle. */}
-                        <div className={`size-48 rounded-full border-2 transition-colors ${
-                          autoCountdown !== null
-                            ? 'border-solid border-emerald-400'
-                            : faceDetected
-                              ? 'border-dashed border-emerald-300'
-                              : 'border-dashed border-white/50'
-                        }`} />
+                        {/* The same guide as the login scan, so both camera
+                            screens read as one system: dashed white while
+                            searching, emerald once a face is found, solid while
+                            the front photo is counting down. */}
+                        {(() => {
+                          const solid = autoCountdown !== null;
+                          const c = solid
+                            ? 'rgba(16,185,129,0.95)'
+                            : faceDetected ? 'rgba(52,211,153,0.85)' : 'rgba(255,255,255,0.4)';
+                          return (
+                            <>
+                              <div className="relative" style={{ width: '55%', aspectRatio: '3/4' }}>
+                                <div style={{
+                                  position: 'absolute', inset: '-10px', borderRadius: '50%',
+                                  boxShadow: `0 0 28px 6px ${c}`,
+                                  opacity: solid ? 0.35 : faceDetected ? 0.2 : 0.1,
+                                  transition: 'opacity .35s ease, box-shadow .35s ease',
+                                }} />
+                                <div style={{
+                                  position: 'absolute', inset: 0, borderRadius: '50%',
+                                  border: `${solid ? '3px solid' : '2px dashed'} ${c}`,
+                                  transition: 'border-color .35s ease',
+                                }} />
+                              </div>
+                              {(['tl', 'tr', 'bl', 'br'] as const).map((pos) => (
+                                <div
+                                  key={pos}
+                                  className="absolute transition-all duration-300"
+                                  style={{
+                                    top: pos.startsWith('t') ? '12%' : undefined,
+                                    bottom: pos.startsWith('b') ? '12%' : undefined,
+                                    left: pos.endsWith('l') ? '20%' : undefined,
+                                    right: pos.endsWith('r') ? '20%' : undefined,
+                                    width: solid ? '26px' : '20px',
+                                    height: solid ? '26px' : '20px',
+                                    borderTop: pos.startsWith('t') ? `2px solid ${c}` : 'none',
+                                    borderBottom: pos.startsWith('b') ? `2px solid ${c}` : 'none',
+                                    borderLeft: pos.endsWith('l') ? `2px solid ${c}` : 'none',
+                                    borderRight: pos.endsWith('r') ? `2px solid ${c}` : 'none',
+                                    borderTopLeftRadius: pos === 'tl' ? '6px' : undefined,
+                                    borderTopRightRadius: pos === 'tr' ? '6px' : undefined,
+                                    borderBottomLeftRadius: pos === 'bl' ? '6px' : undefined,
+                                    borderBottomRightRadius: pos === 'br' ? '6px' : undefined,
+                                  }}
+                                />
+                              ))}
+                            </>
+                          );
+                        })()}
+
+                        {/* Sweep track: a dot per target angle, filled as it is
+                            captured, and a live marker for where the head is now. */}
+                        {shotInstructions[shotIndex]?.kind === 'sweep' && (
+                          <div className="absolute inset-x-8 bottom-16 h-6">
+                            <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/30" />
+                            {SWEEP_TARGETS.map((target, i) => (
+                              <div
+                                key={target}
+                                className={`absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 transition-colors duration-300 ${
+                                  sweep[i] ? 'border-emerald-400 bg-emerald-400' : 'border-white/70 bg-black/40'
+                                }`}
+                                style={{ left: `${yawToTrackPercent(target)}%` }}
+                              />
+                            ))}
+                            <div
+                              ref={yawMarkerRef}
+                              className="absolute top-1/2 h-5 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-300 shadow transition-[left] duration-150"
+                              style={{ left: '50%' }}
+                            />
+                          </div>
+                        )}
 
                         {/* Big countdown number */}
                         {autoCountdown !== null && (
@@ -1854,7 +2015,9 @@ export default function RegisterAlumniPersonal({
                             <p className="text-white text-xs text-center" style={{ fontWeight: 600 }}>
                               {autoCountdown !== null
                                 ? `Hold still — capturing in ${autoCountdown}…`
-                                : `Shot ${shotIndex + 1}/${shotInstructions.length} - ${shotInstructions[shotIndex]?.label}: ${shotInstructions[shotIndex]?.desc}`}
+                                : shotInstructions[shotIndex]?.kind === 'sweep'
+                                  ? `Step 2/2 - Slowly turn your head left and right (${sweepCount}/${SWEEP_TARGETS.length})`
+                                  : `Step 1/2 - ${shotInstructions[shotIndex]?.label}: ${shotInstructions[shotIndex]?.desc}`}
                             </p>
                           </div>
                         </div>
@@ -1868,6 +2031,37 @@ export default function RegisterAlumniPersonal({
                       </div>
                     )}
                   </div>
+
+                  {/* Sweep poses, ordered and mirrored the way the graduate
+                      sees themselves in the preview, so the tile that fills is
+                      on the side they just turned toward. */}
+                  {(shotInstructions[shotIndex]?.kind === 'sweep' || sweepCount > 0) && (
+                    <div className="mb-4 flex justify-center gap-2">
+                      {SWEEP_TARGETS.map((target, i) => ({ target, frame: sweep[i] }))
+                        .sort((a, b) => b.target - a.target)
+                        .map(({ target, frame }) => (
+                          <div key={target} className="w-14 sm:w-16">
+                            <div className={`aspect-[3/4] overflow-hidden rounded-lg border transition-colors ${
+                              frame ? 'border-emerald-300' : 'border-dashed border-gray-300 bg-gray-50'
+                            }`}>
+                              {frame ? (
+                                <div className="gt-scale h-full w-full">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={frame.dataUrl} alt={`${SWEEP_POSE_LABELS[target]} pose`} className="h-full w-full object-cover -scale-x-100" />
+                                </div>
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-gray-300">
+                                  <Circle className="size-3" />
+                                </div>
+                              )}
+                            </div>
+                            <p className={`mt-1 text-center text-[10px] leading-tight ${frame ? 'text-emerald-700' : 'text-gray-400'}`}>
+                              {SWEEP_POSE_LABELS[target]}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  )}
 
                   {/* Camera controls */}
                   <div className="flex gap-2">
@@ -1885,10 +2079,9 @@ export default function RegisterAlumniPersonal({
                           title="Stop camera">
                           <VideoOff className="size-4" />
                         </button>
-                        {/* Manual capture applies only to the identity photo.
-                            The blink and head-turn stages are liveness gates —
-                            they save nothing, so there is nothing to trigger by
-                            hand; they simply detect and advance. */}
+                        {/* Manual capture applies only to the front photo. The
+                            sweep captures on its own as the head passes each
+                            angle, so there is nothing to trigger by hand. */}
                         {shotInstructions[shotIndex]?.kind === 'neutral' ? (
                           <button onClick={() => { capturingRef.current = true; void captureIdentityBurst(); }}
                             disabled={checkingBlur}
@@ -1898,6 +2091,12 @@ export default function RegisterAlumniPersonal({
                               ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Checking clarity</>
                               : <><Camera className="size-4" /> Capture photo</>
                             }
+                          </button>
+                        ) : shotInstructions[shotIndex]?.kind === 'sweep' && sweepHasBothSides ? (
+                          <button onClick={finishSweepEarly}
+                            className="gt-fade flex-1 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm transition"
+                            style={{ fontWeight: 600 }}>
+                            <CheckCircle2 className="size-4" /> Done - use {sweepCount} of {SWEEP_TARGETS.length} angles
                           </button>
                         ) : (
                           <div className="flex-1 flex items-center justify-center gap-2 bg-gray-100 text-gray-600 py-2.5 rounded-xl text-sm"
@@ -1932,7 +2131,7 @@ export default function RegisterAlumniPersonal({
                     <div className="mt-3 flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
                       <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
                       <div>
-                        <p className="text-emerald-700 text-sm" style={{ fontWeight: 600 }}>All liveness challenges passed!</p>
+                        <p className="text-emerald-700 text-sm" style={{ fontWeight: 600 }}>Face captured from {sweepCount} angles · liveness verified</p>
                         {captureTime && <p className="text-emerald-600 text-xs">{captureTime}</p>}
                       </div>
                     </div>
@@ -1959,7 +2158,7 @@ export default function RegisterAlumniPersonal({
                 </div>
                 {!allCaptured && (
                   <p className="text-center text-gray-400 text-xs">
-                    All 3 liveness challenges (look forward, turn left, turn right) are required to continue.
+                    Both steps (the front photo, then turning slowly left and right) are required to continue.
                   </p>
                 )}
               </div>

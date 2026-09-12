@@ -283,9 +283,17 @@ export function RegisterAlumni() {
       if (biometricData) {
         payload.append('face_descriptor', JSON.stringify(biometricData.descriptor));
         payload.append('face_descriptor_samples', JSON.stringify(biometricData.descriptorSamples));
-        // One frontal photo only. The blink and head-turn stages prove liveness
-        // but intentionally save no image, so there is nothing else to upload.
+        // The frontal identity photo, then the enrolment sweep. The sweep frames
+        // let a server-side engine build its template from several head angles
+        // instead of one; face-api ignores them and uses the descriptors above.
         payload.append('face_front', biometricData.image, `face_front_${Date.now()}.jpg`);
+        biometricData.sweepFrames.forEach((frame, i) => {
+          payload.append('face_images', frame.blob, `face_pose_${i}.jpg`);
+        });
+        payload.append(
+          'face_images_meta',
+          JSON.stringify(biometricData.sweepFrames.map((f) => ({ target: f.target, yaw: f.yaw }))),
+        );
         // GPS stamp for the identity audit trail (PRD Module A). The backend has
         // always read these keys; the registration form simply never sent them,
         // so every graduate on record has a null capture location.
@@ -301,13 +309,8 @@ export function RegisterAlumni() {
         payload.append(
           'liveness_signals',
           JSON.stringify({
-            head_turn_direction: biometricData.headTurnDirection,
             samples: biometricData.livenessSignals,
-            slot_kinds: [
-              'neutral',
-              'blink',
-              `head_turn_${biometricData.headTurnDirection}`,
-            ],
+            slot_kinds: ['neutral', 'sweep'],
             captured_at: new Date().toISOString(),
           }),
         );

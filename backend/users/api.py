@@ -1622,6 +1622,11 @@ def _create_alumni_skills(alumni_account, survey_data: dict) -> int:
 
     return created_count
 
+# Upper bound on sweep frames per registration. The client sends five; the cap
+# only exists so a hostile request cannot queue unbounded uploads and inferences.
+_MAX_REGISTRATION_POSE_FRAMES = 8
+
+
 class AlumniRegisterView(APIView):
     parser_classes = [MultiPartParser, FormParser]
     authentication_classes = []
@@ -1686,6 +1691,11 @@ class AlumniRegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         upload_files = required_files + [n for n in optional_files if n in request.FILES]
+        # The enrolment sweep: extra frames at several head angles. Optional, so
+        # a client that predates the sweep still registers with face_front
+        # alone. Capped because each frame is a Supabase upload and, under a
+        # server-side engine, a model inference on a small VPS.
+        pose_files = request.FILES.getlist("face_images")[:_MAX_REGISTRATION_POSE_FRAMES]
 
         graduation_year = _extract_year(graduation_date)
 
@@ -1746,6 +1756,12 @@ class AlumniRegisterView(APIView):
         # itself. scan_file.read() drains the upload, so the bytes have to be
         # held here rather than re-read further down.
         registration_front_bytes: bytes | None = None
+        pose_bytes: list[bytes] = []
+        # Pose frames are kept apart from face_scan_urls on purpose. That dict
+        # feeds the FaceScan rows, and admin review picks the newest face_front
+        # row as the primary photo -- a turned frame must never become the face
+        # a reviewer verifies against.
+        pose_scan_urls: dict[str, str] = {}
 
         try:
             for scan_key in upload_files:
@@ -1758,6 +1774,15 @@ class AlumniRegisterView(APIView):
                     file_bytes=file_bytes,
                     object_path=object_path,
                     content_type=scan_file.content_type or "image/jpeg",
+                )
+            for index, pose_file in enumerate(pose_files):
+                file_bytes = pose_file.read()
+                pose_bytes.append(file_bytes)
+                pose_key = f"face_pose_{index}"
+                pose_scan_urls[pose_key] = upload_image_bytes(
+                    file_bytes=file_bytes,
+                    object_path=f"face-registration/{storage_key}/{timestamp}_{pose_key}.jpg",
+                    content_type=pose_file.content_type or "image/jpeg",
                 )
         except SupabaseStorageError as exc:
             return Response(
@@ -1799,17 +1824,55 @@ class AlumniRegisterView(APIView):
         # whatever the client sent and embed the uploaded image themselves, so a
         # face-api vector can never be enrolled under a 512-d engine by accident.
         _active_engine = get_engine()
-        face_descriptor_samples = _parse_face_descriptor_samples(
-            request.data.get("face_descriptor_samples")
-        )
-        face_descriptor = _active_engine.embed(
-            image_bytes=registration_front_bytes,
-            client_descriptor=_parse_face_descriptor(request.data.get("face_descriptor")),
-        )
-        if not face_descriptor and face_descriptor_samples:
-            face_descriptor = _active_engine.average(face_descriptor_samples)
+        if _active_engine.requires_client_descriptor:
+            # The browser already chose which frames to describe. face-api's
+            # recogniser is only reliable near-frontal, so the client sends
+            # descriptors for its frontal frames and none for the turned ones.
+            face_descriptor_samples = _parse_face_descriptor_samples(
+                request.data.get("face_descriptor_samples")
+            )
+            face_descriptor = _active_engine.embed(
+                image_bytes=registration_front_bytes,
+                client_descriptor=_parse_face_descriptor(request.data.get("face_descriptor")),
+            )
+            if not face_descriptor and face_descriptor_samples:
+                face_descriptor = _active_engine.average(face_descriptor_samples)
+        else:
+            # A server-side engine embeds every frame itself: the frontal photo
+            # plus each sweep pose. Frames the detector cannot use are skipped
+            # rather than failing registration -- the extreme angles of a sweep
+            # are exactly where that happens.
+            #
+            # Poses are only trusted RELATIVE to the frontal photo, which is the
+            # image an admin verifies. A pose that is not the same person is
+            # dropped, so nobody can lean into frame mid-sweep and enrol their
+            # own face on this account. If the frontal photo itself cannot be
+            # read there is nothing to check poses against, so nothing is
+            # enrolled -- the same outcome as before the sweep existed.
+            face_descriptor_samples = []
+            front_embedding = (
+                _active_engine.embed(image_bytes=registration_front_bytes)
+                if registration_front_bytes
+                else None
+            )
+            if front_embedding:
+                face_descriptor_samples.append(front_embedding)
+                for blob in pose_bytes:
+                    embedding = _active_engine.embed(image_bytes=blob)
+                    if embedding and _active_engine.is_match(
+                        _active_engine.distance(front_embedding, embedding)
+                    ):
+                        face_descriptor_samples.append(embedding)
+            face_descriptor = (
+                _active_engine.average(face_descriptor_samples)
+                if face_descriptor_samples
+                else None
+            )
         if face_descriptor and not face_descriptor_samples:
             face_descriptor_samples = [face_descriptor]
+
+        capture_meta["frames"] = 1 + len(pose_bytes)
+        capture_meta["samples"] = len(face_descriptor_samples)
 
         # Liveness signals are client-attested per-slot measurements (MAR + yaw)
         # produced by the 3-challenge capture. Stored as-is for forensic audit;
@@ -1843,6 +1906,10 @@ class AlumniRegisterView(APIView):
                 biometric_template=json.dumps({
                     # Only biometric data, NOT survey_data
                     "registration_face_scans": face_scan_urls,
+                    "registration_pose_scans": pose_scan_urls,
+                    # Client-measured yaw per pose, for auditing which angles a
+                    # template was actually built from.
+                    "sample_meta": _safe_json_loads(request.data.get("face_images_meta")) or [],
                     "capture_meta": capture_meta,
                     "face_descriptor": face_descriptor,
                     "face_descriptor_samples": face_descriptor_samples,

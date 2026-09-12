@@ -1,4 +1,11 @@
+import type { ComponentType } from 'react';
 import type { RouteObject } from 'react-router';
+import {
+  GuardFallback,
+  redirectHome,
+  requireAdmin,
+  requireAlumni,
+} from './app/route-guards';
 
 // Auth / Public
 import { LoginPage } from './components/login-page';
@@ -27,6 +34,22 @@ import { AdminSettings } from './components/admin/admin-settings';
 import { AdminFaceDebug } from './components/admin/admin-face-debug';
 // #endregion DEBUG-ONLY:CurrenChanDebug
 
+// Portal pages redirect to the login page before rendering when there is no
+// matching session. See app/route-guards.ts.
+const adminRoute = (path: string, Component: ComponentType): RouteObject => ({
+  path,
+  Component,
+  loader: requireAdmin,
+  HydrateFallback: GuardFallback,
+});
+
+const alumniRoute = (path: string, Component: ComponentType): RouteObject => ({
+  path,
+  Component,
+  loader: requireAlumni,
+  HydrateFallback: GuardFallback,
+});
+
 export const routes: RouteObject[] = [
   // ── Single Login Entry Point ──
   { path: '/', Component: LoginPage },
@@ -38,28 +61,31 @@ export const routes: RouteObject[] = [
   { path: '/register/alumni', Component: RegisterAlumni },
 
   // ── Alumni Portal ──
-  { path: '/alumni/dashboard', Component: AlumniDashboard },
-  { path: '/alumni/pending', Component: GraduatePending },
-  { path: '/alumni/skills', Component: AlumniSkills },
-  { path: '/alumni/employment', Component: AlumniEmployment },
-  { path: '/alumni/profile', Component: AlumniProfile },
-  { path: '/alumni/profile/personal-education', Component: AlumniPersonalEducation },
+  alumniRoute('/alumni/dashboard', AlumniDashboard),
+  alumniRoute('/alumni/pending', GraduatePending),
+  alumniRoute('/alumni/skills', AlumniSkills),
+  alumniRoute('/alumni/employment', AlumniEmployment),
+  alumniRoute('/alumni/profile', AlumniProfile),
+  alumniRoute('/alumni/profile/personal-education', AlumniPersonalEducation),
 
   // ── Admin Portal ──
-  { path: '/admin/dashboard', Component: AdminNewDashboard },
-  { path: '/admin/unverified', Component: AdminUnverified },
-  { path: '/admin/verified', Component: AdminVerified },
-  { path: '/admin/batch-upload', Component: AdminBatchUpload },
-  { path: '/admin/map', Component: AdminMap },
-  { path: '/admin/analytics', Component: AdminAnalytics },
-  { path: '/admin/settings', Component: AdminSettings },
+  adminRoute('/admin/dashboard', AdminNewDashboard),
+  adminRoute('/admin/unverified', AdminUnverified),
+  adminRoute('/admin/verified', AdminVerified),
+  adminRoute('/admin/batch-upload', AdminBatchUpload),
+  adminRoute('/admin/map', AdminMap),
+  adminRoute('/admin/analytics', AdminAnalytics),
+  adminRoute('/admin/settings', AdminSettings),
 
   // #region DEBUG-ONLY:CurrenChanDebug
   // URL-only, deliberately absent from the sidebar. Maintenance hatch, not
   // a feature — omit from DFDs / use-case docs.
-  { path: '/admin/debug/face', Component: AdminFaceDebug },
+  adminRoute('/admin/debug/face', AdminFaceDebug),
   // #endregion DEBUG-ONLY:CurrenChanDebug
 
   // Legacy fallbacks
-  { path: '/admin', Component: AdminNewDashboard },
+  adminRoute('/admin', AdminNewDashboard),
+
+  // Unknown URLs go back to the login page instead of the router's 404 screen.
+  { path: '*', loader: redirectHome, HydrateFallback: GuardFallback },
 ];
