@@ -106,6 +106,9 @@ const STAGE_TIMEOUT_MS = 20000;
 // How long the camera stays dark between "Verify" and the rehearsal, so the
 // restart is visible rather than instantaneous.
 const VERIFY_RESTART_MS = 1200;
+// Stage 1 costs a descriptor pass plus an HTTP round trip. login-page.tsx polls
+// its own alignment loop at 600ms; there is no reason to be greedier.
+const IDENTIFY_POLL_MS = 700;
 
 const GROUP_COLOR: Record<'ear' | 'mar' | 'frame', string> = {
     ear: '#34d399', // eyes — drive EAR / blink
@@ -241,6 +244,17 @@ export function AdminFaceDebug() {
     const turnDirectionRef = useRef<'left' | 'right'>('left');
     /** Highest yaw seen in the requested direction, for the turn stage. */
     const peakYawRef = useRef(0);
+    /**
+     * Stage 1 runs a descriptor pass AND a network round trip, so it must not
+     * fire on every sampled frame. Throttled to the rate login polls at.
+     */
+    const lastIdentifyAttemptRef = useRef(0);
+    /**
+     * The last REAL error, as opposed to a frame that simply had no face in it.
+     * The loop catch-all used to discard these, so an HTTP 401 or 409 looked
+     * identical to a dropped frame and the deadline then invented a reason.
+     */
+    const lastFailureRef = useRef('');
     /** Descriptor captured and matched in stage 1. */
     const pendingDescriptorRef = useRef<number[] | null>(null);
     const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -309,7 +323,9 @@ export function AdminFaceDebug() {
         alignTimeoutRef.current = setTimeout(() => {
             const { faceDetected } = lastGateRef.current;
             const blinkState = detectorRef.current.debugState();
-            if (!faceDetected) {
+            if (lastFailureRef.current) {
+                setVerifyHint(`Gave up: ${lastFailureRef.current}`);
+            } else if (!faceDetected) {
                 setVerifyHint('Gave up: no face detected. Check lighting and framing.');
             } else if (verifyStage === 'identify') {
                 setVerifyHint('Gave up: a face was visible but no descriptor could be read.');
@@ -444,29 +460,51 @@ export function AdminFaceDebug() {
                 const stage = verifyStageRef.current;
 
                 if (stage === 'identify') {
-                    if (landmarks) {
+                    const acct = accountRef.current;
+                    if (!acct) {
+                        lastFailureRef.current = 'No debug account selected.';
+                        setVerifyHint(lastFailureRef.current);
+                        setVerifyStage('idle');
+                    } else if (
+                        landmarks &&
+                        now - lastIdentifyAttemptRef.current >= IDENTIFY_POLL_MS
+                    ) {
+                        lastIdentifyAttemptRef.current = now;
                         const d = await grabDescriptor();
-                        const acct = accountRef.current;
-                        if (d && acct) {
-                            const result = await verifyDebugFace(acct.id, d);
-                            setVerifyResult(result);
-                            if (result.isMatch) {
-                                pendingDescriptorRef.current = d;
-                                peakYawRef.current = 0;
-                                detectorRef.current.reset();
-                                setVerifyStage('blink');
-                                setVerifyHint('');
-                            } else {
-                                // Wrong face. Stop here rather than asking for
-                                // gestures — liveness on the wrong person proves
-                                // nothing, and continuing would imply otherwise.
-                                setVerifyHint(
-                                    `Face did not match (distance ${result.distance} vs threshold ${result.threshold}).`,
-                                );
+                        if (!d) {
+                            lastFailureRef.current =
+                                'Landmarks found a face, but the recognition net returned no descriptor.';
+                            setVerifyHint('Hold still — reading your face…');
+                        } else {
+                            // Its own try/catch: this is a NETWORK call, and the
+                            // loop catch-all exists for dropped frames. Letting
+                            // an HTTP error fall through to it is exactly what
+                            // made this stage stall behind an invented reason.
+                            try {
+                                const result = await verifyDebugFace(acct.id, d);
+                                setVerifyResult(result);
+                                if (result.isMatch) {
+                                    pendingDescriptorRef.current = d;
+                                    peakYawRef.current = 0;
+                                    detectorRef.current.reset();
+                                    setVerifyStage('blink');
+                                    setVerifyHint('');
+                                } else {
+                                    // Wrong face. Stop rather than asking for
+                                    // gestures: liveness on the wrong person
+                                    // proves nothing, and carrying on would
+                                    // imply the identity check had passed.
+                                    setVerifyHint(
+                                        `Face did not match — distance ${result.distance} vs threshold ${result.threshold}.`,
+                                    );
+                                    setVerifyStage('idle');
+                                }
+                            } catch (e) {
+                                lastFailureRef.current =
+                                    e instanceof Error ? e.message : 'Verify request failed.';
+                                setVerifyHint(`Verify request failed: ${lastFailureRef.current}`);
                                 setVerifyStage('idle');
                             }
-                        } else if (!d) {
-                            setVerifyHint('Face seen but no descriptor yet — hold still, more light.');
                         }
                     }
                 } else if (stage === 'blink') {
@@ -500,8 +538,11 @@ export function AdminFaceDebug() {
                         }
                     }
                 }
-            } catch {
-                /* transient detector error — keep sampling */
+            } catch (e) {
+                // A frame with no face in it is normal and raises nothing, so
+                // anything landing here is worth keeping: it lets the stage
+                // deadline report what actually went wrong instead of guessing.
+                lastFailureRef.current = e instanceof Error ? e.message : String(e);
             } finally {
                 busyRef.current = false;
             }
@@ -537,6 +578,8 @@ export function AdminFaceDebug() {
         setVerifyResult(null);
         pendingDescriptorRef.current = null;
         peakYawRef.current = 0;
+        lastIdentifyAttemptRef.current = 0;
+        lastFailureRef.current = '';
 
         // Direction stays randomised so a pre-recorded clip cannot be replayed.
         setTurnDirection(Math.random() < 0.5 ? 'left' : 'right');
