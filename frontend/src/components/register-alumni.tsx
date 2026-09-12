@@ -152,7 +152,7 @@ function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName:
         <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
       </div>
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
+        <div className="gt-scale bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
           <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 mx-auto mb-5">
             <CheckCircle2 className="size-9 text-emerald-500" />
           </div>
@@ -192,7 +192,7 @@ function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName:
 function SubmittingOverlay() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-sm w-full mx-4">
+      <div className="gt-scale bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-sm w-full mx-4">
         <div className="flex size-16 items-center justify-center rounded-full bg-emerald-50 mx-auto mb-5">
           <span className="size-8 border-4 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
         </div>
@@ -206,7 +206,7 @@ function SubmittingOverlay() {
 function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-sm w-full mx-4">
+      <div className="gt-scale bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-sm w-full mx-4">
         <div className="flex size-16 items-center justify-center rounded-full bg-red-50 mx-auto mb-5">
           <AlertCircle className="size-9 text-red-500" />
         </div>

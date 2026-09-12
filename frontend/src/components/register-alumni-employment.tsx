@@ -635,7 +635,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Step 1: Academic & Pre-Employment Profile */}
       {isCurrentState(1) && (
-        <div className="space-y-6">
+        <div className="gt-stagger space-y-6">
           <SectionHeader icon={BookOpen} title="Academic & Pre-Employment Profile" />
 
           <div>
@@ -710,7 +710,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Step 2: Employment Status */}
       {isCurrentState(2) && (
-        <div className="space-y-6">
+        <div className="gt-stagger space-y-6">
           <SectionHeader icon={Briefcase} title="Current Employment Status" subtitle="This determines which information we'll ask for next" />
 
           <div>
@@ -735,7 +735,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Step 3: First Job Details */}
       {isCurrentState(3) && (
-        <div className="space-y-6">
+        <div className="gt-stagger space-y-6">
           <SectionHeader icon={Briefcase} title="Your First Job" />
 
           <div>
@@ -865,7 +865,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Step 4: Current Job (Only if employed full-time, part-time, or self-employed) */}
       {isCurrentState(4) && ['employed_full_time', 'employed_part_time', 'self_employed'].includes(form.employment_status) && (
-        <div className="space-y-6">
+        <div className="gt-stagger space-y-6">
           <SectionHeader icon={Briefcase} title="Your Current / Most Recent Job" />
 
           {/* Quick-fill: reuse the first-job answers when it's the same job. */}
@@ -941,7 +941,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Step 5: Work Address */}
       {isCurrentState(5) && (
-        <div className="space-y-6">
+        <div className="gt-stagger space-y-6">
           <SectionHeader icon={MapPin} title="Work Address" subtitle="Help us map employment locations" />
 
           <div>
@@ -1098,7 +1098,7 @@ export default function RegisterAlumniEmployment({
 
       {/* Step 6: Competency Assessment */}
       {isCurrentState(6) && (
-        <div className="space-y-6">
+        <div className="gt-stagger space-y-6">
           <SectionHeader icon={Award} title="Skills & Competencies" />
 
           {/* Technical Skills */}

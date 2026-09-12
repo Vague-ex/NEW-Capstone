@@ -113,6 +113,48 @@ select option {
 .gt-press { transition: transform .12s ease-out; }
 .gt-press:active { transform: scale(.97); }
 
+/* Hover "bubble fill": a circle grows out from under the icon and floods the
+   pill. Cheaper than animating background-color, which cannot be composited —
+   this is transform+opacity only, so it never touches layout or paint.
+
+   The circle is anchored at --gt-bubble-x (the icon, which is where the eye
+   already is) rather than at the pointer, so the fill reads the same whether
+   the user arrives by mouse or by keyboard.
+
+   Colour comes from --gt-bubble so the same class works on the dark sidebar
+   and on light admin cards. */
+.gt-bubble {
+  position: relative;
+  overflow: hidden;
+  --gt-bubble: rgba(255, 255, 255, .14);
+  --gt-bubble-x: 1.25rem;
+}
+.gt-bubble::before {
+  content: "";
+  position: absolute;
+  left: var(--gt-bubble-x);
+  top: 50%;
+  width: 220%;
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  background: var(--gt-bubble);
+  /* Centring lives inside transform rather than in the standalone `translate`
+     property: on a pseudo-element the latter is dropped, which leaves the
+     circle anchored by its top-left corner and its arc visible in the pill. */
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .4s cubic-bezier(.22,.61,.36,1), opacity .25s ease-out;
+}
+.gt-bubble:hover::before,
+.gt-bubble:focus-visible::before {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+/* Keep label, icon and badge above the wash. Without this the fill would
+   paint over them on its way across. */
+.gt-bubble > * { position: relative; z-index: 1; }
+
 /* Accessibility. Cancels motion AND restores the end state — without the
    explicit opacity/transform reset, everything above would stay invisible. */
 @media (prefers-reduced-motion: reduce) {
@@ -125,4 +167,7 @@ select option {
   }
   .gt-lift, .gt-press { transition: none !important; }
   .gt-lift:hover, .gt-press:active { transform: none !important; }
+  /* The bubble still appears, it just stops travelling. Dropping it entirely
+     would leave keyboard users with no hover affordance at all. */
+  .gt-bubble::before { transition: none !important; }
 }

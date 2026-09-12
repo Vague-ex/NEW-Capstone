@@ -23,7 +23,7 @@ export function AdminAnalytics() {
       pageTitle="Analytics & Reports"
       pageSubtitle="Predictive Employability Trend"
     >
-      <div className="space-y-6">
+      <div className="gt-stagger space-y-6">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex gap-6" aria-label="Analytics tabs">
             {TABS.map(({ id, label, Icon }) => {

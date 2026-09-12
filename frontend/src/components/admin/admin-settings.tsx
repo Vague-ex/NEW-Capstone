@@ -97,12 +97,12 @@ function InlineEdit({
             if (e.key === 'Enter') save();
             if (e.key === 'Escape') setEditing(false);
           }}
-          className={`flex-1 rounded-lg border border-[#1B3A6B] bg-white px-2.5 py-1 text-sm outline-none ring-2 ring-[#1B3A6B]/15 ${inputClassName}`}
+          className={`flex-1 rounded-lg border border-[#166534] bg-white px-2.5 py-1 text-sm outline-none ring-2 ring-[#166534]/15 ${inputClassName}`}
         />
         <button
           onClick={save}
           disabled={busy}
-          className="flex size-7 items-center justify-center rounded-lg bg-[#1B3A6B] text-white hover:bg-[#142d54] disabled:opacity-60 transition"
+          className="flex size-7 items-center justify-center rounded-lg bg-[#166534] text-white hover:bg-[#0f3d21] disabled:opacity-60 transition"
           aria-label="Save"
         >
           {busy ? (
@@ -228,7 +228,7 @@ function RailRow({
     <div
       className={`group flex items-center gap-2 rounded-xl px-3 py-2 cursor-pointer transition ${
         active
-          ? 'bg-[#1B3A6B] text-white'
+          ? 'bg-[#166534] text-white'
           : muted
             ? 'text-gray-500 hover:bg-gray-50'
             : 'text-gray-700 hover:bg-gray-50'
@@ -302,7 +302,7 @@ function InlineRenameTrigger({
         className={`flex size-6 items-center justify-center rounded-lg transition ${
           dark
             ? 'text-white/70 hover:text-white hover:bg-white/10'
-            : 'text-gray-400 hover:text-[#1B3A6B] hover:bg-gray-100'
+            : 'text-gray-400 hover:text-[#166534] hover:bg-gray-100'
         }`}
         aria-label="Rename"
       >
@@ -326,11 +326,11 @@ function InlineRenameTrigger({
       <button
         onClick={save}
         disabled={busy}
-        className="flex size-5 items-center justify-center rounded bg-white text-[#1B3A6B] hover:bg-white/90 disabled:opacity-60"
+        className="flex size-5 items-center justify-center rounded bg-white text-[#166534] hover:bg-white/90 disabled:opacity-60"
         aria-label="Save"
       >
         {busy ? (
-          <span className="size-2.5 border border-[#1B3A6B]/30 border-t-[#1B3A6B] rounded-full animate-spin" />
+          <span className="size-2.5 border border-[#166534]/30 border-t-[#166534] rounded-full animate-spin" />
         ) : (
           <Check className="size-3" />
         )}
@@ -369,7 +369,7 @@ function ItemRow({
         <span
           className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${
             badgeTone === 'navy'
-              ? 'bg-[#1B3A6B]/10 text-[#1B3A6B]'
+              ? 'bg-[#166534]/10 text-[#166534]'
               : 'bg-gray-100 text-gray-500'
           }`}
           style={{ fontWeight: 600 }}
@@ -445,13 +445,13 @@ function AddRow({
           }}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           placeholder={placeholder}
-          className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15 focus:bg-white"
+          className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
         />
         {selectOptions && !selectedFixed && selectOptions.length > 0 && (
           <select
             value={extra}
             onChange={(e) => setExtra(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none focus:border-[#1B3A6B] focus:bg-white"
+            className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none focus:border-[#166534] focus:bg-white"
           >
             <option value="">{selectLabel ?? 'None'}</option>
             {selectOptions.map((o) => (
@@ -466,13 +466,13 @@ function AddRow({
             value={extra}
             onChange={(e) => setExtra(e.target.value)}
             placeholder={extraTextPlaceholder}
-            className="w-32 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15 focus:bg-white"
+            className="w-32 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
           />
         )}
         <button
           onClick={submit}
           disabled={busy || !name.trim()}
-          className="flex items-center gap-1.5 bg-[#1B3A6B] hover:bg-[#142d54] text-white px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
+          className="flex items-center gap-1.5 bg-[#166534] hover:bg-[#0f3d21] text-white px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
           style={{ fontWeight: 600 }}
         >
           {busy ? (
@@ -643,7 +643,7 @@ export function AdminSettings() {
       pageTitle="Reference Settings"
       pageSubtitle="Manage skills, industries, job titles, and regions used across the system"
     >
-      <div className="max-w-6xl mx-auto space-y-5">
+      <div className="gt-stagger max-w-6xl mx-auto space-y-5">
         {/* Tab nav (matches admin-analytics.tsx pattern) */}
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Settings tabs">
@@ -656,7 +656,7 @@ export function AdminSettings() {
                   onClick={() => setTab(id)}
                   className={`inline-flex items-center gap-2 border-b-2 px-1 pb-3 text-sm transition whitespace-nowrap ${
                     active
-                      ? 'border-[#1B3A6B] text-[#1B3A6B]'
+                      ? 'border-[#166534] text-[#166534]'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                   style={{ fontWeight: active ? 700 : 500 }}
@@ -666,7 +666,7 @@ export function AdminSettings() {
                   {label}
                   <span
                     className={`text-[11px] px-1.5 py-0.5 rounded-full ${
-                      active ? 'bg-[#1B3A6B]/10 text-[#1B3A6B]' : 'bg-gray-100 text-gray-500'
+                      active ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-500'
                     }`}
                     style={{ fontWeight: 600 }}
                   >
@@ -686,7 +686,7 @@ export function AdminSettings() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={`Search ${tab === 'jobs' ? 'industries & jobs' : tab}…`}
-              className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+              className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15"
             />
           </div>
           <button
@@ -708,7 +708,7 @@ export function AdminSettings() {
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <span className="size-8 border-4 border-[#1B3A6B]/20 border-t-[#1B3A6B] rounded-full animate-spin" />
+            <span className="size-8 border-4 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin" />
           </div>
         ) : tab === 'skills' ? (
           <SkillsView
@@ -1017,7 +1017,7 @@ function SkillsView({
       {/* Master rail */}
       <div className="lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
-          <FolderOpen className="size-4 text-[#1B3A6B]" />
+          <FolderOpen className="size-4 text-[#166534]" />
           <h3 className="text-sm text-gray-800" style={{ fontWeight: 700 }}>
             Categories
           </h3>
@@ -1173,7 +1173,7 @@ function JobsView({
       {/* Master rail - industries */}
       <div className="lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
         <div className="flex items-center gap-2 px-3 py-2 mb-1">
-          <Building2 className="size-4 text-[#1B3A6B]" />
+          <Building2 className="size-4 text-[#166534]" />
           <h3 className="text-sm text-gray-800" style={{ fontWeight: 700 }}>
             Industries
           </h3>
@@ -1402,7 +1402,7 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
       <div className="flex items-center gap-2 mb-4">
-        <MapPin className="size-4 text-[#1B3A6B]" />
+        <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Provinces</h3>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" style={{ fontWeight: 600 }}>
           {visible.length}
@@ -1579,7 +1579,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
       <div className="flex items-center gap-2 mb-4">
-        <MapPin className="size-4 text-[#1B3A6B]" />
+        <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Cities / Municipalities</h3>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" style={{ fontWeight: 600 }}>
           {visible.length}
@@ -1712,7 +1712,7 @@ function RegionsView({
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
       <div className="flex items-center gap-2 mb-4">
-        <MapPin className="size-4 text-[#1B3A6B]" />
+        <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
           Regions
         </h3>
@@ -1835,7 +1835,7 @@ function UsersView({
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <Shield className="size-4 text-[#1B3A6B]" />
+          <Shield className="size-4 text-[#166534]" />
           <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
             Admins
           </h3>
@@ -1849,7 +1849,7 @@ function UsersView({
         {!adding && (
           <button
             onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 bg-[#1B3A6B] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#16315a] transition"
+            className="inline-flex items-center gap-1.5 bg-[#166534] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#14532d] transition"
             style={{ fontWeight: 600 }}
           >
             <Plus className="size-3.5" /> Add admin
@@ -1870,7 +1870,7 @@ function UsersView({
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <span className="size-6 border-4 border-[#1B3A6B]/20 border-t-[#1B3A6B] rounded-full animate-spin" />
+          <span className="size-6 border-4 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin" />
         </div>
       ) : visible.length === 0 ? (
         <EmptyState
@@ -1932,14 +1932,14 @@ function AdminRow({
   return (
     <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 transition">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="flex size-9 items-center justify-center rounded-full bg-[#1B3A6B]/10 text-[#1B3A6B] shrink-0">
+        <div className="flex size-9 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] shrink-0">
           <Shield className="size-4" />
         </div>
         <div className="min-w-0">
           <p className="text-sm text-gray-900 truncate" style={{ fontWeight: 600 }}>
             {admin.email}
             {isCurrentUser && (
-              <span className="ml-2 text-[10px] text-[#1B3A6B] bg-[#1B3A6B]/10 px-1.5 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
+              <span className="ml-2 text-[10px] text-[#166534] bg-[#166534]/10 px-1.5 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
                 you
               </span>
             )}
@@ -1957,7 +1957,7 @@ function AdminRow({
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           onClick={onEdit}
-          className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-60 hover:opacity-100 hover:text-[#1B3A6B] hover:border-[#1B3A6B]/30 transition"
+          className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-60 hover:opacity-100 hover:text-[#166534] hover:border-[#166534]/30 transition"
           aria-label="Edit"
         >
           <Pencil className="size-3.5" />
@@ -2013,8 +2013,8 @@ function AdminAddForm({
   };
 
   return (
-    <div className="border border-[#1B3A6B]/20 bg-[#1B3A6B]/[0.03] rounded-xl p-3.5 mb-3">
-      <p className="text-[11px] text-[#1B3A6B] mb-2" style={{ fontWeight: 700 }}>
+    <div className="border border-[#166534]/20 bg-[#166534]/[0.03] rounded-xl p-3.5 mb-3">
+      <p className="text-[11px] text-[#166534] mb-2" style={{ fontWeight: 700 }}>
         NEW ADMIN
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
@@ -2024,14 +2024,14 @@ function AdminAddForm({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="email@example.com"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15"
         />
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password (min. 8 chars)"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15"
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
           }}
@@ -2042,7 +2042,7 @@ function AdminAddForm({
         <button
           onClick={submit}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 bg-[#1B3A6B] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#16315a] disabled:opacity-60 transition"
+          className="inline-flex items-center gap-1.5 bg-[#166534] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#14532d] disabled:opacity-60 transition"
           style={{ fontWeight: 600 }}
         >
           {busy ? (
@@ -2119,8 +2119,8 @@ function AdminEditForm({
   };
 
   return (
-    <div className="border border-[#1B3A6B]/30 bg-[#1B3A6B]/[0.03] rounded-xl p-3.5">
-      <p className="text-[11px] text-[#1B3A6B] mb-2" style={{ fontWeight: 700 }}>
+    <div className="border border-[#166534]/30 bg-[#166534]/[0.03] rounded-xl p-3.5">
+      <p className="text-[11px] text-[#166534] mb-2" style={{ fontWeight: 700 }}>
         EDIT ADMIN
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
@@ -2130,14 +2130,14 @@ function AdminEditForm({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="email@example.com"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15"
         />
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Leave blank to keep current"
-          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#1B3A6B] focus:ring-2 focus:ring-[#1B3A6B]/15"
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15"
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
           }}
@@ -2148,7 +2148,7 @@ function AdminEditForm({
           type="checkbox"
           checked={isActive}
           onChange={(e) => setIsActive(e.target.checked)}
-          className="size-4 accent-[#1B3A6B]"
+          className="size-4 accent-[#166534]"
         />
         Active
       </label>
@@ -2157,7 +2157,7 @@ function AdminEditForm({
         <button
           onClick={submit}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 bg-[#1B3A6B] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#16315a] disabled:opacity-60 transition"
+          className="inline-flex items-center gap-1.5 bg-[#166534] text-white px-3 py-1.5 rounded-lg text-sm hover:bg-[#14532d] disabled:opacity-60 transition"
           style={{ fontWeight: 600 }}
         >
           {busy ? (

@@ -251,7 +251,7 @@ export function AdminBatchUpload() {
 
   return (
     <PortalLayout role="admin" pageTitle="Batch Upload" pageSubtitle="Register new graduating batch records to the master list">
-      <div className="max-w-4xl mx-auto space-y-5">
+      <div className="gt-stagger max-w-4xl mx-auto space-y-5">
 
         {/* Info banner */}
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">

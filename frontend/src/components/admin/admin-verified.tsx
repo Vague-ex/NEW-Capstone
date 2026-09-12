@@ -480,7 +480,7 @@ export function AdminVerified() {
 
   return (
     <PortalLayout role="admin" pageTitle="Verified Graduates" pageSubtitle="All approved graduates with full CHED survey data">
-      <div className="space-y-5">
+      <div className="gt-stagger space-y-5">
 
         {fetchError && (
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">

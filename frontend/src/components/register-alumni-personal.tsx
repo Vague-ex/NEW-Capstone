@@ -1072,7 +1072,7 @@ export default function RegisterAlumniPersonal({
                 </div>
               )}
 
-              <div className="space-y-4">
+              <div className="gt-stagger space-y-4">
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                     Email Address *
@@ -1180,7 +1180,7 @@ export default function RegisterAlumniPersonal({
                 </div>
               )}
 
-              <div className="space-y-4">
+              <div className="gt-stagger space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
@@ -1537,7 +1537,7 @@ export default function RegisterAlumniPersonal({
                 </div>
               )}
 
-              <div className="space-y-4">
+              <div className="gt-stagger space-y-4">
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
                   Every CHMSU Talisay BSIS alumnus already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken.
                 </div>

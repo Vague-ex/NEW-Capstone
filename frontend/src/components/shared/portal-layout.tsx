@@ -224,7 +224,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <nav className="gt-stagger flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         <p className="text-white/30 text-xs px-3 mb-2 tracking-widest uppercase" style={{ fontWeight: 600 }}>
           {config.label}
         </p>
@@ -234,9 +234,9 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
             <button
               key={item.path}
               onClick={() => { navigate(item.path); setSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150 ${isActive
+              className={`gt-bubble w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 ${isActive
                 ? 'bg-white/20 text-white shadow-sm'
-                : 'text-white/60 hover:text-white hover:bg-white/10'
+                : 'text-white/60 hover:text-white'
                 }`}
               style={{ fontWeight: isActive ? 600 : 400 }}
             >

@@ -311,7 +311,7 @@ export function AdminUnverified() {
       pageSubtitle="Graduate data is submitted and visible - excluded from analytics until verified"
       notificationCount={pendingAlumni.length}
     >
-      <div className="space-y-5">
+      <div className="gt-stagger space-y-5">
 
         {fetchError && (
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
