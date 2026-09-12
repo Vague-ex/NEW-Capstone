@@ -128,6 +128,11 @@ export function LoginPage() {
   const livenessSignalRef = useRef<AlumniLoginLivenessSignal | null>(null);
   const [livenessCountdown, setLivenessCountdown] = useState<number | null>(null);
   const countdownValRef = useRef<number | null>(null);
+  // The guide used to look identical whether the camera had a perfect view or
+  // none at all, which left the user with nothing to correct. These drive its
+  // colour so the frame answers "can you see me?" continuously.
+  const [faceSeen, setFaceSeen] = useState(false);
+  const [frontalOk, setFrontalOk] = useState(false);
 
 
   useEffect(() => {
@@ -180,9 +185,15 @@ export function LoginPage() {
           // exactly when the user needs to see whether they are being tracked.
           drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
         }
-        if (!landmarks) return;
+        setFaceSeen(!!landmarks);
+        if (!landmarks) {
+          setFrontalOk(false);
+          return;
+        }
         const yaw = estimateHeadYawDegrees(landmarks);
-        if (Math.abs(yaw) > FRONTAL_YAW_TOLERANCE_DEG) return;
+        const isFrontal = Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG;
+        setFrontalOk(isFrontal);
+        if (!isFrontal) return;
 
         const captured = await captureFaceScanBlob();
         frontalCaptureRef.current = captured;
@@ -251,6 +262,7 @@ export function LoginPage() {
         if (meshCanvasRef.current) {
           drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
         }
+        setFaceSeen(!!landmarks);
 
         // Blink is a transition over time, so it must see every frame —
         // including the ones with no face, which reset a half-finished blink.
@@ -502,6 +514,8 @@ export function LoginPage() {
     // Wipe the overlay first. Left behind, the last mesh sits over a dead video
     // and reads as a face still being tracked.
     clearFaceMesh(meshCanvasRef.current);
+    setFaceSeen(false);
+    setFrontalOk(false);
     if (autoDetectInterval.current) {
       clearInterval(autoDetectInterval.current);
       autoDetectInterval.current = null;
@@ -794,14 +808,40 @@ export function LoginPage() {
                     </div>
                   )}
 
-                  {cameraOn && scanStage !== "matched" && (
+                  {cameraOn && scanStage !== "matched" && (() => {
+                    // One colour, derived once, driving the ring, the corner
+                    // brackets and the status pill together. Previously the
+                    // guide looked the same whether the camera had a clean view
+                    // or none at all, so a user who could not get past the
+                    // frontal gate had nothing telling them why.
+                    const guide =
+                      scanStage === "challenge" || scanStage === "detecting"
+                        ? { c: "rgba(16,185,129,0.95)", label: "Hold still", solid: true }
+                        : !faceSeen
+                          ? { c: "rgba(255,255,255,0.35)", label: "Looking for your face…", solid: false }
+                          : !frontalOk
+                            ? { c: "rgba(245,158,11,0.95)", label: "Face the camera straight on", solid: false }
+                            : { c: "rgba(16,185,129,0.95)", label: "Hold still", solid: true };
+
+                    return (
                     <div className="absolute inset-0 pointer-events-none">
                       <div className="absolute inset-0 flex items-center justify-center">
                         <div className="relative" style={{ width: "55%", aspectRatio: "3/4" }}>
+                          {/* Soft halo so the ring reads against any background,
+                              light or dark, without a heavy overlay. */}
+                          <div
+                            style={{
+                              position: "absolute", inset: "-10px", borderRadius: "50%",
+                              boxShadow: `0 0 28px 6px ${guide.c}`,
+                              opacity: guide.solid ? 0.35 : 0.15,
+                              transition: "opacity .35s ease, box-shadow .35s ease",
+                            }}
+                          />
                           <div
                             style={{
                               position: "absolute", inset: 0, borderRadius: "50%",
-                              border: `2px dashed ${scanStage === "detecting" ? "rgba(22,101,52,0.8)" : "rgba(255,255,255,0.4)"}`,
+                              border: `${guide.solid ? "3px solid" : "2px dashed"} ${guide.c}`,
+                              transition: "border-color .35s ease, border-width .2s ease",
                               animation: scanStage === "detecting" ? "pulse 1s ease-in-out infinite" : "none",
                             }}
                           />
@@ -809,7 +849,7 @@ export function LoginPage() {
                             <div
                               style={{
                                 position: "absolute", left: 0, right: 0, height: "2px",
-                                background: "linear-gradient(90deg, transparent, rgba(22,101,52,0.8), transparent)",
+                                background: `linear-gradient(90deg, transparent, ${guide.c}, transparent)`,
                                 animation: "scanLine 1.5s linear infinite", borderRadius: "1px",
                               }}
                             />
@@ -817,20 +857,41 @@ export function LoginPage() {
                         </div>
                       </div>
 
+                      {/* Status pill on the frame itself, where the user is
+                          already looking -- not below it. */}
+                      <div className="absolute inset-x-0 top-3 flex justify-center">
+                        <span
+                          className="rounded-full px-3 py-1 text-[11px] backdrop-blur-sm transition-colors duration-300"
+                          style={{
+                            background: "rgba(0,0,0,0.55)",
+                            color: guide.c,
+                            border: `1px solid ${guide.c}`,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {guide.label}
+                        </span>
+                      </div>
+
                       {(["tl", "tr", "bl", "br"] as const).map((pos) => (
                         <div
                           key={pos}
-                          className="absolute"
+                          className="absolute transition-all duration-300"
                           style={{
                             top: pos.startsWith("t") ? "12%" : undefined,
                             bottom: pos.startsWith("b") ? "12%" : undefined,
                             left: pos.endsWith("l") ? "20%" : undefined,
                             right: pos.endsWith("r") ? "20%" : undefined,
-                            width: "20px", height: "20px",
-                            borderTop: pos.startsWith("t") ? "2px solid rgba(22,101,52,0.8)" : "none",
-                            borderBottom: pos.startsWith("b") ? "2px solid rgba(22,101,52,0.8)" : "none",
-                            borderLeft: pos.endsWith("l") ? "2px solid rgba(22,101,52,0.8)" : "none",
-                            borderRight: pos.endsWith("r") ? "2px solid rgba(22,101,52,0.8)" : "none",
+                            width: guide.solid ? "26px" : "20px",
+                            height: guide.solid ? "26px" : "20px",
+                            borderTop: pos.startsWith("t") ? `2px solid ${guide.c}` : "none",
+                            borderBottom: pos.startsWith("b") ? `2px solid ${guide.c}` : "none",
+                            borderLeft: pos.endsWith("l") ? `2px solid ${guide.c}` : "none",
+                            borderRight: pos.endsWith("r") ? `2px solid ${guide.c}` : "none",
+                            borderTopLeftRadius: pos === "tl" ? "6px" : undefined,
+                            borderTopRightRadius: pos === "tr" ? "6px" : undefined,
+                            borderBottomLeftRadius: pos === "bl" ? "6px" : undefined,
+                            borderBottomRightRadius: pos === "br" ? "6px" : undefined,
                           }}
                         />
                       ))}
@@ -865,7 +926,8 @@ export function LoginPage() {
                         </div>
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {scanStage === "matched" && (
                     <div className="absolute inset-0 bg-emerald-900/80 flex flex-col items-center justify-center backdrop-blur-sm">
