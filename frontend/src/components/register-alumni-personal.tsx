@@ -7,6 +7,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { PERSONAL_DRAFT_KEY, saveDraft, loadDraft, hasDraft } from './registration-draft';
+import { clearFaceMesh, drawFaceMesh } from '../app/face-mesh';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle,
   User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
@@ -312,6 +313,9 @@ export default function RegisterAlumniPersonal({
   // True when this mount recovered a draft, so step 1 can explain why the
   // password box is empty when everything else is already filled in.
   const [draftRestored, setDraftRestored] = useState(false);
+  // Overlay canvas. Separate from canvasRef, which is the hidden canvas
+  // frames are grabbed through.
+  const meshCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [stepError, setStepError] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -469,6 +473,13 @@ export default function RegisterAlumniPersonal({
       try {
         const landmarks = await extractFaceLandmarksFromVideo(video);
         setFaceDetected(!!landmarks);
+        if (meshCanvasRef.current) {
+          // Low alpha on purpose: during registration the mesh is a guide over
+          // the user's own face, not the subject. It is here so that when a
+          // challenge will not pass they can see whether the system can even
+          // find their face, instead of guessing.
+          drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
+        }
 
         if (challenge.kind === 'blink') {
           const blinked = blinkDetectorRef.current.push(landmarks);
@@ -789,6 +800,9 @@ export default function RegisterAlumniPersonal({
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
+    // Wipe the overlay too, or the last mesh stays painted over a stopped
+    // video and reads as a face still being tracked.
+    clearFaceMesh(meshCanvasRef.current);
     setCameraOn(false);
   };
 
@@ -1778,6 +1792,10 @@ export default function RegisterAlumniPersonal({
                       ref={videoRef}
                       className={`absolute inset-0 w-full h-full object-cover object-center -scale-x-100 ${(!cameraOn || allCaptured) ? 'hidden' : ''}`}
                       playsInline muted autoPlay
+                    />
+                    <canvas
+                      ref={meshCanvasRef}
+                      className={`pointer-events-none absolute inset-0 w-full h-full object-cover object-center -scale-x-100 ${(!cameraOn || allCaptured) ? 'hidden' : ''}`}
                     />
                     <canvas ref={canvasRef} className="hidden" />
 

@@ -17,12 +17,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, Camera, CameraOff, Grid3x3, RotateCcw, ScanFace, Trash2, UserPlus } from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
+import { MESH_COLORS, clearFaceMesh, drawFaceMesh } from '../../app/face-mesh';
 import {
     createDebugFaceAccount,
     enrolDebugFace,
+    fetchDebugFaceEngines,
     purgeDebugFaceAccounts,
     verifyDebugFace,
     type DebugFaceAccount,
+    type DebugFaceEngineInfo,
     type DebugFaceVerifyResult,
 } from '../../app/api-client';
 import {
@@ -67,26 +70,6 @@ const EMPTY_BLINK: BlinkDebugState = {
 };
 
 /**
- * face-api's 68-point layout, grouped. Indices are fixed by the model.
- *
- * The eye and mouth groups are called out separately because they are not
- * decoration: EAR is computed from the eye points and MAR from the inner lip,
- * so seeing those points sit badly on your face explains a wrong reading
- * immediately — the landmarks are wrong, not the threshold.
- */
-const LANDMARK_GROUPS: { name: string; from: number; to: number; closed: boolean; role: 'ear' | 'mar' | 'frame' }[] = [
-    { name: 'jaw', from: 0, to: 16, closed: false, role: 'frame' },
-    { name: 'browR', from: 17, to: 21, closed: false, role: 'frame' },
-    { name: 'browL', from: 22, to: 26, closed: false, role: 'frame' },
-    { name: 'noseBridge', from: 27, to: 30, closed: false, role: 'frame' },
-    { name: 'noseLower', from: 31, to: 35, closed: false, role: 'frame' },
-    { name: 'eyeR', from: 36, to: 41, closed: true, role: 'ear' },
-    { name: 'eyeL', from: 42, to: 47, closed: true, role: 'ear' },
-    { name: 'lipOuter', from: 48, to: 59, closed: true, role: 'mar' },
-    { name: 'lipInner', from: 60, to: 67, closed: true, role: 'mar' },
-];
-
-/**
  * Verification mirrors what AlumniLoginView's client actually does, so the
  * rehearsal is worth something:
  *
@@ -110,11 +93,22 @@ const VERIFY_RESTART_MS = 1200;
 // its own alignment loop at 600ms; there is no reason to be greedier.
 const IDENTIFY_POLL_MS = 700;
 
-const GROUP_COLOR: Record<'ear' | 'mar' | 'frame', string> = {
-    ear: '#34d399', // eyes — drive EAR / blink
-    mar: '#fbbf24', // mouth — drives MAR
-    frame: 'rgba(255,255,255,0.55)',
-};
+/**
+ * Yaw angles to collect during enrolment, in degrees (negative = turned right).
+ *
+ * One frontal frame yields one reference vector, so a login at a slightly
+ * different angle has nothing close to match against. Collecting a short sweep
+ * gives several references and the best one wins -- which is why banking apps
+ * ask you to turn your head instead of just holding still.
+ *
+ * The range stops around +/-24 deg on purpose: face-api's tinyFaceDetector
+ * loses the face not far past that, so asking for a full profile would collect
+ * nothing. InsightFace's SCRFD holds on considerably further, and the
+ * frames-used count after enrolment is what shows that difference.
+ */
+const SWEEP_TARGETS = [-24, -12, 0, 12, 24];
+/** How close to a target the yaw must be for that slot to accept a frame. */
+const SWEEP_TOLERANCE_DEG = 7;
 
 const EMPTY_METRICS: Metrics = {
     faceDetected: false,
@@ -152,52 +146,6 @@ function Stat({
     );
 }
 
-/**
- * Paint the landmark mesh.
- *
- * The canvas is sized to the video's INTRINSIC dimensions and given the same
- * object-cover CSS box as the video, so the browser applies an identical
- * transform to both. That means landmarks can be drawn in raw model coordinates
- * with no manual scale/offset maths — which is where this sort of overlay
- * usually drifts out of alignment.
- */
-function drawMesh(
-    canvas: HTMLCanvasElement,
-    video: HTMLVideoElement,
-    positions: { x: number; y: number }[] | null,
-) {
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-    }
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!positions || positions.length < 68) return;
-
-    const dotR = Math.max(1.4, canvas.width / 420);
-    ctx.lineWidth = Math.max(1, canvas.width / 640);
-
-    for (const group of LANDMARK_GROUPS) {
-        const pts = positions.slice(group.from, group.to + 1);
-        if (pts.length === 0) continue;
-        const color = GROUP_COLOR[group.role];
-
-        ctx.strokeStyle = color;
-        ctx.beginPath();
-        pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-        if (group.closed) ctx.closePath();
-        ctx.stroke();
-
-        ctx.fillStyle = color;
-        for (const p of pts) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, group.role === 'frame' ? dotR : dotR * 1.4, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-}
-
 export function AdminFaceDebug() {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -223,6 +171,100 @@ export function AdminFaceDebug() {
     const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
 
     // Dummy-account harness
+    const [engines, setEngines] = useState<DebugFaceEngineInfo[]>([]);
+    const [selectedEngine, setSelectedEngine] = useState('faceapi');
+    const [enrolledEngines, setEnrolledEngines] = useState<string[]>([]);
+    const selectedEngineRef = useRef('faceapi');
+    useEffect(() => {
+        selectedEngineRef.current = selectedEngine;
+    }, [selectedEngine]);
+
+    const activeEngine = engines.find((e) => e.name === selectedEngine) ?? null;
+    const enginesRef = useRef<DebugFaceEngineInfo[]>([]);
+    useEffect(() => {
+        enginesRef.current = engines;
+    }, [engines]);
+    const activeEngineRef = useRef<DebugFaceEngineInfo | null>(null);
+    useEffect(() => {
+        activeEngineRef.current = activeEngine;
+    }, [activeEngine]);
+
+    useEffect(() => {
+        void fetchDebugFaceEngines()
+            .then((data) => {
+                setEngines(data.engines);
+                setSelectedEngine(data.serverDefault);
+            })
+            .catch(() => {
+                // Selector stays empty; the page is still usable for the live
+                // metrics, which need no server at all.
+            });
+    }, []);
+
+    /**
+     * One row per engine for a SINGLE capture. Comparing engines is the entire
+     * purpose of this page, and reading one number at a time cannot do it --
+     * the scales differ, so a lone 0.42 is uninterpretable without the other
+     * engines' numbers and their own thresholds beside it.
+     */
+    interface ComparisonRow {
+        engine: string;
+        dimensions?: number;
+        metric?: string;
+        distance?: number;
+        threshold?: number;
+        isMatch?: boolean;
+        /** How far under (negative) or over (positive) its own threshold. */
+        margin?: number;
+        error?: string;
+        ms?: number;
+    }
+    const [comparison, setComparison] = useState<ComparisonRow[] | null>(null);
+    /** What the server actually stored, per engine, on the last enrolment. */
+    const [enrolStats, setEnrolStats] = useState<
+        { engine: string; dimensions: number; samples: number; supplied: number; used: number | null }[]
+    >([]);
+
+    /** One captured pose: the frame, its vector (browser engines only), the angle. */
+    interface SweepSample {
+        blob: Blob | null;
+        descriptor: number[] | null;
+        yaw: number;
+        dataUrl: string;
+    }
+    const [sweep, setSweep] = useState<(SweepSample | null)[]>(
+        () => SWEEP_TARGETS.map(() => null),
+    );
+    const [sweeping, setSweeping] = useState(false);
+    // The loop writes samples; a ref keeps it out of the effect dependencies.
+    const sweepRef = useRef<SweepSample[]>([]);
+    const sweepSlotsRef = useRef<(SweepSample | null)[]>(SWEEP_TARGETS.map(() => null));
+    const sweepingRef = useRef(false);
+    useEffect(() => {
+        sweepingRef.current = sweeping;
+    }, [sweeping]);
+
+    /**
+     * A rolling log of what the rehearsal actually did.
+     *
+     * A single "last failure" string kept losing the context that mattered: the
+     * deadline would overwrite it, or report its own guess when nothing had been
+     * recorded, and the result was a message that named the wrong cause. A log
+     * cannot do that -- whatever happened is still on screen.
+     */
+    const [log, setLog] = useState<{ t: string; msg: string }[]>([]);
+    const pushLog = useCallback((msg: string) => {
+        const t = new Date().toLocaleTimeString([], {
+            minute: '2-digit',
+            second: '2-digit',
+        });
+        setLog((prev) => [...prev.slice(-11), { t, msg }]);
+    }, []);
+    const pushLogRef = useRef(pushLog);
+    useEffect(() => {
+        pushLogRef.current = pushLog;
+    }, [pushLog]);
+
     const [account, setAccount] = useState<DebugFaceAccount | null>(null);
     // The loop is keyed on [cameraOn] only, so anything it reads must go through
     // a ref or it captures a stale value.
@@ -277,20 +319,38 @@ export function AdminFaceDebug() {
     }, [turnDirection]);
 
     /**
-     * One frame from the live video, through the same descriptor extractor the
-     * registration burst uses. Returns null when no usable face is present.
+     * One frame from the live video, as both a JPEG and (for face-api only) a
+     * descriptor.
+     *
+     * Which half matters depends on the engine: face-api computes its embedding
+     * in the browser and the server just compares it, while InsightFace and
+     * CompreFace embed the image themselves and ignore anything the client
+     * computed. Sending both keeps one code path for all three, and skipping
+     * the descriptor pass for server-side engines avoids paying for an
+     * inference nobody will read.
      */
-    const grabDescriptor = useCallback(async (): Promise<number[] | null> => {
-        const video = videoRef.current;
-        if (!video || video.videoWidth === 0) return null;
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return null;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        return extractFaceDescriptorFromDataUrl(canvas.toDataURL('image/jpeg', 0.9));
-    }, []);
+    const grabCapture = useCallback(
+        async (
+            needsDescriptor: boolean,
+        ): Promise<{ blob: Blob | null; descriptor: number[] | null; dataUrl: string }> => {
+            const empty = { blob: null, descriptor: null, dataUrl: '' };
+            const video = videoRef.current;
+            if (!video || video.videoWidth === 0) return empty;
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return empty;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            const blob = await (await fetch(dataUrl)).blob();
+            const descriptor = needsDescriptor
+                ? await extractFaceDescriptorFromDataUrl(dataUrl)
+                : null;
+            return { blob, descriptor, dataUrl };
+        },
+        [],
+    );
 
     const runAccountAction = useCallback(
         async (label: string, fn: () => Promise<void>) => {
@@ -353,9 +413,7 @@ export function AdminFaceDebug() {
         if (videoRef.current) videoRef.current.srcObject = null;
         // Wipe the overlay too, or the last frame's mesh stays painted over the
         // "camera is off" placeholder and reads as a live face.
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d');
-        if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        clearFaceMesh(canvasRef.current);
         setCameraOn(false);
     }, []);
 
@@ -407,7 +465,9 @@ export function AdminFaceDebug() {
 
                 if (canvasRef.current) {
                     // Passing null when hidden also clears a stale mesh.
-                    drawMesh(canvasRef.current, video, showMeshRef.current ? landmarks : null);
+                    drawFaceMesh(canvasRef.current, video, showMeshRef.current ? landmarks : null, {
+                        alpha: 1,
+                    });
                 }
 
                 const now = Date.now();
@@ -440,6 +500,41 @@ export function AdminFaceDebug() {
                     inferenceMs,
                 });
 
+                // ── Enrolment sweep ─────────────────────────────────────────
+                // Fills one slot per target angle. Slots are filled once and
+                // then left alone, so holding still at 0 deg cannot flood the
+                // set with near-identical frontal frames and crowd out the
+                // angles that actually add information.
+                if (sweepingRef.current && landmarks) {
+                    const yaw = estimateHeadYawDegrees(landmarks);
+                    const slot = SWEEP_TARGETS.findIndex(
+                        (target, i) =>
+                            sweepSlotsRef.current[i] === null &&
+                            Math.abs(yaw - target) <= SWEEP_TOLERANCE_DEG,
+                    );
+                    if (slot >= 0) {
+                        const anyBrowser = enginesRef.current.some(
+                            (e) => e.available && e.runsInBrowser,
+                        );
+                        const shot = await grabCapture(anyBrowser);
+                        if (shot.blob) {
+                            const sample: SweepSample = { ...shot, yaw };
+                            sweepSlotsRef.current[slot] = sample;
+                            sweepRef.current = sweepSlotsRef.current.filter(
+                                (x): x is SweepSample => x !== null,
+                            );
+                            setSweep([...sweepSlotsRef.current]);
+                            pushLogRef.current(
+                                `captured ${SWEEP_TARGETS[slot] > 0 ? '+' : ''}${SWEEP_TARGETS[slot]}° (actual ${yaw.toFixed(1)}°)`,
+                            );
+                            if (sweepSlotsRef.current.every((x) => x !== null)) {
+                                setSweeping(false);
+                                pushLogRef.current('sweep complete');
+                            }
+                        }
+                    }
+                }
+
                 // ── Login rehearsal state machine ───────────────────────────
                 // Three stages, in the order that actually makes sense:
                 //   1. identify — is there a face, and is it the RIGHT face?
@@ -470,10 +565,31 @@ export function AdminFaceDebug() {
                         now - lastIdentifyAttemptRef.current >= IDENTIFY_POLL_MS
                     ) {
                         lastIdentifyAttemptRef.current = now;
-                        const d = await grabDescriptor();
-                        if (!d) {
+                        const engineName = selectedEngineRef.current;
+                        const known = activeEngineRef.current;
+                        // If the engine list never loaded, `known` is null and
+                        // this would silently assume a browser engine and demand
+                        // a descriptor no server-side engine can supply. Say so
+                        // rather than failing as though the face were the problem.
+                        if (!known) {
                             lastFailureRef.current =
-                                'Landmarks found a face, but the recognition net returned no descriptor.';
+                                `Engine "${engineName}" is not in the loaded engine list — ` +
+                                'the list needs an admin token. Reload while signed in.';
+                            pushLogRef.current(lastFailureRef.current);
+                            setVerifyHint(lastFailureRef.current);
+                            setVerifyStage('idle');
+                            return;
+                        }
+                        const inBrowser = known.runsInBrowser;
+                        const capture = await grabCapture(inBrowser);
+                        // A browser engine has nothing to send without its
+                        // descriptor; a server-side engine only needs the frame.
+                        const usable = inBrowser ? !!capture.descriptor : !!capture.blob;
+                        if (!usable) {
+                            lastFailureRef.current = inBrowser
+                                ? 'Landmarks found a face, but the recognition net returned no descriptor.'
+                                : 'Could not capture a frame to send.';
+                            pushLogRef.current(lastFailureRef.current);
                             setVerifyHint('Hold still — reading your face…');
                         } else {
                             // Its own try/catch: this is a NETWORK call, and the
@@ -481,10 +597,20 @@ export function AdminFaceDebug() {
                             // an HTTP error fall through to it is exactly what
                             // made this stage stall behind an invented reason.
                             try {
-                                const result = await verifyDebugFace(acct.id, d);
+                                pushLogRef.current(
+                                    `verify → ${engineName} (${inBrowser ? 'descriptor' : 'image'})`,
+                                );
+                                const result = await verifyDebugFace(
+                                    acct.id,
+                                    engineName,
+                                    capture,
+                                );
                                 setVerifyResult(result);
+                                pushLogRef.current(
+                                    `${engineName}: distance ${result.distance} vs ${result.threshold} → ${result.isMatch ? 'MATCH' : 'no match'}`,
+                                );
                                 if (result.isMatch) {
-                                    pendingDescriptorRef.current = d;
+                                    pendingDescriptorRef.current = capture.descriptor ?? [];
                                     peakYawRef.current = 0;
                                     detectorRef.current.reset();
                                     setVerifyStage('blink');
@@ -502,6 +628,7 @@ export function AdminFaceDebug() {
                             } catch (e) {
                                 lastFailureRef.current =
                                     e instanceof Error ? e.message : 'Verify request failed.';
+                                pushLogRef.current(`verify FAILED: ${lastFailureRef.current}`);
                                 setVerifyHint(`Verify request failed: ${lastFailureRef.current}`);
                                 setVerifyStage('idle');
                             }
@@ -556,7 +683,7 @@ export function AdminFaceDebug() {
         };
         // Both are useCallback([]) and never change, so listing them satisfies
         // the lint rule without the interval being torn down mid-capture.
-    }, [cameraOn, grabDescriptor, clearAlignTimeout]);
+    }, [cameraOn, grabCapture, clearAlignTimeout]);
 
     const resetDetector = () => {
         // hardReset, not reset: the learned baseline must go too, or a reading
@@ -566,6 +693,91 @@ export function AdminFaceDebug() {
         frameTimesRef.current = [];
         setMetrics((m) => ({ ...m, blink: EMPTY_BLINK, blinkCount: 0 }));
     };
+
+    /**
+     * Enrol the SAME capture under every available engine.
+     *
+     * One capture, not one per engine: if each engine saw a different frame,
+     * any difference in their distances could just be the frames differing,
+     * and the comparison would prove nothing.
+     */
+    const enrolAllEngines = useCallback(async () => {
+        const acct = accountRef.current;
+        if (!acct) throw new Error('Create a test account first.');
+        const usable = engines.filter((e) => e.available);
+        if (usable.length === 0) throw new Error('No engines available.');
+
+        // Every engine gets the SAME frames. If each saw different frames, a
+        // difference in their distances could just be the frames differing.
+        const captures = sweepRef.current.length
+            ? sweepRef.current
+            : [await grabCapture(usable.some((e) => e.runsInBrowser))];
+        if (!captures.some((c) => c.blob)) throw new Error('Could not capture a frame.');
+
+        const done: string[] = [];
+        const failures: string[] = [];
+        const stats: typeof enrolStats = [];
+        for (const e of usable) {
+            try {
+                const res = await enrolDebugFace(acct.id, e.name, captures);
+                done.push(...res.enrolledEngines);
+                stats.push({
+                    engine: res.engine,
+                    dimensions: res.dimensions,
+                    samples: res.samples,
+                    supplied: res.framesSupplied,
+                    used: res.framesUsed,
+                });
+            } catch (err) {
+                failures.push(`${e.name}: ${err instanceof Error ? err.message : 'failed'}`);
+            }
+        }
+        setEnrolledEngines(Array.from(new Set(done)));
+        setEnrolled(done.length > 0);
+        setEnrolStats(stats);
+        setComparison(null);
+        if (failures.length) throw new Error(failures.join(' · '));
+    }, [engines, grabCapture]);
+
+    /** Run one capture through every engine and lay the answers side by side. */
+    const compareAllEngines = useCallback(async () => {
+        const acct = accountRef.current;
+        if (!acct) throw new Error('Create a test account first.');
+        const usable = engines.filter((e) => e.available);
+        if (usable.length === 0) throw new Error('No engines available.');
+
+        const capture = await grabCapture(usable.some((e) => e.runsInBrowser));
+        if (!capture.blob) throw new Error('Could not capture a frame.');
+
+        const rows: ComparisonRow[] = [];
+        for (const e of usable) {
+            const started = performance.now();
+            try {
+                const r = await verifyDebugFace(acct.id, e.name, capture);
+                rows.push({
+                    engine: e.name,
+                    dimensions: r.dimensions,
+                    metric: r.metric,
+                    distance: r.distance,
+                    threshold: r.threshold,
+                    isMatch: r.isMatch,
+                    // Normalising by the threshold is what makes two different
+                    // metrics comparable: -0.4 means "40% of the way inside its
+                    // own limit" whichever engine produced it.
+                    margin:
+                        r.threshold > 0 ? (r.distance - r.threshold) / r.threshold : undefined,
+                    ms: Math.round(performance.now() - started),
+                });
+            } catch (err) {
+                rows.push({
+                    engine: e.name,
+                    error: err instanceof Error ? err.message : 'request failed',
+                    ms: Math.round(performance.now() - started),
+                });
+            }
+        }
+        setComparison(rows);
+    }, [engines, grabCapture]);
 
     /**
      * Rehearse a graduate login: drop the camera, bring it back, hold a frontal
@@ -584,13 +796,15 @@ export function AdminFaceDebug() {
         // Direction stays randomised so a pre-recorded clip cannot be replayed.
         setTurnDirection(Math.random() < 0.5 ? 'left' : 'right');
 
+        setLog([]);
+        pushLog(`start · engine=${selectedEngine}`);
         stopCamera();
         setVerifyStage('restarting');
         setVerifyHint('');
         restartTimerRef.current = setTimeout(() => {
             void startCamera().then(() => setVerifyStage('identify'));
         }, VERIFY_RESTART_MS);
-    }, [startCamera, stopCamera]);
+    }, [startCamera, stopCamera, pushLog, selectedEngine]);
 
     const cancelVerify = useCallback(() => {
         if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
@@ -735,11 +949,17 @@ export function AdminFaceDebug() {
 
                         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.68rem] text-gray-500">
                             <span className="flex items-center gap-1.5">
-                                <span className="inline-block size-2.5 rounded-full bg-[#34d399]" />
+                                <span
+                                    className="inline-block size-2.5 rounded-full"
+                                    style={{ background: MESH_COLORS.ear }}
+                                />
                                 eyes — drive EAR
                             </span>
                             <span className="flex items-center gap-1.5">
-                                <span className="inline-block size-2.5 rounded-full bg-[#fbbf24]" />
+                                <span
+                                    className="inline-block size-2.5 rounded-full"
+                                    style={{ background: MESH_COLORS.mar }}
+                                />
                                 mouth — drives MAR
                             </span>
                             <span className="flex items-center gap-1.5">
@@ -894,6 +1114,181 @@ export function AdminFaceDebug() {
                                 is the number production would compute.
                             </p>
 
+                            {/* Engine selector — the reason this page exists.
+                                Templates are stored per engine, so the same face
+                                can be enrolled under each and their distances
+                                compared directly. */}
+                            <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                <p
+                                    className="mb-2 text-[0.68rem] uppercase tracking-wide text-gray-500"
+                                >
+                                    Recognition engine
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {engines.length === 0 && (
+                                        <p className="text-xs text-gray-400">
+                                            Could not load the engine list (admin token required).
+                                        </p>
+                                    )}
+                                    {engines.map((e) => {
+                                        const active = e.name === selectedEngine;
+                                        const done = enrolledEngines.includes(e.name);
+                                        return (
+                                            <button
+                                                key={e.name}
+                                                onClick={() => setSelectedEngine(e.name)}
+                                                disabled={!e.available}
+                                                title={e.reason}
+                                                className={`rounded-lg border px-3 py-2 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-50 gt-press ${
+                                                    active
+                                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                                                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                                                }`}
+                                            >
+                                                <span
+                                                    className="block font-mono"
+                                                    style={{ fontWeight: 600 }}
+                                                >
+                                                    {e.name}
+                                                    {done ? ' ✓' : ''}
+                                                </span>
+                                                <span className="block text-[0.66rem] text-gray-500">
+                                                    {e.dimensions}-d · {e.metric} · thr{' '}
+                                                    {e.threshold}
+                                                </span>
+                                                <span className="block text-[0.66rem] text-gray-400">
+                                                    {e.runsInBrowser ? 'browser' : 'server'}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {activeEngine && !activeEngine.available && (
+                                    <p className="mt-2 text-xs text-amber-700">
+                                        {activeEngine.reason}
+                                    </p>
+                                )}
+                                <p className="mt-2 text-[0.66rem] leading-snug text-gray-500">
+                                    Distances are NOT comparable across engines — face-api is
+                                    euclidean where strangers sit above 0.60, ArcFace is cosine
+                                    where they sit above 0.45. Compare each against its own
+                                    threshold, not against each other.
+                                </p>
+                            </div>
+
+                            {/* Multi-angle enrolment. Slots fill as the yaw
+                                passes each target, so the set covers a range of
+                                poses instead of five near-identical frontals. */}
+                            <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                    <p className="text-[0.68rem] uppercase tracking-wide text-gray-500">
+                                        Enrolment poses
+                                    </p>
+                                    <button
+                                        disabled={!cameraOn}
+                                        onClick={() => {
+                                            sweepSlotsRef.current = SWEEP_TARGETS.map(() => null);
+                                            sweepRef.current = [];
+                                            setSweep(SWEEP_TARGETS.map(() => null));
+                                            setSweeping((v) => !v);
+                                            pushLog(sweeping ? 'sweep cancelled' : 'sweep started');
+                                        }}
+                                        className={`rounded-lg border px-2.5 py-1 text-xs transition disabled:opacity-50 gt-press ${
+                                            sweeping
+                                                ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        {sweeping ? 'Stop sweep' : 'Capture sweep'}
+                                    </button>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    {SWEEP_TARGETS.map((target, i) => {
+                                        const shot = sweep[i];
+                                        const isNext =
+                                            sweeping &&
+                                            !shot &&
+                                            sweep.findIndex((x) => !x) === i;
+                                        return (
+                                            <div key={target} className="w-[4.4rem]">
+                                                <div
+                                                    className={`flex aspect-[3/4] items-center justify-center overflow-hidden rounded-lg border ${
+                                                        shot
+                                                            ? 'border-emerald-300'
+                                                            : isNext
+                                                              ? 'border-amber-400 bg-amber-50'
+                                                              : 'border-dashed border-gray-300 bg-white'
+                                                    }`}
+                                                >
+                                                    {shot ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img
+                                                            src={shot.dataUrl}
+                                                            alt={`pose ${target}°`}
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                    ) : (
+                                                        <span className="text-[0.62rem] text-gray-400">
+                                                            {sweeping ? 'turn' : 'empty'}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="mt-1 text-center font-mono text-[0.62rem] text-gray-500">
+                                                    {target > 0 ? '+' : ''}
+                                                    {target}°
+                                                    {shot && (
+                                                        <span className="block text-gray-400">
+                                                            got {shot.yaw.toFixed(0)}°
+                                                        </span>
+                                                    )}
+                                                </p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <p className="mt-2 text-[0.66rem] leading-snug text-gray-500">
+                                    {sweeping
+                                        ? 'Turn your head slowly left to right. Each slot fills once, so holding still cannot flood the set with identical frontals.'
+                                        : 'Capture a sweep, then enrol — every engine gets the SAME frames, so any difference in their distances is the engine and not the photos.'}
+                                </p>
+                            </div>
+
+                            {enrolStats.length > 0 && (
+                                <div className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+                                    <p className="mb-1.5 text-[0.68rem] uppercase tracking-wide text-gray-500">
+                                        Stored template
+                                    </p>
+                                    {enrolStats.map((st) => (
+                                        <p
+                                            key={st.engine}
+                                            className="font-mono text-[0.7rem] text-gray-700"
+                                        >
+                                            {st.engine}: {st.samples} × {st.dimensions}-d
+                                            {st.used !== null && (
+                                                <span
+                                                    className={
+                                                        st.used < st.supplied
+                                                            ? ' text-amber-700'
+                                                            : ' text-emerald-700'
+                                                    }
+                                                >
+                                                    {' '}
+                                                    · {st.used}/{st.supplied} frames usable
+                                                </span>
+                                            )}
+                                        </p>
+                                    ))}
+                                    <p className="mt-1.5 text-[0.66rem] leading-snug text-gray-500">
+                                        <b>frames usable</b> is the honest comparison: both engines
+                                        got the same poses, so whichever turned more of them into
+                                        embeddings coped better with the angles. face-api normally
+                                        drops the outer ones.
+                                    </p>
+                                </div>
+                            )}
+
                             <div className="flex flex-wrap gap-2">
                                 <button
                                     disabled={!!busy}
@@ -913,11 +1308,45 @@ export function AdminFaceDebug() {
 
                                 <button
                                     disabled={!!busy || !account || !cameraOn}
+                                    onClick={() => void runAccountAction('enrolAll', enrolAllEngines)}
+                                    className="flex items-center gap-1.5 rounded-xl bg-[#166534] px-3 py-2 text-sm text-white transition hover:bg-[#14532d] disabled:opacity-50 gt-press"
+                                >
+                                    <ScanFace className="size-4" />
+                                    {busy === 'enrolAll' ? 'Enrolling…' : 'Enrol on ALL engines'}
+                                </button>
+
+                                <button
+                                    disabled={
+                                        !!busy || !account || !cameraOn || enrolledEngines.length === 0
+                                    }
+                                    onClick={() => void runAccountAction('compare', compareAllEngines)}
+                                    className="flex items-center gap-1.5 rounded-xl border border-[#166534] px-3 py-2 text-sm text-[#166534] transition hover:bg-emerald-50 disabled:opacity-50 gt-press"
+                                >
+                                    <Activity className="size-4" />
+                                    {busy === 'compare' ? 'Comparing…' : 'Compare ALL engines'}
+                                </button>
+
+                                <button
+                                    disabled={!!busy || !account || !cameraOn}
                                     onClick={() =>
                                         void runAccountAction('enrol', async () => {
-                                            const d = await grabDescriptor();
-                                            if (!d) throw new Error('No face in frame — hold still and retry.');
-                                            await enrolDebugFace(account!.id, d, [d]);
+                                            const inBrowser =
+                                                activeEngine?.runsInBrowser ?? true;
+                                            const capture = await grabCapture(inBrowser);
+                                            if (inBrowser && !capture.descriptor) {
+                                                throw new Error(
+                                                    'No face in frame — hold still and retry.',
+                                                );
+                                            }
+                                            if (!capture.blob) {
+                                                throw new Error('Could not capture a frame.');
+                                            }
+                                            const res = await enrolDebugFace(
+                                                account!.id,
+                                                selectedEngine,
+                                                [capture],
+                                            );
+                                            setEnrolledEngines(res.enrolledEngines);
                                             setEnrolled(true);
                                             setVerifyResult(null);
                                         })
@@ -930,7 +1359,7 @@ export function AdminFaceDebug() {
 
                                 {verifyStage === 'idle' || verifyStage === 'done' ? (
                                     <button
-                                        disabled={!!busy || !account || !enrolled}
+                                        disabled={!!busy || !account || !enrolledEngines.includes(selectedEngine)}
                                         onClick={startVerify}
                                         className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 disabled:opacity-50 gt-press"
                                     >
@@ -969,6 +1398,98 @@ export function AdminFaceDebug() {
                                 </p>
                             )}
 
+                            {comparison && (
+                                <div className="mt-3 overflow-x-auto">
+                                    <table className="w-full min-w-[34rem] border-collapse text-left text-xs">
+                                        <thead>
+                                            <tr className="border-b border-gray-200 text-[0.66rem] uppercase tracking-wide text-gray-500">
+                                                <th className="py-1.5 pr-3">Engine</th>
+                                                <th className="py-1.5 pr-3">Distance</th>
+                                                <th className="py-1.5 pr-3">Threshold</th>
+                                                <th className="py-1.5 pr-3">Margin</th>
+                                                <th className="py-1.5 pr-3">Verdict</th>
+                                                <th className="py-1.5">Took</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="font-mono">
+                                            {comparison.map((row) => (
+                                                <tr
+                                                    key={row.engine}
+                                                    className="border-b border-gray-100 last:border-0"
+                                                >
+                                                    <td className="py-2 pr-3">
+                                                        <span style={{ fontWeight: 600 }}>
+                                                            {row.engine}
+                                                        </span>
+                                                        {row.dimensions && (
+                                                            <span className="block text-[0.64rem] text-gray-400">
+                                                                {row.dimensions}-d · {row.metric}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    {row.error ? (
+                                                        <td
+                                                            colSpan={4}
+                                                            className="py-2 pr-3 font-sans text-red-600"
+                                                        >
+                                                            {row.error}
+                                                        </td>
+                                                    ) : (
+                                                        <>
+                                                            <td className="py-2 pr-3">
+                                                                {row.distance?.toFixed(4)}
+                                                            </td>
+                                                            <td className="py-2 pr-3 text-gray-500">
+                                                                {row.threshold}
+                                                            </td>
+                                                            <td
+                                                                className={`py-2 pr-3 ${
+                                                                    (row.margin ?? 0) < 0
+                                                                        ? 'text-emerald-700'
+                                                                        : 'text-red-600'
+                                                                }`}
+                                                            >
+                                                                {row.margin === undefined
+                                                                    ? '—'
+                                                                    : `${row.margin > 0 ? '+' : ''}${(row.margin * 100).toFixed(0)}%`}
+                                                            </td>
+                                                            <td className="py-2 pr-3">
+                                                                <span
+                                                                    className={
+                                                                        row.isMatch
+                                                                            ? 'text-emerald-700'
+                                                                            : 'text-red-600'
+                                                                    }
+                                                                    style={{ fontWeight: 600 }}
+                                                                >
+                                                                    {row.isMatch ? 'MATCH' : 'NO'}
+                                                                </span>
+                                                            </td>
+                                                        </>
+                                                    )}
+                                                    <td className="py-2 text-gray-400">
+                                                        {row.ms}ms
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    <p className="mt-2 text-[0.66rem] leading-snug text-gray-500">
+                                        <b>Margin</b> is distance relative to that engine&apos;s own
+                                        threshold, so it IS comparable across engines where the raw
+                                        distances are not. &minus;60% means the face landed 60% inside
+                                        the limit; +20% means it missed by 20%. More negative is a
+                                        more confident match.
+                                    </p>
+                                    <p className="mt-1 text-[0.66rem] leading-snug text-gray-500">
+                                        The number that decides the engine choice is an IMPOSTOR
+                                        margin: enrol your face, then have someone else press
+                                        Compare. Whichever engine pushes them furthest positive is
+                                        the one worth shipping.
+                                    </p>
+                                </div>
+                            )}
+
                             {verifyResult && (
                                 <div
                                     className={`mt-3 rounded-xl border p-3 ${
@@ -988,11 +1509,38 @@ export function AdminFaceDebug() {
                                         {verifyResult.threshold} · similarity{' '}
                                         {verifyResult.similarity} · {verifyResult.referenceCount} ref
                                     </p>
+                                    {verifyResult.engine && (
+                                        <p className="mt-1 font-mono text-[0.68rem] text-gray-500">
+                                            engine: {verifyResult.engine}
+                                            {verifyResult.dimensions
+                                                ? ` · ${verifyResult.dimensions}-d`
+                                                : ''}
+                                        </p>
+                                    )}
                                     <p className="mt-1 text-[0.68rem] leading-snug text-gray-500">
                                         Same face usually lands 0.30–0.45; different people sit above
                                         0.60. A stranger scoring under the threshold means it is still
                                         too loose.
                                     </p>
+                                </div>
+                            )}
+
+                            {log.length > 0 && (
+                                <div className="mt-3 rounded-xl border border-gray-200 bg-gray-900 p-2.5">
+                                    <p className="mb-1 text-[0.62rem] uppercase tracking-wide text-white/40">
+                                        Rehearsal log
+                                    </p>
+                                    <div className="max-h-40 overflow-y-auto">
+                                        {log.map((entry, i) => (
+                                            <p
+                                                key={`${entry.t}-${i}`}
+                                                className="font-mono text-[0.66rem] leading-relaxed text-white/80"
+                                            >
+                                                <span className="text-white/35">{entry.t} </span>
+                                                {entry.msg}
+                                            </p>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
 

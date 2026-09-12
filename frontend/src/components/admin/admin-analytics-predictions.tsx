@@ -231,28 +231,13 @@ export function AdminAnalyticsPredictions() {
         )}
       </div>
 
-      {/* Model provenance. The predictor is fitted entirely on simulated
-          records and has never seen a real graduate, so every "predicted"
-          figure below is a simulation being compared against reality — not a
-          forecast derived from this cohort. Stated up front rather than left
-          for a reader to infer from the sample size in the footnote. */}
-      {data?.training_source === 'synthetic' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
-          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-xs text-amber-900 leading-relaxed">
-            <p style={{ fontWeight: 700 }}>Predictions come from a model trained on simulated data</p>
-            <p className="mt-0.5">
-              The model was fitted on {data.training_n ?? '—'} synthetic records and has never
-              seen a real graduate. Figures labelled <em>predicted</em> show what that
-              simulation expects; figures labelled <em>actual</em> are your real graduates.
-              The comparison shows how the two differ — it is not a forecast produced from
-              real outcomes. The model will be retrained once enough real responses exist.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* The training-provenance banner was removed by request. The backend
+          still reports training_source and training_n, so it can be restored
+          from here without touching the API.
 
-      {/* Louder than the banner above: the numbers themselves are simulated. */}
+          The banner below is NOT that one: it fires only when live graduate
+          data fails to load and the page falls back to the training file, so
+          it reports a real failure rather than model provenance. */}
       {data?.data_source === 'synthetic_fallback' && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-2.5 items-start">
           <AlertTriangle className="size-4 text-red-600 shrink-0 mt-0.5" />

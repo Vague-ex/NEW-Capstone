@@ -802,6 +802,15 @@ export interface DebugFaceVerifyResult {
     similarity: number;
     threshold: number;
     referenceCount: number;
+    /**
+     * Which engine produced this number, straight from the server. Surfaced
+     * because the distance scales are not comparable between engines --
+     * face-api is euclidean where strangers sit above 0.60, ArcFace is cosine
+     * where they sit above 0.45 -- so a reading is meaningless without it.
+     */
+    engine?: string;
+    dimensions?: number;
+    metric?: string;
 }
 
 export async function createDebugFaceAccount(): Promise<DebugFaceAccount> {
@@ -825,39 +834,110 @@ export async function purgeDebugFaceAccounts(): Promise<number> {
     return Number(data?.deleted ?? 0);
 }
 
+export interface DebugFaceEngineInfo {
+    name: string;
+    dimensions: number;
+    threshold: number;
+    metric: string;
+    /** True when the embedding is produced in the browser (face-api only). */
+    runsInBrowser: boolean;
+    available: boolean;
+    reason: string;
+}
+
+export async function fetchDebugFaceEngines(): Promise<{
+    engines: DebugFaceEngineInfo[];
+    serverDefault: string;
+}> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/face-engines/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+/**
+ * Both enrol and verify take the engine per request, so the debug page can
+ * switch between engines against the same face. The image is always sent:
+ * face-api ignores it and uses the descriptor, the server-side engines ignore
+ * the descriptor and embed the image.
+ */
+/** One captured frame: the image, the browser-side vector if any, and the pose. */
+export interface DebugFaceCapture {
+    blob: Blob | null;
+    descriptor: number[] | null;
+    yaw?: number;
+}
+
+/**
+ * Both enrol and verify take the engine per request, so the debug page can
+ * switch between engines against the same face. Frames are always sent:
+ * face-api ignores them and uses its descriptors, while the server-side engines
+ * ignore the descriptors and embed the frames.
+ */
+function debugFaceBody(engine: string, captures: DebugFaceCapture[]): FormData {
+    const body = new FormData();
+    body.append('engine', engine);
+
+    const descriptors: number[][] = [];
+    const meta: { yaw: number | null }[] = [];
+    captures.forEach((c, i) => {
+        if (c.blob) body.append('face_images', c.blob, `face_${i}.jpg`);
+        if (c.descriptor) descriptors.push(c.descriptor);
+        meta.push({ yaw: typeof c.yaw === 'number' ? c.yaw : null });
+    });
+
+    if (descriptors.length) {
+        body.append('face_descriptor_samples', JSON.stringify(descriptors));
+        body.append('face_descriptor', JSON.stringify(descriptors[0]));
+    }
+    body.append('sample_meta', JSON.stringify(meta));
+    return body;
+}
+
+export interface DebugFaceEnrolResult {
+    engine: string;
+    dimensions: number;
+    samples: number;
+    framesSupplied: number;
+    /** Null for browser engines, which embed client-side. */
+    framesUsed: number | null;
+    enrolledEngines: string[];
+}
+
 export async function enrolDebugFace(
     accountId: string,
-    descriptor: number[],
-    samples: number[][],
-): Promise<void> {
+    engine: string,
+    captures: DebugFaceCapture[],
+): Promise<DebugFaceEnrolResult> {
     const response = await fetch(
         `${API_BASE_URL}/api/admin/debug/face-account/${accountId}/enrol/`,
         {
             method: 'POST',
-            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ face_descriptor: descriptor, face_descriptor_samples: samples }),
-        },
-    );
-    await throwIfNotOk(response);
-}
-
-/**
- * Compares a fresh descriptor against the enrolled one. The server runs the
- * same comparison AlumniLoginView uses, so this distance is the real one.
- */
-export async function verifyDebugFace(
-    accountId: string,
-    descriptor: number[],
-): Promise<DebugFaceVerifyResult> {
-    const response = await fetch(
-        `${API_BASE_URL}/api/admin/debug/face-account/${accountId}/verify/`,
-        {
-            method: 'POST',
-            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ face_descriptor: descriptor }),
+            // No Content-Type: the browser sets the multipart boundary itself.
+            headers: withAdminAuthHeaders(),
+            body: debugFaceBody(engine, captures),
         },
     );
     await throwIfNotOk(response);
     return response.json();
 }
+
+export async function verifyDebugFace(
+    accountId: string,
+    engine: string,
+    capture: DebugFaceCapture,
+): Promise<DebugFaceVerifyResult> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/debug/face-account/${accountId}/verify/`,
+        {
+            method: 'POST',
+            headers: withAdminAuthHeaders(),
+            body: debugFaceBody(engine, [capture]),
+        },
+    );
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 // #endregion DEBUG-ONLY:CurrenChanDebug

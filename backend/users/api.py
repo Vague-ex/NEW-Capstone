@@ -86,6 +86,9 @@ FACE_DESCRIPTOR_MIN_SIMILARITY = max(
 
 # Employer authentication token constants
 
+from . import face_engines
+from .face_engines import get_engine, resolve_stored_engine
+
 logger = logging.getLogger(__name__)
 
 def _safe_json_loads(raw_value):
@@ -286,7 +289,11 @@ def _download_image_bytes(url: str) -> bytes | None:
     except (HTTPError, URLError, TimeoutError):
         return None
 
-def _parse_face_descriptor(raw_value) -> list[float] | None:
+def _parse_face_descriptor(raw_value, expected_length: int | None = None) -> list[float] | None:
+    # Length belongs to the active engine: face-api emits 128 floats, ArcFace
+    # 512. Hardcoding 128 would silently reject every valid embedding the
+    # moment the engine changed.
+    expected_length = expected_length if expected_length is not None else get_engine().dimensions
     # Accept an already-decoded list as well as a JSON string. Descriptors
     # arrive as JSON on the request, but come back as real lists once
     # biometric_template has been decoded — and _safe_json_loads returns {} for
@@ -303,11 +310,12 @@ def _parse_face_descriptor(raw_value) -> list[float] | None:
         except (TypeError, ValueError):
             return None
 
-    if len(parsed) != FACE_DESCRIPTOR_LENGTH:
+    if len(parsed) != expected_length:
         return None
     return parsed
 
-def _parse_face_descriptor_samples(raw_value) -> list[list[float]]:
+def _parse_face_descriptor_samples(raw_value, expected_length: int | None = None) -> list[list[float]]:
+    expected_length = expected_length if expected_length is not None else get_engine().dimensions
     # Same already-decoded-list handling as _parse_face_descriptor above.
     payload = raw_value if isinstance(raw_value, list) else _safe_json_loads(raw_value)
     if not isinstance(payload, list):
@@ -327,7 +335,7 @@ def _parse_face_descriptor_samples(raw_value) -> list[list[float]]:
                 invalid_sample = True
                 break
 
-        if invalid_sample or len(parsed_sample) != FACE_DESCRIPTOR_LENGTH:
+        if invalid_sample or len(parsed_sample) != expected_length:
             continue
         parsed_samples.append(parsed_sample)
 
@@ -344,9 +352,38 @@ def _average_face_descriptors(descriptors: list[list[float]]) -> list[float] | N
     averaged = np.mean(matrix, axis=0)
     return [float(value) for value in averaged.tolist()]
 
+def _stored_template_engine(account: AlumniAccount) -> str:
+    """Which engine produced this account's enrolled template.
+
+    Rows enrolled before the engine seam existed carry no marker, and every one
+    of those was face-api, so an absent value means faceapi rather than unknown.
+    """
+    template = _safe_json_loads(account.biometric_template)
+    if not isinstance(template, dict):
+        return resolve_stored_engine(None)
+    return resolve_stored_engine(template.get("engine"))
+
+
 def _resolve_reference_descriptors(account: AlumniAccount) -> list[list[float]]:
     template = _safe_json_loads(account.biometric_template)
     if not isinstance(template, dict):
+        return []
+
+    # Refuse to compare across engines. A 128-d face-api vector measured against
+    # a 512-d ArcFace probe does not yield a wrong distance, it yields a
+    # meaningless one that the threshold then accepts or rejects at random.
+    # Returning no references fails the login closed, which is the safe outcome;
+    # the caller reports it using _stored_template_engine.
+    active = get_engine()
+    stored_engine = resolve_stored_engine(template.get("engine"))
+    if stored_engine != active.name:
+        logger.warning(
+            "Face template engine mismatch for alumni %s: stored=%s active=%s. "
+            "The account must re-enrol before it can authenticate.",
+            account.id,
+            stored_engine,
+            active.name,
+        )
         return []
 
     references: list[list[float]] = []
@@ -1676,13 +1713,20 @@ class AlumniRegisterView(APIView):
 
         face_scan_urls: dict[str, str] = {}
         timestamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
+        # Kept because a server-side engine has to embed the frontal image
+        # itself. scan_file.read() drains the upload, so the bytes have to be
+        # held here rather than re-read further down.
+        registration_front_bytes: bytes | None = None
 
         try:
             for scan_key in upload_files:
                 scan_file = request.FILES[scan_key]
+                file_bytes = scan_file.read()
+                if scan_key == "face_front":
+                    registration_front_bytes = file_bytes
                 object_path = f"face-registration/{storage_key}/{timestamp}_{scan_key}.jpg"
                 face_scan_urls[scan_key] = upload_image_bytes(
-                    file_bytes=scan_file.read(),
+                    file_bytes=file_bytes,
                     object_path=object_path,
                     content_type=scan_file.content_type or "image/jpeg",
                 )
@@ -1721,10 +1765,20 @@ class AlumniRegisterView(APIView):
             },
         }
 
-        face_descriptor = _parse_face_descriptor(request.data.get("face_descriptor"))
-        face_descriptor_samples = _parse_face_descriptor_samples(request.data.get("face_descriptor_samples"))
+        # The active engine decides where the embedding comes from. face-api
+        # runs in the browser and sends one; InsightFace and CompreFace ignore
+        # whatever the client sent and embed the uploaded image themselves, so a
+        # face-api vector can never be enrolled under a 512-d engine by accident.
+        _active_engine = get_engine()
+        face_descriptor_samples = _parse_face_descriptor_samples(
+            request.data.get("face_descriptor_samples")
+        )
+        face_descriptor = _active_engine.embed(
+            image_bytes=registration_front_bytes,
+            client_descriptor=_parse_face_descriptor(request.data.get("face_descriptor")),
+        )
         if not face_descriptor and face_descriptor_samples:
-            face_descriptor = _average_face_descriptors(face_descriptor_samples)
+            face_descriptor = _active_engine.average(face_descriptor_samples)
         if face_descriptor and not face_descriptor_samples:
             face_descriptor_samples = [face_descriptor]
 
@@ -1764,6 +1818,12 @@ class AlumniRegisterView(APIView):
                     "face_descriptor": face_descriptor,
                     "face_descriptor_samples": face_descriptor_samples,
                     "liveness_signals": liveness_signals,
+                    # Provenance. Embeddings from different engines are not
+                    # comparable -- different dimensionality, different metric --
+                    # so every template records which one produced it and
+                    # _resolve_reference_descriptors refuses to mix them.
+                    "engine": _active_engine.name,
+                    "engine_dim": _active_engine.dimensions,
                 }),
                 account_status=AccountStatus.PENDING,
             )
@@ -1903,6 +1963,27 @@ class AlumniLoginView(APIView):
 
         reference_scan_urls = _extract_registration_scan_urls(alumni_account)
         reference_descriptors = _resolve_reference_descriptors(alumni_account)
+
+        # An engine change empties reference_descriptors, and without this the
+        # request would slide into the image-comparison fallback below -- which
+        # compares raw pixels and cannot distinguish identity at all. Switching
+        # engines must force re-enrolment, never silently downgrade to the
+        # weakest check in the system.
+        _stored_engine = _stored_template_engine(alumni_account)
+        if _stored_engine != get_engine().name:
+            return Response(
+                {
+                    "detail": (
+                        "This account's face template was enrolled with a different "
+                        "recognition engine and must be re-enrolled before face login "
+                        "can be used."
+                    ),
+                    "storedEngine": _stored_engine,
+                    "activeEngine": get_engine().name,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         if not reference_scan_urls and not reference_descriptors:
             return Response(
                 {"detail": "No enrolled biometric reference is available for this account."},
@@ -1916,15 +1997,21 @@ class AlumniLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        login_descriptor = _parse_face_descriptor(request.data.get("face_descriptor"))
+        # Same rule as registration: face-api takes the browser's descriptor,
+        # the server-side engines embed the uploaded frame themselves.
+        _active_engine = get_engine()
+        login_descriptor = _active_engine.embed(
+            image_bytes=login_scan_bytes,
+            client_descriptor=_parse_face_descriptor(request.data.get("face_descriptor")),
+        )
         descriptor_distance = None
         similarity_score = 0.0
 
         if login_descriptor and reference_descriptors:
-            descriptor_match, descriptor_distance, descriptor_similarity = _verify_descriptor_match(
-                login_descriptor=login_descriptor,
-                reference_descriptors=reference_descriptors,
-            )
+            _match = _active_engine.compare(login_descriptor, reference_descriptors)
+            descriptor_match = _match.is_match
+            descriptor_distance = _match.distance
+            descriptor_similarity = _match.similarity
             if not descriptor_match:
                 return Response(
                     {
@@ -2681,10 +2768,93 @@ class DebugFaceAccountView(APIView):
         return Response({"deleted": removed}, status=status.HTTP_200_OK)
 
 
-class DebugFaceEnrolView(APIView):
-    """Store a descriptor on a debug account, the way registration would."""
+class DebugFaceEnginesView(APIView):
+    """What engines this build can actually run, for the debug page selector."""
 
     parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        rows = []
+        for name in ("faceapi", "insightface", "compreface"):
+            engine = face_engines.engine_for(name)
+            available, reason = _debug_engine_availability(engine)
+            rows.append(
+                {
+                    "name": engine.name,
+                    "dimensions": engine.dimensions,
+                    "threshold": engine.distance_threshold,
+                    "metric": "euclidean" if engine.name == "faceapi" else "cosine",
+                    "runsInBrowser": engine.requires_client_descriptor,
+                    "available": available,
+                    "reason": reason,
+                }
+            )
+        return Response(
+            {"engines": rows, "serverDefault": get_engine().name},
+            status=status.HTTP_200_OK,
+        )
+
+
+def _debug_engine_availability(engine) -> tuple[bool, str]:
+    """
+    Can this engine be used right now, without actually invoking it.
+
+    Cheap checks only -- the selector is rendered on page load and must not
+    block on a model download or a request to a CompreFace container that may
+    not be running.
+    """
+    if engine.name == "faceapi":
+        return True, "Runs in the browser; always available."
+    if engine.name == "insightface":
+        try:
+            import insightface  # noqa: F401
+        except ImportError:
+            return False, "pip install -r requirements-insightface.txt"
+        return True, "Installed. First use downloads the model pack."
+    if engine.name == "compreface":
+        if not getattr(engine, "api_key", ""):
+            return False, "Set COMPREFACE_RECOGNITION_KEY (local only)."
+        return True, f"Will call {engine.base_url}"
+    return False, "Unknown engine."
+
+
+def _debug_engine_from_request(request):
+    """
+    Engine for THIS request, chosen by the debug page rather than the server
+    default. The whole point of the page is comparing engines against the same
+    face, which an env var and a container restart cannot do.
+    """
+    requested = (request.data.get("engine") or "").strip().lower()
+    if not requested:
+        return get_engine()
+    return face_engines.engine_for(requested)
+
+
+def _debug_engine_templates(account: AlumniAccount) -> dict:
+    template = _safe_json_loads(account.biometric_template)
+    engines = template.get("engines") if isinstance(template, dict) else None
+    return engines if isinstance(engines, dict) else {}
+
+
+class DebugFaceEnrolView(APIView):
+    """
+    Enrol a face under ONE named engine.
+
+    Templates are stored per engine, so the same face can be enrolled under all
+    three and their distances compared directly. That is the comparison this
+    page exists to make, and it is why enrolment here does not overwrite a
+    single shared descriptor the way registration does.
+    """
+
+    # Multipart: the server-side engines need the IMAGE, since the browser
+    # cannot produce an ArcFace embedding. face-api still sends its descriptor.
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     authentication_classes = []
     permission_classes = [AllowAny]
 
@@ -2697,45 +2867,135 @@ class DebugFaceEnrolView(APIView):
         if not account:
             return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
         if not _is_debug_face_account(account):
-            # Refuse to overwrite a real graduate's biometrics from a debug tool.
+            # Never let a debug tool overwrite a real graduate's biometrics.
             return Response(
                 {"detail": "Not a debug face account."}, status=status.HTTP_403_FORBIDDEN,
             )
 
-        samples = _parse_face_descriptor_samples(request.data.get("face_descriptor_samples"))
-        descriptor = _parse_face_descriptor(request.data.get("face_descriptor"))
-        if descriptor is None and samples:
-            descriptor = _average_face_descriptors(samples)
+        try:
+            engine = _debug_engine_from_request(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Multi-angle enrolment.
+        #
+        # One frontal frame gives one reference vector, so a login taken at a
+        # slightly different angle has nothing close to match against. Enrolling
+        # a short yaw sweep gives several references and the best of them wins,
+        # which is why banking apps ask you to turn your head rather than just
+        # hold still.
+        #
+        # The IMAGES are kept as well as the vectors, and not only for audit: an
+        # engine change invalidates every stored embedding, and having the
+        # original frames means everyone can be re-enrolled offline instead of
+        # being asked back in person.
+        image_files = request.FILES.getlist("face_images")
+        if not image_files and "face_image" in request.FILES:
+            image_files = [request.FILES["face_image"]]
+        image_blobs = [f.read() for f in image_files]
+        # Counted so a failure can report what actually happened instead of
+        # concluding "no usable embedding" and leaving the cause to guesswork.
+        frames_rejected = 0
+
+        # Per-sample capture metadata (yaw at capture time), client-attested and
+        # stored for display only.
+        sample_meta = _safe_json_loads(request.data.get("sample_meta"))
+        if not isinstance(sample_meta, list):
+            sample_meta = []
+
+        try:
+            if engine.requires_client_descriptor:
+                # Browser engine: the vectors were computed client-side and the
+                # frames are only kept for re-enrolment later.
+                samples = _parse_face_descriptor_samples(
+                    request.data.get("face_descriptor_samples"), engine.dimensions
+                )
+                single = _parse_face_descriptor(
+                    request.data.get("face_descriptor"), engine.dimensions
+                )
+                if single and single not in samples:
+                    samples.append(single)
+            else:
+                # Server engine: embed every frame we were given. A frame the
+                # detector cannot use is skipped rather than failing the whole
+                # enrolment -- a sweep will always include some bad angles.
+                samples = []
+                for blob in image_blobs:
+                    embedding = engine.embed(image_bytes=blob)
+                    if embedding:
+                        samples.append(embedding)
+                    else:
+                        frames_rejected += 1
+        except RuntimeError as exc:
+            # Missing optional dependency or unreachable service. Report it as
+            # configuration rather than a face problem.
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        descriptor = engine.average(samples) if samples else None
         if descriptor is None:
+            if engine.requires_client_descriptor:
+                reason = (
+                    "This engine embeds in the browser and no valid "
+                    f"{engine.dimensions}-float descriptor arrived."
+                )
+            elif not image_blobs:
+                reason = "No frames were uploaded; this engine embeds server-side."
+            else:
+                reason = (
+                    f"{len(image_blobs)} frame(s) uploaded, none contained a face the "
+                    "detector could use. The usual cause is the face filling the frame "
+                    "-- the detector needs margin around it, so move further from the "
+                    "camera. Poor light and heavy motion blur do it too."
+                )
             return Response(
-                {"detail": f"A {FACE_DESCRIPTOR_LENGTH}-float face_descriptor is required."},
+                {
+                    "detail": f"No usable {engine.dimensions}-d embedding for {engine.name}. {reason}",
+                    "engine": engine.name,
+                    "framesSupplied": len(image_blobs),
+                    "framesRejected": frames_rejected,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not samples:
             samples = [descriptor]
 
         template = _safe_json_loads(account.biometric_template)
-        template.update(
-            {
-                "is_debug": True,
-                "face_descriptor": descriptor,
-                "face_descriptor_samples": samples,
-                "enrolled_at": timezone.now().isoformat(),
-            }
-        )
+        engines = template.get("engines")
+        if not isinstance(engines, dict):
+            engines = {}
+        engines[engine.name] = {
+            "face_descriptor": descriptor,
+            "face_descriptor_samples": samples,
+            "sample_meta": sample_meta[: len(samples)],
+            "frames_supplied": len(image_blobs),
+            "dimensions": engine.dimensions,
+            "enrolled_at": timezone.now().isoformat(),
+        }
+        template.update({"is_debug": True, "engines": engines})
         account.biometric_template = json.dumps(template)
         account.save(update_fields=["biometric_template"])
 
         return Response(
-            {"enrolled": True, "samples": len(samples), "dimensions": len(descriptor)},
+            {
+                "enrolled": True,
+                "engine": engine.name,
+                "dimensions": engine.dimensions,
+                "samples": len(samples),
+                # How many frames were sent versus how many produced a usable
+                # embedding -- the gap is the honest measure of how well this
+                # engine coped with the angles in the sweep.
+                "framesSupplied": len(image_blobs),
+                "framesUsed": len(samples) if not engine.requires_client_descriptor else None,
+                "enrolledEngines": sorted(engines.keys()),
+            },
             status=status.HTTP_200_OK,
         )
 
 
 class DebugFaceVerifyView(APIView):
-    """Compare a fresh descriptor against an enrolled one and report the numbers."""
+    """Compare a fresh capture against the template enrolled under one engine."""
 
-    parser_classes = [JSONParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     authentication_classes = []
     permission_classes = [AllowAny]
 
@@ -2748,32 +3008,89 @@ class DebugFaceVerifyView(APIView):
         if not account:
             return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        probe = _parse_face_descriptor(request.data.get("face_descriptor"))
-        if probe is None:
-            return Response(
-                {"detail": f"A {FACE_DESCRIPTOR_LENGTH}-float face_descriptor is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        try:
+            engine = _debug_engine_from_request(request)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        references = _resolve_reference_descriptors(account)
-        if not references:
+        stored = _debug_engine_templates(account).get(engine.name)
+        if not stored:
             return Response(
-                {"detail": "No face enrolled on this account yet."},
+                {
+                    "detail": f"Nothing enrolled under {engine.name} yet on this account.",
+                    "engine": engine.name,
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 
-        is_match, distance, similarity = _verify_descriptor_match(
-            login_descriptor=probe, reference_descriptors=references,
+        references = _parse_face_descriptor_samples(
+            stored.get("face_descriptor_samples"), engine.dimensions
         )
+        primary = _parse_face_descriptor(stored.get("face_descriptor"), engine.dimensions)
+        if primary and primary not in references:
+            references.append(primary)
+        if not references:
+            return Response(
+                {"detail": f"Stored {engine.name} template is unreadable."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Accept both field names. The client sends `face_images` since
+        # enrolment became multi-frame; reading only the old singular
+        # `face_image` here meant verify received NO image at all, so every
+        # server-side engine reported "no usable embedding" while face-api --
+        # which uses the client descriptor and never looks at the image --
+        # carried on working and hid the breakage.
+        image_files = request.FILES.getlist("face_images")
+        if not image_files and "face_image" in request.FILES:
+            image_files = [request.FILES["face_image"]]
+        image_bytes = image_files[0].read() if image_files else None
+
+        try:
+            probe = engine.embed(
+                image_bytes=image_bytes,
+                client_descriptor=_parse_face_descriptor(
+                    request.data.get("face_descriptor"), engine.dimensions
+                ),
+            )
+        except RuntimeError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if probe is None:
+            if engine.requires_client_descriptor:
+                why = "no valid client descriptor arrived."
+            elif not image_files:
+                why = "no frame was uploaded; this engine embeds server-side."
+            else:
+                why = (
+                    "the uploaded frame contained no face the detector could use. "
+                    "Most often the face fills the frame -- the detector needs margin "
+                    "around it, so move further from the camera."
+                )
+            return Response(
+                {
+                    "detail": f"No usable {engine.dimensions}-d embedding for {engine.name}: {why}",
+                    "engine": engine.name,
+                    "framesSupplied": len(image_files),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = engine.compare(probe, references)
         return Response(
             {
-                "isMatch": is_match,
-                "distance": round(distance, 4),
-                "similarity": round(similarity, 4),
-                "threshold": FACE_DESCRIPTOR_DISTANCE_THRESHOLD,
-                "referenceCount": len(references),
+                "isMatch": result.is_match,
+                "distance": round(result.distance, 4),
+                "similarity": round(result.similarity, 4),
+                "threshold": engine.distance_threshold,
+                "referenceCount": result.reference_count,
+                "engine": result.engine,
+                "dimensions": engine.dimensions,
+                "metric": "euclidean" if engine.name == "faceapi" else "cosine",
             },
             status=status.HTTP_200_OK,
         )
+
+
 
 # endregion DEBUG-ONLY:CurrenChanDebug

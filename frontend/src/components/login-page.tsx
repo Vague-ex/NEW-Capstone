@@ -17,6 +17,7 @@ import {
 } from "../app/api-client";
 import ForgotPasswordModal from "./auth/forgot-password";
 import { captureGps } from "../app/geolocation";
+import { clearFaceMesh, drawFaceMesh } from "../app/face-mesh";
 import {
   ensureModernFaceModelsLoaded,
   extractFaceDescriptorFromDataUrl,
@@ -116,6 +117,7 @@ export function LoginPage() {
   const scanTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const autoDetectInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const alignIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const meshCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const alignTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const livenessTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The frontal frame + descriptor captured BEFORE the liveness challenge, used
@@ -172,6 +174,12 @@ export function LoginPage() {
       try {
         // Require a roughly frontal face before capturing the match frame.
         const landmarks = await extractFaceLandmarksFromVideo(video);
+        if (meshCanvasRef.current) {
+          // Deliberately drawn before the early returns below, so the mesh
+          // keeps updating while the frontal gate is still refusing -- that is
+          // exactly when the user needs to see whether they are being tracked.
+          drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
+        }
         if (!landmarks) return;
         const yaw = estimateHeadYawDegrees(landmarks);
         if (Math.abs(yaw) > FRONTAL_YAW_TOLERANCE_DEG) return;
@@ -240,6 +248,9 @@ export function LoginPage() {
       if (!video || video.videoWidth === 0) return;
       try {
         const landmarks = await extractFaceLandmarksFromVideo(video);
+        if (meshCanvasRef.current) {
+          drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
+        }
 
         // Blink is a transition over time, so it must see every frame —
         // including the ones with no face, which reset a half-finished blink.
@@ -488,6 +499,9 @@ export function LoginPage() {
   };
 
   const stopCamera = () => {
+    // Wipe the overlay first. Left behind, the last mesh sits over a dead video
+    // and reads as a face still being tracked.
+    clearFaceMesh(meshCanvasRef.current);
     if (autoDetectInterval.current) {
       clearInterval(autoDetectInterval.current);
       autoDetectInterval.current = null;
@@ -758,6 +772,10 @@ export function LoginPage() {
                     ref={videoRef}
                     className={`absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "hidden" : ""}`}
                     playsInline muted autoPlay
+                  />
+                  <canvas
+                    ref={meshCanvasRef}
+                    className={`pointer-events-none absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "hidden" : ""}`}
                   />
 
                   {!cameraOn && scanStage === "idle" && (

@@ -1,4 +1,5 @@
 import json
+import os
 from types import SimpleNamespace
 from datetime import timedelta
 from unittest.mock import patch
@@ -10,6 +11,8 @@ from django.db import OperationalError
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from users import api
+from users import face_engines
 from users.auth import generate_admin_access_token, generate_alumni_access_token
 from rest_framework.test import APIRequestFactory
 
@@ -379,6 +382,164 @@ class DebugFaceHarnessTests(TestCase):
 		self.assertFalse(diff.data["isMatch"])
 		self.assertGreater(diff.data["distance"], diff.data["threshold"])
 
+	def test_engines_endpoint_lists_all_three(self):
+		response = self.client.get("/api/admin/debug/face-engines/", **self._auth())
+		self.assertEqual(response.status_code, 200)
+		names = [e["name"] for e in response.data["engines"]]
+		self.assertEqual(sorted(names), ["compreface", "faceapi", "insightface"])
+		# faceapi runs in the browser, so it is usable with nothing installed.
+		faceapi = next(e for e in response.data["engines"] if e["name"] == "faceapi")
+		self.assertTrue(faceapi["available"])
+		self.assertTrue(faceapi["runsInBrowser"])
+		self.assertEqual(faceapi["dimensions"], 128)
+		self.assertEqual(faceapi["metric"], "euclidean")
+		# The server-side ones report a reason when they cannot be used, so the
+		# selector can say what is missing instead of failing on click.
+		for name in ("insightface", "compreface"):
+			row = next(e for e in response.data["engines"] if e["name"] == name)
+			self.assertEqual(row["dimensions"], 512)
+			self.assertEqual(row["metric"], "cosine")
+			self.assertFalse(row["runsInBrowser"])
+			if not row["available"]:
+				self.assertTrue(row["reason"])
+
+	def test_engines_endpoint_requires_admin(self):
+		self.assertIn(self.client.get("/api/admin/debug/face-engines/").status_code, (401, 403))
+
+	def test_unknown_engine_is_rejected(self):
+		account_id = self._create().data["id"]
+		response = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/enrol/",
+			{"engine": "not-real", "face_descriptor": json.dumps([0.0] * 128)},
+			**self._auth(),
+		)
+		self.assertEqual(response.status_code, 400)
+
+	def test_templates_are_isolated_per_engine(self):
+		"""
+		Enrolling under one engine must not make another engine look enrolled.
+
+		This is what lets the same face be enrolled under all three and compared;
+		it is also the guard against reading a 128-d template as if it were a
+		512-d one.
+		"""
+		account_id = self._create().data["id"]
+		descriptor = [0.02 * i for i in range(128)]
+		enrol = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/enrol/",
+			{"engine": "faceapi", "face_descriptor": json.dumps(descriptor)},
+			**self._auth(),
+		)
+		self.assertEqual(enrol.status_code, 200)
+		self.assertEqual(enrol.data["engine"], "faceapi")
+		self.assertEqual(enrol.data["enrolledEngines"], ["faceapi"])
+
+		# The same account has nothing under insightface.
+		other = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/verify/",
+			{"engine": "insightface", "face_descriptor": json.dumps(descriptor)},
+			**self._auth(),
+		)
+		self.assertEqual(other.status_code, 409)
+
+		# ...while faceapi still matches itself, and says which engine it used.
+		same = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/verify/",
+			{"engine": "faceapi", "face_descriptor": json.dumps(descriptor)},
+			**self._auth(),
+		)
+		self.assertEqual(same.status_code, 200)
+		self.assertTrue(same.data["isMatch"])
+		self.assertEqual(same.data["engine"], "faceapi")
+		self.assertEqual(same.data["metric"], "euclidean")
+
+	def test_server_side_engine_will_not_accept_a_browser_descriptor(self):
+		"""
+		A 128-d face-api vector must never be enrolled as a 512-d ArcFace one
+		just because the client sent it. Without the image there is nothing to
+		embed, so this has to fail rather than store the wrong thing.
+		"""
+		account_id = self._create().data["id"]
+		response = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/enrol/",
+			{"engine": "insightface", "face_descriptor": json.dumps([0.5] * 128)},
+			**self._auth(),
+		)
+		# 400 when the engine is importable but has no image; 503 when the
+		# optional dependency is absent. Either way, nothing is stored.
+		self.assertIn(response.status_code, (400, 503))
+		verify = self.client.post(
+			f"/api/admin/debug/face-account/{account_id}/verify/",
+			{"engine": "insightface", "face_descriptor": json.dumps([0.5] * 128)},
+			**self._auth(),
+		)
+		self.assertEqual(verify.status_code, 409)
+
+	def test_verify_reads_the_same_image_field_the_client_sends(self):
+		"""
+		Regression: the client sends `face_images` (plural) since enrolment
+		became multi-frame, but verify read only the old singular `face_image`
+		and therefore received NO image at all.
+
+		This was invisible from the face-api side, because that engine uses the
+		client descriptor and never looks at the image -- so one engine kept
+		working while every server-side engine reported "no usable embedding".
+		The assertion is on framesSupplied rather than the message, because that
+		counts what the view actually received.
+		"""
+		from users.face_engines.insight import InsightFaceEngine
+
+		account_id = self._create().data["id"]
+		vector = [0.0] * 511 + [1.0]
+		frame = SimpleUploadedFile("face_0.jpg", b"not-a-real-jpeg", content_type="image/jpeg")
+
+		# Enrol with the model stubbed out; the point here is the plumbing, and
+		# a real embed would download a model pack mid-test.
+		with patch.object(InsightFaceEngine, "embed", return_value=vector):
+			enrol = self.client.post(
+				f"/api/admin/debug/face-account/{account_id}/enrol/",
+				{"engine": "insightface", "face_images": frame},
+				format="multipart", **self._auth(),
+			)
+		self.assertEqual(enrol.status_code, 200)
+		self.assertEqual(enrol.data["framesSupplied"], 1)
+		self.assertEqual(enrol.data["framesUsed"], 1)
+
+		# Now verify. With embed returning nothing we get the 400, but the count
+		# proves the frame reached the view instead of being dropped by a
+		# field-name mismatch.
+		frame2 = SimpleUploadedFile("face_0.jpg", b"not-a-real-jpeg", content_type="image/jpeg")
+		with patch.object(InsightFaceEngine, "embed", return_value=None):
+			verify = self.client.post(
+				f"/api/admin/debug/face-account/{account_id}/verify/",
+				{"engine": "insightface", "face_images": frame2},
+				format="multipart", **self._auth(),
+			)
+		self.assertEqual(verify.status_code, 400)
+		self.assertEqual(verify.data["framesSupplied"], 1)
+		self.assertNotIn("no frame was uploaded", verify.data["detail"])
+
+	def test_enrol_keeps_every_usable_pose_from_a_sweep(self):
+		"""Multi-angle enrolment must store one sample per usable frame."""
+		from users.face_engines.insight import InsightFaceEngine
+
+		account_id = self._create().data["id"]
+		frames = [
+			SimpleUploadedFile(f"face_{i}.jpg", b"x", content_type="image/jpeg")
+			for i in range(5)
+		]
+		vector = [0.0] * 511 + [1.0]
+		with patch.object(InsightFaceEngine, "embed", return_value=vector):
+			enrol = self.client.post(
+				f"/api/admin/debug/face-account/{account_id}/enrol/",
+				{"engine": "insightface", "face_images": frames},
+				format="multipart", **self._auth(),
+			)
+		self.assertEqual(enrol.status_code, 200)
+		self.assertEqual(enrol.data["framesSupplied"], 5)
+		self.assertEqual(enrol.data["framesUsed"], 5)
+		self.assertEqual(enrol.data["samples"], 5)
+
 	def test_enrol_refuses_a_non_debug_account(self):
 		"""A debug tool must never be able to overwrite a real graduate's face."""
 		victim_user = User.objects.create_user(
@@ -406,6 +567,128 @@ class DebugFaceHarnessTests(TestCase):
 
 
 # endregion DEBUG-ONLY:CurrenChanDebug
+
+
+class FaceEngineSeamTests(TestCase):
+	"""
+	The engine seam must be invisible until someone deliberately changes engine.
+
+	Every account enrolled before the seam existed carries no engine marker and
+	was produced by face-api, so those rows have to keep authenticating exactly
+	as they did.
+	"""
+
+	def setUp(self):
+		self.user = User.objects.create_user(
+			email="engine-seam@example.com", password="SeamPass123!", role=User.Role.ALUMNI,
+		)
+		self.account = AlumniAccount.objects.create(
+			user=self.user, account_status=AccountStatus.ACTIVE,
+		)
+
+	def _enrol(self, descriptor, engine=None):
+		template = {"face_descriptor": descriptor, "face_descriptor_samples": [descriptor]}
+		if engine is not None:
+			template["engine"] = engine
+		self.account.biometric_template = json.dumps(template)
+		self.account.save(update_fields=["biometric_template"])
+
+	def test_default_engine_is_faceapi(self):
+		self.assertEqual(face_engines.get_engine().name, "faceapi")
+		self.assertEqual(face_engines.get_engine().dimensions, 128)
+
+	def test_unknown_engine_name_is_rejected(self):
+		with self.assertRaises(ValueError):
+			face_engines.engine_for("not-a-real-engine")
+
+	def test_legacy_rows_without_an_engine_marker_still_resolve(self):
+		"""The 128-d rows enrolled before the seam must keep working untouched."""
+		descriptor = [0.01 * i for i in range(128)]
+		self._enrol(descriptor)  # no engine key, exactly like existing rows
+		self.assertEqual(api._stored_template_engine(self.account), "faceapi")
+		self.assertEqual(len(api._resolve_reference_descriptors(self.account)), 1)
+
+	def test_mismatched_engine_yields_no_references(self):
+		"""
+		Cross-engine comparison must fail closed rather than produce a number.
+
+		A 128-d vector measured against a 512-d probe is not a wrong distance,
+		it is a meaningless one, and the threshold would accept or reject it
+		essentially at random.
+		"""
+		descriptor = [0.01 * i for i in range(128)]
+		self._enrol(descriptor, engine="insightface")
+		# Active engine is still faceapi, so the stored template is unusable.
+		self.assertEqual(api._stored_template_engine(self.account), "insightface")
+		self.assertEqual(api._resolve_reference_descriptors(self.account), [])
+
+	def test_engine_switch_invalidates_legacy_templates(self):
+		descriptor = [0.01 * i for i in range(128)]
+		self._enrol(descriptor)  # faceapi
+		with patch.dict(os.environ, {"FACE_ENGINE": "insightface"}):
+			self.assertEqual(face_engines.get_engine().name, "insightface")
+			self.assertEqual(api._resolve_reference_descriptors(self.account), [])
+		# ...and comes back once the engine is restored.
+		self.assertEqual(len(api._resolve_reference_descriptors(self.account)), 1)
+
+
+class FaceEngineMetricTests(SimpleTestCase):
+	"""Per-engine maths. No database, no models on disk."""
+
+	def test_faceapi_uses_euclidean_distance(self):
+		engine = face_engines.engine_for("faceapi")
+		a = [0.0] * 128
+		b = [0.0] * 128
+		b[0] = 3.0
+		b[1] = 4.0
+		self.assertAlmostEqual(engine.distance(a, b), 5.0, places=5)
+		self.assertTrue(engine.is_match(0.0))
+		self.assertFalse(engine.is_match(0.9))
+
+	def test_cosine_engines_are_orientation_only(self):
+		"""Scaling a vector must not change a cosine distance."""
+		engine = face_engines.engine_for("insightface")
+		a = [1.0] + [0.0] * 511
+		self.assertAlmostEqual(engine.distance(a, a), 0.0, places=6)
+		scaled = [v * 7.5 for v in a]
+		self.assertAlmostEqual(engine.distance(a, scaled), 0.0, places=6)
+		orthogonal = [0.0, 1.0] + [0.0] * 510
+		self.assertAlmostEqual(engine.distance(a, orthogonal), 1.0, places=6)
+
+	def test_cosine_engine_renormalises_averages(self):
+		"""The mean of unit vectors is not a unit vector; cosine assumes one."""
+		engine = face_engines.engine_for("insightface")
+		a = [1.0] + [0.0] * 511
+		b = [0.0, 1.0] + [0.0] * 510
+		mean = engine.average([a, b])
+		self.assertIsNotNone(mean)
+		norm = sum(v * v for v in mean) ** 0.5
+		self.assertAlmostEqual(norm, 1.0, places=5)
+
+	def test_wrong_dimensionality_is_uncomparable_not_close(self):
+		engine = face_engines.engine_for("faceapi")
+		self.assertEqual(
+			engine.distance([0.0] * 64, [0.0] * 64), face_engines.UNCOMPARABLE_DISTANCE
+		)
+		self.assertFalse(engine.is_match(face_engines.UNCOMPARABLE_DISTANCE))
+
+	def test_server_side_engines_ignore_a_client_descriptor(self):
+		"""
+		A browser-produced face-api vector must never be enrolled under a
+		512-d engine just because the client sent one.
+		"""
+		client_vector = [0.5] * 128
+		for name in ("insightface", "compreface"):
+			engine = face_engines.engine_for(name)
+			self.assertIsNone(engine.embed(client_descriptor=client_vector))
+			self.assertFalse(engine.requires_client_descriptor)
+
+	def test_faceapi_engine_requires_the_client_descriptor(self):
+		engine = face_engines.engine_for("faceapi")
+		self.assertTrue(engine.requires_client_descriptor)
+		self.assertIsNone(engine.embed(image_bytes=b"ignored"))
+		good = [0.1] * 128
+		self.assertEqual(engine.embed(client_descriptor=good), good)
 
 
 class MasterlistNameParsingTests(SimpleTestCase):

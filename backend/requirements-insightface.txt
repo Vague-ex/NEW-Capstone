@@ -1,0 +1,54 @@
+# Optional: server-side face recognition via InsightFace (FACE_ENGINE=insightface).
+#
+# Deliberately NOT in requirements.txt. The default engine is face-api.js, which
+# runs in the browser and needs nothing here, and these wheels are large enough
+# to matter on a VPS Docker build that does not use them.
+#
+# ── INSTALL ──────────────────────────────────────────────────────────────────
+# Do NOT just `pip install -r` this file. insightface declares opencv-python as
+# a dependency, and this project uses opencv-python-HEADLESS. Both install a
+# module called cv2, so letting pip resolve normally quietly replaces the
+# headless build with one that drags in GUI libraries -- which then fail to load
+# in a slim Docker image.
+#
+# Install in two steps instead:
+#
+#   pip install --only-binary=:all: --no-deps insightface==2.0
+#   pip install --only-binary=:all: onnx onnxruntime scikit-image tqdm requests scipy
+#
+# ── WHY 2.0 AND NOT 0.7.x ────────────────────────────────────────────────────
+# insightface 0.7.3 ships only a source distribution. Building it on Windows
+# needs MSVC 14+ ("Microsoft Visual C++ 14.0 or greater is required"), and its
+# transitive dep stringzilla needs a compiler too. 2.0 publishes a
+# py3-none-any wheel -- pure Python, no toolchain, installs anywhere.
+#
+# `--only-binary=:all:` is kept as a guard: it fails loudly rather than silently
+# falling back to a source build that needs a compiler.
+#
+# ── MEMORY, BEFORE DEPLOYING THIS ────────────────────────────────────────────
+# The current stack sits at roughly 1.5-2 GB of the VPS's 4 GB. An ONNX session
+# adds ~0.8-1.5 GB PER gunicorn worker, so two workers will be OOM-killed. Drop
+# to `--workers 1 --threads 4` first; the workload is I/O-bound on Supabase, so
+# throughput does not suffer. Do not use gunicorn --preload with onnxruntime --
+# forking after a session is initialised is a known source of hangs.
+#
+# The engine defaults to the buffalo_s model pack rather than buffalo_l for the
+# same reason. buffalo_sc is smaller still. Override with INSIGHTFACE_MODEL_PACK.
+# The pack downloads to ~/.insightface on first use, so the first request after
+# a deploy is slow -- budget for it rather than reading it as a hang.
+#
+# ── PASSIVE LIVENESS ─────────────────────────────────────────────────────────
+# 2.0 ships a `liveness` addon: an 80x80 model returning a live probability
+# (default threshold 0.8), with liveness_mode "normal" to enforce or "observe"
+# to record only. That is real anti-spoofing rather than a gesture challenge,
+# and it is what would actually answer "how do you know it is not a photo?".
+# Its model file downloads separately from the package. Not wired into the
+# engine yet.
+
+insightface==2.0
+onnxruntime
+onnx
+scikit-image
+tqdm
+requests
+scipy

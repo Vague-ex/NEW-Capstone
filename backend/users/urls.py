@@ -24,6 +24,7 @@ from .api import (
     DebugAccountListView,
     DebugAccountDeleteView,
     DebugFaceAccountView,
+    DebugFaceEnginesView,
     DebugFaceEnrolView,
     DebugFaceVerifyView,
 )
@@ -99,6 +100,11 @@ urlpatterns = [
         name="debug-account-delete",
     ),
     # Face / liveness harness — backs /admin/debug/face.
+    path(
+        "admin/debug/face-engines/",
+        DebugFaceEnginesView.as_view(),
+        name="debug-face-engines",
+    ),
     path(
         "admin/debug/face-account/",
         DebugFaceAccountView.as_view(),
