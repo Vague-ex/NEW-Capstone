@@ -98,14 +98,11 @@ const LANDMARK_GROUPS: { name: string; from: number; to: number; closed: boolean
  * frame after the gesture was producing "passed liveness but face not
  * recognized", because the match then saw a turned head.
  */
-type VerifyStage = 'idle' | 'restarting' | 'aligning' | 'challenge' | 'submitting' | 'done';
-type VerifyChallenge = 'blink' | 'head_turn';
+type VerifyStage = 'idle' | 'restarting' | 'identify' | 'blink' | 'turn' | 'done';
 
-// Mirrors the hold window in register-alumni-personal.tsx (not exported there).
-// There is no frontal hold: login captures on the first frontal frame.
-const TURN_HOLD_MS = 360;
-// Same deadline login-page.tsx uses before giving up on the frontal lock.
-const ALIGN_TIMEOUT_MS = 15000;
+// Per-stage deadline. Nothing here may wait forever: an invisible stalled gate
+// is the failure mode that made the earlier version look broken.
+const STAGE_TIMEOUT_MS = 20000;
 // How long the camera stays dark between "Verify" and the rehearsal, so the
 // restart is visible rather than instantaneous.
 const VERIFY_RESTART_MS = 1200;
@@ -237,15 +234,14 @@ export function AdminFaceDebug() {
 
     // ── Login rehearsal ─────────────────────────────────────────────────────
     const [verifyStage, setVerifyStage] = useState<VerifyStage>('idle');
-    const [verifyChallenge, setVerifyChallenge] = useState<VerifyChallenge>('blink');
     const [turnDirection, setTurnDirection] = useState<'left' | 'right'>('left');
     const [verifyHint, setVerifyHint] = useState('');
     // Read by the sampling loop, which must not re-subscribe on every stage change.
     const verifyStageRef = useRef<VerifyStage>('idle');
-    const verifyChallengeRef = useRef<VerifyChallenge>('blink');
     const turnDirectionRef = useRef<'left' | 'right'>('left');
-    const holdStartRef = useRef<number | null>(null);
-    /** Descriptor grabbed during the frontal step, submitted after the gesture. */
+    /** Highest yaw seen in the requested direction, for the turn stage. */
+    const peakYawRef = useRef(0);
+    /** Descriptor captured and matched in stage 1. */
     const pendingDescriptorRef = useRef<number[] | null>(null);
     const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const alignTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -262,9 +258,6 @@ export function AdminFaceDebug() {
     useEffect(() => {
         verifyStageRef.current = verifyStage;
     }, [verifyStage]);
-    useEffect(() => {
-        verifyChallengeRef.current = verifyChallenge;
-    }, [verifyChallenge]);
     useEffect(() => {
         turnDirectionRef.current = turnDirection;
     }, [turnDirection]);
@@ -305,23 +298,32 @@ export function AdminFaceDebug() {
         alignTimeoutRef.current = null;
     }, []);
 
-    // Arm a deadline while aligning. login-page.tsx gives up after 15s with a
-    // readable message; spinning forever on an invisible failed gate is what
-    // made this stage look broken.
+    // Every waiting stage gets a deadline, and the message says which gate was
+    // still unsatisfied and what it last read.
     useEffect(() => {
-        if (verifyStage !== 'aligning') {
+        const waiting = verifyStage === 'identify' || verifyStage === 'blink' || verifyStage === 'turn';
+        if (!waiting) {
             clearAlignTimeout();
             return;
         }
         alignTimeoutRef.current = setTimeout(() => {
-            const { faceDetected, yaw } = lastGateRef.current;
-            setVerifyHint(
-                !faceDetected
-                    ? 'Gave up: no face detected at all. Check lighting and framing.'
-                    : `Gave up: last yaw was ${yaw.toFixed(1)}°, needs to be within ±${FRONTAL_YAW_TOLERANCE_DEG}°.`,
-            );
+            const { faceDetected } = lastGateRef.current;
+            const blinkState = detectorRef.current.debugState();
+            if (!faceDetected) {
+                setVerifyHint('Gave up: no face detected. Check lighting and framing.');
+            } else if (verifyStage === 'identify') {
+                setVerifyHint('Gave up: a face was visible but no descriptor could be read.');
+            } else if (verifyStage === 'blink') {
+                setVerifyHint(
+                    `Gave up on the blink: lowest EAR was ${blinkState.minEar === 1 ? 'n/a' : blinkState.minEar.toFixed(3)}, needed to drop to ${blinkState.closedCut.toFixed(3)}.`,
+                );
+            } else {
+                setVerifyHint(
+                    `Gave up on the turn: peak yaw was ${peakYawRef.current.toFixed(1)}°, needed ${HEAD_TURN_YAW_THRESHOLD_DEG}°.`,
+                );
+            }
             setVerifyStage('idle');
-        }, ALIGN_TIMEOUT_MS);
+        }, STAGE_TIMEOUT_MS);
         return clearAlignTimeout;
     }, [verifyStage, clearAlignTimeout]);
 
@@ -406,7 +408,7 @@ export function AdminFaceDebug() {
                     // diagnostics page that would cap the counter at 1 and look
                     // like a broken camera, so re-arm for the next one. Soft
                     // reset keeps the learned baseline.
-                    if (verifyStageRef.current !== 'challenge') {
+                    if (verifyStageRef.current !== 'blink') {
                         detectorRef.current.reset();
                     }
                 }
@@ -423,75 +425,78 @@ export function AdminFaceDebug() {
                 });
 
                 // ── Login rehearsal state machine ───────────────────────────
+                // Three stages, in the order that actually makes sense:
+                //   1. identify — is there a face, and is it the RIGHT face?
+                //   2. blink    — so it is not a photograph
+                //   3. turn     — so it is not a screen or a flat print
+                //
+                // Stage 1 has no separate yaw gate on purpose. face-api's
+                // recognition net is only reliable near-frontal, so a descriptor
+                // that MATCHES is itself proof the pose was frontal enough. The
+                // previous build gated on a 2D yaw estimate instead, which on a
+                // laptop camera sitting below eye level could sit outside the
+                // tolerance even while the user looked straight ahead — and then
+                // nothing could ever satisfy it.
                 lastGateRef.current = {
                     faceDetected: !!landmarks,
                     yaw: landmarks ? estimateHeadYawDegrees(landmarks) : 0,
                 };
                 const stage = verifyStageRef.current;
-                if (stage === 'aligning' || stage === 'challenge') {
-                    if (!landmarks) {
-                        holdStartRef.current = null;
-                    } else if (stage === 'aligning') {
-                        // Matches login-page.tsx exactly: yaw alone, and the
-                        // FIRST frontal frame captures. An earlier version here
-                        // also required a closed mouth and a 720 ms continuous
-                        // hold, which made the rehearsal harder to pass than the
-                        // login it is supposed to imitate.
-                        const yaw = estimateHeadYawDegrees(landmarks);
-                        if (Math.abs(yaw) <= FRONTAL_YAW_TOLERANCE_DEG) {
-                            const d = await grabDescriptor();
-                            if (d) {
+
+                if (stage === 'identify') {
+                    if (landmarks) {
+                        const d = await grabDescriptor();
+                        const acct = accountRef.current;
+                        if (d && acct) {
+                            const result = await verifyDebugFace(acct.id, d);
+                            setVerifyResult(result);
+                            if (result.isMatch) {
                                 pendingDescriptorRef.current = d;
+                                peakYawRef.current = 0;
                                 detectorRef.current.reset();
-                                clearAlignTimeout();
-                                setVerifyStage('challenge');
+                                setVerifyStage('blink');
                                 setVerifyHint('');
                             } else {
-                                // Frontal enough for the landmark pass but the
-                                // descriptor net found nothing — usually motion
-                                // blur or low light. Keep polling; the timeout
-                                // is what stops this spinning forever.
-                                setVerifyHint('Frontal, but no descriptor yet — hold still, more light.');
-                            }
-                        }
-                    } else {
-                        // challenge
-                        let passed = false;
-                        if (verifyChallengeRef.current === 'blink') {
-                            passed = detectorRef.current.hasBlinked();
-                        } else {
-                            const yaw = estimateHeadYawDegrees(landmarks);
-                            const met =
-                                turnDirectionRef.current === 'left'
-                                    ? yaw >= HEAD_TURN_YAW_THRESHOLD_DEG
-                                    : yaw <= -HEAD_TURN_YAW_THRESHOLD_DEG;
-                            if (!met) {
-                                holdStartRef.current = null;
-                            } else {
-                                if (holdStartRef.current === null) holdStartRef.current = now;
-                                passed = now - holdStartRef.current >= TURN_HOLD_MS;
-                            }
-                        }
-
-                        if (passed) {
-                            holdStartRef.current = null;
-                            const descriptor = pendingDescriptorRef.current;
-                            const acct = accountRef.current;
-                            setVerifyStage('submitting');
-                            if (!descriptor || !acct) {
-                                setVerifyHint('Lost the captured frame — start over.');
+                                // Wrong face. Stop here rather than asking for
+                                // gestures — liveness on the wrong person proves
+                                // nothing, and continuing would imply otherwise.
+                                setVerifyHint(
+                                    `Face did not match (distance ${result.distance} vs threshold ${result.threshold}).`,
+                                );
                                 setVerifyStage('idle');
-                            } else {
-                                try {
-                                    setVerifyResult(await verifyDebugFace(acct.id, descriptor));
-                                    setVerifyStage('done');
-                                } catch (e) {
-                                    setAccountError(
-                                        e instanceof Error ? e.message : 'Verification failed.',
-                                    );
-                                    setVerifyStage('idle');
-                                }
                             }
+                        } else if (!d) {
+                            setVerifyHint('Face seen but no descriptor yet — hold still, more light.');
+                        }
+                    }
+                } else if (stage === 'blink') {
+                    if (detectorRef.current.hasBlinked()) {
+                        peakYawRef.current = 0;
+                        setVerifyStage('turn');
+                        setVerifyHint('');
+                    }
+                } else if (stage === 'turn') {
+                    // Track the PEAK yaw rather than requiring a sustained hold.
+                    //
+                    // TinyFaceDetector loses the face well before a full profile,
+                    // so a turn far enough to be convincing is often a turn far
+                    // enough to stop being detected. Requiring a continuous hold
+                    // meant the detection gap reset the timer and the challenge
+                    // could not be completed at all. A peak that was genuinely
+                    // observed is not invalidated by the frames that came after.
+                    if (landmarks) {
+                        const yaw = estimateHeadYawDegrees(landmarks);
+                        const signed = turnDirectionRef.current === 'left' ? yaw : -yaw;
+                        if (signed > peakYawRef.current) peakYawRef.current = signed;
+                    }
+                    if (peakYawRef.current >= HEAD_TURN_YAW_THRESHOLD_DEG) {
+                        const descriptor = pendingDescriptorRef.current;
+                        if (!descriptor) {
+                            setVerifyHint('Lost the captured frame — start over.');
+                            setVerifyStage('idle');
+                        } else {
+                            setVerifyStage('done');
+                            setVerifyHint('');
                         }
                     }
                 }
@@ -531,24 +536,23 @@ export function AdminFaceDebug() {
         setAccountError('');
         setVerifyResult(null);
         pendingDescriptorRef.current = null;
-        holdStartRef.current = null;
+        peakYawRef.current = 0;
 
-        const challenge: VerifyChallenge = Math.random() < 0.5 ? 'blink' : 'head_turn';
-        setVerifyChallenge(challenge);
+        // Direction stays randomised so a pre-recorded clip cannot be replayed.
         setTurnDirection(Math.random() < 0.5 ? 'left' : 'right');
 
         stopCamera();
         setVerifyStage('restarting');
         setVerifyHint('');
         restartTimerRef.current = setTimeout(() => {
-            void startCamera().then(() => setVerifyStage('aligning'));
+            void startCamera().then(() => setVerifyStage('identify'));
         }, VERIFY_RESTART_MS);
     }, [startCamera, stopCamera]);
 
     const cancelVerify = useCallback(() => {
         if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
         restartTimerRef.current = null;
-        holdStartRef.current = null;
+        peakYawRef.current = 0;
         pendingDescriptorRef.current = null;
         setVerifyStage('idle');
         setVerifyHint('');
@@ -560,6 +564,13 @@ export function AdminFaceDebug() {
         },
         [],
     );
+
+    // The peak is tracked in a ref (written from the loop); mirror it for the
+    // overlay so the user can watch it climb as they turn.
+    const peakYawDisplay =
+        verifyStage === 'turn'
+            ? Math.max(peakYawRef.current, turnDirection === 'left' ? metrics.yaw : -metrics.yaw)
+            : 0;
 
     const { blink } = metrics;
     const nominalFps = Math.round(1000 / FACE_SAMPLE_INTERVAL_MS);
@@ -621,33 +632,23 @@ export function AdminFaceDebug() {
 
                             {verifyStage !== 'idle' && verifyStage !== 'done' && (
                                 <div className="absolute inset-x-0 bottom-0 bg-black/70 px-3 py-2.5 text-center backdrop-blur-sm">
-                                    <p
-                                        className="text-sm text-white"
-                                        style={{ fontWeight: 600 }}
-                                    >
+                                    <p className="text-sm text-white" style={{ fontWeight: 600 }}>
                                         {verifyStage === 'restarting' && 'Restarting camera…'}
-                                        {verifyStage === 'aligning' && 'Look straight at the camera'}
-                                        {verifyStage === 'challenge' &&
-                                            (verifyChallenge === 'blink'
-                                                ? 'Blink once'
-                                                : `Turn your head ${turnDirection}`)}
-                                        {verifyStage === 'submitting' && 'Comparing…'}
+                                        {verifyStage === 'identify' && '1 · Look at the camera'}
+                                        {verifyStage === 'blink' && '2 · Blink once'}
+                                        {verifyStage === 'turn' &&
+                                            `3 · Turn your head ${turnDirection}`}
                                     </p>
                                     <p className="mt-0.5 font-mono text-[0.68rem] text-white/70">
-                                        {verifyStage === 'aligning' &&
+                                        {verifyStage === 'identify' &&
                                             (metrics.faceDetected
-                                                ? `yaw ${metrics.yaw.toFixed(1)}° / ±${FRONTAL_YAW_TOLERANCE_DEG}° ${
-                                                      Math.abs(metrics.yaw) <= FRONTAL_YAW_TOLERANCE_DEG
-                                                          ? '✓'
-                                                          : '— turn to face the camera'
-                                                  }`
+                                                ? 'face seen — matching against the enrolled descriptor'
                                                 : 'no face detected')}
-                                        {verifyStage === 'challenge' &&
-                                            (verifyChallenge === 'blink'
-                                                ? `EAR ${metrics.ear.toFixed(3)} / cut ${blink.closedCut.toFixed(3)}`
-                                                : `yaw ${metrics.yaw.toFixed(1)}° / needs ${turnDirection === 'left' ? '≥' : '≤ -'}${HEAD_TURN_YAW_THRESHOLD_DEG}°`)}
-                                        {(verifyStage === 'restarting' ||
-                                            verifyStage === 'submitting') &&
+                                        {verifyStage === 'blink' &&
+                                            `EAR ${metrics.ear.toFixed(3)} → needs ≤ ${blink.closedCut.toFixed(3)}`}
+                                        {verifyStage === 'turn' &&
+                                            `peak ${metrics.faceDetected ? '' : '(face lost, peak kept) '}${peakYawDisplay.toFixed(1)}° → needs ${HEAD_TURN_YAW_THRESHOLD_DEG}°`}
+                                        {verifyStage === 'restarting' &&
                                             (verifyHint || 'Rehearsing a graduate login')}
                                     </p>
                                 </div>
@@ -890,7 +891,7 @@ export function AdminFaceDebug() {
                                         onClick={startVerify}
                                         className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 disabled:opacity-50 gt-press"
                                     >
-                                        <Activity className="size-4" /> Verify like a login
+                                        <Activity className="size-4" /> Verify like a login (3 stages)
                                     </button>
                                 ) : (
                                     <button
