@@ -8,6 +8,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { PERSONAL_DRAFT_KEY, saveDraft, loadDraft, hasDraft } from './registration-draft';
 import { clearFaceMesh, drawFaceMesh } from '../app/face-mesh';
+import { describeCameraError, openFrontCamera } from '../app/camera';
 import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle,
   User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
@@ -813,17 +814,12 @@ export default function RegisterAlumniPersonal({
     setCameraError('');
     setStepError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' },
-        audio: false,
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
+      // See app/camera.ts: phones need the video laid out before play(), a
+      // secure context, and a fallback constraint.
+      await openFrontCamera(videoRef.current);
       setCameraOn(true);
-    } catch {
-      setCameraError('Camera access denied. Please allow camera permission and try again.');
+    } catch (err) {
+      setCameraError(describeCameraError(err));
     }
   };
 
@@ -1894,7 +1890,9 @@ export default function RegisterAlumniPersonal({
                         detection and the saved photos are unaffected. */}
                     <video
                       ref={videoRef}
-                      className={`absolute inset-0 w-full h-full object-cover object-center -scale-x-100 ${(!cameraOn || allCaptured) ? 'hidden' : ''}`}
+                      // opacity-0, never `hidden`: iOS Safari will not play a
+                      // display:none video, so the camera never appeared on phones.
+                      className={`absolute inset-0 w-full h-full object-cover object-center -scale-x-100 ${(!cameraOn || allCaptured) ? 'opacity-0' : ''}`}
                       playsInline muted autoPlay
                     />
                     <canvas

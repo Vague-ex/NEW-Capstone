@@ -308,7 +308,9 @@ EMAIL_BACKEND = _env_str("EMAIL_BACKEND") or _default_email_backend
 
 # Public URL of the deployed graduate-facing frontend (Vercel). Used as the
 # call-to-action link in transactional emails (e.g. retracking reminder).
-GRADUATE_LOGIN_URL = _env_str("GRADUATE_LOGIN_URL") or "https://chmsu-alumni-gradtracer.vercel.app/"
+# Defaults to the live domain: the old Vercel deployment is gone, and a missing
+# env key must not put a dead link into every approval email.
+GRADUATE_LOGIN_URL = _env_str("GRADUATE_LOGIN_URL") or "https://gradtracer.tech/"
 
 # Resend HTTPS API (preferred on Render where outbound SMTP is blocked).
 # When RESEND_API_KEY is set, the email helper sends via Resend's HTTPS

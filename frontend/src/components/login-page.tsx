@@ -18,6 +18,7 @@ import {
 import ForgotPasswordModal from "./auth/forgot-password";
 import { captureGps } from "../app/geolocation";
 import { clearFaceMesh, drawFaceMesh } from "../app/face-mesh";
+import { describeCameraError, openFrontCamera } from "../app/camera";
 import {
   ensureModernFaceModelsLoaded,
   extractFaceDescriptorFromDataUrl,
@@ -498,14 +499,12 @@ export function LoginPage() {
     // Frontal capture happens first, then the liveness challenge.
     setScanStage("aligning");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
+      // See app/camera.ts: phones need the video laid out before play(), a
+      // secure context, and a fallback constraint.
+      await openFrontCamera(videoRef.current);
       setCameraOn(true);
-    } catch {
-      setCameraError("Camera access was denied. Please allow camera permission and try again.");
+    } catch (err) {
+      setCameraError(describeCameraError(err));
       setScanStage("idle");
     }
   };
@@ -790,7 +789,9 @@ export function LoginPage() {
                 <div className="relative bg-gray-900 rounded-2xl overflow-hidden mb-4 mx-auto flex items-center justify-center w-full max-w-[420px] sm:max-w-[560px] lg:max-w-[680px] aspect-[3/4] sm:aspect-[4/3]">
                   <video
                     ref={videoRef}
-                    className={`absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "hidden" : ""}`}
+                    // opacity-0, never `hidden`: iOS Safari will not play a
+                    // display:none video, so the camera never appeared on phones.
+                    className={`absolute inset-0 w-full h-full object-cover object-center ${!cameraOn ? "opacity-0" : ""}`}
                     playsInline muted autoPlay
                   />
                   <canvas

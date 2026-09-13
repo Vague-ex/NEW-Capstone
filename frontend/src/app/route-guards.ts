@@ -29,9 +29,9 @@ export function hasAdminSession(): boolean {
 }
 
 /**
- * A graduate session. The profile alone is accepted, not just the token,
- * because registration lands on /alumni/pending with the profile stored but no
- * token issued yet -- requiring the token would bounce every new registrant.
+ * A graduate session, as written by the graduate login. The profile alone is
+ * accepted as well as the token so a login response without a token still
+ * reaches /alumni/pending; the pages themselves re-check status with the API.
  */
 export function hasAlumniSession(): boolean {
   return Boolean(read(ALUMNI_ACCESS_TOKEN_KEY)) || Boolean(read('alumni_user'));

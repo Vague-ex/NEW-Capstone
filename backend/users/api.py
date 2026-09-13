@@ -1055,10 +1055,46 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
     else:
         verification_status = "pending"
 
+    # The enrolment sweep. Kept apart from registrationFaceScans, whose
+    # front/left/right shape the list views and older records still rely on.
+    # Each pose is paired with the angle the browser measured for it, so a
+    # reviewer can see the turn actually covered both sides.
+    pose_scans_raw = template.get("registration_pose_scans", {}) if isinstance(template, dict) else {}
+    sample_meta = template.get("sample_meta", []) if isinstance(template, dict) else []
+    if not isinstance(sample_meta, list):
+        sample_meta = []
+    registration_pose_scans = []
+    if isinstance(pose_scans_raw, dict):
+        for pose_key, pose_url in pose_scans_raw.items():
+            if not (isinstance(pose_url, str) and pose_url.strip()):
+                continue
+            try:
+                pose_index = int(str(pose_key).rsplit("_", 1)[-1])
+            except ValueError:
+                pose_index = -1
+            meta = (
+                sample_meta[pose_index]
+                if 0 <= pose_index < len(sample_meta) and isinstance(sample_meta[pose_index], dict)
+                else {}
+            )
+            registration_pose_scans.append({
+                "key": pose_key,
+                "url": pose_url.strip(),
+                "target": _to_float(meta.get("target")),
+                "yaw": _to_float(meta.get("yaw")),
+            })
+    capture_summary = {
+        "engine": template.get("engine") if isinstance(template, dict) else None,
+        "frames": capture_meta.get("frames") if isinstance(capture_meta, dict) else None,
+        "samples": capture_meta.get("samples") if isinstance(capture_meta, dict) else None,
+    }
+
     return {
         "id": str(account.id),
         "name": name,
         "email": account.user.email,
+        "registrationPoseScans": registration_pose_scans,
+        "captureSummary": capture_summary,
         "graduationYear": graduation_year,
         "verificationStatus": verification_status,
         "accountStatus": account.account_status,

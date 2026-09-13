@@ -3,9 +3,14 @@ Graduate Tracer System
 
 Hi {{ recipient_name|default:"there" }},
 
-Good news — the program administrator has reviewed and APPROVED your graduate
-registration. Your account is now verified, and you can log in to view and
-update your employment record any time.
+Good news — the BSIS program administrator has reviewed and APPROVED your
+graduate registration. Your account is now verified.
+
+You can now log in to view your profile and dashboard, and keep your
+employment record up to date.
+
+Sign in with the same email and password you registered with. You will be
+asked for a quick face scan when you log in.
 
 {% if login_url %}Log in here: {{ login_url }}
 {% endif %}

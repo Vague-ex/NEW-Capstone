@@ -7,9 +7,9 @@
  * Single FormData submission happens here after all data is collected.
  */
 
-import { useReducer, useEffect } from 'react';
+import { useReducer } from 'react';
 import { useNavigate } from 'react-router';
-import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
+import { GraduationCap, CheckCircle2, AlertCircle, ChevronRight, Mail } from 'lucide-react';
 import { clearRegistrationDrafts } from './registration-draft';
 import RegisterAlumniPersonal, { type PersonalFormData, type BiometricData, type MasterlistMatchStatus } from './register-alumni-personal';
 import RegisterAlumniEmployment, { type EmploymentFormData } from './register-alumni-employment';
@@ -28,6 +28,8 @@ interface RegistrationState {
   isSubmitting: boolean;
   submitError: string | null;
   firstName: string;
+  /** Where the approval email will be sent, shown on the completion screen. */
+  email: string;
   matchStatus: MasterlistMatchStatus;
   /** Per-field problems the server rejected, shown on the owning form. */
   fieldErrors: Record<string, string> | null;
@@ -39,7 +41,7 @@ type Action =
   | { type: 'SET_EMPLOYMENT_DATA'; employmentData: EmploymentFormData }
   | { type: 'GO_TO_EMPLOYMENT' }
   | { type: 'GO_TO_TERMS' }
-  | { type: 'GO_TO_COMPLETE'; firstName: string }
+  | { type: 'GO_TO_COMPLETE'; firstName: string; email: string }
   | { type: 'SET_SUBMITTING'; isSubmitting: boolean }
   | { type: 'SET_ERROR'; error: string }
   | { type: 'NEEDS_CORRECTION'; step: RegistrationStage; fieldErrors: Record<string, string> }
@@ -54,6 +56,7 @@ const INITIAL_STATE: RegistrationState = {
   isSubmitting: false,
   submitError: null,
   firstName: '',
+  email: '',
   matchStatus: 'idle',
   fieldErrors: null,
 };
@@ -71,7 +74,7 @@ function reducer(state: RegistrationState, action: Action): RegistrationState {
     case 'GO_TO_TERMS':
       return { ...state, stage: 'terms' };
     case 'GO_TO_COMPLETE':
-      return { ...state, stage: 'complete', firstName: action.firstName, isSubmitting: false };
+      return { ...state, stage: 'complete', firstName: action.firstName, email: action.email, isSubmitting: false };
     case 'SET_SUBMITTING':
       return { ...state, isSubmitting: action.isSubmitting, submitError: null };
     case 'SET_ERROR':
@@ -130,17 +133,26 @@ function ProgressIndicator({ stage }: { stage: RegistrationStage }) {
   );
 }
 
-function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName: string; matchStatus: MasterlistMatchStatus; navigate: (path: string) => void }) {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      // Newly registered graduates are PENDING until the BSIS admin approves —
-      // route them to the pending page, not the dashboard.
-      navigate('/alumni/pending');
-    }, 4000); // 4 second delay before auto-redirect
-
-    return () => clearTimeout(timer);
-  }, [navigate]);
-
+/**
+ * The end of registration, and deliberately a dead end.
+ *
+ * It used to auto-redirect after four seconds to the "under review" page, and
+ * told masterlist-matched graduates they were auto-verified with a "Go to My
+ * Dashboard" button -- while the server creates every account as PENDING. So a
+ * graduate read "you're in", then got bounced to "please wait". Now it says
+ * one true thing: submitted, and you will be emailed once approved.
+ */
+function RegistrationComplete({
+  firstName,
+  email,
+  matchStatus,
+  navigate,
+}: {
+  firstName: string;
+  email: string;
+  matchStatus: MasterlistMatchStatus;
+  navigate: (path: string) => void;
+}) {
   const isMatched = matchStatus === 'matched';
 
   return (
@@ -152,36 +164,45 @@ function RegistrationComplete({ firstName, matchStatus, navigate }: { firstName:
         <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>Graduate Registration</p>
       </div>
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="gt-scale bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center max-w-md w-full">
+        <div className="gt-scale bg-white rounded-2xl border border-gray-100 shadow-sm p-8 sm:p-10 text-center max-w-md w-full">
           <div className="flex size-16 items-center justify-center rounded-full bg-emerald-100 mx-auto mb-5">
             <CheckCircle2 className="size-9 text-emerald-500" />
           </div>
-          <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Account Created!</h2>
-          <p className="text-gray-600 text-sm mb-1">Welcome, {firstName}!</p>
+          <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Registration Submitted</h2>
+          <p className="text-gray-600 text-sm mb-4">Thank you{firstName ? `, ${firstName}` : ''}!</p>
 
-          {isMatched ? (
-            <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-6">
-              <span className="size-2 rounded-full bg-emerald-500" />
-              <span className="text-emerald-700 text-xs" style={{ fontWeight: 600 }}>Matched in BSIS Graduate List - Auto-Verified</span>
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-6">
-              <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Pending BSIS Admin Verification</span>
-            </div>
+          <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-3">
+            <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Awaiting BSIS Admin approval</span>
+          </div>
+          {isMatched && (
+            <p className="text-emerald-700 text-xs mb-3" style={{ fontWeight: 600 }}>
+              Your name was found in the BSIS graduate list.
+            </p>
           )}
 
-          <p className="text-gray-500 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
-            {isMatched
-              ? 'Your name was found in the BSIS graduate list. Your account has been automatically verified and is ready to use.'
-              : 'Your account and CHED Graduate Tracer survey have been submitted. The BSIS Admin will review your face recognition scan and verify your identity.'}
+          <p className="text-gray-500 text-sm mb-5 leading-relaxed">
+            The BSIS Admin will review your details and face scan. You don't need to wait on this page.
           </p>
+
+          <div className="flex items-start gap-3 bg-green-50 border border-green-100 rounded-xl p-4 mb-6 text-left">
+            <Mail className="size-5 text-[#166534] shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-green-900 text-sm" style={{ fontWeight: 600 }}>We'll email you when you're approved</p>
+              <p className="text-green-800 text-xs mt-0.5 leading-relaxed">
+                A confirmation will be sent to{' '}
+                <span className="break-all" style={{ fontWeight: 600 }}>{email || 'your email address'}</span>.
+                After that, sign in to view your profile and dashboard.
+              </p>
+            </div>
+          </div>
+
           <button
-            onClick={() => navigate('/alumni/dashboard')}
-            className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition mx-auto"
+            onClick={() => navigate('/')}
+            className="gt-press w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition"
             style={{ fontWeight: 600 }}
           >
-            Go to My Dashboard <ChevronRight className="size-4" />
+            Back to Login
           </button>
         </div>
       </div>
@@ -316,13 +337,15 @@ export function RegisterAlumni() {
         );
       }
 
-      const response = await registerAlumni(payload);
-      sessionStorage.setItem('alumni_user', JSON.stringify(response.alumni));
+      await registerAlumni(payload);
+      // No session is stored. The new account is PENDING until the BSIS admin
+      // approves it, and the graduate is told by email when that happens --
+      // there is nothing in the portal for them to open until then.
       // Registration succeeded, so the drafts have served their purpose. Left
       // behind, the next graduate to register in this tab would inherit these
       // answers as their own starting point.
       clearRegistrationDrafts();
-      dispatch({ type: 'GO_TO_COMPLETE', firstName: personalData.firstName });
+      dispatch({ type: 'GO_TO_COMPLETE', firstName: personalData.firstName, email: personalData.email });
     } catch (error: unknown) {
       // The clean-data gate rejects impossible answers with the field(s) at
       // fault and the form that owns them. Route there rather than dropping the
@@ -381,7 +404,7 @@ export function RegisterAlumni() {
   }
 
   if (state.stage === 'complete') {
-    return <RegistrationComplete firstName={state.firstName} matchStatus={state.matchStatus} navigate={navigate} />;
+    return <RegistrationComplete firstName={state.firstName} email={state.email} matchStatus={state.matchStatus} navigate={navigate} />;
   }
 
   if (state.stage === 'error') {

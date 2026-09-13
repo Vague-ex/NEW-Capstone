@@ -102,6 +102,27 @@ function getFaceScans(a: AlumniRecord): FaceScans {
   return { front, left, right };
 }
 
+/** One enrolment-sweep frame, as returned by the admin payload. */
+type PoseScan = { key: string; url: string; target: number | null; yaw: number | null };
+
+function getPoseScans(a: AlumniRecord): PoseScan[] {
+  const raw = (a as Record<string, unknown>).registrationPoseScans;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is PoseScan => !!p && typeof p === 'object' && typeof (p as PoseScan).url === 'string')
+    // Graduate's left (positive yaw) first, matching the registration screen.
+    .sort((p, q) => (q.target ?? 0) - (p.target ?? 0));
+}
+
+function getCaptureSummary(a: AlumniRecord): { engine?: string | null; frames?: number | null; samples?: number | null } {
+  const raw = (a as Record<string, unknown>).captureSummary;
+  return raw && typeof raw === 'object' ? (raw as Record<string, number | string | null>) : {};
+}
+
+const POSE_LABELS: Record<number, string> = {
+  24: 'Left', 12: 'Slight left', 0: 'Front', [-12]: 'Slight right', [-24]: 'Right',
+};
+
 function getPrimaryFaceScan(scans: FaceScans): string | undefined {
   return scans.front ?? scans.left ?? scans.right;
 }
@@ -598,7 +619,16 @@ export function AdminUnverified() {
                   <div className="p-6 grid sm:grid-cols-2 gap-6">
                     {/* Biometric */}
                     <div>
-                      <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>BIOMETRIC CAPTURE (3-SHOT)</p>
+                      <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>
+                        BIOMETRIC CAPTURE{' '}
+                        <span className="text-gray-400">
+                          {getPoseScans(a).length > 0
+                            ? `(FRONT PHOTO + ${getPoseScans(a).length}-ANGLE SWEEP)`
+                            : faceScans.left || faceScans.right
+                              ? '(3-SHOT, LEGACY)'
+                              : '(FRONT PHOTO)'}
+                        </span>
+                      </p>
                       <div className="bg-gray-900 rounded-2xl overflow-hidden" style={{ aspectRatio: '3/4' }}>
                         {hasBiometric && primaryFaceScan ? (
                           <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} face recognition scan`} className="w-full h-full object-cover object-center" />
@@ -636,6 +666,47 @@ export function AdminUnverified() {
                           ))}
                         </div>
                       )}
+
+                      {/* Enrolment sweep: the angled frames registration now
+                          captures. The front photo above stays the one to
+                          verify against; these show the turn really happened
+                          and are what the face template was built from. */}
+                      {getPoseScans(a).length > 0 && (() => {
+                        const summary = getCaptureSummary(a);
+                        return (
+                          <div className="mt-2">
+                            <div className="grid grid-cols-5 gap-1.5">
+                              {getPoseScans(a).map((pose) => {
+                                const label = pose.target !== null ? POSE_LABELS[pose.target] ?? `${pose.target}°` : pose.key;
+                                return (
+                                  <a
+                                    key={pose.key}
+                                    href={pose.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={`${label} (graduate's perspective) - open full size`}
+                                    className="block bg-gray-900 rounded-lg overflow-hidden border border-gray-700 hover:border-emerald-400 transition"
+                                  >
+                                    <div className="aspect-[3/4]">
+                                      <img src={pose.url} alt={`${a.name || 'Graduate'} ${label} sweep frame`} className="w-full h-full object-cover object-center" />
+                                    </div>
+                                    <p className="text-center text-[10px] text-gray-300 py-1 leading-tight">
+                                      {label}
+                                      {pose.yaw !== null && <span className="block text-gray-500">{Math.round(pose.yaw)}°</span>}
+                                    </p>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                            {summary.frames != null && (
+                              <p className="mt-1.5 text-[11px] text-gray-500">
+                                {summary.frames} frames captured · {summary.samples ?? 0} used for face matching
+                                {summary.engine ? ` (${summary.engine})` : ''}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       <div className="mt-3 space-y-1">
                         <span className="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-3 py-1.5 rounded-full" style={{ fontWeight: 600 }}>

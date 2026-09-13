@@ -865,6 +865,85 @@ class MasterlistNameParsingTests(SimpleTestCase):
 		self.assertEqual(derive_last_name("Dela Cruz"), "Cruz")
 
 
+class _InlineThread:
+	"""threading.Thread stand-in that runs its target on start(), so a
+	fire-and-forget send can be asserted on without racing the thread."""
+
+	def __init__(self, target=None, daemon=None, **kwargs):
+		self._target = target
+
+	def start(self):
+		if self._target:
+			self._target()
+
+
+class GraduateApprovalEmailTests(TestCase):
+	"""
+	Approving a graduate emails them.
+
+	Registration no longer hands the graduate a session or a "go to dashboard"
+	button -- it tells them to wait for this email. So the email is the only way
+	they learn they can sign in, and it has to carry a working link.
+	"""
+
+	def setUp(self):
+		self.admin_user = User.objects.create_user(
+			email="approver@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.graduate = User.objects.create_user(
+			email="approved-grad@example.com", password="GradPass123!", role=User.Role.ALUMNI,
+		)
+		self.account = AlumniAccount.objects.create(
+			user=self.graduate, account_status=AccountStatus.PENDING,
+		)
+
+	def _approve(self):
+		request = APIRequestFactory().post(
+			f"/api/admin/alumni/{self.account.id}/approve/", {}, format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_admin_access_token(self.admin_user.id)}",
+		)
+		with self.settings(
+			RESEND_API_KEY="",
+			EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+			GRADUATE_LOGIN_URL="https://gradtracer.tech/",
+		), patch("threading.Thread", _InlineThread):
+			return api.AlumniRequestApproveView.as_view()(request, alumni_id=str(self.account.id))
+
+	def test_approval_activates_the_account_and_emails_the_graduate(self):
+		from django.core import mail
+
+		response = self._approve()
+
+		self.assertEqual(response.status_code, 200)
+		self.account.refresh_from_db()
+		self.assertEqual(self.account.account_status, AccountStatus.ACTIVE)
+
+		self.assertEqual(len(mail.outbox), 1)
+		message = mail.outbox[0]
+		self.assertEqual(message.to, ["approved-grad@example.com"])
+		self.assertEqual(message.subject, "Your graduate account has been verified")
+		self.assertIn("view your profile", message.body)
+		self.assertIn("https://gradtracer.tech/", message.body)
+		html = message.alternatives[0][0]
+		self.assertIn('href="https://gradtracer.tech/"', html)
+
+	def test_a_failed_send_does_not_undo_the_approval(self):
+		"""The send is best-effort: a mail outage must never block the admin."""
+		with patch("users.email_send.send_branded_email", side_effect=RuntimeError("smtp down")):
+			response = self._approve()
+		self.assertEqual(response.status_code, 200)
+		self.account.refresh_from_db()
+		self.assertEqual(self.account.account_status, AccountStatus.ACTIVE)
+
+	def test_default_login_link_is_the_live_domain(self):
+		"""With no env override the link must not point at the retired Vercel site."""
+		from django.conf import settings as dj_settings
+		if os.environ.get("GRADUATE_LOGIN_URL"):
+			self.skipTest("GRADUATE_LOGIN_URL is overridden in this environment")
+		self.assertNotIn("vercel.app", dj_settings.GRADUATE_LOGIN_URL)
+
+
 class _FakeServerEngine:
 	"""
 	Stands in for InsightFace: embeds the image bytes itself, compares by a toy
@@ -1015,6 +1094,25 @@ class RegistrationSweepTests(TestCase):
 		template, _ = self._register(self._payload(), self.engine)
 		self.assertEqual(len(template["face_descriptor_samples"]), 1)
 		self.assertEqual(template["registration_pose_scans"], {})
+
+	def test_admin_payload_lists_the_sweep_with_its_angles(self):
+		"""Pending verification needs every pose, and the angle each was taken at."""
+		_, account = self._register(
+			self._payload(
+				poses=[b"same-left", b"same-right"],
+				face_images_meta=json.dumps([{"target": 24, "yaw": 22.5}, {"target": -24, "yaw": -21.0}]),
+			),
+			self.engine,
+		)
+		payload = api._admin_alumni_payload(account)
+
+		poses = payload["registrationPoseScans"]
+		self.assertEqual([p["target"] for p in poses], [24.0, -24.0])
+		self.assertEqual(poses[1]["yaw"], -21.0)
+		self.assertTrue(all("face_pose_" in p["url"] for p in poses))
+		self.assertEqual(payload["captureSummary"], {"engine": "insightface", "frames": 3, "samples": 3})
+		# The reviewed photo is still the front one, never a pose.
+		self.assertIn("face_front", payload["facePhotoUrl"])
 
 	def test_faceapi_uses_client_descriptors_and_does_not_embed_poses(self):
 		"""The browser engine already chose its frontal frames; the server must not second-guess it."""
