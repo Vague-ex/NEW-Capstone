@@ -251,7 +251,10 @@ export function AdminBatchUpload() {
 
   return (
     <PortalLayout role="admin" pageTitle="Batch Upload" pageSubtitle="Register new graduating batch records to the master list">
-      <div className="gt-stagger max-w-4xl mx-auto space-y-5">
+      {/* Wide screens: master list on the left, upload workflow on the right,
+          instead of one 896px column with empty space on both sides. */}
+      <div className="gt-stagger flex flex-col gap-5 xl:grid xl:grid-cols-12 xl:items-start">
+        <div className="flex flex-col gap-5 min-w-0 xl:col-span-5">
 
         {/* Info banner */}
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -278,7 +281,7 @@ export function AdminBatchUpload() {
               <p className="text-gray-400 text-xs">total entries</p>
             </div>
           </div>
-          <div className="mt-4 grid grid-cols-3 sm:grid-cols-6 gap-2">
+          <div className="mt-4 grid grid-cols-3 sm:grid-cols-6 xl:grid-cols-3 2xl:grid-cols-6 gap-2">
             {YEAR_RANGE.map(yr => {
               const count = batchCount(yr);
               return (
@@ -308,7 +311,7 @@ export function AdminBatchUpload() {
                   placeholder="Search name or year…"
                   className="w-full mb-2 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#166534]"
                 />
-                <div className="max-h-72 overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
+                <div className="max-h-72 xl:max-h-[28rem] overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
                   {filteredMaster.length === 0 ? (
                     <p className="px-3 py-4 text-center text-gray-400 text-xs">No matching records.</p>
                   ) : (
@@ -325,7 +328,9 @@ export function AdminBatchUpload() {
             )}
           </div>
         </div>
+        </div>
 
+        <div className="flex flex-col gap-5 min-w-0 xl:col-span-7">
         {/* Mode tabs */}
         <div className="flex gap-1 bg-white rounded-2xl border border-gray-100 shadow-sm p-1.5">
           <button onClick={() => setMode('csv')}
@@ -342,14 +347,14 @@ export function AdminBatchUpload() {
 
         {/* ── CSV Upload ── */}
         {mode === 'csv' && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
+              <div className="min-w-0">
                 <h3 className="text-gray-800" style={{ fontWeight: 700 }}>CSV Batch Upload</h3>
                 <p className="text-gray-500 text-xs mt-0.5">Write each row as <span className="font-mono">First Middle Last,Year</span>. The surname is the last word and is matched case-insensitively at sign-up.</p>
               </div>
               <button onClick={downloadTemplate}
-                className="flex items-center gap-1.5 text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-2 rounded-lg transition"
+                className="flex shrink-0 self-start sm:self-auto items-center gap-1.5 text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-2.5 sm:py-2 rounded-lg transition"
                 style={{ fontWeight: 600 }}>
                 <Download className="size-3.5" /> Download Template
               </button>
@@ -366,7 +371,7 @@ export function AdminBatchUpload() {
               <>
                 <div
                   onClick={() => fileRef.current?.click()}
-                  className="border-2 border-dashed border-gray-200 rounded-2xl p-12 text-center cursor-pointer hover:border-[#166534]/40 hover:bg-[#166534]/3 transition">
+                  className="border-2 border-dashed border-gray-200 rounded-2xl p-8 sm:p-12 text-center cursor-pointer hover:border-[#166534]/40 hover:bg-[#166534]/3 transition">
                   {isProcessing ? (
                     <div className="flex flex-col items-center gap-3">
                       <span className="size-8 border-4 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin" />
@@ -389,7 +394,7 @@ export function AdminBatchUpload() {
             )}
 
             {csvStage === 'review' && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-6">
                 <div className="flex items-start gap-3 mb-4">
                   <Info className="size-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="flex-1">
@@ -436,8 +441,9 @@ export function AdminBatchUpload() {
                             <td className="px-3 py-2 text-right">
                               <button
                                 onClick={() => removeImportedEntry(i)}
-                                className="text-amber-700 hover:text-red-600 transition"
+                                className="inline-flex size-8 items-center justify-center rounded-lg text-amber-700 hover:text-red-600 hover:bg-red-50 transition"
                                 title="Remove row"
+                                aria-label="Remove row"
                               >
                                 <X className="size-3.5" />
                               </button>
@@ -449,18 +455,18 @@ export function AdminBatchUpload() {
                   </div>
                 </div>
 
-                <div className="mt-5 flex items-center justify-between gap-3">
+                <div className="mt-5 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
                   <button
                     onClick={resetCsvFlow}
                     disabled={isProcessing}
-                    className="text-amber-800 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-sm px-4 py-2 rounded-lg transition"
+                    className="text-amber-800 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 text-sm px-4 py-2.5 sm:py-2 rounded-lg transition"
                     style={{ fontWeight: 600 }}>
                     Discard and upload a different file
                   </button>
                   <button
                     onClick={saveImportedToDb}
                     disabled={isProcessing || importedEntries.length === 0}
-                    className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] disabled:opacity-50 text-white text-sm px-5 py-2.5 rounded-lg transition"
+                    className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] disabled:opacity-50 text-white text-sm px-5 py-2.5 rounded-lg transition"
                     style={{ fontWeight: 600 }}>
                     {isProcessing ? (
                       <>
@@ -508,7 +514,7 @@ export function AdminBatchUpload() {
 
         {/* ── Manual Entry ── */}
         {mode === 'manual' && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <div className="mb-5">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Manual Batch Entry</h3>
               <p className="text-gray-500 text-xs mt-0.5">Enter each graduate as <span className="font-mono">First Middle Last</span> plus the year. The system matches by surname (case-insensitive) and graduation year.</p>
@@ -562,15 +568,15 @@ export function AdminBatchUpload() {
                 ))}
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button type="button" onClick={addRow}
-                  className="flex items-center gap-2 border border-dashed border-gray-300 hover:border-[#166534]/50 text-gray-500 hover:text-[#166534] px-4 py-2.5 rounded-xl text-sm transition"
+                  className="flex flex-1 sm:flex-none items-center justify-center gap-2 border border-dashed border-gray-300 hover:border-[#166534]/50 text-gray-500 hover:text-[#166534] px-4 py-2.5 rounded-xl text-sm transition"
                   style={{ fontWeight: 500 }}>
                   <Plus className="size-4" /> Add Row
                 </button>
-                <div className="flex-1" />
+                <div className="hidden sm:block flex-1" />
                 <button type="submit" disabled={isProcessing}
-                  className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-6 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
+                  className="flex w-full sm:w-auto items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-6 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
                   style={{ fontWeight: 600 }}>
                   {isProcessing
                     ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
@@ -580,6 +586,7 @@ export function AdminBatchUpload() {
             </form>
           </div>
         )}
+        </div>
       </div>
     </PortalLayout>
   );

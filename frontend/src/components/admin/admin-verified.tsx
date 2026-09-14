@@ -62,8 +62,10 @@ function getFaceScans(a: AlumniRecord): FaceScans {
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-      <span className="text-gray-400 text-xs shrink-0 w-40 pt-0.5">{label}</span>
-      <span className={`text-xs flex-1 break-words ${value && value !== '-' ? 'text-gray-700' : 'text-gray-300 italic'}`}
+      <span className="text-gray-400 text-xs shrink-0 w-28 sm:w-40 pt-0.5">{label}</span>
+      {/* min-w-0 + anywhere: a long email has no spaces to break at and
+          pushed the sheet sideways on phones. */}
+      <span className={`text-xs flex-1 min-w-0 [overflow-wrap:anywhere] ${value && value !== '-' ? 'text-gray-700' : 'text-gray-300 italic'}`}
         style={{ fontWeight: value && value !== '-' ? 500 : 400 }}>
         {value && value !== '-' ? value : 'Not provided'}
       </span>
@@ -99,7 +101,7 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
-      <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-2xl max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-2xl xl:max-w-4xl max-h-[100dvh] sm:max-h-[90vh] rounded-t-2xl flex flex-col overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
@@ -120,20 +122,21 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition shrink-0">
+          <button onClick={onClose} aria-label="Close" className="flex size-10 items-center justify-center rounded-lg hover:bg-gray-100 transition shrink-0">
             <X className="size-5 text-gray-500" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-100 shrink-0 px-5">
+        <div className="flex border-b border-gray-100 shrink-0 px-2 sm:px-5">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${tab === t.key ? 'border-[#166534] text-[#166534]' : 'border-transparent text-gray-500 hover:text-gray-700'
+              className={`flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-2 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${tab === t.key ? 'border-[#166534] text-[#166534]' : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               style={{ fontWeight: tab === t.key ? 700 : 400 }}>
               <t.icon className="size-3.5" />
-              {t.label}
+              <span className="sm:hidden">{t.label.split(' ')[0]}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           ))}
         </div>
@@ -351,8 +354,8 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 shrink-0 flex items-center justify-between">
-          <span className="text-gray-400 text-xs">{a.email}</span>
+        <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 shrink-0 flex items-center justify-between gap-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3">
+          <span className="text-gray-400 text-xs truncate min-w-0">{a.email}</span>
           <button onClick={onClose}
             className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm transition"
             style={{ fontWeight: 500 }}>
@@ -514,25 +517,25 @@ export function AdminVerified() {
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-48">
+          <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
             <input type="text" placeholder="Search name, email, company…" value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15" />
           </div>
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
+            className="flex-1 min-w-0 sm:flex-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
             <option value="all">All Batches</option>
             {availableBatches.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
+            className="flex-1 min-w-0 sm:flex-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
             <option value="all">All Status</option>
             <option value="employed">Employed</option>
             <option value="self-employed">Self-Employed</option>
             <option value="unemployed">Unemployed</option>
           </select>
-          <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none px-2">
+          <label className="inline-flex w-full sm:w-auto min-h-11 sm:min-h-0 items-center gap-2 text-xs text-gray-600 cursor-pointer select-none px-2">
             <input type="checkbox" checked={showSample} onChange={e => setShowSample(e.target.checked)} className="size-3.5 rounded border-gray-300" />
             Show masterlist records
           </label>
@@ -548,7 +551,44 @@ export function AdminVerified() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              {/* Phones: one tappable card per graduate instead of a 600px
+                  table scrolled sideways inside the card. */}
+              <ul className="sm:hidden divide-y divide-gray-100">
+                {pagedAlumni.map(a => (
+                  <li key={String(a.id ?? a.email ?? safeName(a))}>
+                    <button
+                      type="button"
+                      onClick={() => setModalAlumni(a)}
+                      className="w-full flex items-start gap-3 px-4 py-3.5 text-left active:bg-gray-100 transition"
+                    >
+                      <div className="flex size-10 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
+                        style={{ fontWeight: 700 }}>
+                        {safeInitials(a)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{safeName(a)}</p>
+                          <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
+                            a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
+                            }`} style={{ fontWeight: 600 }}>
+                            {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
+                          </span>
+                        </div>
+                        <p className="text-gray-400 text-xs truncate">{a.email}</p>
+                        <p className="text-gray-600 text-xs mt-1 truncate">
+                          {[a.jobTitle, a.company].filter(Boolean).join(' · ') || 'No job on record'}
+                        </p>
+                        <p className="text-gray-400 text-[11px] mt-0.5 truncate">
+                          Batch {a.graduationYear}{a.workCity ? ` · ${a.workCity}` : ''}
+                        </p>
+                      </div>
+                      <ChevronRight className="size-4 text-gray-300 shrink-0 self-center" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full min-w-[600px]">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50/60">
@@ -628,7 +668,7 @@ export function AdminVerified() {
               )}
 
               {verifiedAlumni.length > PAGE_SIZE && (
-                <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
                   <p className="text-xs text-gray-500">
                     Showing <span className="text-gray-700" style={{ fontWeight: 600 }}>
                       {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, verifiedAlumni.length)}
@@ -638,7 +678,7 @@ export function AdminVerified() {
                     <button
                       onClick={() => setPage(p => Math.max(1, p - 1))}
                       disabled={safePage === 1}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      className="flex items-center gap-1 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       style={{ fontWeight: 500 }}
                     >
                       <ChevronLeft className="size-3.5" /> Prev
@@ -649,7 +689,7 @@ export function AdminVerified() {
                     <button
                       onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                       disabled={safePage === totalPages}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      className="flex items-center gap-1 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
                       style={{ fontWeight: 500 }}
                     >
                       Next <ChevronRight className="size-3.5" />

@@ -343,18 +343,20 @@ export function AdminAnalyticsPredictions() {
         <span style={{ fontWeight: 600 }}>Reading the forecast:</span> the two forecast cards project the next batch past your latest year (e.g. 2025 → 2026). &ldquo;80% PI&rdquo; is the prediction interval — we&rsquo;re about 80% confident the real value lands in that range. Projections further out are rougher estimates.
       </p>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      {/* Very wide screens: trend and distribution charts side by side. */}
+      <div className="grid gap-6 2xl:grid-cols-2">
+      <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
             <Zap className="size-4 text-[#166534]" /> Batch Trend & Forecast
           </h3>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
               {(['employment', 'hire'] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => setProjectionView(v)}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs transition ${
+                  className={`px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-lg text-xs transition ${
                     projectionView === v
                       ? 'bg-white shadow-sm text-gray-900'
                       : 'text-gray-500 hover:text-gray-700'
@@ -368,7 +370,7 @@ export function AdminAnalyticsPredictions() {
             <button
               onClick={() => setRawNumbersOpen(true)}
               disabled={perBatch.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ fontWeight: 600 }}
             >
               <TableIcon className="size-3.5" /> View raw numbers
@@ -493,7 +495,7 @@ export function AdminAnalyticsPredictions() {
         )}
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
             <Clock className="size-4 text-[#166534]" /> Time-to-Hire Distribution ·{' '}
@@ -502,10 +504,10 @@ export function AdminAnalyticsPredictions() {
             </span>
           </h3>
           {forecastList.length > 0 && (
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 self-start sm:self-auto">
+            <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1 self-start sm:self-auto">
               <button
                 onClick={() => setDistributionYearIdx(-1)}
-                className={`px-2.5 py-1 rounded-lg text-xs transition ${
+                className={`px-2.5 py-2 sm:py-1 rounded-lg text-xs transition ${
                   distributionYearIdx === -1
                     ? 'bg-white shadow-sm text-gray-900'
                     : 'text-gray-500 hover:text-gray-700'
@@ -518,7 +520,7 @@ export function AdminAnalyticsPredictions() {
                 <button
                   key={f.batch}
                   onClick={() => setDistributionYearIdx(i)}
-                  className={`px-2.5 py-1 rounded-lg text-xs transition ${
+                  className={`px-2.5 py-2 sm:py-1 rounded-lg text-xs transition ${
                     distributionYearIdx === i
                       ? 'bg-white shadow-sm text-gray-900'
                       : 'text-gray-500 hover:text-gray-700'
@@ -561,9 +563,10 @@ export function AdminAnalyticsPredictions() {
           </ResponsiveContainer>
         )}
       </div>
+      </div>
 
       {/* ── Top Skills Forecast ─────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>

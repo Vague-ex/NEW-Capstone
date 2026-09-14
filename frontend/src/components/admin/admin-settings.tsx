@@ -72,6 +72,9 @@ function useCompactLayout(): boolean {
 /** Phones render long lists in pages of this size. */
 const MOBILE_PAGE_SIZE = 25;
 
+/** Item lists flow into columns on wide screens instead of one long strip. */
+const LIST_GRID = 'grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-0.5';
+
 // Master-rail selection: 'all', null (uncategorized), or a specific id.
 type Selection = 'all' | null | string;
 
@@ -355,7 +358,7 @@ function InlineRenameTrigger({
       <button
         onClick={save}
         disabled={busy}
-        className="flex size-5 items-center justify-center rounded bg-white text-[#166534] hover:bg-white/90 disabled:opacity-60"
+        className="flex size-8 lg:size-5 items-center justify-center rounded bg-white text-[#166534] hover:bg-white/90 disabled:opacity-60"
         aria-label="Save"
       >
         {busy ? (
@@ -366,7 +369,7 @@ function InlineRenameTrigger({
       </button>
       <button
         onClick={() => setEditing(false)}
-        className="flex size-5 items-center justify-center rounded text-white/80 hover:bg-white/10"
+        className="flex size-8 lg:size-5 items-center justify-center rounded text-white/80 hover:bg-white/10"
         aria-label="Cancel"
       >
         <X className="size-3" />
@@ -546,7 +549,7 @@ function ShowMore({ shown, total, onMore }: { shown: number; total: number; onMo
     <button
       type="button"
       onClick={onMore}
-      className="mt-2 w-full rounded-xl border border-gray-200 py-3 text-sm text-gray-600 hover:bg-gray-50 transition"
+      className="col-span-full mt-2 w-full rounded-xl border border-gray-200 py-3 text-sm text-gray-600 hover:bg-gray-50 transition"
       style={{ fontWeight: 600 }}
     >
       Show more ({shown} of {total})
@@ -557,7 +560,7 @@ function ShowMore({ shown, total, onMore }: { shown: number; total: number; onMo
 // ── Empty state ─────────────────────────────────────────────────────────────
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center py-10 text-gray-400">
+    <div className="col-span-full flex flex-col items-center justify-center text-center py-10 text-gray-400">
       <Inbox className="size-8 mb-2 opacity-60" />
       <p className="text-sm">{message}</p>
     </div>
@@ -719,7 +722,7 @@ export function AdminSettings() {
       pageTitle="Settings"
       pageSubtitle="Manage skills, jobs, locations and admin users"
     >
-      <div className="gt-stagger max-w-6xl mx-auto space-y-5">
+      <div className="gt-stagger space-y-5">
         {/* Tab nav (matches admin-analytics.tsx pattern) */}
         <div className="border-b border-gray-200">
           {/* Phones: all four tabs fit as a grid. The desktop row scrolled
@@ -1130,7 +1133,7 @@ function SkillsView({
       {/* Master rail On phones it folds into "Manage categories" below the list. */}
       <details
         open={!compact}
-        className="group/rail order-last lg:order-none lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3"
+        className="group/rail order-last lg:order-none lg:col-span-4 2xl:col-span-3 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3"
       >
         <summary
           className="lg:hidden flex items-center justify-between gap-2 cursor-pointer list-none px-3 py-2.5 text-sm text-gray-800 [&::-webkit-details-marker]:hidden"
@@ -1187,7 +1190,7 @@ function SkillsView({
       </details>
 
       {/* Detail pane */}
-      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
+      <div className="lg:col-span-8 2xl:col-span-9 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
@@ -1200,6 +1203,7 @@ function SkillsView({
           </div>
         </div>
 
+        <div className="lg:max-w-3xl">
         <AddRow
           placeholder="New skill (e.g. Cloud Computing)"
           onAdd={(name, extra) => onAddSkill(name, extra)}
@@ -1207,8 +1211,9 @@ function SkillsView({
           selectLabel="Category (optional)"
           selectedFixed={typeof selected === 'string' && selected !== 'all' ? selected : undefined}
         />
+        </div>
 
-        <div className="mt-4 space-y-0.5">
+        <div className={`mt-4 ${LIST_GRID}`}>
           {visibleSkills.length === 0 ? (
             <EmptyState
               message={
@@ -1331,7 +1336,7 @@ function JobsView({
       {/* Master rail - industries On phones it folds into "Manage industries" below the list. */}
       <details
         open={!compact}
-        className="group/rail order-last lg:order-none lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3"
+        className="group/rail order-last lg:order-none lg:col-span-4 2xl:col-span-3 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3"
       >
         <summary
           className="lg:hidden flex items-center justify-between gap-2 cursor-pointer list-none px-3 py-2.5 text-sm text-gray-800 [&::-webkit-details-marker]:hidden"
@@ -1388,7 +1393,7 @@ function JobsView({
       </details>
 
       {/* Detail pane - job titles */}
-      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
+      <div className="lg:col-span-8 2xl:col-span-9 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
         <div className="mb-4">
           <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
             {headerLabel}
@@ -1399,6 +1404,7 @@ function JobsView({
           </p>
         </div>
 
+        <div className="lg:max-w-3xl">
         <AddRow
           placeholder="New job title (e.g. Systems Analyst)"
           onAdd={(name, extra) => onAddJob(name, extra)}
@@ -1406,8 +1412,9 @@ function JobsView({
           selectLabel="Industry (optional)"
           selectedFixed={typeof selected === 'string' && selected !== 'all' ? selected : undefined}
         />
+        </div>
 
-        <div className="mt-4 space-y-0.5">
+        <div className={`mt-4 ${LIST_GRID}`}>
           {visibleJobs.length === 0 ? (
             <EmptyState
               message={
@@ -1575,7 +1582,7 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
     : items;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Provinces</h3>
@@ -1584,7 +1591,7 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
         </span>
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 lg:max-w-xl">
         <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>
           Filter by region
         </label>
@@ -1601,7 +1608,7 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
       </div>
 
       {filterRegionId && (
-        <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2 lg:max-w-3xl">
           <input
             type="text"
             placeholder="Province name"
@@ -1632,11 +1639,11 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
         <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
       )}
 
-      <div className="space-y-0.5">
+      <div className={LIST_GRID}>
         {!filterRegionId ? (
           <EmptyState message="Pick a region above to browse and edit its provinces." />
         ) : loading ? (
-          <p className="text-gray-400 text-sm text-center py-4">Loading provinces…</p>
+          <p className="col-span-full text-gray-400 text-sm text-center py-4">Loading provinces…</p>
         ) : visible.length === 0 ? (
           <EmptyState message={q ? 'No provinces match that search.' : 'No provinces in this region yet.'} />
         ) : (
@@ -1752,7 +1759,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
     : items;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Cities / Municipalities</h3>
@@ -1761,7 +1768,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
         </span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 lg:max-w-3xl">
         <div>
           <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Region</label>
           <select
@@ -1798,7 +1805,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
       </div>
 
       {filterRegionId && (
-        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2 lg:max-w-4xl">
           <input
             type="text"
             placeholder="City / Municipality name"
@@ -1840,11 +1847,13 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
         <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
       )}
 
-      <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
+      {/* Scrolls inside the card on desktop only; a nested scroller on a phone
+          traps the thumb. */}
+      <div className={`${LIST_GRID} lg:max-h-[480px] lg:overflow-y-auto`}>
         {!filterRegionId ? (
           <EmptyState message="Pick a region (and optionally a province) to browse cities." />
         ) : loading ? (
-          <p className="text-gray-400 text-sm text-center py-4">Loading…</p>
+          <p className="col-span-full text-gray-400 text-sm text-center py-4">Loading…</p>
         ) : visible.length === 0 ? (
           <EmptyState message={q ? 'No cities match that search.' : 'No cities in this scope yet.'} />
         ) : (
@@ -1979,7 +1988,7 @@ function BarangaysView({ regions, search }: { regions: RegionItem[]; search: str
   const selectCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-100';
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Barangays</h3>
@@ -1988,7 +1997,7 @@ function BarangaysView({ regions, search }: { regions: RegionItem[]; search: str
         </span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 xl:max-w-5xl">
         <div>
           <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Region</label>
           <select value={regionId} onChange={(e) => setRegionId(e.target.value)} className={selectCls}>
@@ -2033,7 +2042,7 @@ function BarangaysView({ regions, search }: { regions: RegionItem[]; search: str
       </div>
 
       {cityId && (
-        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2 lg:max-w-4xl">
           <input
             type="text"
             placeholder="Barangay name"
@@ -2065,11 +2074,11 @@ function BarangaysView({ regions, search }: { regions: RegionItem[]; search: str
         <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
       )}
 
-      <div className="space-y-0.5 lg:max-h-[400px] lg:overflow-y-auto">
+      <div className={`${LIST_GRID} lg:max-h-[480px] lg:overflow-y-auto`}>
         {!cityId ? (
           <EmptyState message="Pick a region and a city or municipality to browse its barangays." />
         ) : loading ? (
-          <p className="text-gray-400 text-sm text-center py-4">Loading…</p>
+          <p className="col-span-full text-gray-400 text-sm text-center py-4">Loading…</p>
         ) : visible.length === 0 ? (
           <EmptyState message={q ? 'No barangays match that search.' : 'No barangays for this city yet.'} />
         ) : (
@@ -2113,7 +2122,7 @@ function RegionsView({
     : regions;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
@@ -2124,13 +2133,15 @@ function RegionsView({
         </span>
       </div>
 
-      <AddRow
-        placeholder="Region name (e.g. Region VI - Western Visayas)"
-        onAdd={(name, code) => onAdd(name, code)}
-        extraTextPlaceholder="Code (e.g. R6)"
-      />
+      <div className="lg:max-w-3xl">
+        <AddRow
+          placeholder="Region name (e.g. Region VI - Western Visayas)"
+          onAdd={(name, code) => onAdd(name, code)}
+          extraTextPlaceholder="Code (e.g. R6)"
+        />
+      </div>
 
-      <div className="mt-4 space-y-0.5">
+      <div className={`mt-4 ${LIST_GRID}`}>
         {visible.length === 0 ? (
           <EmptyState
             message={q ? 'No regions match that search.' : 'No regions yet - add the first one above.'}
@@ -2284,7 +2295,7 @@ function UsersView({
           }
         />
       ) : (
-        <div className="space-y-1.5">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
           {visible.map((a) =>
             editingId === a.id ? (
               <AdminEditForm

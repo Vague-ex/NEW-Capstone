@@ -168,7 +168,7 @@ export function AlumniPersonalEducation() {
 
     return (
         <PortalLayout role="alumni" pageTitle="Personal and Education" pageSubtitle="Update your personal and educational information from your registration form">
-            <div className="max-w-3xl mx-auto space-y-5 pb-28">
+            <div className="space-y-5 pb-28">
 
                 <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5">
                     <ShieldCheck className="size-4 text-[#166534] shrink-0 mt-0.5" />
@@ -182,9 +182,10 @@ export function AlumniPersonalEducation() {
                     </div>
                 </div>
 
-                <form onSubmit={handleSave} className="space-y-5">
+                {/* Wide screens: Personal and Education cards sit side by side. */}
+                <form onSubmit={handleSave} className="space-y-5 xl:space-y-0 xl:grid xl:grid-cols-2 xl:gap-5 xl:items-start">
 
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
                         <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
                             <User className="size-4 text-[#166534]" /> Personal Information
                         </h3>
@@ -221,7 +222,7 @@ export function AlumniPersonalEducation() {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date <span className="text-gray-400 font-normal">(month &amp; year)</span></label>
                                     <input type="month" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
@@ -254,7 +255,7 @@ export function AlumniPersonalEducation() {
 
                             <div>
                                 <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Permanent Address</label>
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-gray-500 text-xs mb-1.5">City/Municipality</label>
                                         <div className="relative">
@@ -271,13 +272,13 @@ export function AlumniPersonalEducation() {
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
                         <h3 className="text-gray-800 mb-4 flex items-center gap-2" style={{ fontWeight: 700 }}>
                             <BookOpen className="size-4 text-[#166534]" /> Education
                         </h3>
 
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Degree Program</label>
                                     <input type="text" value="Bachelor of Science in Information Systems (BSIS)" readOnly className={`${inputCls} bg-gray-100 text-gray-500 cursor-not-allowed text-xs`} />
@@ -352,8 +353,8 @@ export function AlumniPersonalEducation() {
                 </form>
 
                 {/* Sticky save bar */}
-                <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 sm:left-64">
-                    <div className="max-w-3xl mx-auto flex items-center gap-3">
+                <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:left-60 lg:px-6 2xl:px-8">
+                    <div className="max-w-[1800px] mx-auto flex items-center gap-3">
                         <div className="flex-1 min-w-0 text-xs">
                             {saveError ? (
                                 <span className="flex items-center gap-1.5 text-red-700" style={{ fontWeight: 600 }}>
@@ -364,14 +365,14 @@ export function AlumniPersonalEducation() {
                                     <CheckCircle2 className="size-4" /> Saved - your information is up to date.
                                 </span>
                             ) : (
-                                <span className="text-gray-500">Keep your tracer record current - changes save instantly to the BSIS program.</span>
+                                <span className="hidden sm:inline text-gray-500">Keep your tracer record current - changes save instantly to the BSIS program.</span>
                             )}
                         </div>
                         <button
                             type="button"
                             onClick={(e) => handleSave(e as unknown as React.FormEvent)}
                             disabled={isSaving}
-                            className="inline-flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
+                            className="inline-flex shrink-0 min-h-11 items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
                             style={{ fontWeight: 600 }}
                         >
                             {isSaving

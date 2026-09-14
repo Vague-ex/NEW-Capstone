@@ -141,7 +141,8 @@ export function AlumniSkills() {
 
   return (
     <PortalLayout role="alumni" pageTitle="My Skills" pageSubtitle="Manage your BSIS competency and skills profile">
-      <div className="max-w-3xl mx-auto space-y-5">
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-12 xl:items-start">
+        <div className="flex flex-col gap-5 min-w-0 xl:col-span-8">
 
         {/* Header banner */}
         <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-5 text-white">
@@ -159,7 +160,7 @@ export function AlumniSkills() {
         </div>
 
         {/* ── BSIS Core Skills Checklist ──────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
           <div className="flex items-start justify-between mb-2">
             <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
               BSIS Program Skills - Skills Utilized
@@ -175,7 +176,7 @@ export function AlumniSkills() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2">
             {BSIS_CORE_SKILLS.map(skill => {
               const checked = selectedSkills.includes(skill);
               return (
@@ -203,7 +204,7 @@ export function AlumniSkills() {
         </div>
 
         {/* ── Additional Skills (Category Browser) ───────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
           <div className="flex items-start justify-between mb-1">
             <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Additional Technical Skills</h3>
             {additionalSelected.length > 0 && (
@@ -227,7 +228,7 @@ export function AlumniSkills() {
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                  className={`px-3 py-1.5 rounded-full text-xs border transition ${activeCategory === cat
+                  className={`px-3.5 py-2.5 sm:py-1.5 rounded-full text-xs border transition ${activeCategory === cat
                       ? 'bg-[#166534] border-[#166534] text-white'
                       : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
                     }`}
@@ -250,7 +251,7 @@ export function AlumniSkills() {
                     <button
                       key={skill}
                       onClick={() => toggleSkill(skill)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${isSelected
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 sm:py-1.5 rounded-full text-xs border transition ${isSelected
                           ? 'bg-[#166534] border-[#166534] text-white'
                           : 'border-gray-200 text-gray-700 hover:border-[#166534]/30 hover:bg-green-50'
                         }`}
@@ -277,7 +278,7 @@ export function AlumniSkills() {
                     className="inline-flex items-center gap-1.5 bg-[#166534] text-white text-xs px-3 py-1.5 rounded-full"
                     style={{ fontWeight: 500 }}>
                     {skill}
-                    <button onClick={() => removeSkill(skill)} className="hover:text-red-300 transition ml-0.5">
+                    <button onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`} className="-my-1.5 -mr-2 flex size-8 items-center justify-center rounded-full hover:bg-white/15 hover:text-red-300 transition">
                       <X className="size-3" />
                     </button>
                   </span>
@@ -288,7 +289,7 @@ export function AlumniSkills() {
         </div>
 
         {/* ── Soft Skills ─────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
           <div className="flex items-start justify-between mb-2">
             <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Soft Skills</h3>
             <span className="text-xs text-[#166534] bg-[#166534]/10 px-2.5 py-1 rounded-full shrink-0 ml-2" style={{ fontWeight: 600 }}>
@@ -298,7 +299,7 @@ export function AlumniSkills() {
           <p className="text-gray-500 text-xs mb-4">
             Interpersonal and behavioral skills that contribute to your employability.
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2">
             {SOFT_SKILLS.map(skill => {
               const checked = selectedSoftSkills.includes(skill);
               return (
@@ -332,7 +333,7 @@ export function AlumniSkills() {
                     className="inline-flex items-center gap-1.5 bg-[#166534] text-white text-xs px-3 py-1.5 rounded-full"
                     style={{ fontWeight: 500 }}>
                     {skill}
-                    <button onClick={() => removeSoftSkill(skill)} className="hover:text-red-300 transition ml-0.5">
+                    <button onClick={() => removeSoftSkill(skill)} aria-label={`Remove ${skill}`} className="-my-1.5 -mr-2 flex size-8 items-center justify-center rounded-full hover:bg-white/15 hover:text-red-300 transition">
                       <X className="size-3" />
                     </button>
                   </span>
@@ -342,9 +343,15 @@ export function AlumniSkills() {
           )}
         </div>
 
+        </div>
+
+        {/* Phones: the aside dissolves (display: contents) so the save button
+            stays sticky for the whole page. Wide screens: a sticky summary
+            column beside the checklists. */}
+        <aside className="contents xl:flex xl:flex-col xl:gap-5 xl:col-span-4 xl:sticky xl:top-0">
         {/* ── All Selected Skills Summary ─────────────────────────────── */}
         {selectedSkills.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
                 All Selected Skills
@@ -362,7 +369,7 @@ export function AlumniSkills() {
                   className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-full"
                   style={{ fontWeight: 500 }}>
                   {skill}
-                  <button onClick={() => removeSkill(skill)} className="hover:text-red-500 transition ml-0.5">
+                  <button onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`} className="-my-1.5 -mr-2 flex size-8 items-center justify-center rounded-full hover:bg-gray-200 hover:text-red-500 transition">
                     <X className="size-3" />
                   </button>
                 </span>
@@ -379,6 +386,7 @@ export function AlumniSkills() {
             ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
             : <><Save className="size-4" /> Save Skills ({selectedSkills.length + selectedSoftSkills.length} selected)</>}
         </button>
+        </aside>
 
       </div>
     </PortalLayout>

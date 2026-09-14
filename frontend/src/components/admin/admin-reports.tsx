@@ -291,7 +291,7 @@ export function AdminReports() {
       )}
 
       {/* Report cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
         {REPORTS.map((r) => {
           const stamp = stamps[r.id];
           const Icon = r.Icon;
@@ -324,7 +324,7 @@ export function AdminReports() {
                   <button
                     onClick={() => handlePreview(r)}
                     disabled={isLoading || previewLoadingId !== null || batchRangeInvalid}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#16a34a] text-white text-xs hover:bg-[#15803d] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1.5 px-3 py-2.5 sm:py-1.5 rounded-lg bg-[#16a34a] text-white text-xs hover:bg-[#15803d] transition disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ fontWeight: 600 }}
                   >
                     {isLoading
@@ -374,10 +374,10 @@ function PreviewModal({
   onGenerate: (format: ExportFormat) => void | Promise<void>;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-5xl xl:max-w-6xl max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[#16a34a] to-[#22c55e] text-white px-6 py-4 flex items-start justify-between">
+        <div className="bg-gradient-to-r from-[#16a34a] to-[#22c55e] text-white px-4 sm:px-6 py-4 flex items-start justify-between gap-3">
           <div>
             <p className="text-emerald-100 text-xs uppercase tracking-wide" style={{ fontWeight: 600 }}>
               Report Preview
@@ -391,13 +391,13 @@ function PreviewModal({
               Generated {new Date(payload.generated_at).toLocaleString()}
             </p>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white" aria-label="Close">
+          <button onClick={onClose} className="-mr-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-white/80 hover:text-white hover:bg-white/10" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
 
         {/* Sections */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 bg-emerald-50/40">
+        <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-5 space-y-6 bg-emerald-50/40">
           {payload.sections.length === 0 && (
             <div className="rounded-xl border border-dashed border-emerald-200 bg-white p-6 text-center">
               <p className="text-sm text-gray-500">This report returned no sections for the current filters.</p>
@@ -443,14 +443,14 @@ function PreviewModal({
         </div>
 
         {/* Footer: generate buttons */}
-        <div className="px-6 py-4 border-t border-emerald-100 bg-white flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-gray-500">
+        <div className="px-4 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-emerald-100 bg-white flex flex-wrap items-center justify-between gap-3">
+          <p className="hidden sm:block text-xs text-gray-500">
             Like what you see? Generate the report in your preferred format.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 w-full sm:w-auto sm:flex sm:flex-wrap gap-2">
             <button
               onClick={onClose}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 transition"
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 transition"
               style={{ fontWeight: 600 }}>
               Cancel
             </button>
@@ -463,7 +463,7 @@ function PreviewModal({
                   key={fmt}
                   onClick={() => onGenerate(fmt)}
                   disabled={isBusy || anyBusy}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#16a34a] text-white text-xs hover:bg-[#15803d] transition disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 rounded-lg bg-[#16a34a] text-white text-xs hover:bg-[#15803d] transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}>
                   {isBusy ? <Loader2 className="size-3.5 animate-spin" /> : <FmtIcon className="size-3.5" />}
                   Generate {FORMAT_LABEL[fmt]}

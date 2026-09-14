@@ -234,7 +234,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
             <button
               key={item.path}
               onClick={() => { navigate(item.path); setSidebarOpen(false); }}
-              className={`gt-bubble w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 ${isActive
+              className={`gt-bubble w-full flex items-center gap-3 px-3 py-3 lg:py-2.5 rounded-xl text-sm transition-colors duration-150 ${isActive
                 ? 'bg-white/20 text-white shadow-sm'
                 : 'text-white/60 hover:text-white'
                 }`}
@@ -296,28 +296,31 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Topbar */}
-        <header className="bg-white border-b border-gray-100 px-4 lg:px-6 h-14 flex items-center justify-between shrink-0 shadow-sm">
-          <div className="flex items-center gap-3">
+        <header className="bg-white border-b border-gray-100 px-4 lg:px-6 2xl:px-8 h-14 flex items-center justify-between gap-3 shrink-0 shadow-sm">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition"
+              aria-label="Open menu"
+              className="lg:hidden -ml-2 flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-gray-100 transition"
             >
               <Menu className="size-5 text-gray-600" />
             </button>
             {pageTitle && (
-              <div>
-                <h1 className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>{pageTitle}</h1>
-                {pageSubtitle && <p className="text-gray-400 text-xs">{pageSubtitle}</p>}
+              // One line each: a wrapped subtitle overflowed the 56px bar on phones.
+              <div className="min-w-0">
+                <h1 className="text-gray-900 text-sm truncate" style={{ fontWeight: 700 }}>{pageTitle}</h1>
+                {pageSubtitle && <p className="text-gray-400 text-xs truncate">{pageSubtitle}</p>}
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {role !== 'alumni' && (
               <div className="relative">
                 <button
                   ref={notifButtonRef}
                   onClick={() => setNotifOpen(o => !o)}
-                  className="relative p-2 rounded-lg hover:bg-gray-100 transition"
+                  className="relative flex size-10 items-center justify-center rounded-lg hover:bg-gray-100 transition"
+                  aria-label="Notifications"
                 >
                   <Bell className="size-4 text-gray-500" />
                   {bellNotificationCount > 0 && (
@@ -329,7 +332,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
 
                 {/* Bell dropdown */}
                 {notifOpen && (
-                  <div ref={notifDropdownRef} className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl border border-gray-200 shadow-lg z-50 overflow-hidden">
+                  <div ref={notifDropdownRef} className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-xl border border-gray-200 shadow-lg z-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-gray-800 text-sm" style={{ fontWeight: 600 }}>Notifications</p>
                     </div>
@@ -364,8 +367,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
         </header>
 
         {/* Scrollable content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          {children}
+        {/* Pages fill the width on desktop (dashboards should be fluid); the
+            1800px cap only engages on ultra-wide monitors, where lines and
+            charts would otherwise stretch past comfortable reading width. */}
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6 2xl:p-8">
+          <div className="mx-auto w-full max-w-[1800px]">{children}</div>
         </main>
       </div>
     </div>

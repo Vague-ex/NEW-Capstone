@@ -81,7 +81,7 @@ export function AlumniDashboard() {
       <div className="space-y-6">
 
         {/* ── Profile Banner ── */}
-        <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-6 text-white relative overflow-hidden">
+        <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden">
           <div className="absolute right-0 top-0 bottom-0 w-48 opacity-10 pointer-events-none"
             style={{ background: 'radial-gradient(circle at 100% 50%, white 0%, transparent 70%)' }} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -91,7 +91,7 @@ export function AlumniDashboard() {
               {alumni.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) ?? 'GR'}
             </div>
 
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h2 className="text-white" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{alumni.name}</h2>
                 {/* Verification badge */}
@@ -110,7 +110,7 @@ export function AlumniDashboard() {
                   {statusColor.label}
                 </span>
               </div>
-              <p className="text-white/60 text-sm flex items-center gap-2">
+              <p className="text-white/60 text-sm flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 <Hash className="size-3.5" /> {alumni.schoolId ?? alumni.studentId}
                 <span className="text-white/30">·</span>
                 BSIS Batch {alumni.graduationYear}
@@ -120,19 +120,19 @@ export function AlumniDashboard() {
               )}
             </div>
 
-            <div className="flex flex-col sm:items-end gap-2 shrink-0">
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-3 sm:flex sm:flex-col sm:items-end gap-2 shrink-0">
               <button onClick={() => navigate('/alumni/skills')}
-                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs px-3 py-2 rounded-lg transition"
+                className="flex items-center justify-center sm:justify-start gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs text-center px-3 py-3 sm:py-2 rounded-lg transition"
                 style={{ fontWeight: 600 }}>
                 <Star className="size-3.5" /> Manage Skills
               </button>
               <button onClick={() => navigate('/alumni/profile')}
-                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs px-3 py-2 rounded-lg transition"
+                className="flex items-center justify-center sm:justify-start gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs text-center px-3 py-3 sm:py-2 rounded-lg transition"
                 style={{ fontWeight: 600 }}>
                 <UserCircle className="size-3.5" /> Edit Profile
               </button>
               <button onClick={() => navigate('/alumni/employment')}
-                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs px-3 py-2 rounded-lg transition"
+                className="flex items-center justify-center sm:justify-start gap-1.5 bg-white/15 hover:bg-white/25 text-white text-xs text-center px-3 py-3 sm:py-2 rounded-lg transition"
                 style={{ fontWeight: 600 }}>
                 <Briefcase className="size-3.5" /> Update Employment
               </button>
@@ -211,7 +211,7 @@ export function AlumniDashboard() {
               {!isVerified && <Lock className="size-3.5 text-gray-400 ml-auto" />}
             </h3>
             {isVerified ? (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 min-[400px]:grid-cols-2 2xl:grid-cols-3 gap-4">
                 {(() => {
                   const sd = (alumni.surveyData ?? {}) as Record<string, unknown>;
                   const rawAlignment = alumni.jobAlignment ?? (
@@ -229,7 +229,7 @@ export function AlumniDashboard() {
                 })().map(row => (
                   <div key={row.label}>
                     <p className="text-gray-400 text-xs mb-0.5">{row.label}</p>
-                    <p className="text-gray-800 text-sm" style={{ fontWeight: 500 }}>{row.value}</p>
+                    <p className="text-gray-800 text-sm break-words" style={{ fontWeight: 500 }}>{row.value}</p>
                   </div>
                 ))}
               </div>

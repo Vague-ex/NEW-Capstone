@@ -354,7 +354,7 @@ export function AdminNewDashboard() {
             Employer-verified and self-reported rates are shown side by side
             rather than blended, because only the verified figure is evidence. */}
         {alignment && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-start gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-[#166534]/10 shrink-0">
@@ -408,7 +408,7 @@ export function AdminNewDashboard() {
         )}
 
         <div className="grid lg:grid-cols-2 gap-5 gt-stagger">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <TrendingUp className="size-4 text-[#166534]" /> Employment Rate by Batch
             </h3>
@@ -436,7 +436,7 @@ export function AdminNewDashboard() {
             )}
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <Clock className="size-4 text-[#166534]" /> Avg. Time-to-Hire (months)
             </h3>
@@ -514,7 +514,9 @@ export function AdminNewDashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        {/* Very wide screens: recent updates and top skills side by side. */}
+        <div className="grid gap-5 2xl:grid-cols-2 items-start">
+        <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Recent Profile Updates</h3>
             <button onClick={() => navigate('/admin/verified')}
@@ -563,7 +565,7 @@ export function AdminNewDashboard() {
             <TrendingUp className="size-4 text-[#166534]" /> Top Skills from Verified Graduates
           </h3>
           {topSkills.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-3 gap-3">
               {topSkills.map((s) => (
                 <div key={s.skill} className="rounded-xl p-3 border bg-emerald-50 border-emerald-100">
                   <p className="text-xs mb-1 truncate text-emerald-900" style={{ fontWeight: 600 }}>{s.skill}</p>
@@ -575,6 +577,7 @@ export function AdminNewDashboard() {
           ) : (
             <div className="text-gray-400 text-sm text-center py-6">No skills data from verified graduates yet.</div>
           )}
+        </div>
         </div>
       </div>
     </PortalLayout>

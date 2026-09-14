@@ -69,8 +69,8 @@ type SurveyData = {
 function SectionRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-2 py-2 border-b border-gray-50 last:border-0">
-      <span className="text-gray-400 text-xs w-40 shrink-0 pt-0.5">{label}</span>
-      <span className="text-gray-700 text-xs flex-1" style={{ fontWeight: value && value !== '-' ? 500 : 400, fontStyle: value && value !== '-' ? 'normal' : 'italic', color: value && value !== '-' ? undefined : '#d1d5db' }}>
+      <span className="text-gray-400 text-xs w-28 sm:w-40 shrink-0 pt-0.5">{label}</span>
+      <span className="text-gray-700 text-xs flex-1 min-w-0 [overflow-wrap:anywhere]" style={{ fontWeight: value && value !== '-' ? 500 : 400, fontStyle: value && value !== '-' ? 'normal' : 'italic', color: value && value !== '-' ? undefined : '#d1d5db' }}>
         {value && value !== '-' ? value : 'Not provided'}
       </span>
     </div>
@@ -373,14 +373,14 @@ export function AdminUnverified() {
               {pendingAlumni.length} account{pendingAlumni.length !== 1 ? 's' : ''} awaiting verification
             </span>
           </div>
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
             <input
               type="text"
               placeholder="Search by name or email…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 w-64"
+              className="rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder-gray-400 outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 w-full sm:w-64"
             />
           </div>
         </div>
@@ -500,10 +500,11 @@ export function AdminUnverified() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-2 shrink-0 self-center">
+                      {/* Phones: three equal 44px buttons; the single row ran past a 320px screen. */}
+                      <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:shrink-0 sm:self-center">
                         <button
                           onClick={() => openReview(a)}
-                          className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-xs transition"
+                          className="min-h-11 sm:min-h-0 px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-xs transition"
                           style={{ fontWeight: 600 }}
                         >
                           Full Review
@@ -511,7 +512,7 @@ export function AdminUnverified() {
                         <button
                           onClick={() => handleApprove(rowId)}
                           disabled={!rowId || actionLoading === rowId + '-approve'}
-                          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
+                          className="flex min-h-11 sm:min-h-0 items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
                           style={{ fontWeight: 600 }}
                         >
                           {actionLoading === rowId + '-approve'
@@ -522,7 +523,7 @@ export function AdminUnverified() {
                         <button
                           onClick={() => openReject(rowId, a.name ?? '')}
                           disabled={!rowId || actionLoading === rowId + '-reject'}
-                          className="flex items-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
+                          className="flex min-h-11 sm:min-h-0 items-center justify-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-xl text-xs transition disabled:opacity-60"
                           style={{ fontWeight: 600 }}
                         >
                           {actionLoading === rowId + '-reject'
@@ -561,18 +562,19 @@ export function AdminUnverified() {
         const hasBiometric = hasBiometricCapture(a, faceScans);
         const sd = getSurveyData(a);
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden max-h-[92vh] flex flex-col">
+          // Phones get a full-width bottom sheet; wide screens a larger dialog.
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50">
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl xl:max-w-5xl overflow-hidden max-h-[100dvh] sm:max-h-[92vh] flex flex-col">
 
               {/* Modal header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-9 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-sm" style={{ fontWeight: 700 }}>
+              <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-gray-100 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-sm" style={{ fontWeight: 700 }}>
                     {(a.name ?? 'Unnamed Graduate').split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                   </div>
-                  <div>
-                    <h3 className="text-gray-900" style={{ fontWeight: 700 }}>{a.name ?? 'Unnamed Graduate'}</h3>
-                    <div className="flex items-center gap-2 mt-0.5">
+                  <div className="min-w-0">
+                    <h3 className="text-gray-900 truncate" style={{ fontWeight: 700 }}>{a.name ?? 'Unnamed Graduate'}</h3>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
                       <span className="text-gray-400 text-xs">Batch {a.graduationYear}</span>
                       <span className="text-gray-300">·</span>
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${empStatusColor(a)}`} style={{ fontWeight: 600 }}>
@@ -584,13 +586,13 @@ export function AdminUnverified() {
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setReviewAlumni(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+                <button onClick={() => setReviewAlumni(null)} aria-label="Close" className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-gray-100 transition">
                   <X className="size-5 text-gray-500" />
                 </button>
               </div>
 
               {/* Tabs */}
-              <div className="flex border-b border-gray-100 shrink-0 px-6">
+              <div className="flex border-b border-gray-100 shrink-0 px-2 sm:px-6">
                 {([
                   { key: 'biometric', label: 'Face Recognition & ID', icon: Camera },
                   { key: 'employment', label: 'Employment Data', icon: Briefcase },
@@ -599,14 +601,15 @@ export function AdminUnverified() {
                   <button
                     key={tab.key}
                     onClick={() => setModalTab(tab.key)}
-                    className={`flex items-center gap-1.5 px-4 py-3 text-xs border-b-2 transition -mb-px ${modalTab === tab.key
+                    className={`flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-2 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${modalTab === tab.key
                       ? 'border-[#166534] text-[#166534]'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                       }`}
                     style={{ fontWeight: modalTab === tab.key ? 700 : 400 }}
                   >
                     <tab.icon className="size-3.5" />
-                    {tab.label}
+                    <span className="sm:hidden">{tab.label.split(' ')[0]}</span>
+                    <span className="hidden sm:inline">{tab.label}</span>
                   </button>
                 ))}
               </div>
@@ -616,7 +619,7 @@ export function AdminUnverified() {
 
                 {/* ── TAB: Biometric & Identity ── */}
                 {modalTab === 'biometric' && (
-                  <div className="p-6 grid sm:grid-cols-2 gap-6">
+                  <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                     {/* Biometric */}
                     <div>
                       <p className="text-gray-500 text-xs mb-3" style={{ fontWeight: 600 }}>
@@ -629,7 +632,7 @@ export function AdminUnverified() {
                               : '(FRONT PHOTO)'}
                         </span>
                       </p>
-                      <div className="bg-gray-900 rounded-2xl overflow-hidden" style={{ aspectRatio: '3/4' }}>
+                      <div className="mx-auto w-full max-w-[260px] sm:max-w-none bg-gray-900 rounded-2xl overflow-hidden" style={{ aspectRatio: '3/4' }}>
                         {hasBiometric && primaryFaceScan ? (
                           <img src={primaryFaceScan} alt={`${a.name || 'Graduate'} face recognition scan`} className="w-full h-full object-cover object-center" />
                         ) : (
@@ -675,7 +678,7 @@ export function AdminUnverified() {
                         const summary = getCaptureSummary(a);
                         return (
                           <div className="mt-2">
-                            <div className="grid grid-cols-5 gap-1.5">
+                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                               {getPoseScans(a).map((pose) => {
                                 const label = pose.target !== null ? POSE_LABELS[pose.target] ?? `${pose.target}°` : pose.key;
                                 return (
@@ -755,7 +758,7 @@ export function AdminUnverified() {
 
                 {/* ── TAB: Employment Data (CHED Part III) ── */}
                 {modalTab === 'employment' && (
-                  <div className="p-6 space-y-5">
+                  <div className="p-4 sm:p-6 space-y-5">
                     <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
                       <Briefcase className="size-4 text-blue-500 shrink-0" />
                       <p className="text-blue-700 text-xs" style={{ fontWeight: 500 }}>
@@ -763,7 +766,7 @@ export function AdminUnverified() {
                       </p>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                       {/* Q1 + Q2 */}
                       <div>
                         <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q1–Q2 · EMPLOYMENT STATUS</p>
@@ -838,7 +841,7 @@ export function AdminUnverified() {
 
                 {/* ── TAB: Skills ── */}
                 {modalTab === 'skills' && (
-                  <div className="p-6 space-y-5">
+                  <div className="p-4 sm:p-6 space-y-5">
                     <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
                       <Star className="size-4 text-blue-500 shrink-0" />
                       <p className="text-blue-700 text-xs" style={{ fontWeight: 500 }}>
@@ -910,33 +913,34 @@ export function AdminUnverified() {
               </div>
 
               {/* Modal footer actions */}
-              <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
+              <div className="flex flex-wrap gap-2 sm:gap-3 px-4 sm:px-6 py-3 sm:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
                 <button
                   onClick={() => setReviewAlumni(null)}
-                  className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm transition"
+                  className="order-last w-full sm:order-none sm:w-auto px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 text-sm transition"
                   style={{ fontWeight: 500 }}
                 >
                   Cancel
                 </button>
-                <div className="flex-1" />
+                <div className="hidden sm:block flex-1" />
                 <button
                   onClick={() => openReject(String(a.id ?? ''), a.name ?? '')}
                   disabled={!!actionLoading}
-                  className="flex items-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
+                  className="flex flex-1 sm:flex-none items-center justify-center gap-2 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 px-4 sm:px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}
                 >
-                  <XCircle className="size-4" /> Reject Account
+                  <XCircle className="size-4" /> <span className="sm:hidden">Reject</span><span className="hidden sm:inline">Reject Account</span>
                 </button>
                 <button
                   onClick={() => handleApprove(String(a.id ?? ''))}
                   disabled={!!actionLoading}
-                  className="flex items-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
+                  className="flex flex-1 sm:flex-none items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-4 sm:px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
                   style={{ fontWeight: 600 }}
                 >
                   {actionLoading
                     ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     : <CheckCircle2 className="size-4" />}
-                  Approve & Verify
+                  <span className="sm:hidden">Approve</span>
+                  <span className="hidden sm:inline">Approve &amp; Verify</span>
                 </button>
               </div>
             </div>

@@ -411,37 +411,37 @@ export function AdminMap() {
 
         {/* Filter bar */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex flex-wrap items-center gap-3">
-          <Filter className="size-4 text-gray-400 shrink-0" />
-          <span className="text-gray-600 text-sm" style={{ fontWeight: 600 }}>Filters:</span>
-          <div className="relative">
+          <Filter className="hidden sm:block size-4 text-gray-400 shrink-0" />
+          <span className="hidden sm:inline text-gray-600 text-sm" style={{ fontWeight: 600 }}>Filters:</span>
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-gray-400 pointer-events-none" />
             <input
               type="text"
               placeholder="Search name, company, city…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10 w-52"
+              className="rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10 w-full sm:w-52 py-2.5 sm:py-1.5"
             />
           </div>
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)}
-            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
+            className="flex-1 min-w-0 sm:flex-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 sm:py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
             <option value="all">All Batches</option>
             {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
+            className="flex-1 min-w-0 sm:flex-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 sm:py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
             <option value="all">All Status</option>
             <option value="employed">Employed</option>
             <option value="self-employed">Self-Employed</option>
             <option value="unemployed">Unemployed</option>
           </select>
           <select value={filterLocation} onChange={e => setFilterLocation(e.target.value as any)}
-            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
+            className="flex-1 min-w-0 sm:flex-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 sm:py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
             <option value="all">All Locations</option>
             <option value="local">Local (Philippines)</option>
             <option value="abroad">International / Abroad</option>
           </select>
-          <div className="ml-auto flex items-center gap-3 flex-wrap">
+          <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-x-3 gap-y-1.5 flex-wrap">
             {/* Legend */}
             {Object.entries(STATUS_LABELS).map(([k, v]) => (
               <div key={k} className="flex items-center gap-1.5">
@@ -460,9 +460,9 @@ export function AdminMap() {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-4 gap-4">
+        <div className="grid lg:grid-cols-4 2xl:grid-cols-5 gap-4">
           {/* Map */}
-          <div className="lg:col-span-3 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative h-72 sm:h-96 lg:h-[540px]">
+          <div className="lg:col-span-3 2xl:col-span-4 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative h-72 sm:h-96 lg:h-[540px] 2xl:h-[680px]">
             <div ref={mapRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
             {(loadingData || (!mapReady && !mapError)) && !effectiveError && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
@@ -479,7 +479,7 @@ export function AdminMap() {
           </div>
 
           {/* Side Panel */}
-          <div className="grid grid-cols-2 lg:grid-cols-1 gap-3 lg:h-[540px] lg:overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3 lg:h-[540px] 2xl:h-[680px] lg:overflow-y-auto">
 
             {/* Work Location */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">

@@ -90,7 +90,9 @@ export function AlumniProfile() {
 
   return (
     <PortalLayout role="alumni" pageTitle="Edit Profile" pageSubtitle="Manage your contact and social media information">
-      <div className="max-w-2xl mx-auto space-y-5">
+      {/* Wide screens: identity column on the left, editable form on the right. */}
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-12 xl:items-start">
+        <div className="flex flex-col gap-5 min-w-0 xl:col-span-5 xl:sticky xl:top-0">
 
         {/* Profile Card */}
         <div className="bg-gradient-to-r from-[#166534] to-[#15803d] rounded-2xl p-6 text-white relative overflow-hidden">
@@ -104,9 +106,9 @@ export function AlumniProfile() {
                 {initials}
               </div>
             </div>
-            <div>
-              <h2 className="text-white" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{alumni.name}</h2>
-              <p className="text-white/60 text-sm flex items-center gap-1.5 mt-0.5">
+            <div className="min-w-0">
+              <h2 className="text-white break-words" style={{ fontWeight: 700, fontSize: '1.1rem' }}>{alumni.name}</h2>
+              <p className="text-white/60 text-sm flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                 <Hash className="size-3.5" /> {alumni.schoolId}
                 <span className="text-white/30">·</span>
                 <Calendar className="size-3.5" /> BSIS Batch {alumni.graduationYear}
@@ -139,7 +141,7 @@ export function AlumniProfile() {
             <button
               type="button"
               onClick={() => navigate('/alumni/profile/personal-education')}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#166534] px-4 py-2.5 text-xs text-white transition hover:bg-[#14532d]"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#166534] px-4 py-3 sm:py-2.5 text-xs text-white transition hover:bg-[#14532d]"
               style={{ fontWeight: 600 }}
             >
               <BookOpen className="size-3.5" />
@@ -148,11 +150,14 @@ export function AlumniProfile() {
           </div>
         </div>
 
+        </div>
+
+        <div className="flex flex-col gap-5 min-w-0 xl:col-span-7">
         {/* Form */}
         <form onSubmit={handleSave} className="space-y-5">
 
           {/* Contact Information */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <h3 className="text-gray-800 mb-5 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <UserCircle className="size-4 text-[#166534]" /> Contact Information
             </h3>
@@ -201,7 +206,7 @@ export function AlumniProfile() {
           </div>
 
           {/* Social Media & Portfolio */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <Globe className="size-4 text-[#166534]" /> Social Media & Portfolio
             </h3>
@@ -275,6 +280,7 @@ export function AlumniProfile() {
               File uploads are not supported. To update your biometric, contact the BSIS Admin.
             </p>
           </div>
+        </div>
         </div>
       </div>
     </PortalLayout>

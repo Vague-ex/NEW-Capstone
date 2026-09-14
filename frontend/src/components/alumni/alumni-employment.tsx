@@ -611,7 +611,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   return (
     <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey - Employment Record">
-      <div className="max-w-3xl lg:max-w-5xl mx-auto space-y-5 pb-28">
+      <div className="max-w-3xl lg:max-w-none mx-auto space-y-5 pb-28">
 
         {retrackingMode && (
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
@@ -1192,8 +1192,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
         </form>
 
         {/* Sticky save bar */}
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 sm:left-64">
-          <div className="max-w-3xl mx-auto flex items-center gap-3">
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-gray-200 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:left-60 lg:px-6 2xl:px-8">
+          <div className="max-w-[1800px] mx-auto flex items-center gap-3">
             <div className="flex-1 min-w-0 text-xs">
               {saveError ? (
                 <span className="flex items-center gap-1.5 text-red-700" style={{ fontWeight: 600 }}>
@@ -1207,14 +1207,14 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               ) : retrackingMode ? (
                 <span className="text-red-700" style={{ fontWeight: 600 }}>Submit this form to unlock the dashboard.</span>
               ) : (
-                <span className="text-gray-500">Confidential to you and the BSIS Program (RA 10173). Save anytime - even partial updates are kept.</span>
+                <span className="hidden sm:inline text-gray-500">Confidential to you and the BSIS Program (RA 10173). Save anytime - even partial updates are kept.</span>
               )}
             </div>
             <button
               type="button"
               onClick={(e) => handleSave(e as unknown as React.FormEvent)}
               disabled={isSaving}
-              className="inline-flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
+              className="inline-flex shrink-0 min-h-11 items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-70"
               style={{ fontWeight: 600 }}>
               {isSaving
                 ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
