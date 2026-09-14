@@ -6,8 +6,9 @@ import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Search, CheckCircle2, Users, Briefcase, Star, MapPin,
   ChevronDown, ChevronUp, Camera, X, ChevronLeft, ChevronRight,
-  Clock, Building2, Globe, Award,
+  Clock, Building2, Globe, Award, Maximize2,
 } from 'lucide-react';
+import { ImageLightbox, type LightboxImage } from '../shared/image-lightbox';
 
 type ModalTab = 'profile' | 'employment' | 'skills';
 
@@ -59,6 +60,49 @@ function getFaceScans(a: AlumniRecord): FaceScans {
   };
 }
 
+/** One enrolment-sweep frame, as returned by the admin payload. */
+type PoseScan = { key: string; url: string; target: number | null; yaw: number | null };
+
+function getPoseScans(a: AlumniRecord): PoseScan[] {
+  const raw = (a as Record<string, unknown>).registrationPoseScans;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is PoseScan => !!p && typeof p === 'object' && typeof (p as PoseScan).url === 'string')
+    // Graduate's left (positive yaw) first, matching the registration screen.
+    .sort((p, q) => (q.target ?? 0) - (p.target ?? 0));
+}
+
+function getCaptureSummary(a: AlumniRecord): { engine?: string | null; frames?: number | null; samples?: number | null } {
+  const raw = (a as Record<string, unknown>).captureSummary;
+  return raw && typeof raw === 'object' ? (raw as Record<string, number | string | null>) : {};
+}
+
+const POSE_LABELS: Record<number, string> = {
+  24: 'Left', 12: 'Slight left', 0: 'Front', [-12]: 'Slight right', [-24]: 'Right',
+};
+
+function poseLabel(pose: PoseScan): string {
+  return pose.target !== null ? POSE_LABELS[pose.target] ?? `${pose.target}°` : pose.key;
+}
+
+/** Every face image in viewing order, for the full-screen viewer. */
+function faceImages(a: AlumniRecord): LightboxImage[] {
+  const scans = getFaceScans(a);
+  const out: LightboxImage[] = [];
+  const seen = new Set<string>();
+  const add = (url: string | undefined, label: string) => {
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      out.push({ url, label });
+    }
+  };
+  add(scans.front, 'Front photo');
+  add(scans.left, 'Left');
+  add(scans.right, 'Right');
+  for (const pose of getPoseScans(a)) add(pose.url, `Sweep · ${poseLabel(pose)}`);
+  return out;
+}
+
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
@@ -77,6 +121,8 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClose: () => void; bsisCore: string[] }) {
   const [tab, setTab] = useState<ModalTab>('profile');
+  const [viewer, setViewer] = useState<number | null>(null);
+  const images = useMemo(() => faceImages(a), [a]);
   const sd = ((a as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
 
   const skills = a.skills ?? [];
@@ -101,6 +147,9 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
+      {viewer !== null && (
+        <ImageLightbox images={images} index={viewer} onIndexChange={setViewer} onClose={() => setViewer(null)} />
+      )}
       <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-2xl xl:max-w-4xl max-h-[100dvh] sm:max-h-[90vh] rounded-t-2xl flex flex-col overflow-hidden">
 
         {/* Header */}
@@ -147,25 +196,85 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
           {/* ── Profile & Education ── */}
           {tab === 'profile' && (
             <div className="space-y-5">
-              {/* Face photo strip */}
+              {/* Face capture: the front photo large enough to compare, then the
+                  enrolment sweep. Every image opens full screen in the page;
+                  the old 80px strip cropped faces and could not be enlarged. */}
               {(() => {
+                if (images.length === 0) return null;
                 const faceScans = getFaceScans(a);
-                // Registrations from Aug 2026 onward store a single frontal
-                // photo, so only render the angles that actually exist —
-                // otherwise every new alumni shows two "Missing" tiles, which
-                // reads as a fault rather than the intended design.
-                const present = (['front', 'left', 'right'] as const).filter((k) => faceScans[k]);
-                if (present.length === 0) return null;
+                const poses = getPoseScans(a);
+                const summary = getCaptureSummary(a);
+                const front = faceScans.front ?? faceScans.left ?? faceScans.right;
+                // Legacy 3-shot registrations: left/right beside the front photo.
+                const extras = (['left', 'right'] as const).filter((k) => faceScans[k] && faceScans[k] !== front);
+                const open = (url?: string) => {
+                  const i = images.findIndex((img) => img.url === url);
+                  if (i >= 0) setViewer(i);
+                };
                 return (
-                  <div className={`grid gap-2 ${present.length === 1 ? 'grid-cols-1 max-w-[140px]' : 'grid-cols-3'}`}>
-                    {present.map((k) => (
-                      <div key={k} className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
-                        <div className="h-20">
-                          <img src={faceScans[k]} alt={k} className="w-full h-full object-cover object-center" />
+                  <div className="grid grid-cols-1 sm:grid-cols-[200px_minmax(0,1fr)] gap-4">
+                    {front && (
+                      <button
+                        type="button"
+                        onClick={() => open(front)}
+                        aria-label="Enlarge front photo"
+                        className="block mx-auto w-full max-w-[220px] sm:max-w-none overflow-hidden rounded-2xl border border-gray-200 bg-gray-900"
+                      >
+                        <div className="aspect-[3/4]">
+                          <img src={front} alt={`${safeName(a)} front photo`} className="h-full w-full object-cover object-center" />
                         </div>
-                        <p className="text-center text-[10px] text-gray-300 py-1 capitalize">{k}</p>
-                      </div>
-                    ))}
+                        <span className="flex items-center justify-center gap-1.5 py-2 text-[11px] text-gray-200">
+                          <Maximize2 className="size-3" /> Front photo · tap to enlarge
+                        </span>
+                      </button>
+                    )}
+                    <div className="min-w-0 space-y-3">
+                      {extras.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 max-w-[260px]">
+                          {extras.map((k) => (
+                            <button key={k} type="button" onClick={() => open(faceScans[k])} aria-label={`Enlarge ${k} photo`}
+                              className="overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
+                              <div className="aspect-[3/4]">
+                                <img src={faceScans[k]} alt={k} className="h-full w-full object-cover object-center" />
+                              </div>
+                              <p className="py-1 text-center text-[10px] capitalize text-gray-200">{k}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {poses.length > 0 ? (
+                        <div>
+                          <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>
+                            ENROLMENT SWEEP · {poses.length} ANGLES
+                          </p>
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                            {poses.map((pose) => {
+                              const label = poseLabel(pose);
+                              return (
+                                <button key={pose.key} type="button" onClick={() => open(pose.url)} aria-label={`Enlarge ${label}`}
+                                  className="overflow-hidden rounded-lg border border-gray-200 bg-gray-900">
+                                  <div className="aspect-[3/4]">
+                                    <img src={pose.url} alt={`${safeName(a)} ${label}`} className="h-full w-full object-cover object-center" />
+                                  </div>
+                                  <p className="py-1 text-center text-[10px] leading-tight text-gray-200">
+                                    {label}
+                                    {pose.yaw !== null && <span className="block text-gray-400">{Math.round(pose.yaw)}°</span>}
+                                  </p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {summary.frames != null && (
+                            <p className="mt-1.5 text-[11px] text-gray-500">
+                              {summary.frames} frames captured · {summary.samples ?? 0} used for face matching
+                              {summary.engine ? ` (${summary.engine})` : ''}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">No enrolment sweep on file for this graduate.</p>
+                      )}
+                    </div>
                   </div>
                 );
               })()}

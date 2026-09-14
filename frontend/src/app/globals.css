@@ -12,11 +12,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* No dark theme: every page paints white cards. The old dark-mode override
+   turned inherited text near-white on those cards, so on a phone set to dark
+   mode headings and subtitles without their own colour disappeared. */
+:root {
+  color-scheme: light;
 }
 
 body {

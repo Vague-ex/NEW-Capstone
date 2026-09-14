@@ -14,6 +14,8 @@ import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
   MapPin, AlertTriangle, BookOpen,
 } from 'lucide-react';
+import { JobTitleInput } from '../shared/job-title-input';
+import { jobTitleNeedsReview } from '../../app/job-titles';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -594,6 +596,11 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   // accidentally clear their verified status while only fixing a typo.
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const refTitles = referenceData.job_titles.map(jt => jt.name);
+    if (jobTitleNeedsReview(form.firstJobTitle, refTitles) || jobTitleNeedsReview(form.currentJobPosition, refTitles)) {
+      setSaveError('Please check the spelling of your job title: tap "Use" or "Keep" under it.');
+      return;
+    }
     const oldCompany = initialWorkRef.current.company.trim().toLowerCase();
     const newCompany = form.currentJobCompany.trim().toLowerCase();
     const oldTitle = initialWorkRef.current.title.trim().toLowerCase();
@@ -741,8 +748,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>4. Job Title / Position in FIRST JOB</FieldLabel>
-                <input type="text" placeholder="e.g. Junior Software Developer"
-                  value={form.firstJobTitle} onChange={e => setF('firstJobTitle', e.target.value)} className={inputCls} />
+                <JobTitleInput placeholder="e.g. Junior Software Developer"
+                  value={form.firstJobTitle} onChange={v => setF('firstJobTitle', v)}
+                  referenceTitles={referenceData.job_titles.map(jt => jt.name)} className={inputCls} />
               </div>
 
               <div>
@@ -837,28 +845,18 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
               <div>
                 <FieldLabel>2. Current Occupation / Position</FieldLabel>
-                <div className="border border-dashed border-gray-200 rounded-md p-3 space-y-2 bg-gray-50/40">
-                  <select
-                    value={form.currentJobTitleId}
-                    onChange={e => {
-                      const id = e.target.value;
-                      const title = referenceData.job_titles.find(jt => jt.id === id);
-                      setForm(f => ({ ...f, currentJobTitleId: id, currentJobPosition: title ? title.name : f.currentJobPosition }));
-                      setSaved(false); setSaveError('');
-                    }}
-                    className={inputCls}
-                  >
-                    <option value="">Pick a suggested job title (optional)</option>
-                    {referenceData.job_titles.map(jt => (
-                      <option key={jt.id} value={jt.id}>{jt.name}</option>
-                    ))}
-                  </select>
-                  <input type="text" placeholder="e.g. Systems Analyst"
-                    value={form.currentJobPosition} onChange={e => setF('currentJobPosition', e.target.value)} className={inputCls} />
-                  <p className="text-[11px] text-gray-500 leading-snug">
-                    Use the text box if your role isn't in the dropdown above, or to refine the selected title.
-                  </p>
-                </div>
+                {/* One field instead of dropdown + text box: suggestions cover the
+                    admin's titles, and saving resolves the title id by name. */}
+                <JobTitleInput
+                  placeholder="Start typing, e.g. Systems Analyst"
+                  value={form.currentJobPosition}
+                  onChange={v => {
+                    setForm(f => ({ ...f, currentJobPosition: v, currentJobTitleId: '' }));
+                    setSaved(false); setSaveError('');
+                  }}
+                  referenceTitles={referenceData.job_titles.map(jt => jt.name)}
+                  className={inputCls}
+                />
               </div>
 
               <div>

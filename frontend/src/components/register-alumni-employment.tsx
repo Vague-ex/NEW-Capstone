@@ -8,8 +8,10 @@
  * Final submission merges employment data with personal data for backend.
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { EMPLOYMENT_DRAFT_KEY, saveDraft, loadDraft } from './registration-draft';
+import { JobTitleInput } from './shared/job-title-input';
+import { jobTitleNeedsReview } from '../app/job-titles';
 import {
   Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
   AlertCircle, CheckCircle2, Code, Users, Loader, X,
@@ -317,6 +319,10 @@ export default function RegisterAlumniEmployment({
   fieldErrors,
 }: RegisterAlumniEmploymentProps) {
   const { data: referenceData } = useReferenceData();
+  const refJobTitles = useMemo(
+    () => (referenceData?.job_titles ?? []).map((jt) => jt.name),
+    [referenceData],
+  );
   const [step, setStep] = useState<EmploymentStep>(1);
   const [form, setForm] = useState<EmploymentFormData>(initialForm ?? INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
@@ -477,6 +483,10 @@ export default function RegisterAlumniEmployment({
           setStepError('Job title is required');
           return false;
         }
+        if (jobTitleNeedsReview(form.first_job_title, refJobTitles)) {
+          setStepError('Please check the spelling of your job title: tap "Use" or "Keep" under it.');
+          return false;
+        }
         if (!form.first_job_applications_raw) {
           setStepError('Number of applications is required');
           return false;
@@ -486,7 +496,11 @@ export default function RegisterAlumniEmployment({
           return false;
         }
         break;
-      case 4: // Current Job (all optional)
+      case 4: // Current Job (all optional, but a typed title is still spell-checked)
+        if (jobTitleNeedsReview(form.current_job_title, refJobTitles)) {
+          setStepError('Please check the spelling of your job title: tap "Use" or "Keep" under it.');
+          return false;
+        }
         break;
       case 5: // Work Address
         if (!form.city_municipality) {
@@ -790,10 +804,10 @@ export default function RegisterAlumniEmployment({
 
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">Job Title</label>
-            <input
-              type="text"
+            <JobTitleInput
               value={form.first_job_title}
-              onChange={(e) => setForm({ ...form, first_job_title: e.target.value })}
+              onChange={(v) => setForm((f) => ({ ...f, first_job_title: v }))}
+              referenceTitles={refJobTitles}
               placeholder="e.g., Junior Software Developer"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
@@ -899,10 +913,10 @@ export default function RegisterAlumniEmployment({
 
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">Current Job Title</label>
-            <input
-              type="text"
+            <JobTitleInput
               value={form.current_job_title}
-              onChange={(e) => setForm({ ...form, current_job_title: e.target.value })}
+              onChange={(v) => setForm((f) => ({ ...f, current_job_title: v }))}
+              referenceTitles={refJobTitles}
               placeholder="e.g., Senior Software Developer"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
