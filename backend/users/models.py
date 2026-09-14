@@ -214,6 +214,19 @@ class AlumniProfile(models.Model):
     facebook_url = models.URLField(max_length=500, blank=True)
     city = models.CharField(max_length=120, blank=True)
     province = models.CharField(max_length=120, blank=True)
+    # The rest of the home address. Registration always sent these, but nothing
+    # stored them, so every graduate's region, barangay and country were
+    # silently discarded on the way in.
+    home_region = models.CharField(max_length=120, blank=True)
+    home_barangay = models.CharField(max_length=160, blank=True)
+    home_country = models.CharField(max_length=120, blank=True)
+    home_is_abroad = models.BooleanField(default=False)
+    # Exact home location, set only when the graduate uses "Use my current
+    # location" (optionally dragging the pin). Plotted on the admin geomap for
+    # graduates who gave geomap consent; null when the address was typed in.
+    home_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    home_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    home_location_accuracy_m = models.FloatField(null=True, blank=True)
 
     # Academic info
     graduation_date = models.CharField(max_length=10, blank=True)  # YYYY-MM (month + year). Legacy MM/DD rows tolerated.

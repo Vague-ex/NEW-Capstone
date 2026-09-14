@@ -2,8 +2,10 @@ from django.urls import path
 
 from .api import (
     AdminAnalyticsPredictionsView,
+    BarangayListView,
     CityMunicipalityDetailView,
     CityMunicipalityListView,
+    LocationLookupView,
     ComprehensiveSurveySubmissionView,
     IndustryDetailView,
     IndustryListView,
@@ -64,6 +66,10 @@ urlpatterns = [
     # Cities / Municipalities (parented to Region + optional Province)
     path("reference/cities/", CityMunicipalityListView.as_view(), name="city-list"),
     path("reference/cities/<uuid:pk>/", CityMunicipalityDetailView.as_view(), name="city-detail"),
+
+    # Barangays (parented to a City / Municipality) and GPS -> address lookup
+    path("reference/barangays/", BarangayListView.as_view(), name="barangay-list"),
+    path("reference/locate/", LocationLookupView.as_view(), name="location-lookup"),
 
     # Employer verification tokens / decisions (DS7)
     # Graduate-initiated invite (graduate mints a token for their own current record)

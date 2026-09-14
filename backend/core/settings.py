@@ -312,6 +312,12 @@ EMAIL_BACKEND = _env_str("EMAIL_BACKEND") or _default_email_backend
 # env key must not put a dead link into every approval email.
 GRADUATE_LOGIN_URL = _env_str("GRADUATE_LOGIN_URL") or "https://gradtracer.tech/"
 
+# Identifies this app to OpenStreetMap's Nominatim geocoder, which its usage
+# policy requires. Used by the registration form's "Use my current location".
+NOMINATIM_USER_AGENT = _env_str("NOMINATIM_USER_AGENT") or (
+    f"CHMSU-GraduateTracer/1.0 (+{GRADUATE_LOGIN_URL})"
+)
+
 # Resend HTTPS API (preferred on Render where outbound SMTP is blocked).
 # When RESEND_API_KEY is set, the email helper sends via Resend's HTTPS
 # API and ignores the SMTP backend. Leave blank to use the SMTP backend

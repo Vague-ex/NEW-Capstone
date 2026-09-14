@@ -76,6 +76,230 @@ class RegionReferenceApiTests(TestCase):
 		self.assertFalse(region.is_active)
 
 
+from unittest.mock import patch as _patch
+
+from django.core.cache import cache as _cache
+
+from . import geo_lookup as _geo
+from .models import Barangay, CityMunicipality, Province
+from .psgc_sync import sync_psgc
+
+
+def _psgc_fixture():
+	"""A miniature PSGC release covering every shape the real one throws at the sync."""
+	def rec(kind, code, parent, name):
+		return {"type": kind, "psgc_id": code, "parent_psgc_id": parent, "name": name}
+	return [
+		rec("region", "0900000000", "0000000000", "Region IX (Zamboanga Peninsula)"),
+		rec("region", "1000000000", "0000000000", "Region X (Northern Mindanao)"),
+		rec("region", "1300000000", "0000000000", "National Capital Region (NCR)"),
+		rec("region", "1400000000", "0000000000", "Cordillera Administrative Region (CAR)"),
+		rec("region", "1600000000", "0000000000", "Region XIII (Caraga)"),
+		rec("region", "1800000000", "0000000000", "Negros Island Region (NIR)"),
+		rec("province", "1001300000", "1000000000", "Bukidnon"),
+		rec("province", "1401100000", "1400000000", "Benguet"),
+		rec("province", "1600200000", "1600000000", "Agusan del Norte"),
+		rec("province", "1804500000", "1800000000", "Negros Occidental"),
+		rec("municipality", "1001301000", "1001300000", "Baungon"),
+		rec("highly_urbanized_city", "1030500000", "1000000000", "City of Cagayan De Oro"),
+		rec("municipality", "1401101000", "1401100000", "Atok"),
+		rec("municipality", "1804508000", "1804500000", "Enrique B. Magalona"),
+		rec("highly_urbanized_city", "1830200000", "1800000000", "City of Bacolod"),
+		# Listed twice by the PSA: the "(Not a Province)" entry and the city under it.
+		rec("independent_component_city", "0990100000", "0900000000", "City of Isabela (Not a Province)"),
+		rec("component_city", "0990101000", "0990100000", "City of Isabela"),
+		rec("highly_urbanized_city", "1380600000", "1300000000", "City of Manila"),
+		rec("submunicipality", "1380601000", "1380600000", "Tondo I/II"),
+		rec("barangay", "1804508018", "1804508000", "San Jose"),
+		rec("barangay", "1830200006", "1830200000", "Barangay 6"),
+		rec("barangay", "0990101001", "0990101000", "Aguada"),
+		rec("barangay", "1380601001", "1380601000", "Barangay 1"),
+		rec("barangay", "1401101001", "1401101000", "Abiang"),
+	]
+
+
+class PsgcSyncTests(TestCase):
+	"""
+	sync_psgc against the reference data as it was actually found: Region X
+	renamed "Outside of the Philippines" and switched off, the Caraga row renamed
+	"Cordillera Administrative Region" with the real Cordillera provinces under
+	it, an empty duplicate region, and a hand-added Bacolod row.
+	"""
+
+	def setUp(self):
+		self.region_x = Region.objects.create(code="NA", name="Outside of the Philippines", psgc_id="1000000000", is_active=False)
+		self.caraga = Region.objects.create(code="CAR", name="Cordillera Administrative Region", psgc_id="1600000000")
+		self.nir = Region.objects.create(code="Negros Island Region", name="Negros Island Region (NIR)", psgc_id="1800000000")
+		self.region_ix = Region.objects.create(code="Region IX", name="Region IX (Zamboanga Peninsula)", psgc_id="0900000000")
+		self.ncr = Region.objects.create(code="NCR", name="National Capital Region", psgc_id="1300000000")
+		self.duplicate = Region.objects.create(code="R10", name="Region X - Northern Mindanao", psgc_id="")
+
+		self.bukidnon = Province.objects.create(region=self.region_x, name="Bukidnon", psgc_id="1001300000")
+		self.benguet = Province.objects.create(region=self.caraga, name="Benguet", psgc_id="1401100000")
+		Province.objects.create(region=self.caraga, name="Agusan del Norte", psgc_id="1600200000")
+		self.negros_occ = Province.objects.create(region=self.nir, name="Negros Occidental", psgc_id="1804500000")
+
+		CityMunicipality.objects.create(region=self.region_x, province=self.bukidnon, name="Baungon", psgc_id="1001301000")
+		CityMunicipality.objects.create(region=self.region_x, name="City of Cagayan De Oro", psgc_id="1030500000", is_city=True)
+		self.atok = CityMunicipality.objects.create(region=self.caraga, province=self.benguet, name="Atok", psgc_id="1401101000")
+		self.emb = CityMunicipality.objects.create(region=self.nir, province=self.negros_occ, name="Enrique B. Magalona", psgc_id="1804508000")
+		self.bacolod = CityMunicipality.objects.create(region=self.nir, name="City of Bacolod", psgc_id="1830200000", is_city=True)
+		self.manual_bacolod = CityMunicipality.objects.create(region=self.nir, province=self.negros_occ, name="City of Bacolod", psgc_id="184501000", is_city=True)
+		self.isabela = CityMunicipality.objects.create(region=self.region_ix, name="City of Isabela (Not a Province)", psgc_id="0990100000", is_city=True)
+		self.manila = CityMunicipality.objects.create(region=self.ncr, name="City of Manila", psgc_id="1380600000", is_city=True)
+
+	def test_repairs_regions_in_place(self):
+		report = sync_psgc(_psgc_fixture(), apply=True)
+
+		self.region_x.refresh_from_db()
+		self.caraga.refresh_from_db()
+		self.duplicate.refresh_from_db()
+		# Same rows, repaired - not deleted and re-created.
+		self.assertEqual((self.region_x.name, self.region_x.code, self.region_x.is_active), ("Region X (Northern Mindanao)", "Region X", True))
+		self.assertEqual((self.caraga.name, self.caraga.code), ("Region XIII (Caraga)", "Region XIII"))
+		self.assertFalse(self.duplicate.is_active)
+
+		car = Region.objects.get(psgc_id="1400000000")
+		self.assertEqual(car.code, "CAR")
+		self.benguet.refresh_from_db()
+		self.atok.refresh_from_db()
+		self.assertEqual(self.benguet.region_id, car.id)
+		self.assertEqual(self.atok.region_id, car.id)
+		self.assertEqual(report.created["region"], 1)
+
+	def test_lists_highly_urbanized_cities_under_their_province(self):
+		sync_psgc(_psgc_fixture(), apply=True)
+		self.bacolod.refresh_from_db()
+		self.manual_bacolod.refresh_from_db()
+		self.assertIsNone(self.bacolod.province_id)  # still exactly as the PSA publishes it
+		self.assertEqual(self.bacolod.home_province_id, self.negros_occ.id)
+		# The hand-added duplicate is no longer needed, and is switched off rather than deleted.
+		self.assertFalse(self.manual_bacolod.is_active)
+
+		response = self.client.get(f"/api/reference/cities/?province={self.negros_occ.id}")
+		names = [c["name"] for c in response.data["cities"]]
+		self.assertIn("City of Bacolod", names)
+		self.assertIn("Enrique B. Magalona", names)
+		self.assertEqual(names.count("City of Bacolod"), 1)
+
+	def test_links_barangays_to_the_city_a_graduate_picks(self):
+		sync_psgc(_psgc_fixture(), apply=True)
+		self.assertEqual(Barangay.objects.get(psgc_id="1804508018").city_id, self.emb.id)
+		# Through Manila's district, and through Isabela's "(Not a Province)" entry.
+		self.assertEqual(Barangay.objects.get(psgc_id="1380601001").city_id, self.manila.id)
+		self.assertEqual(Barangay.objects.get(psgc_id="0990101001").city_id, self.isabela.id)
+		self.assertFalse(CityMunicipality.objects.filter(psgc_id="0990101000").exists())
+		self.isabela.refresh_from_db()
+		self.assertEqual(self.isabela.name, "City of Isabela")
+
+	def test_dry_run_writes_nothing_but_reports_everything(self):
+		report = sync_psgc(_psgc_fixture(), apply=False)
+		self.region_x.refresh_from_db()
+		self.assertEqual(self.region_x.name, "Outside of the Philippines")
+		self.assertEqual(Barangay.objects.count(), 0)
+		self.assertFalse(Region.objects.filter(psgc_id="1400000000").exists())
+		self.assertEqual(report.created["barangay"], 5)
+		self.assertTrue(report.changed_anything)
+
+	def test_second_run_changes_nothing(self):
+		sync_psgc(_psgc_fixture(), apply=True)
+		again = sync_psgc(_psgc_fixture(), apply=True)
+		self.assertFalse(again.changed_anything, dict(again.changes))
+
+	def test_barangay_list_requires_a_city(self):
+		sync_psgc(_psgc_fixture(), apply=True)
+		self.assertEqual(self.client.get("/api/reference/barangays/").status_code, 400)
+		response = self.client.get(f"/api/reference/barangays/?city={self.emb.id}")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual([b["name"] for b in response.data["barangays"]], ["San Jose"])
+
+
+class LocationLookupTests(TestCase):
+	"""
+	POST /api/reference/locate/ with the geocoder mocked. The Bacolod address
+	is Nominatim's real answer for Bacolod City Hall, captured 2026-09-14.
+	"""
+
+	BACOLOD_CITY_HALL = {
+		"display_name": "Gatuslao Street, Macapiña, Barangay 6, Bacolod-1, Bacolod, Negros Island Region, 6100, Philippines",
+		"address": {
+			"road": "Gatuslao Street", "neighbourhood": "Macapiña", "quarter": "Barangay 6",
+			"city_district": "Bacolod-1", "city": "Bacolod", "region": "Negros Island Region",
+			"postcode": "6100", "country": "Philippines", "country_code": "ph",
+		},
+	}
+
+	def setUp(self):
+		_cache.clear()
+		PsgcSyncTests.setUp(self)
+		sync_psgc(_psgc_fixture(), apply=True)
+		self.client = APIClient()
+
+	def _locate(self, payload=None, side_effect=None, body=None):
+		with _patch("tracer.api.reverse_geocode", return_value=payload, side_effect=side_effect):
+			return self.client.post(
+				"/api/reference/locate/",
+				body if body is not None else {"latitude": 10.6765, "longitude": 122.9509},
+				format="json",
+			)
+
+	def test_resolves_osm_names_to_our_rows(self):
+		response = self._locate(self.BACOLOD_CITY_HALL)
+		self.assertEqual(response.status_code, 200)
+		data = response.data
+		self.assertFalse(data["abroad"])
+		self.assertEqual(data["region"]["name"], "Negros Island Region (NIR)")
+		# Bacolod has no province; the lookup reports the one it is listed under.
+		self.assertEqual(data["province"]["name"], "Negros Occidental")
+		self.assertEqual(data["city"]["name"], "City of Bacolod")
+		self.assertEqual(data["barangay"]["name"], "Barangay 6")
+		self.assertIn("OpenStreetMap", data["attribution"])
+
+	def test_town_and_village_keys(self):
+		response = self._locate({"address": {
+			"village": "San Jose", "town": "Enrique B. Magalona", "state": "Negros Occidental",
+			"region": "Negros Island Region", "country": "Philippines", "country_code": "ph",
+		}})
+		self.assertEqual(response.data["city"]["name"], "Enrique B. Magalona")
+		self.assertEqual(response.data["barangay"]["name"], "San Jose")
+
+	def test_abroad_returns_locality_not_philippine_rows(self):
+		response = self._locate({"address": {"city": "Singapore", "country": "Singapore", "country_code": "sg"}})
+		self.assertTrue(response.data["abroad"])
+		self.assertEqual(response.data["locality"], "Singapore")
+		self.assertIsNone(response.data["city"])
+
+	def test_unmatched_names_are_left_empty_not_guessed(self):
+		response = self._locate({"address": {"city": "Nowhere", "country_code": "ph", "country": "Philippines"}})
+		self.assertEqual(response.status_code, 200)
+		self.assertIsNone(response.data["city"])
+		self.assertIsNone(response.data["barangay"])
+
+	def test_geocoder_outage_is_a_502_with_a_manual_fallback_message(self):
+		response = self._locate(side_effect=_geo.GeoLookupError("down"))
+		self.assertEqual(response.status_code, 502)
+		self.assertIn("by hand", response.data["detail"])
+
+	def test_rejects_bad_coordinates(self):
+		self.assertEqual(self._locate(body={"latitude": "abc", "longitude": 1}).status_code, 400)
+		self.assertEqual(self._locate(body={"latitude": 95, "longitude": 1}).status_code, 400)
+
+	def test_rate_limited_per_client(self):
+		from .api import LocationLookupView
+		for _ in range(LocationLookupView.RATE_LIMIT):
+			self.assertEqual(self._locate(self.BACOLOD_CITY_HALL).status_code, 200)
+		self.assertEqual(self._locate(self.BACOLOD_CITY_HALL).status_code, 429)
+
+
+class GeoNameFoldingTests(SimpleTestCase):
+	def test_variants_bridge_psa_and_osm_spellings(self):
+		self.assertIn("bacolod", _geo._variants("City of Bacolod"))
+		self.assertIn("western visayas", _geo._variants("Region VI (Western Visayas)"))
+		self.assertIn("negros island", _geo._variants("Negros Island Region (NIR)"))
+		self.assertEqual(_geo._fold("Sta. Cruz"), _geo._fold("Santa Cruz"))
+		self.assertEqual(_geo._fold("Parañaque"), "paranaque")
+
+
 class VerificationTokenFlowTests(TestCase):
 	def setUp(self):
 		self.client = APIClient()

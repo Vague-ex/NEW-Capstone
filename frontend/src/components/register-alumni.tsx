@@ -278,6 +278,15 @@ export function RegisterAlumni() {
       payload.append('barangay', personalData.barangay || '');
       payload.append('home_is_abroad', personalData.homeIsAbroad ? 'true' : 'false');
       payload.append('home_country', personalData.homeCountry || (personalData.homeIsAbroad ? '' : 'Philippines'));
+      // Only when the graduate used "Use my current location". Plotted on the
+      // admin geomap if they also gave geomap consent on the next step.
+      if (personalData.homeLat != null && personalData.homeLng != null) {
+        payload.append('home_latitude', String(personalData.homeLat));
+        payload.append('home_longitude', String(personalData.homeLng));
+        if (personalData.homeAccuracyM != null) {
+          payload.append('home_location_accuracy_m', String(personalData.homeAccuracyM));
+        }
+      }
       payload.append('graduation_date', personalData.graduationDate || '');
       payload.append('graduation_year', personalData.graduationYear?.toString() || '');
       payload.append('scholarship', personalData.scholarship || '');
@@ -294,7 +303,7 @@ export function RegisterAlumni() {
       payload.append('capture_time', new Date().toISOString());
       // Consent is recorded, not just enforced client-side. Geomap consent is
       // separate from the terms: an alumnus can join the study yet decline to
-      // be plotted on the public map.
+      // be plotted on the admin geomap.
       payload.append('terms_accepted', consent.termsAccepted ? 'true' : 'false');
       payload.append('geomap_consent', consent.geomapConsent ? 'true' : 'false');
 

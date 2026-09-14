@@ -1,3 +1,4 @@
+from decimal import Decimal
 import json
 import logging
 import os
@@ -1034,19 +1035,30 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         except (OperationalError, DatabaseError):
             pass
 
-    # Prefer the WorkAddress lat/lng (entered/saved per Part VII of the survey)
-    # over the GPS capture meta from registration.
+    # Where the graduate is plotted, most precise source first:
+    #   work             - a pin on their workplace (WorkAddress)
+    #   home             - the exact home location set with "Use my current location"
+    #   registration_gps - the GPS stamp taken during the face scan
+    location_source = "registration_gps" if lat is not None and lng is not None else None
+    home_lat = home_lng = None
+    try:
+        _home_profile = account.profile
+    except Exception:
+        _home_profile = None
+    if _home_profile is not None:
+        home_lat = _to_float(_home_profile.home_latitude)
+        home_lng = _to_float(_home_profile.home_longitude)
+    if home_lat is not None and home_lng is not None:
+        lat, lng, location_source = home_lat, home_lng, "home"
+
     addr_row = _first_prefetched(account, "_prefetched_addr")
     if addr_row is None:
         try:
             addr_row = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
         except Exception:
             addr_row = None
-    if addr_row is not None:
-        if addr_row.latitude is not None:
-            lat = addr_row.latitude
-        if addr_row.longitude is not None:
-            lng = addr_row.longitude
+    if addr_row is not None and addr_row.latitude is not None and addr_row.longitude is not None:
+        lat, lng, location_source = addr_row.latitude, addr_row.longitude, "work"
 
     if account.account_status == AccountStatus.ACTIVE:
         verification_status = "verified"
@@ -1094,6 +1106,10 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "name": name,
         "email": account.user.email,
         "registrationPoseScans": registration_pose_scans,
+        "locationSource": location_source,
+        "homeLat": home_lat,
+        "homeLng": home_lng,
+        "homeBarangay": getattr(_home_profile, "home_barangay", "") if _home_profile is not None else "",
         "captureSummary": capture_summary,
         "graduationYear": graduation_year,
         "verificationStatus": verification_status,
@@ -1485,6 +1501,13 @@ def _sanitize_facebook_url(raw: object) -> str:
         return ""
     return candidate
 
+def _coordinate(value, limit: float):
+    """A latitude/longitude from the request as a 6-dp Decimal, or None if absent or out of range."""
+    number = _to_float(value)
+    if number is None or number != number or not (-limit <= number <= limit):
+        return None
+    return Decimal(f"{number:.6f}")
+
 def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict:
     """
     Extract fields for AlumniProfile from survey_data + personal form data.
@@ -1508,6 +1531,14 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "facebook_url": _sanitize_facebook_url(personal_data.get("facebook_url", "")),
         "city": personal_data.get("city", ""),
         "province": personal_data.get("province", ""),
+        "home_region": (personal_data.get("region") or "").strip()[:120],
+        "home_barangay": (personal_data.get("barangay") or "").strip()[:160],
+        "home_country": (personal_data.get("home_country") or "").strip()[:120],
+        "home_is_abroad": _as_bool(personal_data.get("home_is_abroad")),
+        # Only present when the graduate used "Use my current location".
+        "home_latitude": _coordinate(personal_data.get("home_latitude"), 90),
+        "home_longitude": _coordinate(personal_data.get("home_longitude"), 180),
+        "home_location_accuracy_m": _to_float(personal_data.get("home_location_accuracy_m")),
 
         # Academic info (from form, not survey)
         "graduation_date": personal_data.get("graduation_date", ""),

@@ -18,7 +18,11 @@ from rest_framework.views import APIView
 from users.auth import require_admin, require_alumni
 from users.models import AccountStatus, EmployerAccount, User
 
+from django.db.models import Q
+
+from .geo_lookup import GeoLookupError, resolve_location, reverse_geocode
 from .models import (
+    Barangay,
     CityMunicipality,
     EmploymentRecord,
     Industry,
@@ -124,6 +128,10 @@ def _serialize_city(c: CityMunicipality) -> dict:
         "region_name": c.region.name if c.region_id else None,
         "province_id": str(c.province_id) if c.province_id else None,
         "province_name": c.province.name if c.province_id else None,
+        # Set only for highly urbanized cities: the province they sit inside,
+        # which is where the dropdown lists them.
+        "home_province_id": str(c.home_province_id) if c.home_province_id else None,
+        "home_province_name": c.home_province.name if c.home_province_id else None,
         "name": c.name,
         "psgc_id": c.psgc_id,
         "is_city": c.is_city,
@@ -800,13 +808,16 @@ class CityMunicipalityListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        qs = CityMunicipality.objects.select_related("region", "province").order_by("name")
+        qs = CityMunicipality.objects.select_related("region", "province", "home_province").order_by("name")
         if not str(request.query_params.get("include_inactive", "")).lower() in {"1", "true", "yes"}:
             qs = qs.filter(is_active=True)
         province_id = request.query_params.get("province")
         region_id = request.query_params.get("region")
         if province_id:
-            qs = qs.filter(province_id=province_id)
+            # Include highly urbanized cities located in the province. They have
+            # no province in the PSGC, so without this Bacolod never appeared
+            # under Negros Occidental and could not be selected at all.
+            qs = qs.filter(Q(province_id=province_id) | Q(home_province_id=province_id))
         if region_id:
             qs = qs.filter(region_id=region_id)
         return Response({"cities": [_serialize_city(c) for c in qs]})
@@ -1269,6 +1280,89 @@ class VerificationTokenDecisionView(APIView):
         )
 
 # ── All Reference Data (single call) ──────────────────────────────────────────
+
+class BarangayListView(APIView):
+    """
+    GET /api/reference/barangays/?city=<uuid> -> the active barangays of one
+    city or municipality.
+
+    `city` is required: there are 42,010 barangays, and no form needs them all.
+    Public for the same reason as the other reference lists: registration needs
+    them before anyone has signed in.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        import uuid as _uuid
+
+        city_id = request.query_params.get("city")
+        try:
+            _uuid.UUID(str(city_id))
+        except (TypeError, ValueError):
+            return Response({"detail": "A valid city id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        rows = Barangay.objects.filter(city_id=city_id, is_active=True).order_by("name")
+        return Response({
+            "barangays": [
+                {"id": str(b.id), "name": b.name, "psgc_id": b.psgc_id, "city_id": str(b.city_id)}
+                for b in rows
+            ]
+        })
+
+
+class LocationLookupView(APIView):
+    """
+    POST /api/reference/locate/ {latitude, longitude} -> the address rows that
+    point falls in, for "Use my current location" on registration.
+
+    Public (registration is pre-login) but rate limited per client, and the
+    lookup itself is spaced and cached in tracer/geo_lookup.py. Coordinates are
+    never logged.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    RATE_LIMIT = 20
+    RATE_WINDOW_SECONDS = 60
+
+    def post(self, request):
+        from django.core.cache import cache
+
+        try:
+            latitude = float(request.data.get("latitude"))
+            longitude = float(request.data.get("longitude"))
+        except (TypeError, ValueError):
+            return Response({"detail": "latitude and longitude are required."}, status=status.HTTP_400_BAD_REQUEST)
+        if latitude != latitude or longitude != longitude or not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            return Response({"detail": "Coordinates are out of range."}, status=status.HTTP_400_BAD_REQUEST)
+
+        forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+        client = forwarded or request.META.get("REMOTE_ADDR") or "unknown"
+        rate_key = f"geo:locate:rate:{client}"
+        used = cache.get(rate_key, 0)
+        if used >= self.RATE_LIMIT:
+            return Response(
+                {"detail": "Too many location lookups. Please wait a minute or fill the address in by hand."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        cache.set(rate_key, used + 1, self.RATE_WINDOW_SECONDS)
+
+        try:
+            payload = reverse_geocode(latitude, longitude)
+        except GeoLookupError:
+            return Response(
+                {"detail": "Location lookup is unavailable right now. Please fill in your address by hand."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        result = resolve_location(payload)
+        result["latitude"] = latitude
+        result["longitude"] = longitude
+        return Response(result)
+
 
 class ReferenceDataView(APIView):
     """GET /api/reference/ → all reference tables in one request."""

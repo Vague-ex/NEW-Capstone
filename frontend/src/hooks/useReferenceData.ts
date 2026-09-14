@@ -63,6 +63,35 @@ export interface CityMunicipalityItem {
     psgc_id: string;
     is_city: boolean;
     is_active: boolean;
+    /** Highly urbanized cities only: the province they are listed under. */
+    home_province_id?: string | null;
+    home_province_name?: string | null;
+}
+
+export interface BarangayItem {
+    id: string;
+    name: string;
+    psgc_id: string;
+    city_id: string;
+}
+
+/** What POST /api/reference/locate/ returns for a GPS point. */
+export interface LocationLookupResult {
+    latitude: number;
+    longitude: number;
+    abroad: boolean;
+    country: string;
+    country_code: string;
+    /** Abroad only: the town/city and state OpenStreetMap reports. */
+    locality: string;
+    state: string;
+    region: { id: string; name: string } | null;
+    province: { id: string; name: string } | null;
+    city: { id: string; name: string; is_city: boolean } | null;
+    barangay: { id: string; name: string } | null;
+    display_name: string;
+    attribution: string;
+    attribution_url: string;
 }
 
 export interface ReferenceData {
@@ -254,4 +283,22 @@ export const citiesApi = {
     update: (id: string, patch: Partial<CityMunicipalityItem & { region_id?: string; province_id?: string | null }>) =>
         apiRequest(`/api/reference/cities/${id}/`, 'PATCH', patch) as Promise<{ city: CityMunicipalityItem }>,
     remove: (id: string) => apiRequest(`/api/reference/cities/${id}/`, 'DELETE'),
+};
+
+export const barangaysApi = {
+    /** Barangays of one city/municipality, in natural order (Zone 2 before Zone 10). */
+    list: async (cityId: string) => {
+        const data = (await apiRequest(
+            `/api/reference/barangays/?city=${encodeURIComponent(cityId)}`,
+            'GET',
+        )) as { barangays: BarangayItem[] };
+        const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+        return { barangays: [...data.barangays].sort((a, b) => collator.compare(a.name, b.name)) };
+    },
+};
+
+export const locationApi = {
+    /** Match a GPS point to region, province, city and barangay rows. */
+    lookup: (latitude: number, longitude: number) =>
+        apiRequest('/api/reference/locate/', 'POST', { latitude, longitude }) as Promise<LocationLookupResult>,
 };

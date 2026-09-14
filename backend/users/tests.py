@@ -1114,6 +1114,57 @@ class RegistrationSweepTests(TestCase):
 		# The reviewed photo is still the front one, never a pose.
 		self.assertIn("face_front", payload["facePhotoUrl"])
 
+	def test_home_address_and_pin_are_stored(self):
+		"""Region, barangay and country were sent by registration but never saved."""
+		_, account = self._register(
+			self._payload(
+				region="Negros Island Region (NIR)",
+				barangay="San Jose",
+				home_country="Philippines",
+				home_is_abroad="false",
+				home_latitude="10.743278",
+				home_longitude="122.970029",
+				home_location_accuracy_m="15.2",
+			),
+			self.engine,
+		)
+		profile = account.profile
+		self.assertEqual(profile.home_region, "Negros Island Region (NIR)")
+		self.assertEqual(profile.home_barangay, "San Jose")
+		self.assertEqual(profile.home_country, "Philippines")
+		self.assertFalse(profile.home_is_abroad)
+		self.assertEqual(str(profile.home_latitude), "10.743278")
+		self.assertEqual(str(profile.home_longitude), "122.970029")
+		self.assertAlmostEqual(profile.home_location_accuracy_m, 15.2)
+
+	def test_out_of_range_home_pin_is_dropped(self):
+		_, account = self._register(
+			self._payload(home_latitude="123", home_longitude="999"), self.engine,
+		)
+		self.assertIsNone(account.profile.home_latitude)
+		self.assertIsNone(account.profile.home_longitude)
+
+	def test_geomap_prefers_the_home_pin_over_the_face_scan_gps(self):
+		_, account = self._register(
+			self._payload(
+				gps_lat="10.100000", gps_lng="122.100000",
+				home_latitude="10.743278", home_longitude="122.970029",
+			),
+			self.engine,
+		)
+		payload = api._admin_alumni_payload(account)
+		self.assertEqual(payload["locationSource"], "home")
+		self.assertAlmostEqual(float(payload["lat"]), 10.743278)
+		self.assertAlmostEqual(float(payload["lng"]), 122.970029)
+
+	def test_geomap_falls_back_to_the_face_scan_gps(self):
+		_, account = self._register(
+			self._payload(gps_lat="10.100000", gps_lng="122.100000"), self.engine,
+		)
+		payload = api._admin_alumni_payload(account)
+		self.assertEqual(payload["locationSource"], "registration_gps")
+		self.assertIsNone(payload["homeLat"])
+
 	def test_faceapi_uses_client_descriptors_and_does_not_embed_poses(self):
 		"""The browser engine already chose its frontal frames; the server must not second-guess it."""
 		first = [0.01 * i for i in range(128)]

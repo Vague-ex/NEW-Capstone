@@ -13,7 +13,7 @@ import {
   GraduationCap, ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle,
   User, Mail, Phone, Lock, Eye, EyeOff, Camera, VideoOff, Video, RefreshCw,
   ChevronRight, ChevronLeft, Circle,
-  BookOpen, ShieldCheck,
+  BookOpen, ShieldCheck, LocateFixed,
 } from 'lucide-react';
 import isImageBlurry from 'is-image-blurry';
 import {
@@ -30,14 +30,18 @@ import {
   type LivenessSignal,
 } from '../app/modern-face-descriptor';
 import { API_BASE_URL } from '../app/api-client';
-import { captureGps, type GpsFix } from '../app/geolocation';
+import { captureGps, describeGpsFailure, locateDevice, type GpsFix } from '../app/geolocation';
+import HomeLocationMap from './home-location-map';
 import {
   useReferenceData,
   provincesApi,
   citiesApi,
+  barangaysApi,
+  locationApi,
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
+  type BarangayItem,
 } from '../hooks/useReferenceData';
 
 //  Types
@@ -66,6 +70,10 @@ export interface PersonalFormData {
   province: string;
   city: string;
   barangay: string;
+  // Exact home location from "Use my current location" (null when typed in).
+  homeLat: number | null;
+  homeLng: number | null;
+  homeAccuracyM: number | null;
 
   // Step 3: Education Information
   graduationDate: string;
@@ -234,10 +242,6 @@ export function isValidFacebookUrl(raw: string): boolean {
   return FACEBOOK_HOSTS.has(url.hostname.toLowerCase());
 }
 
-type PhCity = { name: string; zip: string; barangays: string[] };
-type PhProvince = { name: string; cities: PhCity[] };
-type PhRegion = { name: string; provinces: PhProvince[] };
-type PhLocations = { regions: PhRegion[] };
 
 const INITIAL_PERSONAL_FORM: PersonalFormData = {
   email: '',
@@ -258,6 +262,9 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   province: '',
   city: '',
   barangay: '',
+  homeLat: null,
+  homeLng: null,
+  homeAccuracyM: null,
   graduationDate: '',
   graduationYear: null,
   hasGraduated: true,
@@ -594,12 +601,6 @@ export default function RegisterAlumniPersonal({
   const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
   const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
 
-  // Legacy ph-locations.json kept only as a barangay fallback; barangays are
-  // not yet exposed in the reference API.
-  const [phLocations, setPhLocations] = useState<PhLocations | null>(null);
-  useEffect(() => {
-    fetch('/ph-locations.json').then(r => r.json()).then(setPhLocations).catch(() => {});
-  }, []);
 
   // Real-time masterlist check (fires in Step 2 when name fields have values)
   const [matchStatus, setMatchStatus] = useState<'idle' | 'checking' | 'matched' | 'unmatched'>('idle');
@@ -666,11 +667,96 @@ export default function RegisterAlumniPersonal({
     return () => { active = false; };
   }, [form.homeIsAbroad, form.region, form.province, apiRegions, apiProvinces]);
 
-  // Barangay fallback uses the legacy JSON (not yet in reference API).
-  const phLegacyRegions = phLocations?.regions ?? [];
-  const phLegacyProvinces = phLegacyRegions.find(r => r.name === form.region)?.provinces ?? [];
-  const phLegacyCities = phLegacyProvinces.find(p => p.name === form.province)?.cities ?? [];
-  const phBarangays = phLegacyCities.find(c => c.name === form.city)?.barangays ?? [];
+  // Barangays for the chosen city, from the PSGC-synced reference table. The
+  // old source was /ph-locations.json, which never existed, so this was always
+  // a free-text box.
+  const [apiBarangays, setApiBarangays] = useState<BarangayItem[]>([]);
+  useEffect(() => {
+    const city = apiCities.find(c => c.name === form.city);
+    if (form.homeIsAbroad || !city) { setApiBarangays([]); return; }
+    let active = true;
+    void barangaysApi
+      .list(city.id)
+      .then(({ barangays }) => { if (active) setApiBarangays(barangays); })
+      .catch(() => { if (active) setApiBarangays([]); });
+    return () => { active = false; };
+  }, [form.homeIsAbroad, form.city, apiCities]);
+
+  // ── Use my current location ─────────────────────────────────────────────
+  // Optional: fills the address from GPS and records the exact point for the
+  // geomap. Every field stays editable, and typing the address still works.
+  const [locating, setLocating] = useState(false);
+  const [locateNote, setLocateNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+
+  const applyAddressFromPoint = async (lat: number, lng: number) => {
+    try {
+      const found = await locationApi.lookup(lat, lng);
+      if (found.abroad) {
+        setForm(f => ({
+          ...f,
+          homeIsAbroad: true,
+          homeCountry: found.country || f.homeCountry,
+          region: found.state || '',
+          province: '',
+          city: found.locality || '',
+          barangay: '',
+        }));
+        setLocateNote({ tone: 'ok', text: `Pinned in ${found.country || 'your country'}. Please check the details below.` });
+        return;
+      }
+      if (!found.region && !found.city) {
+        setLocateNote({ tone: 'warn', text: "We pinned your location but couldn't match an address. Please choose it below." });
+        return;
+      }
+      // Setting all four at once is safe: the cascading lists load from these
+      // names, and the selects show each value once its options arrive.
+      setForm(f => ({
+        ...f,
+        homeIsAbroad: false,
+        homeCountry: 'Philippines',
+        region: found.region?.name ?? f.region,
+        province: found.province?.name ?? '',
+        city: found.city?.name ?? '',
+        barangay: found.barangay?.name ?? '',
+      }));
+      const missing = [!found.city && 'city', !found.barangay && 'barangay'].filter(Boolean);
+      setLocateNote(missing.length
+        ? { tone: 'warn', text: `We filled in what we could. Please choose your ${missing.join(' and ')} below.` }
+        : { tone: 'ok', text: 'Address filled in from your location. Please check it and adjust anything that is off.' });
+    } catch (err) {
+      setLocateNote({
+        tone: 'warn',
+        text: err instanceof Error && err.message ? err.message : "We couldn't look up your address. Please fill it in below.",
+      });
+    }
+  };
+
+  const fillFromMyLocation = async () => {
+    setLocateNote(null);
+    setLocating(true);
+    try {
+      const { fix, failure } = await locateDevice();
+      if (!fix) {
+        setLocateNote({ tone: 'error', text: describeGpsFailure(failure) });
+        return;
+      }
+      setForm(f => ({ ...f, homeLat: fix.lat, homeLng: fix.lng, homeAccuracyM: fix.acc }));
+      await applyAddressFromPoint(fix.lat, fix.lng);
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const moveHomePin = async (lat: number, lng: number) => {
+    // A pin placed by hand has no GPS accuracy figure.
+    setForm(f => ({ ...f, homeLat: lat, homeLng: lng, homeAccuracyM: null }));
+    await applyAddressFromPoint(lat, lng);
+  };
+
+  const removeHomePin = () => {
+    setForm(f => ({ ...f, homeLat: null, homeLng: null, homeAccuracyM: null }));
+    setLocateNote(null);
+  };
 
   const inputCls = 'w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500';
 
@@ -1510,6 +1596,57 @@ export default function RegisterAlumniPersonal({
                   </div>
                 </div>
 
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:p-3.5 space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => void fillFromMyLocation()}
+                      disabled={locating}
+                      className="gt-press inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[#166534] hover:bg-[#14532d] disabled:opacity-60 text-white px-3.5 py-2.5 text-sm transition"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {locating
+                        ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        : <LocateFixed className="size-4" />}
+                      {locating ? 'Finding your location…' : form.homeLat != null ? 'Update my location' : 'Use my current location'}
+                    </button>
+                    <p className="text-[11px] text-emerald-900/80 leading-snug">
+                      Fills in your address and pins your home. Your browser will ask for permission.
+                    </p>
+                  </div>
+                  {locateNote && (
+                    <p
+                      className={`text-xs leading-snug ${
+                        locateNote.tone === 'ok' ? 'text-emerald-800' : locateNote.tone === 'warn' ? 'text-amber-700' : 'text-red-600'
+                      }`}
+                      role="status"
+                    >
+                      {locateNote.text}
+                    </p>
+                  )}
+                  {form.homeLat != null && form.homeLng != null && (
+                    <div className="gt-fade space-y-1.5">
+                      <HomeLocationMap lat={form.homeLat} lng={form.homeLng} onMove={(la, ln) => void moveHomePin(la, ln)} />
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-gray-500">
+                        <span>
+                          Drag the pin or tap the map if it is off.
+                          {form.homeAccuracyM != null ? ` Accuracy about ${Math.round(form.homeAccuracyM)} m.` : ''}
+                        </span>
+                        <button type="button" onClick={removeHomePin} className="underline hover:text-gray-700">
+                          Remove pin
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-gray-400 leading-snug">
+                    Address lookup by{' '}
+                    <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">
+                      © OpenStreetMap contributors
+                    </a>
+                    . Your pin only appears on the admin geomap if you allow it on the consent step.
+                  </p>
+                </div>
+
                 {!form.homeIsAbroad && (
                   <>
                     {/* Cascading PH location: Region → Province → City → Barangay */}
@@ -1553,7 +1690,7 @@ export default function RegisterAlumniPersonal({
                           className={inputCls}
                         >
                           <option value="">Select City</option>
-                          {apiCities.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                          {apiCities.map(c => <option key={c.id} value={c.name}>{c.name}{!c.province_id && c.home_province_id ? ' (Highly Urbanized City)' : ''}</option>)}
                         </select>
                       </div>
                     </div>
@@ -1562,7 +1699,7 @@ export default function RegisterAlumniPersonal({
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                         Barangay <span className="text-gray-400 font-normal">(optional)</span>
                       </label>
-                      {phBarangays.length > 0 ? (
+                      {apiBarangays.length > 0 ? (
                         <select
                           value={form.barangay}
                           onChange={(e) => setF('barangay', e.target.value)}
@@ -1570,7 +1707,7 @@ export default function RegisterAlumniPersonal({
                           className={inputCls}
                         >
                           <option value="">Select Barangay</option>
-                          {phBarangays.map(b => <option key={b} value={b}>{b}</option>)}
+                          {apiBarangays.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                         </select>
                       ) : (
                         <input

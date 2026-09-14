@@ -178,6 +178,13 @@ class CityMunicipality(models.Model):
 	province = models.ForeignKey(
 		Province, on_delete=models.CASCADE, related_name="cities", null=True, blank=True,
 	)
+	# Highly urbanized cities (Bacolod, Cebu, Davao...) belong to no province in
+	# the PSGC, which made them impossible to pick in a Region -> Province -> City
+	# form. This is the province each sits inside geographically, used only to
+	# list it there. `province` stays None, exactly as the PSA publishes it.
+	home_province = models.ForeignKey(
+		Province, on_delete=models.SET_NULL, related_name="independent_cities", null=True, blank=True,
+	)
 	name = models.CharField(max_length=160)
 	psgc_id = models.CharField(max_length=12, unique=True)
 	is_city = models.BooleanField(default=False, help_text="True for city/submunicipality, False for municipality.")
@@ -189,6 +196,31 @@ class CityMunicipality(models.Model):
 		indexes = [
 			models.Index(fields=["region", "name"]),
 			models.Index(fields=["province", "name"]),
+		]
+
+	def __str__(self):
+		return self.name
+
+
+class Barangay(models.Model):
+	"""Reference table for barangays, parented to a City / Municipality.
+
+	Populated from the PSA's PSGC release by `manage.py sync_psgc`. Manila's
+	districts are folded into the City of Manila, so every barangay hangs
+	directly off a row a graduate can actually pick.
+	"""
+
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	city = models.ForeignKey(CityMunicipality, on_delete=models.CASCADE, related_name="barangays")
+	name = models.CharField(max_length=160)
+	psgc_id = models.CharField(max_length=12, unique=True)
+	is_active = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "tracer_barangays"
+		ordering = ["name"]
+		indexes = [
+			models.Index(fields=["city", "name"]),
 		]
 
 	def __str__(self):

@@ -4,8 +4,8 @@
  * Final gate before submission. Collects two SEPARATE consents:
  *
  *   1. Terms & Conditions (required) - participation in the tracer study.
- *   2. Geomap / location consent (optional) - plotting the graduate's workplace
- *      on the publicly visible map.
+ *   2. Geomap / location consent (optional) - plotting the graduate's workplace,
+ *      or their pinned home location, on the admin-only geomap.
  *
  * These are deliberately not one checkbox. Under the Data Privacy Act consent
  * must be specific and freely given, and publishing a workplace location on a
@@ -171,9 +171,10 @@ export default function RegisterTerms({ onComplete, onBack }: Props) {
             Geomap consent (optional)
           </span>
           <br />
-          I allow my workplace location to be plotted on the University&apos;s graduate distribution map.
-          The map shows where BSIS graduates are employed. Declining does not affect your registration -
-          your responses are still counted in all aggregated reports.
+          I allow my location to be plotted on the University&apos;s graduate distribution map, which only
+          authorized BSIS administrators can see. If I am employed, this is my workplace. Otherwise it is the
+          exact home location I pinned during registration, or where I registered if I did not pin one.
+          Declining does not affect your registration - your responses are still counted in all aggregated reports.
         </span>
       </label>
 

@@ -279,9 +279,10 @@ export function AdminMap() {
         );
         const color = STATUS_COLORS[statusKey];
         const abroad = isAbroad(alumni);
-        // "Approximate" = no precise workplace pin was set, so the location came
-        // from registration GPS or a city-level geocode (city centroid).
-        const approximate = !alumni.workLat && !alumni.workLng;
+        // Exact = a workplace pin, or a home pin the graduate placed themselves.
+        // Anything else came from the face-scan GPS or a city-centre geocode.
+        const locationSource = (alumni as Record<string, unknown>).locationSource;
+        const approximate = !(alumni.workLat && alumni.workLng) && locationSource !== 'home';
         const borderStyle = abroad
           ? '3px solid #f59e0b'
           : approximate ? '2.5px dashed #ffffff' : '2.5px solid #ffffff';

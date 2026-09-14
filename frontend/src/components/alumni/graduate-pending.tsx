@@ -26,11 +26,13 @@ export function GraduatePending() {
               <div className="flex size-10 items-center justify-center rounded-xl bg-green-100 shrink-0">
                 <GraduationCap className="size-5 text-[#166534]" />
               </div>
-              <div className="min-w-0">
-                <p className="text-green-900 text-sm truncate" style={{ fontWeight: 700 }}>{graduate.name ?? 'Graduate'}</p>
-                <p className="text-[#166534] text-xs truncate">{graduate.email ?? 'BSIS Graduate'}</p>
+              {/* Wraps rather than truncating: on a phone the Pending badge left
+                  so little room that an ordinary full name was cut to "Maria T…". */}
+              <div className="min-w-0 flex-1">
+                <p className="text-green-900 text-sm break-words" style={{ fontWeight: 700 }}>{graduate.name ?? 'Graduate'}</p>
+                <p className="text-[#166534] text-xs break-all">{graduate.email ?? 'BSIS Graduate'}</p>
               </div>
-              <div className="ml-auto flex items-center gap-1.5 bg-amber-100 text-amber-700 text-xs px-3 py-1 rounded-full" style={{ fontWeight: 600 }}>
+              <div className="ml-auto shrink-0 flex items-center gap-1.5 bg-amber-100 text-amber-700 text-xs px-3 py-1 rounded-full" style={{ fontWeight: 600 }}>
                 <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
                 Pending
               </div>
