@@ -44,9 +44,13 @@ export function JobTitleInput({ value, onChange, referenceTitles = [], placehold
   }, [titles, query]);
 
   const check = checkJobTitle(value, referenceTitles);
-  const settled = touched && !focused;
-  const showTypo = settled && check.kind === 'typo' && !isKeptAsTyped(value);
-  const showCustomNote = settled && check.kind === 'custom';
+  // A likely typo is flagged whenever the field is not being edited, including
+  // a title saved earlier (e.g. "Artits") the moment the page opens. The Save
+  // or Next button refuses to continue until it is resolved, so the prompt must
+  // never depend on a blur having fired.
+  const showTypo = !focused && check.kind === 'typo' && !isKeptAsTyped(value);
+  // The softer "not in our list" note waits until the graduate has left the field.
+  const showCustomNote = touched && !focused && check.kind === 'custom';
 
   const pick = (title: string) => {
     onChange(title);

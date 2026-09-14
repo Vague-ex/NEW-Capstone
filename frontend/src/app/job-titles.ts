@@ -84,10 +84,10 @@ export function editDistance(a: string, b: string): number {
   return prev[n];
 }
 
-/** Short words get no slack: "Cook" vs "Book" is a different word, not a typo. */
+/** Short words get no slack: "Book" vs "Cook" is a different word, not a typo. */
 function allowedEdits(length: number): number {
-  if (length <= 3) return 0;
-  if (length <= 6) return 1;
+  if (length <= 4) return 0;
+  if (length <= 7) return 1;
   return 2;
 }
 
