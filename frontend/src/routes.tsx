@@ -1,11 +1,6 @@
 import type { ComponentType } from 'react';
-import type { RouteObject } from 'react-router';
-import {
-  GuardFallback,
-  redirectHome,
-  requireAdmin,
-  requireAlumni,
-} from './app/route-guards';
+import { Navigate, type RouteObject } from 'react-router';
+import { hasAdminSession, hasAlumniSession } from './app/route-guards';
 
 // Auth / Public
 import { LoginPage } from './components/login-page';
@@ -34,20 +29,30 @@ import { AdminSettings } from './components/admin/admin-settings';
 import { AdminFaceDebug } from './components/admin/admin-face-debug';
 // #endregion DEBUG-ONLY:CurrenChanDebug
 
-// Portal pages redirect to the login page before rendering when there is no
-// matching session. See app/route-guards.ts.
+/**
+ * Wrap a portal page so it only mounts with a matching session, and otherwise
+ * sends the visitor to the login page. The check is synchronous at render --
+ * see app/route-guards.ts for why this is not a react-router loader.
+ *
+ * Built once per route at module load, so each guard keeps a stable component
+ * identity across renders.
+ */
+function guarded(allowed: () => boolean, Page: ComponentType): ComponentType {
+  function Guarded() {
+    return allowed() ? <Page /> : <Navigate to="/" replace />;
+  }
+  Guarded.displayName = `Guarded(${Page.displayName || Page.name || 'Page'})`;
+  return Guarded;
+}
+
 const adminRoute = (path: string, Component: ComponentType): RouteObject => ({
   path,
-  Component,
-  loader: requireAdmin,
-  HydrateFallback: GuardFallback,
+  Component: guarded(hasAdminSession, Component),
 });
 
 const alumniRoute = (path: string, Component: ComponentType): RouteObject => ({
   path,
-  Component,
-  loader: requireAlumni,
-  HydrateFallback: GuardFallback,
+  Component: guarded(hasAlumniSession, Component),
 });
 
 export const routes: RouteObject[] = [
@@ -87,5 +92,5 @@ export const routes: RouteObject[] = [
   adminRoute('/admin', AdminNewDashboard),
 
   // Unknown URLs go back to the login page instead of the router's 404 screen.
-  { path: '*', loader: redirectHome, HydrateFallback: GuardFallback },
+  { path: '*', element: <Navigate to="/" replace /> },
 ];

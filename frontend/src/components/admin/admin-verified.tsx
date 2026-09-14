@@ -491,19 +491,22 @@ export function AdminVerified() {
         )}
 
         {/* Summary */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* On phones each card is ~100px wide. Side-by-side icon + text left
+            13px for the text, clipping every label, so below sm the icon sits
+            above the number and labels wrap instead of truncating. */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
           {[
             { label: 'Total Verified', value: verifiedAlumni.length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
             { label: 'Employed / Self-Employed', value: empCount, icon: Briefcase, color: 'text-[#166534]', bg: 'bg-[#166534]/10' },
             { label: 'Employment Rate', value: `${verifiedAlumni.length ? Math.round(empCount / verifiedAlumni.length * 100) : 0}%`, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
           ].map(s => (
-            <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
-              <div className={`flex size-10 items-center justify-center rounded-xl ${s.bg} shrink-0`}>
-                <s.icon className={`size-5 ${s.color}`} />
+            <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+              <div className={`flex size-8 sm:size-10 items-center justify-center rounded-xl ${s.bg} shrink-0`}>
+                <s.icon className={`size-4 sm:size-5 ${s.color}`} />
               </div>
-              <div className="min-w-0">
-                <p className="text-gray-900" style={{ fontWeight: 800, fontSize: '1.3rem', lineHeight: 1 }}>{s.value}</p>
-                <p className="text-gray-500 text-xs mt-0.5 truncate">{s.label}</p>
+              <div className="min-w-0 w-full">
+                <p className="text-gray-900 text-lg sm:text-[1.3rem]" style={{ fontWeight: 800, lineHeight: 1 }}>{s.value}</p>
+                <p className="text-gray-500 text-[11px] sm:text-xs mt-1 sm:mt-0.5 leading-tight sm:truncate">{s.label}</p>
               </div>
             </div>
           ))}

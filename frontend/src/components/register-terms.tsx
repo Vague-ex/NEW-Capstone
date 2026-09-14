@@ -58,7 +58,7 @@ export default function RegisterTerms({ onComplete, onBack }: Props) {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6 space-y-4 sm:space-y-5">
       <div className="flex items-start gap-3">
         <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 shrink-0">
           <ShieldCheck className="size-5 text-emerald-600" />

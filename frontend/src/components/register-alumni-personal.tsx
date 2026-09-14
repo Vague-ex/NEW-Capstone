@@ -179,6 +179,22 @@ const yawToTrackPercent = (yaw: number) =>
 
 const faceDistance = (a: number[], b: number[]) =>
   Math.sqrt(a.reduce((sum, v, i) => sum + (v - (b[i] ?? 0)) ** 2, 0));
+
+/**
+ * The background location request gets a long timeout because captureGps's
+ * timer also runs while the browser's permission prompt is on screen.
+ * Registration is where most graduates see that prompt for the first time, and
+ * the old 4 s limit expired before they could answer -- which is why no
+ * registration on record has a GPS fix while their later logins do. Nothing
+ * waits on this request, so a long timeout costs nothing; submit only gives it
+ * a short grace period.
+ */
+const GPS_BACKGROUND_TIMEOUT_MS = 30000;
+const GPS_SUBMIT_GRACE_MS = 2500;
+const settleGps = (request: Promise<GpsFix | null> | null): Promise<GpsFix | null> =>
+  request
+    ? Promise.race([request, new Promise<null>((resolve) => setTimeout(() => resolve(null), GPS_SUBMIT_GRACE_MS))])
+    : Promise.resolve(null);
 // Frames in the identity burst, and the gap between them. All three are
 // frontal, so averaging them is a genuine noise reduction rather than the
 // pose-mixing the previous implementation did.
@@ -260,14 +276,14 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
 
 function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100">
+    <div className="mb-4 sm:mb-6">
+      <div className="flex items-center gap-2.5 sm:gap-3 mb-1.5 sm:mb-2">
+        <div className="flex size-7 sm:size-8 items-center justify-center rounded-lg bg-emerald-100 shrink-0">
           <Icon className="size-4 text-emerald-600" />
         </div>
-        <h2 className="text-gray-900 text-lg" style={{ fontWeight: 700 }}>{title}</h2>
+        <h2 className="text-gray-900 text-base sm:text-lg leading-tight" style={{ fontWeight: 700 }}>{title}</h2>
       </div>
-      {subtitle && <p className="text-gray-500 text-sm">{subtitle}</p>}
+      {subtitle && <p className="text-gray-500 text-xs sm:text-sm">{subtitle}</p>}
     </div>
   );
 }
@@ -295,22 +311,22 @@ function CheckOption({ label, checked, onChange }: { label: string; checked: boo
 
 function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = false, navigationUrl }: { onBack: () => void; onNext: () => void; nextLabel?: string; nextDisabled?: boolean; navigationUrl?: string }) {
   return (
-    <div className="flex gap-3 mt-6">
+    <div className="flex gap-2 sm:gap-3 mt-5 sm:mt-6">
       {navigationUrl ? (
         <Link to={navigationUrl}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
+          className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
           style={{ fontWeight: 600 }}>
           <ChevronLeft className="size-4" /> Back
         </Link>
       ) : (
         <button onClick={onBack}
-          className="flex items-center justify-center gap-2 px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
+          className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition text-sm"
           style={{ fontWeight: 600 }}>
           <ChevronLeft className="size-4" /> Back
         </button>
       )}
       <button onClick={onNext} disabled={nextDisabled}
-        className={`flex-1 flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-white transition text-sm ${
+        className={`flex-1 flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 rounded-lg text-white transition text-sm ${
           nextDisabled ? 'bg-gray-300 cursor-not-allowed' : 'bg-[#166534] hover:bg-[#14532d]'
         }`}
         style={{ fontWeight: 600 }}>
@@ -826,6 +842,11 @@ export default function RegisterAlumniPersonal({
       // secure context, and a fallback constraint.
       await openFrontCamera(videoRef.current);
       setCameraOn(true);
+      // On a phone the capture box sits below the instructions, so starting the
+      // camera left the live view off screen. Bring it into view.
+      requestAnimationFrame(() => {
+        videoRef.current?.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       // Ask for location now, in the background. It used to be awaited inside
       // the identity burst, and on a FIRST attempt that is exactly when the
       // browser shows its location prompt: the burst sat locked for the full
@@ -833,7 +854,7 @@ export default function RegisterAlumniPersonal({
       // head in that window captured nothing. A retake felt smooth only
       // because the permission had already been decided.
       if (!gpsRequestRef.current) {
-        gpsRequestRef.current = captureGps().then((fix) => {
+        gpsRequestRef.current = captureGps(GPS_BACKGROUND_TIMEOUT_MS).then((fix) => {
           setIdentityGps((current) => current ?? fix);
           return fix;
         });
@@ -1075,7 +1096,7 @@ export default function RegisterAlumniPersonal({
         descriptorSamples,
         livenessSignals,
         sweepFrames: sweep.filter((f): f is SweepFrame => f !== null),
-        gps: identityGps ?? (gpsRequestRef.current ? await gpsRequestRef.current : null),
+        gps: identityGps ?? (await settleGps(gpsRequestRef.current)),
       };
       await onComplete(form, biometricData, matchStatus);
     } catch (err) {
@@ -1109,7 +1130,7 @@ export default function RegisterAlumniPersonal({
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center px-4 py-8">
+      <div className="flex-1 flex flex-col items-center px-3 sm:px-4 py-4 sm:py-8">
         {/* Widens on the camera step the same way the login does, so the video
             reaches the same size. The +48px is this card's own padding. */}
         <div className={`w-full transition-[max-width] duration-300 ${
@@ -1136,7 +1157,7 @@ export default function RegisterAlumniPersonal({
           )}
 
           {/* Stepper */}
-          <div className="flex items-center mb-8">
+          <div className="flex items-center mb-5 sm:mb-8">
             {PERSONAL_STEP_CONFIG.map((s, i) => (
               <div key={s.n} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center shrink-0">
@@ -1166,7 +1187,7 @@ export default function RegisterAlumniPersonal({
 
           {/* STEP 1: Account Setup */}
           {step === 1 && (
-            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-7">
               <SectionHeader icon={Lock} title="Create Your Account" subtitle="Set up your login credentials for the Graduate Portal." />
 
               {draftRestored && (
@@ -1284,7 +1305,7 @@ export default function RegisterAlumniPersonal({
 
           {/* STEP 2: Personal Information */}
           {step === 2 && (
-            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-7">
               <SectionHeader icon={User} title="Personal Information" subtitle="Your basic details and contact information." />
 
               {stepError && (
@@ -1399,7 +1420,7 @@ export default function RegisterAlumniPersonal({
                     <select
                       value={form.mobileCountryCode}
                       onChange={(e) => setF('mobileCountryCode', e.target.value)}
-                      className="px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                      className="w-[5.25rem] sm:w-auto shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
                     >
                       <option value="+63">+63 Philippines</option>
                       <option value="+1">+1 United States</option>
@@ -1641,7 +1662,7 @@ export default function RegisterAlumniPersonal({
 
           {/* STEP 3: Education Background */}
           {step === 3 && (
-            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-7">
+            <div className="gt-rise bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-7">
               <SectionHeader icon={BookOpen} title="Educational Background" subtitle="Your graduation and academic details." />
 
               {stepError && (
@@ -1818,14 +1839,14 @@ export default function RegisterAlumniPersonal({
             const allCaptured = shotIndex >= shotInstructions.length;
             return (
               <div className="gt-rise space-y-4">
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                  <div className="flex items-start gap-3 mb-5">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+                  <div className="flex items-start gap-3 mb-3 sm:mb-5">
                     <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-50 shrink-0">
                       <Camera className="size-5 text-emerald-600" />
                     </div>
                     <div>
                       <h2 className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.1rem' }}>Face Recognition</h2>
-                      <p className="text-gray-500 text-xs mt-0.5">
+                      <p className="hidden sm:block text-gray-500 text-xs mt-0.5">
                         We take one front photo, then ask you to slowly turn your head left and right. The turn confirms you are really there and captures your face from a few angles.
                       </p>
                     </div>
@@ -1836,7 +1857,12 @@ export default function RegisterAlumniPersonal({
                     <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
                     <div className="text-xs text-amber-900 leading-relaxed">
                       <p style={{ fontWeight: 700 }}>Before you begin</p>
-                      <p className="mt-0.5">
+                      {/* Short on phones, where the full paragraph pushed the
+                          camera below the fold. */}
+                      <p className="mt-0.5 sm:hidden">
+                        Remove sunglasses, hats or masks and face a light. Take one front photo, then slowly turn your head left and right.
+                      </p>
+                      <p className="mt-0.5 hidden sm:block">
                         Please remove anything that hides your face - sunglasses, hats, face masks, or thick reflective glasses.
                         Make sure your face is well-lit. You will face the camera for one photo, then slowly turn your
                         head left and right. The front photo and a few angled frames are saved for verification.

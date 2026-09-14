@@ -167,14 +167,14 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
 // Reusable Components (imported from context or duplicated here)
 function SectionHeader({ icon: Icon, title, subtitle }: any) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100">
+    <div className="mb-4 sm:mb-6">
+      <div className="flex items-center gap-2.5 sm:gap-3 mb-1.5 sm:mb-2">
+        <div className="flex size-7 sm:size-8 items-center justify-center rounded-lg bg-emerald-100 shrink-0">
           <Icon className="size-4 text-emerald-600" />
         </div>
-        <h2 className="text-gray-900 text-lg" style={{ fontWeight: 700 }}>{title}</h2>
+        <h2 className="text-gray-900 text-base sm:text-lg leading-tight" style={{ fontWeight: 700 }}>{title}</h2>
       </div>
-      {subtitle && <p className="text-gray-500 text-sm">{subtitle}</p>}
+      {subtitle && <p className="text-gray-500 text-xs sm:text-sm">{subtitle}</p>}
     </div>
   );
 }
@@ -588,9 +588,9 @@ export default function RegisterAlumniEmployment({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto p-6">
+    <div className="w-full max-w-2xl mx-auto px-3 py-4 sm:p-6">
       {/* Progress Bar */}
-      <div className="mb-8">
+      <div className="mb-5 sm:mb-8">
         <div className="flex justify-between text-sm text-gray-600 mb-2">
           <span>Step {step} of 6</span>
           <span>{(step / 6 * 100).toFixed(0)}%</span>
@@ -757,7 +757,7 @@ export default function RegisterAlumniEmployment({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Sector</label>
               <select
@@ -971,7 +971,7 @@ export default function RegisterAlumniEmployment({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-900 mb-2">Province</label>
                   <select
@@ -1022,7 +1022,7 @@ export default function RegisterAlumniEmployment({
             </>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">
                 ZIP Code (optional)

@@ -171,3 +171,16 @@ select option {
      would leave keyboard users with no hover affordance at all. */
   .gt-bubble::before { transition: none !important; }
 }
+
+/* gt-ios-field-zoom */
+/* iOS Safari zooms the whole page when a focused field's text is under 16px,
+   and stays zoomed after the keyboard closes -- on a phone the form then feels
+   too big and runs off the side. Fields are 14px (text-sm) by design, so they
+   go to 16px on small screens only. Unlayered, so it outranks the utility. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

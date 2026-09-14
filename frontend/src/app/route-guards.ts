@@ -1,21 +1,27 @@
 /**
- * Route guards for the portal pages.
+ * Session checks for the portal pages.
  *
- * These run as react-router loaders, which execute BEFORE the route renders,
- * so someone who opens /admin/verified without an admin session is sent to the
- * login page without the admin page ever mounting or flashing on screen.
+ * routes.tsx wraps each portal page in a guard component that renders the page
+ * only when these return true, and otherwise redirects to the login page. The
+ * page component itself never mounts without a session, so nothing flashes.
+ *
+ * This is deliberately NOT done with react-router loaders. An earlier version
+ * used `loader` + `HydrateFallback`, and on the first load of a guarded URL the
+ * loader could settle before RouterProvider had subscribed to the router --
+ * the update was lost and the page stayed on the empty fallback forever. It
+ * was timing-dependent (worse on slow devices), so it passed in testing and
+ * then left an admin page blank. A synchronous check at render has no race.
  *
  * This is a front-end convenience, not the security boundary. Every admin and
  * graduate API endpoint still checks the bearer token server-side; a guard
  * that someone bypasses in devtools gets them an empty page and a stack of
  * 401s, never data.
  */
-import { redirect } from 'react-router';
 import { ADMIN_ACCESS_TOKEN_KEY, ALUMNI_ACCESS_TOKEN_KEY } from './api-client';
 
 function read(key: string): string | null {
   // sessionStorage can throw (blocked site data, some privacy modes). Treat
-  // that as "no session" rather than letting the loader crash the router.
+  // that as "no session" rather than crashing the page.
   try {
     return sessionStorage.getItem(key);
   } catch {
@@ -35,28 +41,4 @@ export function hasAdminSession(): boolean {
  */
 export function hasAlumniSession(): boolean {
   return Boolean(read(ALUMNI_ACCESS_TOKEN_KEY)) || Boolean(read('alumni_user'));
-}
-
-export function requireAdmin() {
-  if (!hasAdminSession()) throw redirect('/');
-  return null;
-}
-
-export function requireAlumni() {
-  if (!hasAlumniSession()) throw redirect('/');
-  return null;
-}
-
-/** Any URL that matches no route goes back to the login page. */
-export function redirectHome() {
-  return redirect('/');
-}
-
-/**
- * Rendered while a guarded route's loader runs on first load. The guards are
- * synchronous so this is never actually visible; declaring it stops
- * react-router warning that no hydration fallback was provided.
- */
-export function GuardFallback() {
-  return null;
 }
