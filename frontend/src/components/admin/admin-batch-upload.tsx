@@ -15,6 +15,26 @@ interface BatchEntry {
 const currentYear = new Date().getFullYear();
 const YEAR_RANGE = Array.from({ length: currentYear - 2019 }, (_, i) => 2020 + i);
 
+// Mirrors MasterlistBulkCreateView. A report CSV uploaded here once saved rows
+// like "Avg Time-to-Hire (mo)" / batch 2 and "2021" / batch 6.
+const MIN_GRAD_YEAR = 2000;
+const MAX_GRAD_YEAR = currentYear + 1;
+
+/** Why a row can't go in the master list, or null when it looks valid. */
+function masterRowProblem(name: string, year: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return 'missing name';
+  if (!/\p{L}/u.test(trimmed) || trimmed.split(/\s+/).length < 2) {
+    return `"${trimmed}" is not a full name (first and last)`;
+  }
+  const yearNum = Number(year.trim());
+  if (!year.trim() || !Number.isInteger(yearNum)) return 'invalid graduation year';
+  if (yearNum < MIN_GRAD_YEAR || yearNum > MAX_GRAD_YEAR) {
+    return `graduation year ${yearNum} is outside ${MIN_GRAD_YEAR}–${MAX_GRAD_YEAR}`;
+  }
+  return null;
+}
+
 const TEMPLATE_CSV = `name,graduationYear
 Juan dela Cruz,2024
 Maria Reyes,2024
@@ -64,6 +84,12 @@ export function AdminBatchUpload() {
     || String(m.graduationYear ?? '').includes(masterSearch.trim()));
 
   const totalMaster = masterTotal ?? MASTER_LIST.length;
+  // Tiles follow the batches actually on file (e.g. 2019), not only 2020 onward,
+  // so they add up to the total. Implausible years are left out.
+  const tileYears = Array.from(new Set([
+    ...YEAR_RANGE,
+    ...Object.keys(masterPerBatch).map(Number).filter(y => y >= MIN_GRAD_YEAR && y <= MAX_GRAD_YEAR),
+  ])).sort((a, b) => a - b);
   const batchCount = (yr: number) =>
     masterTotal !== null ? (masterPerBatch[yr] ?? 0) : MASTER_LIST.filter(m => m.graduationYear === yr).length;
   const [manualSaved, setManualSaved] = useState(false);
@@ -116,10 +142,8 @@ export function AdminBatchUpload() {
           const cols = parseCsvLine(rawLines[i]);
           const name = (nameIdx >= 0 ? cols[nameIdx] : cols[0]) ?? '';
           const graduationYear = (yearIdx >= 0 ? cols[yearIdx] : cols[1]) ?? '';
-          if (!name.trim()) { errors.push(`Row ${i + 1}: missing name`); continue; }
-          if (!graduationYear.trim() || Number.isNaN(Number(graduationYear))) {
-            errors.push(`Row ${i + 1}: invalid graduation year`); continue;
-          }
+          const problem = masterRowProblem(name, graduationYear);
+          if (problem) { errors.push(`Row ${i + 1}: ${problem}`); continue; }
           entries.push({ name: name.trim(), graduationYear: graduationYear.trim() });
         }
 
@@ -177,12 +201,9 @@ export function AdminBatchUpload() {
     const cleaned: { name: string; graduation_year: number }[] = [];
     const errors: string[] = [];
     importedEntries.forEach((entry, i) => {
-      const name = entry.name.trim();
-      const yearStr = entry.graduationYear.trim();
-      if (!name) { errors.push(`Row ${i + 1}: missing name`); return; }
-      const yearNum = Number(yearStr);
-      if (!yearStr || Number.isNaN(yearNum)) { errors.push(`Row ${i + 1}: invalid year`); return; }
-      cleaned.push({ name, graduation_year: yearNum });
+      const problem = masterRowProblem(entry.name, entry.graduationYear);
+      if (problem) { errors.push(`Row ${i + 1}: ${problem}`); return; }
+      cleaned.push({ name: entry.name.trim(), graduation_year: Number(entry.graduationYear.trim()) });
     });
     if (cleaned.length === 0) {
       setCsvError(errors.join('; ') || 'No valid rows to save.');
@@ -196,8 +217,10 @@ export function AdminBatchUpload() {
       setSavedSummary({ created, skipped });
       setCsvStage('saved');
       refreshMasterlist();
-      if (errors.length) {
-        setCsvError(`${errors.length} row(s) skipped before send: ${errors.slice(0, 3).join('; ')}`);
+      const serverSkipped = (res?.skippedRows ?? []).map(r => `Row ${r.row}: ${r.reason}`);
+      const allSkipped = [...errors, ...serverSkipped];
+      if (allSkipped.length) {
+        setCsvError(`${allSkipped.length} row(s) not saved: ${allSkipped.slice(0, 3).join('; ')}`);
       }
     } catch (err) {
       setCsvError(err instanceof Error ? err.message : 'Save failed. Please try again.');
@@ -226,9 +249,10 @@ export function AdminBatchUpload() {
   const handleManualSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setManualError('');
-    const invalid = manualEntries.find(entry => !entry.name.trim() || !entry.graduationYear);
-    if (invalid) {
-      setManualError('All rows must have a full name and graduation year.');
+    const problemIdx = manualEntries.findIndex(entry => masterRowProblem(entry.name, entry.graduationYear));
+    if (problemIdx >= 0) {
+      const entry = manualEntries[problemIdx];
+      setManualError(`Row ${problemIdx + 1}: ${masterRowProblem(entry.name, entry.graduationYear)}.`);
       return;
     }
     setIsProcessing(true);
@@ -282,7 +306,7 @@ export function AdminBatchUpload() {
             </div>
           </div>
           <div className="mt-4 grid grid-cols-3 sm:grid-cols-6 xl:grid-cols-3 2xl:grid-cols-6 gap-2">
-            {YEAR_RANGE.map(yr => {
+            {tileYears.map(yr => {
               const count = batchCount(yr);
               return (
                 <div key={yr} className="bg-gray-50 border border-gray-100 rounded-xl p-2 text-center">

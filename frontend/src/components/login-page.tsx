@@ -54,6 +54,9 @@ function describeChallenge(challenge: LoginChallenge): { title: string; hint: st
 }
 
 const LIVENESS_TIMEOUT_MS = 10000;
+// A blink cannot be held for the camera the way a head turn can, and the
+// detector first has to learn this person's open-eye baseline, so it gets longer.
+const BLINK_TIMEOUT_MS = 15000;
 const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "login" | "facescan";
@@ -227,10 +230,15 @@ export function LoginPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraOn, scanStage, faceAuthBusy]);
 
-  // Liveness challenge loop: runs AFTER a frontal frame is captured. Samples
-  // landmarks every FACE_SAMPLE_INTERVAL_MS and checks the prompted action
-  // (blink / head turn), then submits the already-captured frontal frame.
-  // On timeout, fall back to the retry button.
+  // Liveness challenge loop: runs AFTER a frontal frame is captured. Checks the
+  // prompted action (blink / head turn) on each landmark frame, then submits
+  // the already-captured frontal frame. On timeout, fall back to the retry button.
+  //
+  // Frames are pulled one at a time: the next detection starts only after the
+  // previous one has finished. This used to be a 50ms setInterval, which on a
+  // phone (100-250ms per detection) stacked calls up so results arrived late
+  // and out of order, and a 150-300ms blink was often never seen closed. A
+  // head turn is held rather than momentary, which is why only blink timed out.
   useEffect(() => {
     if (!cameraOn || scanStage !== "challenge" || faceAuthBusy) {
       if (autoDetectInterval.current) {
@@ -240,80 +248,80 @@ export function LoginPage() {
       return;
     }
 
+    let stopped = false;
+    let nextFrame: ReturnType<typeof setTimeout> | null = null;
+    const stopSampling = () => {
+      stopped = true;
+      if (nextFrame) clearTimeout(nextFrame);
+      nextFrame = null;
+    };
+
     livenessTimeoutRef.current = setTimeout(() => {
-      if (autoDetectInterval.current) {
-        clearInterval(autoDetectInterval.current);
-        autoDetectInterval.current = null;
-      }
+      stopSampling();
       setScanStage("failed");
       setCameraError(
         `Liveness challenge timed out. Please ${describeChallenge(challenge).title.toLowerCase()} and try again.`,
       );
       stopCamera();
-    }, LIVENESS_TIMEOUT_MS);
+    }, challenge === 'blink' ? BLINK_TIMEOUT_MS : LIVENESS_TIMEOUT_MS);
 
     const blinkDetector = createBlinkDetector();
 
-    autoDetectInterval.current = setInterval(async () => {
-      if (faceAuthBusy) return;
+    const sampleFrame = async () => {
+      if (stopped) return;
       const video = videoRef.current;
-      if (!video || video.videoWidth === 0) return;
       try {
-        const landmarks = await extractFaceLandmarksFromVideo(video);
-        if (meshCanvasRef.current) {
-          drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
-        }
-        setFaceSeen(!!landmarks);
+        if (video && video.videoWidth > 0) {
+          const landmarks = await extractFaceLandmarksFromVideo(video);
+          if (stopped) return;
+          if (meshCanvasRef.current) {
+            drawFaceMesh(meshCanvasRef.current, video, landmarks, { alpha: 0.5 });
+          }
+          setFaceSeen(!!landmarks);
 
-        // Blink is a transition over time, so it must see every frame —
-        // including the ones with no face, which reset a half-finished blink.
-        let passed = false;
-        if (challenge === 'blink') {
-          passed = blinkDetector.push(landmarks);
-        }
+          // Blink is a transition over time, so it must see every frame —
+          // including the ones with no face, which reset a half-finished blink.
+          let passed = challenge === 'blink' ? blinkDetector.push(landmarks) : false;
 
-        if (!landmarks) {
-          // Lost the face - reset any running countdown.
-          countdownValRef.current = null;
-          setLivenessCountdown(null);
-          return;
-        }
-        const mar = computeMouthAspectRatio(landmarks);
-        const yaw = estimateHeadYawDegrees(landmarks);
+          if (!landmarks) {
+            // Lost the face - reset any running countdown.
+            countdownValRef.current = null;
+            setLivenessCountdown(null);
+          } else {
+            const mar = computeMouthAspectRatio(landmarks);
+            const yaw = estimateHeadYawDegrees(landmarks);
+            if (challenge === 'head_turn') {
+              // Either direction counts (mirror-proof).
+              passed = Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG;
+            }
 
-        if (challenge === 'head_turn') {
-          // Either direction counts (mirror-proof).
-          passed = Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG;
+            if (passed) {
+              // Action satisfied -> record the signal, mark Approved, and go
+              // straight to the face match (no countdown).
+              livenessSignalRef.current = {
+                challenge,
+                mouthAspectRatio: mar,
+                yawDegrees: yaw,
+                completedAt: new Date().toISOString(),
+              };
+              stopSampling();
+              if (livenessTimeoutRef.current) {
+                clearTimeout(livenessTimeoutRef.current);
+                livenessTimeoutRef.current = null;
+              }
+              setLivenessPassed(true);
+              void runGraduateFaceAuthentication();
+              return;
+            }
+          }
         }
-
-        if (!passed) return; // keep polling until the action is performed
-
-        // Action satisfied -> record the signal, mark Approved, and go straight
-        // to the face match (no countdown).
-        livenessSignalRef.current = {
-          challenge,
-          mouthAspectRatio: mar,
-          yawDegrees: yaw,
-          completedAt: new Date().toISOString(),
-        };
-        if (livenessTimeoutRef.current) {
-          clearTimeout(livenessTimeoutRef.current);
-          livenessTimeoutRef.current = null;
-        }
-        if (autoDetectInterval.current) {
-          clearInterval(autoDetectInterval.current);
-          autoDetectInterval.current = null;
-        }
-        setLivenessPassed(true);
-        void runGraduateFaceAuthentication();
       } catch { /* silent - keep polling */ }
-    }, FACE_SAMPLE_INTERVAL_MS);
+      if (!stopped) nextFrame = setTimeout(sampleFrame, FACE_SAMPLE_INTERVAL_MS);
+    };
+    void sampleFrame();
 
     return () => {
-      if (autoDetectInterval.current) {
-        clearInterval(autoDetectInterval.current);
-        autoDetectInterval.current = null;
-      }
+      stopSampling();
       if (livenessTimeoutRef.current) {
         clearTimeout(livenessTimeoutRef.current);
         livenessTimeoutRef.current = null;

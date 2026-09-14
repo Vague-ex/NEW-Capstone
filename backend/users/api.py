@@ -2859,6 +2859,23 @@ class MasterlistListView(APIView):
             "entries": entries,
         })
 
+MASTERLIST_MIN_YEAR = 2000
+
+
+def _masterlist_max_year() -> int:
+    """Next year's batch may be uploaded ahead of graduation."""
+    from datetime import date
+
+    return date.today().year + 1
+
+
+def _looks_like_full_name(name: str) -> bool:
+    """At least two words and at least one letter ("Total", "2021" and "(mo)" fail)."""
+    import re as _re
+
+    return len(name.split()) >= 2 and _re.search(r"[^\W\d_]", name) is not None
+
+
 class MasterlistBulkCreateView(APIView):
     """Admin-only: bulk create GraduateMasterRecord entries from the batch-upload UI."""
     authentication_classes = []
@@ -2884,6 +2901,19 @@ class MasterlistBulkCreateView(APIView):
                 year_int = int(year)
             except (TypeError, ValueError):
                 skipped.append({"row": position, "name": name, "reason": f"invalid graduation year {year!r}"})
+                continue
+            # A report CSV uploaded here by mistake once saved rows such as
+            # "Avg Time-to-Hire (mo)" / batch 2 and "2021" / batch 6, so both
+            # columns are checked for plausibility, not just presence.
+            if not (MASTERLIST_MIN_YEAR <= year_int <= _masterlist_max_year()):
+                skipped.append({
+                    "row": position,
+                    "name": name,
+                    "reason": f"graduation year {year_int} is outside {MASTERLIST_MIN_YEAR}-{_masterlist_max_year()}",
+                })
+                continue
+            if not _looks_like_full_name(name):
+                skipped.append({"row": position, "name": name, "reason": "name must be a full name (first and last)"})
                 continue
             # Registration matches the graduate's family name against
             # last_name exactly, so a wrong surname locks them out entirely.

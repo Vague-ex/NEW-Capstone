@@ -865,6 +865,62 @@ class MasterlistNameParsingTests(SimpleTestCase):
 		self.assertEqual(derive_last_name("Dela Cruz"), "Cruz")
 
 
+class MasterlistRowValidationTests(SimpleTestCase):
+	"""
+	An analytics report CSV uploaded through Batch Upload once saved rows such
+	as "Avg Time-to-Hire (mo)" / batch 2, "2021" / batch 6 and "Total" / batch
+	33. These are the shapes the bulk-create endpoint must now refuse.
+	"""
+
+	def test_report_labels_are_not_full_names(self):
+		for junk in ["2021", "Total", "Metric", "(mo)", "12 34"]:
+			self.assertFalse(api._looks_like_full_name(junk), junk)
+
+	def test_real_names_pass(self):
+		for name in ["Juan Dela Cruz", "Aira Sofia Marie Caguioa Guacena", "Ma. Ñiña Reyes"]:
+			self.assertTrue(api._looks_like_full_name(name), name)
+
+	def test_year_window(self):
+		self.assertEqual(api.MASTERLIST_MIN_YEAR, 2000)
+		self.assertEqual(api._masterlist_max_year(), timezone.now().year + 1)
+
+
+class MasterlistBulkCreateValidationTests(TestCase):
+	"""The endpoint itself refuses report rows, even if a client skips its own checks."""
+
+	def setUp(self):
+		self.client = APIClient()
+		self.admin_user = User.objects.create_user(
+			email="masterlist-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+
+	def test_report_rows_are_skipped_and_real_rows_saved(self):
+		from .models import GraduateMasterRecord
+
+		year = timezone.now().year
+		response = self.client.post(
+			"/api/admin/masterlist/bulk-create/",
+			{"entries": [
+				{"name": "Avg Time-to-Hire (mo)", "graduation_year": 2},
+				{"name": "2021", "graduation_year": 6},
+				{"name": "Total", "graduation_year": 33},
+				{"name": "Metric", "graduation_year": 2021},
+				{"name": "Pedro Santos", "graduation_year": year + 5},
+				{"name": "Juan Dela Cruz", "graduation_year": 2024},
+			]},
+			format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_admin_access_token(self.admin_user.id)}",
+		)
+		self.assertEqual(response.status_code, 201)
+		self.assertEqual(response.data["created"], 1)
+		self.assertEqual(response.data["skipped"], 5)
+		self.assertEqual(
+			list(GraduateMasterRecord.objects.values_list("full_name", "batch_year")),
+			[("Juan Dela Cruz", 2024)],
+		)
+
+
 class _InlineThread:
 	"""threading.Thread stand-in that runs its target on start(), so a
 	fire-and-forget send can be asserted on without racing the thread."""

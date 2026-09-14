@@ -606,7 +606,14 @@ export async function fetchMasterlist(): Promise<MasterlistData> {
 
 export async function createMasterlistEntries(
     entries: { name: string; graduation_year: number }[],
-): Promise<{ created: number; entries: { id: string; name: string; batch_year: number }[] }> {
+): Promise<{
+    created: number;
+    duplicates?: number;
+    skipped?: number;
+    /** Rows the server refused, with the reason (first 50). */
+    skippedRows?: { row: number; name: string; reason: string }[];
+    entries: { id: string; name: string; batch_year: number }[];
+}> {
     const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/bulk-create/`, {
         method: 'POST',
         headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
