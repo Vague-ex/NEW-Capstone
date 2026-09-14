@@ -269,7 +269,7 @@ export function AdminReports() {
                 }
                 className="size-4 accent-[#16a34a]"
               />
-              <span>Include unverified alumni</span>
+              <span>Include unverified graduates</span>
             </label>
           </div>
         </div>

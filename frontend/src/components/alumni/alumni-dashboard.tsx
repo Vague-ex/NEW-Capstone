@@ -88,7 +88,7 @@ export function AlumniDashboard() {
             {/* Avatar */}
             <div className="flex size-14 items-center justify-center rounded-2xl bg-white/20 text-white shrink-0"
               style={{ fontWeight: 700, fontSize: '1.4rem' }}>
-              {alumni.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) ?? 'AL'}
+              {alumni.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) ?? 'GR'}
             </div>
 
             <div className="flex-1">

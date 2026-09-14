@@ -127,7 +127,7 @@ export function AdminMap() {
       } catch {
         if (!active) return;
         setAlumniRecords([]);
-        setDataError('Could not load alumni GPS data. Please refresh.');
+        setDataError('Could not load graduate location data. Please refresh.');
       } finally {
         if (active) {
           setLoadingData(false);
@@ -467,7 +467,7 @@ export function AdminMap() {
             {(loadingData || (!mapReady && !mapError)) && !effectiveError && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
                 <span className="size-8 border-4 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin mb-3" />
-                <p className="text-gray-500 text-sm">{loadingData ? 'Loading alumni GPS data…' : 'Loading map…'}</p>
+                <p className="text-gray-500 text-sm">{loadingData ? 'Loading graduate location data…' : 'Loading map…'}</p>
               </div>
             )}
             {effectiveError && (

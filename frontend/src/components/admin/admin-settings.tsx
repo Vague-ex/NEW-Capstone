@@ -880,7 +880,8 @@ function DebugAccountsPanel() {
                   }`}
                   style={{ fontWeight: isActive ? 600 : 500 }}
                 >
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                  {/* The role key stays 'alumni' (it is the API value); only the label says Graduate. */}
+                  {role === 'alumni' ? 'Graduate' : role.charAt(0).toUpperCase() + role.slice(1)}
                   <span className={`text-[10px] px-1.5 rounded-full ${isActive ? 'bg-white/20' : 'bg-gray-100 text-gray-500'}`} style={{ fontWeight: 700 }}>
                     {count}
                   </span>
@@ -945,7 +946,7 @@ function DebugAccountsPanel() {
           )}
 
           <p className="text-[10px] text-red-700 italic">
-            Heads-up: deleting cascades through the user's FK - alumni profiles, employer records, login audits, and verification decisions all go with it.
+            Heads-up: deleting cascades through the user's FK - graduate profiles, employer records, login audits, and verification decisions all go with it.
           </p>
         </div>
       )}

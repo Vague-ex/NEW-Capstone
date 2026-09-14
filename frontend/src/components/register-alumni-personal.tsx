@@ -123,6 +123,22 @@ export interface BiometricData {
 
 //  Constants
 
+// Mobile country codes, shown as a flag and the code to keep the picker narrow
+// on phones. The country name stays on each option for screen readers. Note that
+// Windows does not draw flag emoji, so desktop Chrome there shows letters (PH).
+const COUNTRY_CODES = [
+  { code: '+63', flag: '🇵🇭', name: 'Philippines' },
+  { code: '+1', flag: '🇺🇸', name: 'United States' },
+  { code: '+44', flag: '🇬🇧', name: 'United Kingdom' },
+  { code: '+61', flag: '🇦🇺', name: 'Australia' },
+  { code: '+65', flag: '🇸🇬', name: 'Singapore' },
+  { code: '+60', flag: '🇲🇾', name: 'Malaysia' },
+  { code: '+81', flag: '🇯🇵', name: 'Japan' },
+  { code: '+82', flag: '🇰🇷', name: 'South Korea' },
+  { code: '+86', flag: '🇨🇳', name: 'China' },
+  { code: '+971', flag: '🇦🇪', name: 'United Arab Emirates' },
+];
+
 const PERSONAL_STEP_CONFIG = [
   { n: 1 as PersonalStep, label: 'Account' },
   { n: 2 as PersonalStep, label: 'Personal' },
@@ -1209,7 +1225,7 @@ export default function RegisterAlumniPersonal({
           </div>
           <div>
             <p className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>
-              Alumni Registration
+              Graduate Registration
             </p>
             <p className="text-gray-400 text-xs">Personal Information & Verification</p>
           </div>
@@ -1506,25 +1522,19 @@ export default function RegisterAlumniPersonal({
                     <select
                       value={form.mobileCountryCode}
                       onChange={(e) => setF('mobileCountryCode', e.target.value)}
-                      className="w-[5.25rem] sm:w-auto shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+                      aria-label="Country code"
+                      title={COUNTRY_CODES.find(c => c.code === form.mobileCountryCode)?.name}
+                      className="w-[6rem] shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
                     >
-                      <option value="+63">+63 Philippines</option>
-                      <option value="+1">+1 United States</option>
-                      <option value="+44">+44 United Kingdom</option>
-                      <option value="+61">+61 Australia</option>
-                      <option value="+65">+65 Singapore</option>
-                      <option value="+60">+60 Malaysia</option>
-                      <option value="+81">+81 Japan</option>
-                      <option value="+82">+82 Korea</option>
-                      <option value="+86">+86 China</option>
-                      <option value="+971">+971 UAE</option>
+                      {COUNTRY_CODES.map(c => (
+                        <option key={c.code} value={c.code} aria-label={`${c.name} ${c.code}`}>
+                          {c.flag} {c.code}
+                        </option>
+                      ))}
                     </select>
+                    {/* The separate "+63" box was dropped: the picker now shows the
+                        code itself, and the box only squeezed the number field. */}
                     <div className="relative flex-1 flex items-stretch">
-                      {form.mobileCountryCode === '+63' && (
-                        <span className="inline-flex items-center px-2.5 border border-r-0 border-gray-200 rounded-l-lg bg-gray-50 text-gray-600 text-sm font-medium select-none">
-                          +63
-                        </span>
-                      )}
                       <div className="relative flex-1">
                         <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
                         <input
@@ -1539,7 +1549,7 @@ export default function RegisterAlumniPersonal({
                             }
                             setF('mobile', digits);
                           }}
-                          className={`${inputCls} pl-10 ${form.mobileCountryCode === '+63' ? 'rounded-l-none' : ''}`}
+                          className={`${inputCls} pl-10`}
                         />
                       </div>
                     </div>
@@ -1811,7 +1821,7 @@ export default function RegisterAlumniPersonal({
 
               <div className="gt-stagger space-y-4">
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
-                  Every CHMSU Talisay BSIS alumnus already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken.
+                  Every CHMSU Talisay BSIS graduate already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken.
                 </div>
 
                 <div>
