@@ -2,6 +2,7 @@ from django.urls import path
 
 from .api import (
     AdminAnalyticsPredictionsView,
+    BarangayDetailView,
     BarangayListView,
     CityMunicipalityDetailView,
     CityMunicipalityListView,
@@ -70,6 +71,7 @@ urlpatterns = [
 
     # Barangays (parented to a City / Municipality) and GPS -> address lookup
     path("reference/barangays/", BarangayListView.as_view(), name="barangay-list"),
+    path("reference/barangays/<uuid:pk>/", BarangayDetailView.as_view(), name="barangay-detail"),
     path("reference/locate/", LocationLookupView.as_view(), name="location-lookup"),
 
     # Browser Content-Security-Policy violation reports (report-only policy)

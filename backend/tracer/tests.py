@@ -303,6 +303,60 @@ class GeoNameFoldingTests(SimpleTestCase):
 import json as _json
 
 
+class BarangayAdminApiTests(TestCase):
+	"""Admin add / rename / soft-delete of barangays from Settings > Regions."""
+
+	def setUp(self):
+		self.client = APIClient()
+		region = Region.objects.create(code="NIR", name="Negros Island Region (NIR)", psgc_id="1800000000")
+		province = Province.objects.create(region=region, name="Negros Occidental", psgc_id="1804500000")
+		self.city = CityMunicipality.objects.create(region=region, province=province, name="Enrique B. Magalona", psgc_id="1804508000")
+		admin = User.objects.create_user(
+			email="brgy-admin@example.com", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
+		)
+		self.auth = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+
+	def _create(self, **overrides):
+		body = {"name": "San Jose", "city_id": str(self.city.id), "psgc_id": "1804508018", **overrides}
+		return self.client.post("/api/reference/barangays/", body, format="json", **self.auth)
+
+	def _names(self):
+		response = self.client.get(f"/api/reference/barangays/?city={self.city.id}")
+		return [b["name"] for b in response.data["barangays"]]
+
+	def test_writes_require_admin(self):
+		response = self.client.post(
+			"/api/reference/barangays/",
+			{"name": "San Jose", "city_id": str(self.city.id), "psgc_id": "1804508018"},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 401)
+
+	def test_create_rename_and_soft_delete(self):
+		created = self._create()
+		self.assertEqual(created.status_code, 201)
+		barangay_id = created.data["barangay"]["id"]
+		self.assertEqual(self._names(), ["San Jose"])
+
+		renamed = self.client.patch(
+			f"/api/reference/barangays/{barangay_id}/", {"name": "San Jose (Pob.)"}, format="json", **self.auth,
+		)
+		self.assertEqual(renamed.status_code, 200)
+		self.assertEqual(self._names(), ["San Jose (Pob.)"])
+
+		deleted = self.client.delete(f"/api/reference/barangays/{barangay_id}/", **self.auth)
+		self.assertEqual(deleted.status_code, 204)
+		self.assertEqual(self._names(), [])
+		# Soft delete: the row survives for saved addresses and PSGC re-syncs.
+		self.assertFalse(Barangay.objects.get(pk=barangay_id).is_active)
+
+	def test_rejects_bad_input(self):
+		self.assertEqual(self._create(name="").status_code, 400)
+		self.assertEqual(self._create(city_id="not-a-uuid").status_code, 404)
+		self.assertEqual(self._create().status_code, 201)
+		self.assertEqual(self._create(name="Duplicate").status_code, 409)
+
+
 class CspReportTests(TestCase):
 	"""
 	POST /api/csp-report/ receives the browser's Content-Security-Policy

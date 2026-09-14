@@ -295,6 +295,11 @@ export const barangaysApi = {
         const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
         return { barangays: [...data.barangays].sort((a, b) => collator.compare(a.name, b.name)) };
     },
+    create: (payload: { name: string; city_id: string; psgc_id: string }) =>
+        apiRequest('/api/reference/barangays/', 'POST', payload) as Promise<{ barangay: BarangayItem }>,
+    update: (id: string, patch: { name?: string; is_active?: boolean }) =>
+        apiRequest(`/api/reference/barangays/${id}/`, 'PATCH', patch) as Promise<{ barangay: BarangayItem }>,
+    remove: (id: string) => apiRequest(`/api/reference/barangays/${id}/`, 'DELETE'),
 };
 
 export const locationApi = {

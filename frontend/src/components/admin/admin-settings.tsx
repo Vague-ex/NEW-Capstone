@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Trash2, Pencil, Check, X, AlertCircle, RefreshCw, Search,
-  Tag, Briefcase, MapPin, FolderOpen, Building2, Inbox, Users, Shield,
+  Tag, Briefcase, MapPin, FolderOpen, Building2, Inbox, Users, Shield, ChevronDown,
 } from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
 import {
@@ -10,6 +10,7 @@ import {
   regionsApi,
   provincesApi,
   citiesApi,
+  barangaysApi,
   skillCategoriesApi,
   skillsApi,
   useReferenceData,
@@ -18,6 +19,7 @@ import {
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
+  type BarangayItem,
   type SkillCategoryItem,
   type SkillItem,
 } from '../../hooks/useReferenceData';
@@ -37,12 +39,38 @@ import {
 
 type TabId = 'skills' | 'jobs' | 'regions' | 'users';
 
-const TAB_DEFS: { id: TabId; label: string; Icon: typeof Tag }[] = [
-  { id: 'skills', label: 'Skills', Icon: Tag },
-  { id: 'jobs', label: 'Industries & Jobs', Icon: Briefcase },
-  { id: 'regions', label: 'Regions', Icon: MapPin },
-  { id: 'users', label: 'Users', Icon: Users },
+const TAB_DEFS: { id: TabId; label: string; short: string; Icon: typeof Tag }[] = [
+  { id: 'skills', label: 'Skills', short: 'Skills', Icon: Tag },
+  { id: 'jobs', label: 'Industries & Jobs', short: 'Jobs', Icon: Briefcase },
+  { id: 'regions', label: 'Regions', short: 'Regions', Icon: MapPin },
+  { id: 'users', label: 'Users', short: 'Users', Icon: Users },
 ];
+
+/**
+ * True below the `lg` breakpoint, where the master/detail layout stacks.
+ *
+ * Mobile work on this page follows common touch guidance: 44-48px targets,
+ * progressive disclosure instead of one very long page, and no action that
+ * only appears on hover. Visual changes use Tailwind breakpoints, so desktop
+ * keeps its exact classes; this hook covers only behaviour CSS cannot express,
+ * such as paging long lists or collapsing the category rail.
+ */
+const COMPACT_QUERY = '(max-width: 1023px)';
+function useCompactLayout(): boolean {
+  const [compact, setCompact] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(COMPACT_QUERY).matches,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(COMPACT_QUERY);
+    const onChange = () => setCompact(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return compact;
+}
+
+/** Phones render long lists in pages of this size. */
+const MOBILE_PAGE_SIZE = 25;
 
 // Master-rail selection: 'all', null (uncategorized), or a specific id.
 type Selection = 'all' | null | string;
@@ -88,7 +116,7 @@ function InlineEdit({
 
   if (editing) {
     return (
-      <div className={`flex items-center gap-1.5 ${className}`}>
+      <div className={`flex flex-wrap lg:flex-nowrap items-center gap-1.5 ${className}`}>
         <input
           autoFocus
           value={draft}
@@ -97,12 +125,12 @@ function InlineEdit({
             if (e.key === 'Enter') save();
             if (e.key === 'Escape') setEditing(false);
           }}
-          className={`flex-1 rounded-lg border border-[#166534] bg-white px-2.5 py-1 text-sm outline-none ring-2 ring-[#166534]/15 ${inputClassName}`}
+          className={`flex-1 min-w-0 rounded-lg border border-[#166534] bg-white px-2.5 py-1 text-sm outline-none ring-2 ring-[#166534]/15 ${inputClassName}`}
         />
         <button
           onClick={save}
           disabled={busy}
-          className="flex size-7 items-center justify-center rounded-lg bg-[#166534] text-white hover:bg-[#0f3d21] disabled:opacity-60 transition"
+          className="flex size-9 lg:size-7 shrink-0 items-center justify-center rounded-lg bg-[#166534] text-white hover:bg-[#0f3d21] disabled:opacity-60 transition"
           aria-label="Save"
         >
           {busy ? (
@@ -116,7 +144,7 @@ function InlineEdit({
             setEditing(false);
             setErr('');
           }}
-          className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 transition"
+          className="flex size-9 lg:size-7 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 transition"
           aria-label="Cancel"
         >
           <X className="size-3.5" />
@@ -129,10 +157,11 @@ function InlineEdit({
   return (
     <button
       onClick={() => setEditing(true)}
-      className={`group flex items-center gap-1.5 text-left ${className}`}
+      className={`group flex items-center gap-1.5 text-left min-h-9 lg:min-h-0 ${className}`}
     >
-      <span className="text-sm text-gray-700">{value}</span>
-      <Pencil className="size-3 text-gray-300 opacity-0 group-hover:opacity-100 transition" />
+      <span className="text-sm text-gray-700 min-w-0 break-words">{value}</span>
+      {/* Hover-only on desktop; always shown on touch screens, which have no hover. */}
+      <Pencil className="size-3.5 lg:size-3 shrink-0 text-gray-300 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition" />
     </button>
   );
 }
@@ -155,7 +184,7 @@ function DeleteButton({
     return () => clearTimeout(t);
   }, [arming]);
 
-  const dim = size === 'xs' ? 'size-6' : 'size-7';
+  const dim = size === 'xs' ? 'size-8 lg:size-6' : 'size-9 lg:size-7';
   const ico = size === 'xs' ? 'size-3' : 'size-3.5';
 
   if (arming) {
@@ -175,7 +204,7 @@ function DeleteButton({
             }
           }}
           disabled={busy}
-          className="flex size-5 items-center justify-center rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 transition"
+          className="flex size-8 lg:size-5 items-center justify-center rounded bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60 transition"
           aria-label="Confirm delete"
         >
           {busy ? (
@@ -186,7 +215,7 @@ function DeleteButton({
         </button>
         <button
           onClick={() => setArming(false)}
-          className="flex size-5 items-center justify-center rounded text-rose-700 hover:bg-rose-100 transition"
+          className="flex size-8 lg:size-5 items-center justify-center rounded text-rose-700 hover:bg-rose-100 transition"
           aria-label="Cancel delete"
         >
           <X className="size-3" />
@@ -198,7 +227,7 @@ function DeleteButton({
   return (
     <button
       onClick={() => setArming(true)}
-      className={`flex ${dim} items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-60 hover:opacity-100 hover:text-rose-600 hover:border-rose-200 transition`}
+      className={`flex ${dim} shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-100 lg:opacity-60 lg:hover:opacity-100 hover:text-rose-600 hover:border-rose-200 transition`}
       aria-label="Delete"
     >
       <Trash2 className={ico} />
@@ -226,7 +255,7 @@ function RailRow({
 }) {
   return (
     <div
-      className={`group flex items-center gap-2 rounded-xl px-3 py-2 cursor-pointer transition ${
+      className={`group flex items-center gap-2 rounded-xl px-3 py-3 lg:py-2 cursor-pointer transition ${
         active
           ? 'bg-[#166534] text-white'
           : muted
@@ -299,7 +328,7 @@ function InlineRenameTrigger({
     return (
       <button
         onClick={() => setEditing(true)}
-        className={`flex size-6 items-center justify-center rounded-lg transition ${
+        className={`flex size-8 lg:size-6 items-center justify-center rounded-lg transition ${
           dark
             ? 'text-white/70 hover:text-white hover:bg-white/10'
             : 'text-gray-400 hover:text-[#166534] hover:bg-gray-100'
@@ -361,13 +390,26 @@ function ItemRow({
   onDelete: () => Promise<void>;
 }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-50 transition">
+    <div className="flex items-center gap-2 px-2 lg:px-3 py-2 rounded-xl hover:bg-gray-50 transition">
       <div className="flex-1 min-w-0">
         <InlineEdit value={name} onSave={onRename} className="w-full" />
+        {/* On phones the badge sits under the name instead of squeezing it. */}
+        {badge && (
+          <span
+            className={`lg:hidden mt-0.5 inline-block max-w-full truncate align-top text-[11px] px-2 py-0.5 rounded-full ${
+              badgeTone === 'navy'
+                ? 'bg-[#166534]/10 text-[#166534]'
+                : 'bg-gray-100 text-gray-500'
+            }`}
+            style={{ fontWeight: 600 }}
+          >
+            {badge}
+          </span>
+        )}
       </div>
       {badge && (
         <span
-          className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${
+          className={`hidden lg:inline text-[11px] px-2 py-0.5 rounded-full shrink-0 ${
             badgeTone === 'navy'
               ? 'bg-[#166534]/10 text-[#166534]'
               : 'bg-gray-100 text-gray-500'
@@ -434,9 +476,14 @@ function AddRow({
     }
   };
 
+  // A second control (category picker or code) pushes the Add button onto its
+  // own line on phones; three controls in one row ran out of the card.
+  const hasSecondControl =
+    Boolean(selectOptions && !selectedFixed && selectOptions.length > 0) || Boolean(extraTextPlaceholder);
+
   return (
     <div className="space-y-1.5">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap lg:flex-nowrap gap-2">
         <input
           value={name}
           onChange={(e) => {
@@ -445,13 +492,13 @@ function AddRow({
           }}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           placeholder={placeholder}
-          className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
+          className={`flex-1 min-w-0 ${hasSecondControl ? 'basis-full lg:basis-auto' : ''} rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white`}
         />
         {selectOptions && !selectedFixed && selectOptions.length > 0 && (
           <select
             value={extra}
             onChange={(e) => setExtra(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none focus:border-[#166534] focus:bg-white"
+            className="flex-1 min-w-0 lg:flex-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none focus:border-[#166534] focus:bg-white"
           >
             <option value="">{selectLabel ?? 'None'}</option>
             {selectOptions.map((o) => (
@@ -466,13 +513,13 @@ function AddRow({
             value={extra}
             onChange={(e) => setExtra(e.target.value)}
             placeholder={extraTextPlaceholder}
-            className="w-32 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
+            className="flex-1 min-w-0 lg:flex-none lg:w-32 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
           />
         )}
         <button
           onClick={submit}
           disabled={busy || !name.trim()}
-          className="flex items-center gap-1.5 bg-[#166534] hover:bg-[#0f3d21] text-white px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
+          className="flex shrink-0 items-center justify-center gap-1.5 bg-[#166534] hover:bg-[#0f3d21] text-white px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
           style={{ fontWeight: 600 }}
         >
           {busy ? (
@@ -490,6 +537,20 @@ function AddRow({
         </p>
       )}
     </div>
+  );
+}
+
+// ── Show more (phones) ──────────────────────────────────────────────────────
+function ShowMore({ shown, total, onMore }: { shown: number; total: number; onMore: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onMore}
+      className="mt-2 w-full rounded-xl border border-gray-200 py-3 text-sm text-gray-600 hover:bg-gray-50 transition"
+      style={{ fontWeight: 600 }}
+    >
+      Show more ({shown} of {total})
+    </button>
   );
 }
 
@@ -519,6 +580,21 @@ export function AdminSettings() {
   const [selectedCategory, setSelectedCategory] = useState<Selection>('all');
   const [selectedIndustry, setSelectedIndustry] = useState<Selection>('all');
   const [adminCount, setAdminCount] = useState(0);
+
+  // The Users tab showed 0 until it was opened, because only UsersView fetched
+  // the admin list. Load the count with the page; UsersView keeps it current
+  // after adds and deletes.
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdmins()
+      .then((rows) => {
+        if (!cancelled) setAdminCount(rows.length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setSkills(data.skills);
@@ -640,21 +716,23 @@ export function AdminSettings() {
   return (
     <PortalLayout
       role="admin"
-      pageTitle="Reference Settings"
-      pageSubtitle="Manage skills, industries, job titles, and regions used across the system"
+      pageTitle="Settings"
+      pageSubtitle="Manage skills, jobs, locations and admin users"
     >
       <div className="gt-stagger max-w-6xl mx-auto space-y-5">
         {/* Tab nav (matches admin-analytics.tsx pattern) */}
         <div className="border-b border-gray-200">
-          <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Settings tabs">
-            {TAB_DEFS.map(({ id, label, Icon }) => {
+          {/* Phones: all four tabs fit as a grid. The desktop row scrolled
+              sideways, leaving Regions and Users off-screen with no hint. */}
+          <nav className="-mb-px grid grid-cols-4 gap-1 sm:flex sm:gap-6 sm:overflow-x-auto" aria-label="Settings tabs">
+            {TAB_DEFS.map(({ id, label, short, Icon }) => {
               const active = tab === id;
               const c = counts[id];
               return (
                 <button
                   key={id}
                   onClick={() => setTab(id)}
-                  className={`inline-flex items-center gap-2 border-b-2 px-1 pb-3 text-sm transition whitespace-nowrap ${
+                  className={`flex flex-col sm:inline-flex sm:flex-row items-center justify-center gap-1 sm:gap-2 min-h-12 sm:min-h-0 border-b-2 px-0.5 sm:px-1 pb-2 sm:pb-3 text-xs sm:text-sm transition whitespace-nowrap ${
                     active
                       ? 'border-[#166534] text-[#166534]'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -663,14 +741,17 @@ export function AdminSettings() {
                   aria-current={active ? 'page' : undefined}
                 >
                   <Icon className="size-4" />
-                  {label}
-                  <span
-                    className={`text-[11px] px-1.5 py-0.5 rounded-full ${
-                      active ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-500'
-                    }`}
-                    style={{ fontWeight: 600 }}
-                  >
-                    {c}
+                  <span className="inline-flex items-center gap-1 sm:gap-2">
+                    <span className="sm:hidden">{short}</span>
+                    <span className="hidden sm:inline">{label}</span>
+                    <span
+                      className={`text-[10px] sm:text-[11px] px-1 sm:px-1.5 py-0.5 rounded-full ${
+                        active ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-500'
+                      }`}
+                      style={{ fontWeight: 600 }}
+                    >
+                      {c}
+                    </span>
                   </span>
                 </button>
               );
@@ -680,7 +761,7 @@ export function AdminSettings() {
 
         {/* Search + reload row */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-48">
+          <div className="relative flex-1 min-w-0 sm:min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
             <input
               value={search}
@@ -692,10 +773,11 @@ export function AdminSettings() {
           <button
             onClick={reload}
             disabled={loading}
+            aria-label="Refresh"
             className="flex items-center gap-1.5 border border-gray-200 hover:bg-gray-50 text-gray-600 px-3 py-2.5 rounded-xl text-sm transition disabled:opacity-60"
             style={{ fontWeight: 500 }}
           >
-            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /> <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
 
@@ -993,6 +1075,12 @@ function SkillsView({
     [categories, q],
   );
 
+  const compact = useCompactLayout();
+  const [limit, setLimit] = useState(MOBILE_PAGE_SIZE);
+  useEffect(() => {
+    setLimit(MOBILE_PAGE_SIZE);
+  }, [selected, q]);
+
   const uncategorizedCount = matchedSkills.filter((s) => !s.category).length;
 
   const visibleSkills = useMemo(() => {
@@ -1014,10 +1102,46 @@ function SkillsView({
         : (selectedCategory?.name ?? '-');
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-      {/* Master rail */}
-      <div className="lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-        <div className="flex items-center gap-2 px-3 py-2 mb-1">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5">
+      {/* Phones: a native picker, instead of scrolling past the whole rail
+          before reaching the list. */}
+      <div className="lg:hidden bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+        <label className="block text-[11px] text-gray-500 mb-1.5 px-1" style={{ fontWeight: 600 }}>
+          CATEGORY
+        </label>
+        <select
+          value={selected === 'all' ? '__all' : selected === null ? '__none' : selected}
+          onChange={(e) => {
+            const v = e.target.value;
+            onSelect(v === '__all' ? 'all' : v === '__none' ? null : v);
+          }}
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none focus:border-[#166534] focus:bg-white"
+        >
+          <option value="__all">All skills ({matchedSkills.length})</option>
+          {matchedCategories.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name} ({matchedSkills.filter((x) => x.category === g.id).length})
+            </option>
+          ))}
+          {uncategorizedCount > 0 && <option value="__none">Uncategorized ({uncategorizedCount})</option>}
+        </select>
+      </div>
+
+      {/* Master rail On phones it folds into "Manage categories" below the list. */}
+      <details
+        open={!compact}
+        className="group/rail order-last lg:order-none lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3"
+      >
+        <summary
+          className="lg:hidden flex items-center justify-between gap-2 cursor-pointer list-none px-3 py-2.5 text-sm text-gray-800 [&::-webkit-details-marker]:hidden"
+          style={{ fontWeight: 700 }}
+        >
+          <span className="flex items-center gap-2">
+            <FolderOpen className="size-4 text-[#166534]" /> Manage categories
+          </span>
+          <ChevronDown className="size-4 text-gray-400 transition group-open/rail:rotate-180" />
+        </summary>
+        <div className="hidden lg:flex items-center gap-2 px-3 py-2 mb-1">
           <FolderOpen className="size-4 text-[#166534]" />
           <h3 className="text-sm text-gray-800" style={{ fontWeight: 700 }}>
             Categories
@@ -1060,10 +1184,10 @@ function SkillsView({
             onAdd={(name) => onAddCategory(name)}
           />
         </div>
-      </div>
+      </details>
 
       {/* Detail pane */}
-      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
@@ -1096,7 +1220,7 @@ function SkillsView({
               }
             />
           ) : (
-            visibleSkills.map((s) => (
+            (compact ? visibleSkills.slice(0, limit) : visibleSkills).map((s) => (
               <ItemRow
                 key={s.id}
                 name={s.name}
@@ -1105,6 +1229,9 @@ function SkillsView({
                 onDelete={() => onDeleteSkill(s.id)}
               />
             ))
+          )}
+          {compact && visibleSkills.length > limit && (
+            <ShowMore shown={limit} total={visibleSkills.length} onMore={() => setLimit((n) => n + MOBILE_PAGE_SIZE)} />
           )}
         </div>
       </div>
@@ -1149,6 +1276,12 @@ function JobsView({
     [industries, q],
   );
 
+  const compact = useCompactLayout();
+  const [limit, setLimit] = useState(MOBILE_PAGE_SIZE);
+  useEffect(() => {
+    setLimit(MOBILE_PAGE_SIZE);
+  }, [selected, q]);
+
   const noIndustryCount = matchedJobs.filter((j) => !j.industry).length;
 
   const visibleJobs = useMemo(() => {
@@ -1170,10 +1303,46 @@ function JobsView({
         : (selectedIndustry?.name ?? '-');
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-      {/* Master rail - industries */}
-      <div className="lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
-        <div className="flex items-center gap-2 px-3 py-2 mb-1">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5">
+      {/* Phones: a native picker, instead of scrolling past the whole rail
+          before reaching the list. */}
+      <div className="lg:hidden bg-white rounded-2xl border border-gray-100 shadow-sm p-3">
+        <label className="block text-[11px] text-gray-500 mb-1.5 px-1" style={{ fontWeight: 600 }}>
+          INDUSTRY
+        </label>
+        <select
+          value={selected === 'all' ? '__all' : selected === null ? '__none' : selected}
+          onChange={(e) => {
+            const v = e.target.value;
+            onSelect(v === '__all' ? 'all' : v === '__none' ? null : v);
+          }}
+          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm outline-none focus:border-[#166534] focus:bg-white"
+        >
+          <option value="__all">All job titles ({matchedJobs.length})</option>
+          {matchedIndustries.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name} ({matchedJobs.filter((x) => x.industry === g.id).length})
+            </option>
+          ))}
+          {noIndustryCount > 0 && <option value="__none">No industry ({noIndustryCount})</option>}
+        </select>
+      </div>
+
+      {/* Master rail - industries On phones it folds into "Manage industries" below the list. */}
+      <details
+        open={!compact}
+        className="group/rail order-last lg:order-none lg:col-span-4 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-3"
+      >
+        <summary
+          className="lg:hidden flex items-center justify-between gap-2 cursor-pointer list-none px-3 py-2.5 text-sm text-gray-800 [&::-webkit-details-marker]:hidden"
+          style={{ fontWeight: 700 }}
+        >
+          <span className="flex items-center gap-2">
+            <Building2 className="size-4 text-[#166534]" /> Manage industries
+          </span>
+          <ChevronDown className="size-4 text-gray-400 transition group-open/rail:rotate-180" />
+        </summary>
+        <div className="hidden lg:flex items-center gap-2 px-3 py-2 mb-1">
           <Building2 className="size-4 text-[#166534]" />
           <h3 className="text-sm text-gray-800" style={{ fontWeight: 700 }}>
             Industries
@@ -1216,10 +1385,10 @@ function JobsView({
             onAdd={(name) => onAddIndustry(name)}
           />
         </div>
-      </div>
+      </details>
 
       {/* Detail pane - job titles */}
-      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="lg:col-span-8 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
         <div className="mb-4">
           <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
             {headerLabel}
@@ -1250,7 +1419,7 @@ function JobsView({
               }
             />
           ) : (
-            visibleJobs.map((j) => (
+            (compact ? visibleJobs.slice(0, limit) : visibleJobs).map((j) => (
               <ItemRow
                 key={j.id}
                 name={j.name}
@@ -1259,6 +1428,9 @@ function JobsView({
                 onDelete={() => onDeleteJob(j.id)}
               />
             ))
+          )}
+          {compact && visibleJobs.length > limit && (
+            <ShowMore shown={limit} total={visibleJobs.length} onMore={() => setLimit((n) => n + MOBILE_PAGE_SIZE)} />
           )}
         </div>
       </div>
@@ -1269,7 +1441,7 @@ function JobsView({
 // ── Regions tab ─────────────────────────────────────────────────────────────
 // ── Locations parent view (Regions / Provinces / Cities sub-tabs) ────────────
 
-type LocationsSubTab = 'regions' | 'provinces' | 'cities';
+type LocationsSubTab = 'regions' | 'provinces' | 'cities' | 'barangays';
 
 function LocationsView({
   regions,
@@ -1288,12 +1460,13 @@ function LocationsView({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
         {(
           [
             { id: 'regions', label: 'Regions' },
             { id: 'provinces', label: 'Provinces' },
             { id: 'cities', label: 'Cities / Municipalities' },
+            { id: 'barangays', label: 'Barangays' },
           ] as const
         ).map(({ id, label }) => {
           const active = sub === id;
@@ -1302,7 +1475,7 @@ function LocationsView({
               key={id}
               type="button"
               onClick={() => setSub(id)}
-              className={`px-3 py-1.5 rounded-full text-xs border transition ${
+              className={`px-3 py-2.5 sm:py-1.5 rounded-full text-xs border transition ${
                 active
                   ? 'bg-[#15803d] border-[#15803d] text-white'
                   : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
@@ -1326,6 +1499,7 @@ function LocationsView({
       )}
       {sub === 'provinces' && <ProvincesView regions={regions} search={search} />}
       {sub === 'cities' && <CitiesView regions={regions} search={search} />}
+      {sub === 'barangays' && <BarangaysView regions={regions} search={search} />}
     </div>
   );
 }
@@ -1401,7 +1575,7 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
     : items;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Provinces</h3>
@@ -1578,7 +1752,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
     : items;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Cities / Municipalities</h3>
@@ -1690,6 +1864,234 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
   );
 }
 
+function BarangaysView({ regions, search }: { regions: RegionItem[]; search: string }) {
+  const compact = useCompactLayout();
+  const [regionId, setRegionId] = useState('');
+  const [provinceId, setProvinceId] = useState('');
+  const [cityId, setCityId] = useState('');
+  const [provinces, setProvinces] = useState<ProvinceItem[]>([]);
+  const [cities, setCities] = useState<CityMunicipalityItem[]>([]);
+  const [items, setItems] = useState<BarangayItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newPsgc, setNewPsgc] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [limit, setLimit] = useState(MOBILE_PAGE_SIZE);
+
+  // Region -> provinces.
+  useEffect(() => {
+    setProvinceId('');
+    setCityId('');
+    if (!regionId) {
+      setProvinces([]);
+      return;
+    }
+    let active = true;
+    void provincesApi
+      .list(regionId)
+      .then(({ provinces }) => { if (active) setProvinces(provinces); })
+      .catch(() => { if (active) setProvinces([]); });
+    return () => { active = false; };
+  }, [regionId]);
+
+  // Region or province -> cities. A province also lists the highly urbanized
+  // cities located in it (e.g. Bacolod under Negros Occidental).
+  useEffect(() => {
+    setCityId('');
+    if (!regionId) {
+      setCities([]);
+      return;
+    }
+    let active = true;
+    void citiesApi
+      .list(provinceId ? { provinceId } : { regionId })
+      .then(({ cities }) => { if (active) setCities(cities); })
+      .catch(() => { if (active) setCities([]); });
+    return () => { active = false; };
+  }, [regionId, provinceId]);
+
+  const load = async () => {
+    if (!cityId) {
+      setItems([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const { barangays } = await barangaysApi.list(cityId);
+      setItems(barangays);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load barangays.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setLimit(MOBILE_PAGE_SIZE);
+    void load();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [cityId]);
+
+  const handleAdd = async () => {
+    if (!cityId || !newName.trim() || !newPsgc.trim()) {
+      setError('Pick a city or municipality, then enter a barangay name and PSGC ID.');
+      return;
+    }
+    setAdding(true);
+    setError(null);
+    try {
+      await barangaysApi.create({ name: newName.trim(), city_id: cityId, psgc_id: newPsgc.trim() });
+      setNewName('');
+      setNewPsgc('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Create failed.');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleRename = async (id: string, name: string) => {
+    try {
+      await barangaysApi.update(id, { name });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rename failed.');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await barangaysApi.remove(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed.');
+    }
+  };
+
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? items.filter((b) => b.name.toLowerCase().includes(q) || b.psgc_id.includes(q))
+    : items;
+  const shown = compact ? visible.slice(0, limit) : visible;
+  const selectCls = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-100';
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
+      <div className="flex items-center gap-2 mb-4">
+        <MapPin className="size-4 text-[#166534]" />
+        <h3 className="text-gray-900" style={{ fontWeight: 700 }}>Barangays</h3>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" style={{ fontWeight: 600 }}>
+          {visible.length}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Region</label>
+          <select value={regionId} onChange={(e) => setRegionId(e.target.value)} className={selectCls}>
+            <option value="">- Pick a region -</option>
+            {regions.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Province (optional)</label>
+          <select
+            value={provinceId}
+            onChange={(e) => setProvinceId(e.target.value)}
+            disabled={!regionId || provinces.length === 0}
+            className={selectCls}
+          >
+            <option value="">
+              {!regionId ? 'Pick a region first' : provinces.length === 0 ? 'No provinces (NCR-style)' : 'All provinces'}
+            </option>
+            {provinces.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>City / Municipality</label>
+          <select
+            value={cityId}
+            onChange={(e) => setCityId(e.target.value)}
+            disabled={!regionId || cities.length === 0}
+            className={selectCls}
+          >
+            <option value="">{!regionId ? 'Pick a region first' : '- Pick a city -'}</option>
+            {cities.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}{!c.province_id && c.home_province_id ? ' (HUC)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {cityId && (
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <input
+            type="text"
+            placeholder="Barangay name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm sm:col-span-2"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="PSGC ID"
+            value={newPsgc}
+            onChange={(e) => setNewPsgc(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
+          />
+          <button
+            type="button"
+            onClick={() => void handleAdd()}
+            disabled={adding}
+            className="px-3 py-2.5 sm:py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-sm transition disabled:opacity-60"
+            style={{ fontWeight: 600 }}
+          >
+            {adding ? 'Adding…' : '+ Add Barangay'}
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
+      )}
+
+      <div className="space-y-0.5 lg:max-h-[400px] lg:overflow-y-auto">
+        {!cityId ? (
+          <EmptyState message="Pick a region and a city or municipality to browse its barangays." />
+        ) : loading ? (
+          <p className="text-gray-400 text-sm text-center py-4">Loading…</p>
+        ) : visible.length === 0 ? (
+          <EmptyState message={q ? 'No barangays match that search.' : 'No barangays for this city yet.'} />
+        ) : (
+          shown.map((b) => (
+            <ItemRow
+              key={b.id}
+              name={b.name}
+              badge={b.psgc_id}
+              badgeTone="navy"
+              onRename={(name) => handleRename(b.id, name)}
+              onDelete={() => handleDelete(b.id)}
+            />
+          ))
+        )}
+        {compact && visible.length > limit && (
+          <ShowMore shown={limit} total={visible.length} onMore={() => setLimit((n) => n + MOBILE_PAGE_SIZE)} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RegionsView({
   regions,
   search,
@@ -1711,7 +2113,7 @@ function RegionsView({
     : regions;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 max-w-3xl">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5 max-w-3xl">
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="size-4 text-[#166534]" />
         <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
@@ -1833,7 +2235,7 @@ function UsersView({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
           <Shield className="size-4 text-[#166534]" />
@@ -1958,7 +2360,7 @@ function AdminRow({
       <div className="flex items-center gap-1.5 shrink-0">
         <button
           onClick={onEdit}
-          className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-60 hover:opacity-100 hover:text-[#166534] hover:border-[#166534]/30 transition"
+          className="flex size-9 lg:size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-400 opacity-100 lg:opacity-60 lg:hover:opacity-100 hover:text-[#166534] hover:border-[#166534]/30 transition"
           aria-label="Edit"
         >
           <Pencil className="size-3.5" />
@@ -1967,7 +2369,7 @@ function AdminRow({
           <button
             disabled
             title="You can't remove your own admin access."
-            className="flex size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed"
+            className="flex size-9 lg:size-7 items-center justify-center rounded-lg border border-gray-200 text-gray-300 cursor-not-allowed"
             aria-label="Delete (disabled)"
           >
             <Trash2 className="size-3.5" />

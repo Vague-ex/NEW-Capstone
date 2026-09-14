@@ -1304,12 +1304,80 @@ class BarangayListView(APIView):
         except (TypeError, ValueError):
             return Response({"detail": "A valid city id is required."}, status=status.HTTP_400_BAD_REQUEST)
         rows = Barangay.objects.filter(city_id=city_id, is_active=True).order_by("name")
-        return Response({
-            "barangays": [
-                {"id": str(b.id), "name": b.name, "psgc_id": b.psgc_id, "city_id": str(b.city_id)}
-                for b in rows
-            ]
-        })
+        return Response({"barangays": [_serialize_barangay(b) for b in rows]})
+
+    def post(self, request):
+        """Admin: add a barangay the PSGC release does not have yet."""
+        import uuid as _uuid
+
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+        name = str(request.data.get("name") or "").strip()
+        city_id = request.data.get("city_id") or request.data.get("city")
+        psgc_id = str(request.data.get("psgc_id") or "").strip()
+        if not name or not city_id or not psgc_id:
+            return Response(
+                {"detail": "name, city_id, and psgc_id are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            _uuid.UUID(str(city_id))
+        except (TypeError, ValueError):
+            return Response({"detail": "City/Municipality not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not CityMunicipality.objects.filter(pk=city_id).exists():
+            return Response({"detail": "City/Municipality not found."}, status=status.HTTP_404_NOT_FOUND)
+        if Barangay.objects.filter(psgc_id=psgc_id).exists():
+            return Response(
+                {"detail": "A barangay with that PSGC ID already exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        barangay = Barangay.objects.create(name=name, city_id=city_id, psgc_id=psgc_id)
+        return Response({"barangay": _serialize_barangay(barangay)}, status=status.HTTP_201_CREATED)
+
+
+class BarangayDetailView(APIView):
+    """Admin rename / soft-delete for one barangay, mirroring the city endpoints."""
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            barangay = Barangay.objects.get(pk=pk)
+        except Barangay.DoesNotExist:
+            return Response({"detail": "Barangay not found."}, status=status.HTTP_404_NOT_FOUND)
+        if "name" in request.data:
+            name = str(request.data.get("name") or "").strip()
+            if not name:
+                return Response({"detail": "name cannot be blank."}, status=status.HTTP_400_BAD_REQUEST)
+            barangay.name = name
+        if "is_active" in request.data:
+            barangay.is_active = bool(request.data.get("is_active"))
+        barangay.save()
+        return Response({"barangay": _serialize_barangay(barangay)})
+
+    def delete(self, request, pk):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            barangay = Barangay.objects.get(pk=pk)
+        except Barangay.DoesNotExist:
+            return Response({"detail": "Barangay not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Soft delete, like cities: a graduate's saved address may still name it,
+        # and the next PSGC sync would otherwise re-create it anyway.
+        barangay.is_active = False
+        barangay.save(update_fields=["is_active"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _serialize_barangay(b) -> dict:
+    return {"id": str(b.id), "name": b.name, "psgc_id": b.psgc_id, "city_id": str(b.city_id)}
 
 
 class LocationLookupView(APIView):
