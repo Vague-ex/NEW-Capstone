@@ -300,6 +300,82 @@ class GeoNameFoldingTests(SimpleTestCase):
 		self.assertEqual(_geo._fold("Parañaque"), "paranaque")
 
 
+import json as _json
+
+
+class CspReportTests(TestCase):
+	"""
+	POST /api/csp-report/ receives the browser's Content-Security-Policy
+	violation reports while the full policy runs in report-only mode.
+	"""
+
+	URL = "/api/csp-report/"
+	LEGACY_REPORT = _json.dumps({
+		"csp-report": {
+			"document-uri": "https://gradtracer.tech/register/alumni",
+			"violated-directive": "img-src",
+			"effective-directive": "img-src",
+			"blocked-uri": "https://evil.example/x.png",
+		}
+	})
+
+	def setUp(self):
+		_cache.clear()
+		self.client = APIClient()
+
+	def _report(self, body, content_type="application/csp-report"):
+		return self.client.generic("POST", self.URL, body, content_type=content_type)
+
+	def test_legacy_report_is_logged(self):
+		with self.assertLogs("tracer.api", level="WARNING") as logs:
+			response = self._report(self.LEGACY_REPORT)
+		self.assertEqual(response.status_code, 204)
+		self.assertEqual(len(logs.output), 1)
+		self.assertIn("directive=img-src", logs.output[0])
+		self.assertIn("blocked=https://evil.example/x.png", logs.output[0])
+		self.assertIn("page=https://gradtracer.tech/register/alumni", logs.output[0])
+
+	def test_reporting_api_batch_is_logged(self):
+		"""Newer browsers send a JSON array in the Reporting API format."""
+		body = _json.dumps([
+			{"type": "csp-violation", "body": {
+				"documentURL": "https://gradtracer.tech/",
+				"effectiveDirective": "connect-src",
+				"blockedURL": "https://tracker.example/beacon",
+			}},
+			{"type": "deprecation", "body": {"id": "ignored"}},
+		])
+		with self.assertLogs("tracer.api", level="WARNING") as logs:
+			response = self._report(body, "application/reports+json")
+		self.assertEqual(response.status_code, 204)
+		self.assertEqual(len(logs.output), 1)
+		self.assertIn("directive=connect-src", logs.output[0])
+
+	def test_long_fields_are_trimmed(self):
+		body = _json.dumps({"csp-report": {"violated-directive": "img-src", "blocked-uri": "https://x.example/" + "a" * 1000}})
+		with self.assertLogs("tracer.api", level="WARNING") as logs:
+			self._report(body)
+		self.assertLess(len(logs.output[0]), 600)
+
+	def test_malformed_and_oversized_bodies_are_dropped_silently(self):
+		oversized = _json.dumps({"csp-report": {"violated-directive": "img-src", "blocked-uri": "x" * 9000}})
+		with self.assertNoLogs("tracer.api", level="WARNING"):
+			self.assertEqual(self._report("not json").status_code, 204)
+			self.assertEqual(self._report(oversized).status_code, 204)
+			self.assertEqual(self._report(_json.dumps({"unexpected": True})).status_code, 204)
+
+	def test_only_post_is_allowed(self):
+		self.assertEqual(self.client.get(self.URL).status_code, 405)
+
+	def test_rate_limited_per_client(self):
+		from .api import CspReportView
+
+		with self.assertLogs("tracer.api", level="WARNING") as logs:
+			for _ in range(CspReportView.RATE_LIMIT + 5):
+				self.assertEqual(self._report(self.LEGACY_REPORT).status_code, 204)
+		self.assertEqual(len(logs.output), CspReportView.RATE_LIMIT)
+
+
 class VerificationTokenFlowTests(TestCase):
 	def setUp(self):
 		self.client = APIClient()

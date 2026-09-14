@@ -5,6 +5,7 @@ from .api import (
     BarangayListView,
     CityMunicipalityDetailView,
     CityMunicipalityListView,
+    CspReportView,
     LocationLookupView,
     ComprehensiveSurveySubmissionView,
     IndustryDetailView,
@@ -70,6 +71,9 @@ urlpatterns = [
     # Barangays (parented to a City / Municipality) and GPS -> address lookup
     path("reference/barangays/", BarangayListView.as_view(), name="barangay-list"),
     path("reference/locate/", LocationLookupView.as_view(), name="location-lookup"),
+
+    # Browser Content-Security-Policy violation reports (report-only policy)
+    path("csp-report/", CspReportView.as_view(), name="csp-report"),
 
     # Employer verification tokens / decisions (DS7)
     # Graduate-initiated invite (graduate mints a token for their own current record)

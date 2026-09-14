@@ -1364,6 +1364,94 @@ class LocationLookupView(APIView):
         return Response(result)
 
 
+class CspReportView(APIView):
+    """
+    POST /api/csp-report/ -> receive the browser's Content-Security-Policy reports.
+
+    The full policy in frontend/next.config.ts runs REPORT-ONLY: browsers block
+    nothing and send here what they would have blocked. A policy mistake then
+    shows up as a log line instead of breaking the face scan or the maps for a
+    real graduate. Each violation is one log line; nothing is stored.
+
+    Public, because browsers send reports without credentials. Oversized or
+    malformed bodies and anything past the per-client rate limit are dropped,
+    and the answer is always 204, so there is nothing to learn by probing it.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    RATE_LIMIT = 60
+    RATE_WINDOW_SECONDS = 60
+    MAX_BODY_BYTES = 8 * 1024
+    FIELD_LIMIT = 200
+    MAX_REPORTS_PER_BATCH = 20
+
+    def post(self, request):
+        import logging
+        from django.core.cache import cache
+
+        no_content = Response(status=status.HTTP_204_NO_CONTENT)
+
+        forwarded = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+        client = forwarded or request.META.get("REMOTE_ADDR") or "unknown"
+        rate_key = f"csp:report:rate:{client}"
+        used = cache.get(rate_key, 0)
+        if used >= self.RATE_LIMIT:
+            return no_content
+        cache.set(rate_key, used + 1, self.RATE_WINDOW_SECONDS)
+
+        try:
+            raw = request.body
+        except Exception:
+            return no_content
+        if not raw or len(raw) > self.MAX_BODY_BYTES:
+            return no_content
+        try:
+            payload = json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            return no_content
+
+        log = logging.getLogger(__name__)
+        for directive, blocked, page in self._violations(payload):
+            log.warning(
+                "CSP violation (report-only) directive=%s blocked=%s page=%s",
+                directive, blocked, page,
+            )
+        return no_content
+
+    @classmethod
+    def _trim(cls, value) -> str:
+        # Newlines are removed so a crafted report cannot forge extra log lines.
+        text = str(value or "-").replace("\r", " ").replace("\n", " ")
+        return text[: cls.FIELD_LIMIT]
+
+    @classmethod
+    def _violations(cls, payload):
+        # Legacy `report-uri` format: {"csp-report": {...}}
+        if isinstance(payload, dict) and isinstance(payload.get("csp-report"), dict):
+            report = payload["csp-report"]
+            yield (
+                cls._trim(report.get("effective-directive") or report.get("violated-directive")),
+                cls._trim(report.get("blocked-uri")),
+                cls._trim(report.get("document-uri")),
+            )
+            return
+        # Reporting API format: [{"type": "csp-violation", "body": {...}}, ...]
+        if isinstance(payload, list):
+            for item in payload[: cls.MAX_REPORTS_PER_BATCH]:
+                if not isinstance(item, dict) or item.get("type") != "csp-violation":
+                    continue
+                body = item.get("body")
+                if not isinstance(body, dict):
+                    continue
+                yield (
+                    cls._trim(body.get("effectiveDirective")),
+                    cls._trim(body.get("blockedURL")),
+                    cls._trim(body.get("documentURL")),
+                )
+
+
 class ReferenceDataView(APIView):
     """GET /api/reference/ → all reference tables in one request."""
     authentication_classes = []

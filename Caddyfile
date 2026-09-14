@@ -13,22 +13,62 @@
 	email {$ACME_EMAIL}
 }
 
+# --- Security headers shared by every site block ---
+# Set here, at the edge, so they cover every response: pages, static files,
+# errors, and the API. App-specific headers (Content-Security-Policy,
+# Permissions-Policy, X-Frame-Options) live in frontend/next.config.ts, where
+# they can be tested locally.
+#
+# HSTS has no `preload` on purpose: the preload list is effectively permanent,
+# and includeSubDomains alone already covers www and api, which are HTTPS-only.
+# The removed headers only advertised the software stack (OWASP ZAP finding).
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-X-Powered-By
+		-Server
+	}
+}
+
 # --- www redirect ---
 # A CNAME for www points at the apex. Without a site block here Caddy would
 # have no certificate for that name, so anyone typing www.<domain> would get
 # a TLS warning rather than the site. Redirect it to the canonical apex.
 www.{$SITE_DOMAIN} {
+	import security_headers
 	redir https://{$SITE_DOMAIN}{uri} permanent
 }
 
 # --- Frontend (Next.js) ---
 {$SITE_DOMAIN} {
+	import security_headers
 	encode zstd gzip
+
+	# The app answers every unknown path with its own page, so probes for
+	# /.env, /.git or /.hg returned the login page with 200. Nothing was ever
+	# exposed, but scanners report it as a leak. Dot-paths get a real 404;
+	# /.well-known stays reachable for standard discovery files.
+	@dotfiles {
+		path /.*
+		not path /.well-known/*
+	}
+	respond @dotfiles 404
+
+	# Static assets are read-only. Writes to them reached the Next.js server
+	# and came back as a bare 500; answer 405 Method Not Allowed instead.
+	@static_write {
+		not method GET HEAD
+		path /_next/static/* /modern-face-models/* /*.png /*.ico /*.webmanifest /*.mp3
+	}
+	respond @static_write 405
+
 	reverse_proxy frontend:3000
 }
 
 # --- Backend (Django / gunicorn) ---
 api.{$SITE_DOMAIN} {
+	import security_headers
 	encode zstd gzip
 
 	# Caddy places no limit on request bodies by default. This is an explicit
