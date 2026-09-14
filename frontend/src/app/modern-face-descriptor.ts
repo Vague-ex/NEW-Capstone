@@ -109,6 +109,42 @@ export async function ensureModernFaceModelsLoaded(): Promise<void> {
     await modelsLoadedPromise;
 }
 
+let recognitionWarmUpPromise: Promise<void> | null = null;
+
+/**
+ * Load the models AND run the recognition net once on a blank frame.
+ *
+ * Loading only fetches weights. The first inference is what compiles the WebGL
+ * shaders, and on a laptop or phone that costs seconds -- enough to stall the
+ * first capture a user makes while every later one is quick. The live tracking
+ * loop already warms the detector and landmark nets; this covers the
+ * recognition net, which nothing else runs until a photo is taken.
+ *
+ * Best-effort and run once per page load. A failure here only means the first
+ * real capture is slower, exactly as it was without the warm-up.
+ */
+export function warmUpFaceRecognition(): Promise<void> {
+    if (typeof window === 'undefined') {
+        return Promise.resolve();
+    }
+    if (!recognitionWarmUpPromise) {
+        recognitionWarmUpPromise = (async () => {
+            await ensureModernFaceModelsLoaded();
+            try {
+                const faceapi = await getFaceApi();
+                const canvas = document.createElement('canvas');
+                // The recognition net's native input size.
+                canvas.width = 150;
+                canvas.height = 150;
+                await faceapi.computeFaceDescriptor(canvas);
+            } catch {
+                // Deliberately ignored; see above.
+            }
+        })();
+    }
+    return recognitionWarmUpPromise;
+}
+
 export async function extractFaceDescriptorFromDataUrl(dataUrl: string): Promise<number[] | null> {
     if (typeof window === 'undefined') {
         return null;

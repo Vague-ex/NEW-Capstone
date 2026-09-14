@@ -21,7 +21,7 @@ import {
   extractFaceDescriptorFromDataUrl,
   extractFaceLandmarksFromDataUrl,
   extractFaceLandmarksFromVideo,
-  ensureModernFaceModelsLoaded,
+  warmUpFaceRecognition,
   computeMouthAspectRatio,
   estimateHeadYawDegrees,
   MOUTH_OPEN_MAR_THRESHOLD,
@@ -413,6 +413,9 @@ export default function RegisterAlumniPersonal({
   // Live yaw marker, written straight to the DOM: the loop ticks several times
   // a second and re-rendering this whole form that often stutters the video.
   const yawMarkerRef = useRef<HTMLDivElement | null>(null);
+  // The location request, started when the camera starts. Kept as a promise so
+  // nothing in the capture flow ever has to wait for it -- see startCamera.
+  const gpsRequestRef = useRef<Promise<GpsFix | null> | null>(null);
 
   // ── Draft recovery ─────────────────────────────────────────────────────────
   // The parent keeps personal data in React state, which survives moving
@@ -455,8 +458,13 @@ export default function RegisterAlumniPersonal({
 
   // Warm up the face models as soon as the user reaches the verification step
   // so the first detection isn't delayed by a cold model load.
+  //
+  // Loading is not enough: a model's FIRST run in the browser is the slow one
+  // (shader compilation), and without this it landed inside the front-photo
+  // burst of a graduate's first attempt -- one of the reasons a retake felt
+  // smoother than the first try.
   useEffect(() => {
-    if (step === 4) void ensureModernFaceModelsLoaded();
+    if (step === 4) void warmUpFaceRecognition();
   }, [step]);
 
   // Returns true when the live frame satisfies the identity stage's pose. The
@@ -818,6 +826,18 @@ export default function RegisterAlumniPersonal({
       // secure context, and a fallback constraint.
       await openFrontCamera(videoRef.current);
       setCameraOn(true);
+      // Ask for location now, in the background. It used to be awaited inside
+      // the identity burst, and on a FIRST attempt that is exactly when the
+      // browser shows its location prompt: the burst sat locked for the full
+      // 4 s timeout, the sweep could not start, and a graduate turning their
+      // head in that window captured nothing. A retake felt smooth only
+      // because the permission had already been decided.
+      if (!gpsRequestRef.current) {
+        gpsRequestRef.current = captureGps().then((fix) => {
+          setIdentityGps((current) => current ?? fix);
+          return fix;
+        });
+      }
     } catch (err) {
       setCameraError(describeCameraError(err));
     }
@@ -914,11 +934,9 @@ export default function RegisterAlumniPersonal({
 
       const blob = await (await fetch(firstDataUrl)).blob();
 
-      // Stamp the capture with its location for the audit trail (PRD Module A).
-      // Requested here rather than on page load so the browser prompt appears
-      // in context, and awaited only after the photo is secured so a slow or
-      // denied fix cannot cost the user their capture.
-      setIdentityGps(await captureGps());
+      // The location for the audit trail (PRD Module A) is requested when the
+      // camera starts and lands in identityGps on its own. Never awaited here:
+      // doing so held the flow on the browser's permission prompt.
 
       setCaptureTime(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'medium' }));
       setPreviews([firstDataUrl]);
@@ -1028,6 +1046,7 @@ export default function RegisterAlumniPersonal({
     sweepSlotsRef.current = emptySweep();
     setSweep(emptySweep());
     identityDescriptorRef.current = null;
+    if (!identityGps) gpsRequestRef.current = null;
     setShotIndex(0);
     setCaptureTime(null);
     setStepError('');
@@ -1056,7 +1075,7 @@ export default function RegisterAlumniPersonal({
         descriptorSamples,
         livenessSignals,
         sweepFrames: sweep.filter((f): f is SweepFrame => f !== null),
-        gps: identityGps,
+        gps: identityGps ?? (gpsRequestRef.current ? await gpsRequestRef.current : null),
       };
       await onComplete(form, biometricData, matchStatus);
     } catch (err) {
