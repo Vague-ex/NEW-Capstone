@@ -539,6 +539,45 @@ export async function sendRetrackingReminder(alumniId: string): Promise<{ messag
     return response.json();
 }
 
+export type RetrackingEventKind = 'registered' | 'retraced' | 'reminder' | 'employer_confirmed' | 'employer_denied';
+
+export interface RetrackingHistoryEvent {
+    id: string;
+    kind: RetrackingEventKind;
+    occurredAt: string;
+    /** Snapshot after the event (registration and confirmations). */
+    employmentStatus: string;
+    jobTitle: string;
+    company: string;
+    /** Confirmations: field is employment_status, job_title or company. */
+    changes: { field: string; from: string; to: string }[];
+    daysSincePrevious: number | null;
+    /** Confirmations: days past the two-year due date (0 = on time). */
+    overdueDays: number | null;
+    /** Reminders: "auto" or the admin's email. */
+    sentBy: string;
+    /** Employer decisions: verifier name and position. */
+    verifier: string;
+    flagged: boolean;
+    /** Rebuilt from saved dates when history tracking started; no snapshot. */
+    backfilled: boolean;
+}
+
+export interface RetrackingHistory {
+    events: RetrackingHistoryEvent[];
+    summary: { confirmations: number; lateConfirmations: number; reminders: number; employerDecisions: number };
+}
+
+/** One graduate's retracking history, newest first. */
+export async function fetchRetrackingHistory(alumniId: string): Promise<RetrackingHistory> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/alumni/${alumniId}/retracking-history/`,
+        { method: 'GET', headers: withAdminAuthHeaders({}) },
+    );
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 // ---------------------------------------------------------------------------
 // Admin - Employer endpoints
 // ---------------------------------------------------------------------------

@@ -2,16 +2,24 @@ import { useEffect, useMemo, useState, Fragment } from 'react';
 import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
-import { fetchVerifiedAlumni, sendRetrackingReminder } from '../../app/api-client';
+import {
+  fetchRetrackingHistory,
+  fetchVerifiedAlumni,
+  sendRetrackingReminder,
+  type RetrackingEventKind,
+  type RetrackingHistory,
+  type RetrackingHistoryEvent,
+} from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Search, CheckCircle2, Users, Briefcase, Star, MapPin,
   ChevronDown, ChevronUp, Camera, X, ChevronLeft, ChevronRight,
   Clock, Building2, Globe, Award, Maximize2, RefreshCw, Send, AlertTriangle,
+  History, UserPlus, Mail, ShieldCheck, ShieldX, ArrowRight,
 } from 'lucide-react';
 import { ImageLightbox, type LightboxImage } from '../shared/image-lightbox';
 
-type ModalTab = 'profile' | 'employment' | 'skills';
+type ModalTab = 'profile' | 'employment' | 'skills' | 'history';
 
 const PAGE_SIZE = 20;
 
@@ -148,6 +156,254 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+// ── Retracking History ────────────────────────────────────────────────────────
+
+type HistoryFilter = 'all' | 'confirmations' | 'reminders' | 'employer';
+
+const HISTORY_FILTERS: { key: HistoryFilter; label: string; match: (kind: RetrackingEventKind) => boolean }[] = [
+  { key: 'all', label: 'All', match: () => true },
+  { key: 'confirmations', label: 'Confirmations', match: (k) => k === 'registered' || k === 'retraced' },
+  { key: 'reminders', label: 'Reminders', match: (k) => k === 'reminder' },
+  { key: 'employer', label: 'Employer', match: (k) => k === 'employer_confirmed' || k === 'employer_denied' },
+];
+
+const CHANGE_LABELS: Record<string, string> = {
+  employment_status: 'Status',
+  job_title: 'Job title',
+  company: 'Company',
+};
+
+function eventLook(kind: RetrackingEventKind): { title: string; icon: React.ElementType; dot: string } {
+  switch (kind) {
+    case 'registered':
+      return { title: 'Registered', icon: UserPlus, dot: 'bg-gray-100 text-gray-600 ring-gray-200' };
+    case 'retraced':
+      return { title: 'Employment record confirmed', icon: RefreshCw, dot: 'bg-emerald-50 text-emerald-700 ring-emerald-100' };
+    case 'reminder':
+      return { title: 'Reminder email sent', icon: Mail, dot: 'bg-amber-50 text-amber-700 ring-amber-100' };
+    case 'employer_confirmed':
+      return { title: 'Employer confirmed employment', icon: ShieldCheck, dot: 'bg-emerald-50 text-emerald-700 ring-emerald-100' };
+    default:
+      return { title: 'Employer denied employment', icon: ShieldX, dot: 'bg-red-50 text-red-700 ring-red-100' };
+  }
+}
+
+function HistoryEntry({ e, last }: { e: RetrackingHistoryEvent; last: boolean }) {
+  const look = eventLook(e.kind);
+  const when = new Date(e.occurredAt);
+  const job = [e.jobTitle, e.company].filter(Boolean).join(' at ');
+  const snapshot = [e.employmentStatus, job].filter(Boolean).join(' · ');
+
+  return (
+    <li className="relative flex gap-3 pb-4 last:pb-0">
+      {/* Rail connecting the dots; stops at the last entry. */}
+      {!last && <span aria-hidden className="absolute left-4 top-9 bottom-0 w-px -translate-x-1/2 bg-gray-200" />}
+      <span className={`relative flex size-8 shrink-0 items-center justify-center rounded-full ring-4 ring-white ${look.dot}`}>
+        <look.icon className="size-4" />
+      </span>
+
+      <div className="min-w-0 flex-1 rounded-xl border border-gray-100 bg-gray-50 px-3.5 py-2.5">
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          <p className="text-sm text-gray-900" style={{ fontWeight: 600 }}>{look.title}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {e.kind === 'retraced' && e.overdueDays != null && e.overdueDays > 0 && (
+              <span className="rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] text-red-700" style={{ fontWeight: 600 }}>
+                {formatDuration(e.overdueDays)} overdue
+              </span>
+            )}
+            {e.kind === 'retraced' && e.overdueDays === 0 && (
+              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700" style={{ fontWeight: 600 }}>
+                On time
+              </span>
+            )}
+            {e.flagged && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800" style={{ fontWeight: 600 }}>
+                Flagged for review
+              </span>
+            )}
+          </div>
+        </div>
+        <time dateTime={e.occurredAt} className="mt-0.5 block text-[11px] text-gray-500">
+          {when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          {' · '}
+          {when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+        </time>
+
+        <div className="mt-1.5 space-y-1 text-xs text-gray-700 [overflow-wrap:anywhere]">
+          {(e.kind === 'registered' || e.kind === 'retraced') && !e.backfilled && (
+            <p>{snapshot || 'No job on record'}</p>
+          )}
+
+          {e.kind === 'retraced' && !e.backfilled && (
+            e.changes.length > 0 ? (
+              <ul className="space-y-1 pt-0.5">
+                {e.changes.map((c) => (
+                  <li key={c.field} className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <span className="text-gray-500">{CHANGE_LABELS[c.field] ?? c.field}:</span>
+                    <span className="text-gray-400 line-through">{c.from || 'none'}</span>
+                    <ArrowRight className="size-3 shrink-0 text-gray-400" aria-label="changed to" />
+                    <span className="text-gray-900" style={{ fontWeight: 600 }}>{c.to || 'none'}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-500">No change to status, job title or company.</p>
+            )
+          )}
+
+          {e.kind === 'retraced' && e.daysSincePrevious != null && (
+            <p className="text-gray-500">{formatDuration(e.daysSincePrevious)} after the previous confirmation.</p>
+          )}
+
+          {e.kind === 'reminder' && (
+            <p className="text-gray-500">
+              {e.sentBy === 'auto' ? 'Sent automatically' : e.sentBy ? `Sent by ${e.sentBy}` : 'Sender not recorded'}
+            </p>
+          )}
+
+          {(e.kind === 'employer_confirmed' || e.kind === 'employer_denied') && (
+            <>
+              {job && <p>{job}</p>}
+              {e.verifier && <p className="text-gray-500">By {e.verifier}</p>}
+            </>
+          )}
+
+          {e.backfilled && (
+            <p className="italic text-gray-400">From saved dates. Details were not recorded before history tracking started.</p>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version: number }) {
+  const [data, setData] = useState<RetrackingHistory | null>(null);
+  const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const [filter, setFilter] = useState<HistoryFilter>('all');
+
+  useEffect(() => {
+    let active = true;
+    setError('');
+    fetchRetrackingHistory(alumniId)
+      .then((res) => { if (active) setData(res); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Could not load the history.'); });
+    return () => { active = false; };
+  }, [alumniId, version, attempt]);
+
+  if (error && !data) {
+    return (
+      <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-center">
+        <p className="text-sm text-red-800">{error}</p>
+        <button
+          type="button"
+          onClick={() => setAttempt((n) => n + 1)}
+          className="mt-3 inline-flex min-h-11 sm:min-h-0 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs text-red-700 hover:bg-red-100 transition"
+          style={{ fontWeight: 600 }}
+        >
+          <RefreshCw className="size-3.5" /> Try again
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="space-y-3" aria-busy="true" aria-label="Loading history">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="h-16 rounded-xl bg-gray-100 animate-pulse" />)}
+        </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex gap-3">
+            <div className="size-8 rounded-full bg-gray-100 animate-pulse" />
+            <div className="h-16 flex-1 rounded-xl bg-gray-100 animate-pulse" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const { summary } = data;
+  const tiles = [
+    { label: 'Confirmations', value: summary.confirmations, hint: 'Employment form submitted', tone: 'text-gray-900' },
+    { label: 'Confirmed late', value: summary.lateConfirmations, hint: 'After the 2-year due date', tone: summary.lateConfirmations ? 'text-red-700' : 'text-gray-900' },
+    { label: 'Reminders sent', value: summary.reminders, hint: 'Automatic and by admins', tone: 'text-gray-900' },
+    { label: 'Employer checks', value: summary.employerDecisions, hint: 'Confirmed or denied', tone: 'text-gray-900' },
+  ];
+
+  const active = HISTORY_FILTERS.find((f) => f.key === filter) ?? HISTORY_FILTERS[0];
+  const shown = data.events.filter((e) => active.match(e.kind));
+  const byYear = shown.reduce<{ year: number; items: RetrackingHistoryEvent[] }[]>((groups, e) => {
+    const year = new Date(e.occurredAt).getFullYear();
+    const group = groups[groups.length - 1];
+    if (group && group.year === year) group.items.push(e);
+    else groups.push({ year, items: [e] });
+    return groups;
+  }, []);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        {tiles.map((t) => (
+          <div key={t.label} className="rounded-xl border border-gray-100 bg-gray-50 px-3.5 py-3">
+            <p className="text-[11px] text-gray-500">{t.label}</p>
+            <p className={`text-xl leading-tight ${t.tone}`} style={{ fontWeight: 700 }}>{t.value}</p>
+            <p className="hidden sm:block text-[11px] text-gray-400">{t.hint}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filter chips scroll sideways on narrow phones instead of wrapping into a block. */}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]" role="group" aria-label="Filter history">
+        {HISTORY_FILTERS.map((f) => {
+          const count = data.events.filter((e) => f.match(e.kind)).length;
+          const on = f.key === filter;
+          return (
+            <button
+              key={f.key}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setFilter(f.key)}
+              className={`inline-flex shrink-0 min-h-10 sm:min-h-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${on
+                ? 'border-[#166534] bg-[#166534] text-white'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+              style={{ fontWeight: 600 }}
+            >
+              {f.label}
+              <span className={`rounded-full px-1.5 text-[10px] ${on ? 'bg-white/20' : 'bg-gray-100 text-gray-500'}`}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {error && <p className="text-xs text-red-700">{error}</p>}
+
+      {shown.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center">
+          <History className="mx-auto size-6 text-gray-300" />
+          <p className="mt-2 text-sm text-gray-500">
+            {data.events.length === 0 ? 'No history recorded for this graduate yet.' : 'Nothing in this category yet.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {byYear.map((group) => (
+            <section key={group.year}>
+              <h4 className="mb-2 text-xs text-[#166534]" style={{ fontWeight: 700 }}>{group.year}</h4>
+              <ol>
+                {group.items.map((e, i) => (
+                  <HistoryEntry key={e.id} e={e} last={i === group.items.length - 1} />
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
 function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
@@ -158,6 +414,8 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
 }) {
   const [tab, setTab] = useState<ModalTab>('profile');
   const [reminder, setReminder] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; message?: string }>({ state: 'idle' });
+  // Bumped after a reminder goes out so the History tab reloads with it.
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const handleSendReminder = async () => {
     if (!a.id) return;
@@ -165,6 +423,7 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
     try {
       const res = await sendRetrackingReminder(String(a.id));
       setReminder({ state: 'sent', message: res.message ?? 'Reminder sent.' });
+      setHistoryVersion((v) => v + 1);
       onReminderSent(String(a.id), res.sentAt ?? new Date().toISOString());
     } catch (err) {
       setReminder({ state: 'error', message: err instanceof Error ? err.message : 'Could not send the reminder.' });
@@ -192,6 +451,7 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
     { key: 'profile', label: 'Profile & Education', icon: Camera },
     { key: 'employment', label: 'Employment (CHED)', icon: Briefcase },
     { key: 'skills', label: 'Skills', icon: Star },
+    { key: 'history', label: 'History', icon: History },
   ];
 
   return (
@@ -250,24 +510,38 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
                 )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleSendReminder()}
-              disabled={reminder.state === 'sending'}
-              className="inline-flex items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs shrink-0 transition"
-              style={{ fontWeight: 600 }}
-            >
-              <Send className="size-3.5" />
-              {reminder.state === 'sending' ? 'Sending…' : reminder.state === 'sent' ? 'Send again' : 'Send reminder email'}
-            </button>
+            <div className="flex gap-2 shrink-0">
+              {tab !== 'history' && (
+                <button
+                  type="button"
+                  onClick={() => setTab('history')}
+                  className="inline-flex flex-1 sm:flex-none items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg border border-red-200 bg-white hover:bg-red-100 text-red-700 text-xs transition"
+                  style={{ fontWeight: 600 }}
+                >
+                  <History className="size-3.5" /> View history
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleSendReminder()}
+                disabled={reminder.state === 'sending'}
+                className="inline-flex flex-1 sm:flex-none items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs transition"
+                style={{ fontWeight: 600 }}
+              >
+                <Send className="size-3.5" />
+                {reminder.state === 'sending' ? 'Sending…' : reminder.state === 'sent' ? 'Send again' : 'Send reminder email'}
+              </button>
+            </div>
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-100 shrink-0 px-2 sm:px-5">
+        {/* Four tabs: on narrow phones the row scrolls sideways rather than
+            squeezing the labels. */}
+        <div role="tablist" className="flex border-b border-gray-100 shrink-0 px-2 sm:px-5 overflow-x-auto [scrollbar-width:none]">
           {tabs.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-2 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${tab === t.key ? 'border-[#166534] text-[#166534]' : 'border-transparent text-gray-500 hover:text-gray-700'
+            <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
+              className={`flex flex-1 sm:flex-none shrink-0 items-center justify-center gap-1.5 min-h-11 px-2.5 sm:px-4 py-3 text-xs whitespace-nowrap border-b-2 transition -mb-px ${tab === t.key ? 'border-[#166534] text-[#166534]' : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               style={{ fontWeight: tab === t.key ? 700 : 400 }}>
               <t.icon className="size-3.5" />
@@ -279,6 +553,11 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
 
         {/* Tab content - scrollable */}
         <div className="overflow-y-auto flex-1 p-5">
+
+          {/* ── Retracking history ── */}
+          {tab === 'history' && a.id != null && (
+            <RetrackingHistoryTab alumniId={String(a.id)} version={historyVersion} />
+          )}
 
           {/* ── Profile & Education ── */}
           {tab === 'profile' && (

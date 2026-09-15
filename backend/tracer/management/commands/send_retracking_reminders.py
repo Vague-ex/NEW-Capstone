@@ -17,6 +17,7 @@ from users.models import AccountStatus, AlumniAccount
 from users.retracking import (
     REMINDER_COOLDOWN_DAYS,
     graduate_first_name,
+    log_retracking_event,
     needs_retracking,
     send_retracking_email,
 )
@@ -102,6 +103,7 @@ class Command(BaseCommand):
             if profile:
                 profile.last_retracking_reminder_at = now
                 profile.save(update_fields=["last_retracking_reminder_at"])
+            log_retracking_event(account, "reminder", sent_by="auto", when=now)
             sent += 1
 
         self.stdout.write(self.style.SUCCESS(f"Retracking reminders: sent={sent} skipped={skipped}"))

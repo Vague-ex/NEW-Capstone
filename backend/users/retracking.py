@@ -11,13 +11,17 @@ EmploymentProfile save.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from .email_send import send_branded_email
 from .models import AlumniProfile
+
+logger = logging.getLogger(__name__)
 
 RETRACKING_THRESHOLD_DAYS = 730  # 2 years
 REMINDER_COOLDOWN_DAYS = 30
@@ -73,6 +77,54 @@ def mark_retraced(account, when: datetime | None = None) -> datetime:
     if cached is not None:
         cached.last_retraced_at = when
     return when
+
+
+# Employment fields a confirmation snapshots, in the order changes are listed.
+SNAPSHOT_FIELDS = ("employment_status", "job_title", "company")
+
+
+def employment_snapshot(account) -> dict:
+    """The graduate's employment status, current job title and company right now."""
+    from tracer.models import EmploymentProfile
+
+    emp = EmploymentProfile.objects.filter(alumni=account).order_by("-updated_at").first()
+    return {
+        "employment_status": (getattr(emp, "employment_status", "") or "").strip(),
+        "job_title": (getattr(emp, "current_job_title", "") or "").strip(),
+        "company": (getattr(emp, "current_job_company", "") or "").strip(),
+    }
+
+
+def log_retracking_event(account, kind, *, before=None, previous_at=None, sent_by="", when=None) -> None:
+    """Record one retracking history event. Never raises: the history must not
+    block a registration, a save or a reminder."""
+    from .models import RetrackingEvent
+
+    try:
+        when = when or timezone.now()
+        after = employment_snapshot(account)
+        changes = []
+        if before is not None:
+            changes = [
+                {"field": field, "from": before.get(field, ""), "to": after[field]}
+                for field in SNAPSHOT_FIELDS
+                if (before.get(field, "") or "").lower() != after[field].lower()
+            ]
+        # Savepoint: a failed insert must not break a caller's open transaction.
+        with transaction.atomic():
+            RetrackingEvent.objects.create(
+                alumni=account,
+                kind=kind,
+                occurred_at=when,
+                employment_status=after["employment_status"][:30],
+                job_title=after["job_title"][:150],
+                company=after["company"][:200],
+                changes=changes,
+                days_since_previous=max(0, (when - previous_at).days) if previous_at else None,
+                sent_by=(sent_by or "")[:254],
+            )
+    except Exception:  # pragma: no cover - defensive
+        logger.exception("Could not log retracking event %s for alumni %s", kind, getattr(account, "id", None))
 
 
 def graduate_first_name(account) -> str:

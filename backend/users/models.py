@@ -587,3 +587,46 @@ class LoginAttemptThrottle(models.Model):
 
     def __str__(self):
         return f"throttle({self.identifier}) fails={self.failed_count} tier={self.lockout_tier}"
+
+
+class RetrackingEvent(models.Model):
+    """
+    DS2 extension: Retracking history, one row per event.
+
+    AlumniProfile only keeps the LATEST confirmation and reminder dates, so on its
+    own it cannot say how often a graduate confirmed, whether they were late, or
+    what changed. Each confirmation stores a snapshot of the employment record
+    and what changed from the previous one; each reminder stores who sent it.
+    Employer decisions are not copied here: the history endpoint reads them
+    from tracer.VerificationDecision.
+    """
+
+    class Kind(models.TextChoices):
+        REGISTERED = "registered", "Registered"
+        RETRACED = "retraced", "Employment record confirmed"
+        REMINDER = "reminder", "Reminder sent"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    alumni = models.ForeignKey(AlumniAccount, on_delete=models.CASCADE, related_name="retracking_events")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    occurred_at = models.DateTimeField(default=timezone.now)
+    # Snapshot of the employment record right after the event.
+    employment_status = models.CharField(max_length=30, blank=True)
+    job_title = models.CharField(max_length=150, blank=True)
+    company = models.CharField(max_length=200, blank=True)
+    #: [{"field": "job_title", "from": "...", "to": "..."}] for a confirmation.
+    changes = models.JSONField(default=list, blank=True)
+    #: Confirmations only: days since the previous confirmation (730+ = overdue).
+    days_since_previous = models.PositiveIntegerField(null=True, blank=True)
+    #: Reminders only: "auto" for the daily command, otherwise the admin's email.
+    sent_by = models.CharField(max_length=254, blank=True)
+    #: Rebuilt from the saved dates when the history was introduced; no snapshot.
+    is_backfilled = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "users_retracking_events"
+        ordering = ["-occurred_at"]
+        indexes = [models.Index(fields=["alumni", "-occurred_at"], name="users_retrack_alumni_idx")]
+
+    def __str__(self):
+        return f"{self.kind} {self.occurred_at:%Y-%m-%d} ({self.alumni_id})"

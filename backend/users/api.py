@@ -31,7 +31,8 @@ from .auth import (
 )
 from .names import derive_last_name
 from .retracking import (
-    graduate_first_name, mark_retraced, needs_retracking, retracking_status, send_retracking_email,
+    RETRACKING_THRESHOLD_DAYS, employment_snapshot, graduate_first_name, last_retraced_at as _last_retraced_at,
+    log_retracking_event, mark_retraced, needs_retracking, retracking_status, send_retracking_email,
 )
 from .models import (
     AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
@@ -2062,6 +2063,9 @@ class AlumniRegisterView(APIView):
             if survey_data and (survey_data.get("technical_skills") or survey_data.get("soft_skills")):
                 _create_alumni_skills(alumni_account, survey_data)
 
+        # First entry of the retracking history, after the registration commits.
+        log_retracking_event(alumni_account, "registered", when=profile.last_retraced_at)
+
         return Response(
             {
                 "message": "Graduate registration submitted. Account is pending verification.",
@@ -2619,6 +2623,13 @@ class AlumniEmploymentUpdateView(APIView):
         notify_previous_evaluator = (
             notify_raw if isinstance(notify_raw, bool) else str(notify_raw).strip().lower() != "false"
         )
+        # Only the Employment page flags a save as a retrace. Personal & Education
+        # and Profile saves come through this same endpoint and must not restart
+        # the two-year clock. Snapshot first so the history shows what changed.
+        is_retrace = str(request.data.get("retrace_submission", "")).strip().lower() in {"true", "1", "yes"}
+        before_snapshot = employment_snapshot(alumni_account) if is_retrace else None
+        previous_retrace = _last_retraced_at(alumni_account) if is_retrace else None
+
         try:
             from .survey_translator import apply_survey_data_to_normalized_tables
             apply_survey_data_to_normalized_tables(
@@ -2631,11 +2642,11 @@ class AlumniEmploymentUpdateView(APIView):
                 "survey_translator failed for alumni %s: %s", alumni_account.id, exc
             )
 
-        # Only the Employment page flags a save as a retrace. Personal & Education
-        # and Profile saves come through this same endpoint and must not restart
-        # the two-year clock.
-        if str(request.data.get("retrace_submission", "")).strip().lower() in {"true", "1", "yes"}:
-            mark_retraced(alumni_account)
+        if is_retrace:
+            retraced_at = mark_retraced(alumni_account)
+            log_retracking_event(
+                alumni_account, "retraced", before=before_snapshot, previous_at=previous_retrace, when=retraced_at,
+            )
 
         return Response(
             {
@@ -2777,8 +2788,99 @@ class AlumniRetrackingReminderView(APIView):
 
         sent_at = timezone.now()
         AlumniProfile.objects.filter(alumni=alumni_account).update(last_retracking_reminder_at=sent_at)
+        log_retracking_event(
+            alumni_account, "reminder", sent_by=getattr(_admin_user, "email", "") or "admin", when=sent_at,
+        )
         return Response(
             {"message": f"Retracking reminder sent to {to_email}.", "sentAt": sent_at.isoformat()},
+            status=status.HTTP_200_OK,
+        )
+
+
+class AlumniRetrackingHistoryView(APIView):
+    """Admin: one graduate's retracking history, newest first.
+
+    Registration, confirmations and reminders come from RetrackingEvent;
+    employer confirmations and denials are read from VerificationDecision so
+    they are never stored twice.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, alumni_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        alumni_account = AlumniAccount.objects.filter(id=alumni_id).first()
+        if not alumni_account:
+            return Response({"detail": "Graduate was not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        from tracer.models import EmploymentProfile
+
+        from .models import RetrackingEvent
+
+        status_labels = dict(EmploymentProfile.EmploymentStatusChoices.choices)
+
+        def shown(field, value):
+            value = value or ""
+            return status_labels.get(value, value) if field == "employment_status" else value
+
+        rows = []
+        try:
+            for event in RetrackingEvent.objects.filter(alumni=alumni_account):
+                days = event.days_since_previous
+                rows.append((event.occurred_at, {
+                    "id": str(event.id),
+                    "kind": event.kind,
+                    "employmentStatus": shown("employment_status", event.employment_status),
+                    "jobTitle": event.job_title,
+                    "company": event.company,
+                    "changes": [
+                        {"field": c.get("field", ""), "from": shown(c.get("field"), c.get("from")), "to": shown(c.get("field"), c.get("to"))}
+                        for c in (event.changes or []) if isinstance(c, dict)
+                    ],
+                    "daysSincePrevious": days,
+                    "overdueDays": max(0, days - RETRACKING_THRESHOLD_DAYS) if days is not None else None,
+                    "sentBy": event.sent_by,
+                    "verifier": "",
+                    "flagged": False,
+                    "backfilled": event.is_backfilled,
+                }))
+            decisions = VerificationDecision.objects.filter(token__alumni=alumni_account).select_related(
+                "token__employment_record", "verified_job_title",
+            )
+            for decision in decisions:
+                record = decision.token.employment_record if decision.token_id else None
+                rows.append((decision.decided_at, {
+                    "id": str(decision.id),
+                    "kind": "employer_confirmed" if decision.decision == VerificationDecision.Decision.CONFIRM else "employer_denied",
+                    "employmentStatus": "",
+                    "jobTitle": (decision.verified_job_title.name if decision.verified_job_title_id else "")
+                    or (record.job_title_input if record else ""),
+                    "company": decision.verified_employer_name or (record.employer_name_input if record else ""),
+                    "changes": [],
+                    "daysSincePrevious": None,
+                    "overdueDays": None,
+                    "sentBy": "",
+                    "verifier": ", ".join(filter(None, [decision.verifier_name, decision.verifier_position])),
+                    "flagged": decision.flagged_for_review,
+                    "backfilled": False,
+                }))
+        except (OperationalError, DatabaseError):
+            return _temporary_admin_data_unavailable_response("Retracking history")
+
+        rows.sort(key=lambda row: row[0], reverse=True)
+        events = [{**payload, "occurredAt": when.isoformat()} for when, payload in rows]
+        return Response(
+            {
+                "events": events,
+                "summary": {
+                    "confirmations": sum(1 for e in events if e["kind"] == "retraced"),
+                    "lateConfirmations": sum(1 for e in events if e["kind"] == "retraced" and (e["overdueDays"] or 0) > 0),
+                    "reminders": sum(1 for e in events if e["kind"] == "reminder"),
+                    "employerDecisions": sum(1 for e in events if e["kind"].startswith("employer_")),
+                },
+            },
             status=status.HTTP_200_OK,
         )
 
