@@ -72,16 +72,20 @@ select option {
   to   { opacity: 1; transform: none; }
 }
 
-/* Entrances. `both` fill mode holds the from-state before the delay elapses,
-   which is what makes staggering look deliberate rather than flickery. */
-.gt-fade   { animation: gt-fade  .45s cubic-bezier(.22,.61,.36,1) both; }
-.gt-rise   { animation: gt-rise  .5s  cubic-bezier(.22,.61,.36,1) both; }
-.gt-scale  { animation: gt-scale .4s  cubic-bezier(.22,.61,.36,1) both; }
-.gt-slide  { animation: gt-slide-right .45s cubic-bezier(.22,.61,.36,1) both; }
+/* Entrances. `backwards` fill mode holds the from-state before the delay
+   elapses, which is what makes staggering look deliberate rather than flickery.
+   Not `both`: a forwards-filled opacity/transform animation keeps each element
+   in its own stacking context after it ends, so a later sibling painted over an
+   earlier sibling's dropdown (job title suggestions under the next questions).
+   The end state equals the normal styles, so nothing changes visually. */
+.gt-fade   { animation: gt-fade  .45s cubic-bezier(.22,.61,.36,1) backwards; }
+.gt-rise   { animation: gt-rise  .5s  cubic-bezier(.22,.61,.36,1) backwards; }
+.gt-scale  { animation: gt-scale .4s  cubic-bezier(.22,.61,.36,1) backwards; }
+.gt-slide  { animation: gt-slide-right .45s cubic-bezier(.22,.61,.36,1) backwards; }
 
 /* Stagger: children cascade instead of arriving as one block. Capped at 12 —
    beyond that the tail feels slow rather than smooth. */
-.gt-stagger > *          { animation: gt-rise .5s cubic-bezier(.22,.61,.36,1) both; }
+.gt-stagger > *          { animation: gt-rise .5s cubic-bezier(.22,.61,.36,1) backwards; }
 .gt-stagger > *:nth-child(1)  { animation-delay: .04s; }
 .gt-stagger > *:nth-child(2)  { animation-delay: .08s; }
 .gt-stagger > *:nth-child(3)  { animation-delay: .12s; }
