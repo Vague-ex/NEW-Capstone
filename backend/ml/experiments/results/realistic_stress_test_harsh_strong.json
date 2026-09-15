@@ -1,0 +1,749 @@
+{
+  "scenario": "harsh",
+  "scenario_label": "Harsh market (more unemployed than PIDS)",
+  "signal": "strong",
+  "signal_label": "Strong signal in survey answers",
+  "seed": 20260915,
+  "data_profile": {
+    "population": 524,
+    "respondents": 155,
+    "response_rate": 0.296,
+    "true_employment_rate": 0.452,
+    "survey_employment_rate": 0.529,
+    "true_labor_force_share": 0.849,
+    "true_median_months_to_first_job": 7.4,
+    "true_first_job_bucket_share": {
+      "Within 1 month": 0.109,
+      "1-3 months": 0.144,
+      "3-6 months": 0.179,
+      "6 months to 1 year": 0.185,
+      "1-2 years": 0.182,
+      "More than 2 years": 0.201
+    },
+    "true_it_related_share_of_employed": 0.435,
+    "missing_share_in_survey": {
+      "ojt_relevance": 0.161,
+      "technical_skill_count": 0.123,
+      "has_portfolio": 0.071,
+      "tth_bucket": 0.413
+    },
+    "per_batch": [
+      {
+        "batch": 2019,
+        "graduates": 98,
+        "respondents": 32,
+        "true_employment_rate": 0.541,
+        "survey_employment_rate": 0.562,
+        "survey_95ci": [
+          0.393,
+          0.718
+        ]
+      },
+      {
+        "batch": 2020,
+        "graduates": 82,
+        "respondents": 24,
+        "true_employment_rate": 0.451,
+        "survey_employment_rate": 0.5,
+        "survey_95ci": [
+          0.314,
+          0.686
+        ]
+      },
+      {
+        "batch": 2021,
+        "graduates": 70,
+        "respondents": 18,
+        "true_employment_rate": 0.471,
+        "survey_employment_rate": 0.5,
+        "survey_95ci": [
+          0.29,
+          0.71
+        ]
+      },
+      {
+        "batch": 2022,
+        "graduates": 68,
+        "respondents": 20,
+        "true_employment_rate": 0.353,
+        "survey_employment_rate": 0.45,
+        "survey_95ci": [
+          0.258,
+          0.658
+        ]
+      },
+      {
+        "batch": 2023,
+        "graduates": 102,
+        "respondents": 27,
+        "true_employment_rate": 0.49,
+        "survey_employment_rate": 0.667,
+        "survey_95ci": [
+          0.478,
+          0.814
+        ]
+      },
+      {
+        "batch": 2024,
+        "graduates": 104,
+        "respondents": 34,
+        "true_employment_rate": 0.385,
+        "survey_employment_rate": 0.471,
+        "survey_95ci": [
+          0.315,
+          0.633
+        ]
+      }
+    ]
+  },
+  "current_pipeline_as_is": {
+    "cv_f1": {
+      "mean": 0.963,
+      "sd": 0.036,
+      "p05": 0.912,
+      "p95": 1.0
+    },
+    "cv_auc": {
+      "mean": 0.979,
+      "sd": 0.035,
+      "p05": 0.926,
+      "p95": 1.0
+    },
+    "always_employed_f1": 0.692,
+    "top_features": [
+      {
+        "feature": "location_type",
+        "importance": 0.311
+      },
+      {
+        "feature": "job_applications_count",
+        "importance": 0.174
+      },
+      {
+        "feature": "current_sector_2",
+        "importance": 0.135
+      },
+      {
+        "feature": "current_sector_1",
+        "importance": 0.057
+      },
+      {
+        "feature": "first_sector_2",
+        "importance": 0.057
+      }
+    ],
+    "one_line_rule_current_sector_filled_accuracy": 0.994
+  },
+  "employment_now_pre_graduation": {
+    "majority_baseline": {
+      "auc": {
+        "mean": 0.5,
+        "sd": 0.0,
+        "p05": 0.5,
+        "p95": 0.5
+      },
+      "accuracy": {
+        "mean": 0.529,
+        "sd": 0.016,
+        "p05": 0.516,
+        "p95": 0.548
+      },
+      "balanced_accuracy": {
+        "mean": 0.5,
+        "sd": 0.0,
+        "p05": 0.5,
+        "p95": 0.5
+      },
+      "f1": {
+        "mean": 0.692,
+        "sd": 0.013,
+        "p05": 0.681,
+        "p95": 0.708
+      },
+      "brier": {
+        "mean": 0.249,
+        "sd": 0.001,
+        "p05": 0.248,
+        "p95": 0.25
+      }
+    },
+    "logistic_regression": {
+      "auc": {
+        "mean": 0.691,
+        "sd": 0.092,
+        "p05": 0.526,
+        "p95": 0.812
+      },
+      "accuracy": {
+        "mean": 0.641,
+        "sd": 0.097,
+        "p05": 0.523,
+        "p95": 0.832
+      },
+      "balanced_accuracy": {
+        "mean": 0.643,
+        "sd": 0.097,
+        "p05": 0.526,
+        "p95": 0.833
+      },
+      "f1": {
+        "mean": 0.642,
+        "sd": 0.108,
+        "p05": 0.507,
+        "p95": 0.831
+      },
+      "brier": {
+        "mean": 0.233,
+        "sd": 0.039,
+        "p05": 0.173,
+        "p95": 0.302
+      }
+    },
+    "random_forest": {
+      "auc": {
+        "mean": 0.687,
+        "sd": 0.092,
+        "p05": 0.529,
+        "p95": 0.842
+      },
+      "accuracy": {
+        "mean": 0.665,
+        "sd": 0.077,
+        "p05": 0.581,
+        "p95": 0.8
+      },
+      "balanced_accuracy": {
+        "mean": 0.663,
+        "sd": 0.078,
+        "p05": 0.574,
+        "p95": 0.8
+      },
+      "f1": {
+        "mean": 0.686,
+        "sd": 0.075,
+        "p05": 0.558,
+        "p95": 0.798
+      },
+      "brier": {
+        "mean": 0.229,
+        "sd": 0.026,
+        "p05": 0.192,
+        "p95": 0.269
+      }
+    }
+  },
+  "employed_within_12mo_pre_graduation": {
+    "majority_baseline": {
+      "auc": {
+        "mean": 0.5,
+        "sd": 0.0,
+        "p05": 0.5,
+        "p95": 0.5
+      },
+      "accuracy": {
+        "mean": 0.504,
+        "sd": 0.015,
+        "p05": 0.48,
+        "p95": 0.52
+      },
+      "balanced_accuracy": {
+        "mean": 0.5,
+        "sd": 0.0,
+        "p05": 0.5,
+        "p95": 0.5
+      },
+      "f1": {
+        "mean": 0.0,
+        "sd": 0.0,
+        "p05": 0.0,
+        "p95": 0.0
+      },
+      "brier": {
+        "mean": 0.25,
+        "sd": 0.0,
+        "p05": 0.25,
+        "p95": 0.251
+      }
+    },
+    "logistic_regression": {
+      "auc": {
+        "mean": 0.776,
+        "sd": 0.095,
+        "p05": 0.604,
+        "p95": 0.908
+      },
+      "accuracy": {
+        "mean": 0.69,
+        "sd": 0.077,
+        "p05": 0.55,
+        "p95": 0.792
+      },
+      "balanced_accuracy": {
+        "mean": 0.691,
+        "sd": 0.077,
+        "p05": 0.55,
+        "p95": 0.796
+      },
+      "f1": {
+        "mean": 0.684,
+        "sd": 0.077,
+        "p05": 0.551,
+        "p95": 0.785
+      },
+      "brier": {
+        "mean": 0.202,
+        "sd": 0.044,
+        "p05": 0.143,
+        "p95": 0.275
+      }
+    },
+    "random_forest": {
+      "auc": {
+        "mean": 0.785,
+        "sd": 0.08,
+        "p05": 0.646,
+        "p95": 0.896
+      },
+      "accuracy": {
+        "mean": 0.7,
+        "sd": 0.081,
+        "p05": 0.55,
+        "p95": 0.827
+      },
+      "balanced_accuracy": {
+        "mean": 0.7,
+        "sd": 0.081,
+        "p05": 0.55,
+        "p95": 0.826
+      },
+      "f1": {
+        "mean": 0.687,
+        "sd": 0.09,
+        "p05": 0.542,
+        "p95": 0.832
+      },
+      "brier": {
+        "mean": 0.193,
+        "sd": 0.023,
+        "p05": 0.157,
+        "p95": 0.231
+      }
+    },
+    "n": 123
+  },
+  "temporal_holdout_employment_now": {
+    "train_n": 94,
+    "test_n": 61,
+    "test_observed_rate": 0.557,
+    "test_true_population_rate": 0.437,
+    "logistic_regression": {
+      "auc": 0.723,
+      "predicted_rate": 0.399
+    },
+    "random_forest": {
+      "auc": 0.683,
+      "predicted_rate": 0.478
+    }
+  },
+  "temporal_holdout_within_12mo": {
+    "train_n": 73,
+    "test_n": 50,
+    "test_observed_rate": 0.64,
+    "logistic_regression": {
+      "auc": 0.79,
+      "predicted_rate": 0.244
+    },
+    "random_forest": {
+      "auc": 0.809,
+      "predicted_rate": 0.318
+    }
+  },
+  "time_to_hire_regression": {
+    "median_baseline": {
+      "r2": {
+        "mean": -0.279,
+        "sd": 0.306,
+        "p05": -0.731,
+        "p95": -0.001
+      },
+      "mae_months": {
+        "mean": 8.342,
+        "sd": 1.355,
+        "p05": 6.572,
+        "p95": 10.639
+      }
+    },
+    "ridge": {
+      "r2": {
+        "mean": -0.206,
+        "sd": 0.336,
+        "p05": -0.867,
+        "p95": 0.197
+      },
+      "mae_months": {
+        "mean": 8.664,
+        "sd": 1.161,
+        "p05": 6.558,
+        "p95": 10.48
+      }
+    },
+    "random_forest": {
+      "r2": {
+        "mean": -0.008,
+        "sd": 0.172,
+        "p05": -0.288,
+        "p95": 0.273
+      },
+      "mae_months": {
+        "mean": 7.754,
+        "sd": 0.784,
+        "p05": 6.616,
+        "p95": 9.176
+      }
+    },
+    "n": 91
+  },
+  "time_to_hire_3class": {
+    "majority_baseline": {
+      "accuracy": {
+        "mean": 0.505,
+        "sd": 0.084,
+        "p05": 0.368,
+        "p95": 0.637
+      },
+      "balanced_accuracy": {
+        "mean": 0.333,
+        "sd": 0.0,
+        "p05": 0.333,
+        "p95": 0.333
+      },
+      "macro_f1": {
+        "mean": 0.222,
+        "sd": 0.025,
+        "p05": 0.179,
+        "p95": 0.259
+      },
+      "top1_accuracy": {
+        "mean": 0.505,
+        "sd": 0.084,
+        "p05": 0.368,
+        "p95": 0.637
+      }
+    },
+    "logistic_regression": {
+      "accuracy": {
+        "mean": 0.547,
+        "sd": 0.098,
+        "p05": 0.408,
+        "p95": 0.677
+      },
+      "balanced_accuracy": {
+        "mean": 0.476,
+        "sd": 0.126,
+        "p05": 0.264,
+        "p95": 0.652
+      },
+      "macro_f1": {
+        "mean": 0.462,
+        "sd": 0.121,
+        "p05": 0.259,
+        "p95": 0.61
+      },
+      "top1_accuracy": {
+        "mean": 0.547,
+        "sd": 0.098,
+        "p05": 0.408,
+        "p95": 0.677
+      }
+    },
+    "random_forest": {
+      "accuracy": {
+        "mean": 0.483,
+        "sd": 0.092,
+        "p05": 0.339,
+        "p95": 0.62
+      },
+      "balanced_accuracy": {
+        "mean": 0.383,
+        "sd": 0.101,
+        "p05": 0.24,
+        "p95": 0.549
+      },
+      "macro_f1": {
+        "mean": 0.348,
+        "sd": 0.1,
+        "p05": 0.224,
+        "p95": 0.51
+      },
+      "top1_accuracy": {
+        "mean": 0.483,
+        "sd": 0.092,
+        "p05": 0.339,
+        "p95": 0.62
+      }
+    },
+    "n": 123
+  },
+  "job_title": {
+    "majority_baseline": {
+      "accuracy": {
+        "mean": 0.197,
+        "sd": 0.106,
+        "p05": 0.013,
+        "p95": 0.357
+      },
+      "balanced_accuracy": {
+        "mean": 0.122,
+        "sd": 0.046,
+        "p05": 0.018,
+        "p95": 0.193
+      },
+      "macro_f1": {
+        "mean": 0.043,
+        "sd": 0.027,
+        "p05": 0.002,
+        "p95": 0.099
+      },
+      "top3_accuracy": {
+        "mean": 0.554,
+        "sd": 0.172,
+        "p05": 0.243,
+        "p95": 0.843
+      }
+    },
+    "logistic_regression": {
+      "accuracy": {
+        "mean": 0.253,
+        "sd": 0.097,
+        "p05": 0.086,
+        "p95": 0.414
+      },
+      "balanced_accuracy": {
+        "mean": 0.158,
+        "sd": 0.068,
+        "p05": 0.051,
+        "p95": 0.283
+      },
+      "macro_f1": {
+        "mean": 0.099,
+        "sd": 0.049,
+        "p05": 0.028,
+        "p95": 0.196
+      },
+      "top3_accuracy": {
+        "mean": 0.413,
+        "sd": 0.13,
+        "p05": 0.157,
+        "p95": 0.571
+      }
+    },
+    "random_forest": {
+      "accuracy": {
+        "mean": 0.322,
+        "sd": 0.119,
+        "p05": 0.097,
+        "p95": 0.493
+      },
+      "balanced_accuracy": {
+        "mean": 0.207,
+        "sd": 0.08,
+        "p05": 0.087,
+        "p95": 0.347
+      },
+      "macro_f1": {
+        "mean": 0.133,
+        "sd": 0.069,
+        "p05": 0.025,
+        "p95": 0.252
+      },
+      "top3_accuracy": {
+        "mean": 0.486,
+        "sd": 0.12,
+        "p05": 0.229,
+        "p95": 0.643
+      }
+    },
+    "n": 72,
+    "n_classes": 14
+  },
+  "it_related_job": {
+    "majority_baseline": {
+      "auc": {
+        "mean": 0.5,
+        "sd": 0.0,
+        "p05": 0.5,
+        "p95": 0.5
+      },
+      "accuracy": {
+        "mean": 0.611,
+        "sd": 0.028,
+        "p05": 0.571,
+        "p95": 0.643
+      },
+      "balanced_accuracy": {
+        "mean": 0.5,
+        "sd": 0.0,
+        "p05": 0.5,
+        "p95": 0.5
+      },
+      "f1": {
+        "mean": 0.0,
+        "sd": 0.0,
+        "p05": 0.0,
+        "p95": 0.0
+      },
+      "brier": {
+        "mean": 0.238,
+        "sd": 0.006,
+        "p05": 0.231,
+        "p95": 0.247
+      }
+    },
+    "logistic_regression": {
+      "auc": {
+        "mean": 0.81,
+        "sd": 0.107,
+        "p05": 0.637,
+        "p95": 0.976
+      },
+      "accuracy": {
+        "mean": 0.783,
+        "sd": 0.115,
+        "p05": 0.586,
+        "p95": 0.932
+      },
+      "balanced_accuracy": {
+        "mean": 0.765,
+        "sd": 0.119,
+        "p05": 0.551,
+        "p95": 0.933
+      },
+      "f1": {
+        "mean": 0.707,
+        "sd": 0.16,
+        "p05": 0.391,
+        "p95": 0.92
+      },
+      "brier": {
+        "mean": 0.169,
+        "sd": 0.068,
+        "p05": 0.075,
+        "p95": 0.28
+      }
+    },
+    "random_forest": {
+      "auc": {
+        "mean": 0.833,
+        "sd": 0.121,
+        "p05": 0.637,
+        "p95": 0.996
+      },
+      "accuracy": {
+        "mean": 0.799,
+        "sd": 0.099,
+        "p05": 0.643,
+        "p95": 0.932
+      },
+      "balanced_accuracy": {
+        "mean": 0.777,
+        "sd": 0.11,
+        "p05": 0.562,
+        "p95": 0.917
+      },
+      "f1": {
+        "mean": 0.717,
+        "sd": 0.161,
+        "p05": 0.42,
+        "p95": 0.909
+      },
+      "brier": {
+        "mean": 0.155,
+        "sd": 0.05,
+        "p05": 0.085,
+        "p95": 0.244
+      }
+    }
+  },
+  "ceiling_auc_unlimited_clean_data": {
+    "n": 31440,
+    "employment_status": 0.76,
+    "employed_within_12mo": 0.829
+  },
+  "learning_curve_lr_auc": {
+    "80": {
+      "employment_status": {
+        "mean": 0.616,
+        "sd": 0.097,
+        "p05": 0.475,
+        "p95": 0.748
+      },
+      "employed_within_12mo": {
+        "mean": 0.7,
+        "sd": 0.087,
+        "p05": 0.58,
+        "p95": 0.81
+      }
+    },
+    "170": {
+      "employment_status": {
+        "mean": 0.672,
+        "sd": 0.04,
+        "p05": 0.61,
+        "p95": 0.727
+      },
+      "employed_within_12mo": {
+        "mean": 0.72,
+        "sd": 0.077,
+        "p05": 0.588,
+        "p95": 0.809
+      }
+    },
+    "500": {
+      "employment_status": {
+        "mean": 0.707,
+        "sd": 0.023,
+        "p05": 0.675,
+        "p95": 0.738
+      },
+      "employed_within_12mo": {
+        "mean": 0.775,
+        "sd": 0.026,
+        "p05": 0.742,
+        "p95": 0.813
+      }
+    },
+    "1500": {
+      "employment_status": {
+        "mean": 0.721,
+        "sd": 0.017,
+        "p05": 0.69,
+        "p95": 0.74
+      },
+      "employed_within_12mo": {
+        "mean": 0.791,
+        "sd": 0.013,
+        "p05": 0.77,
+        "p95": 0.811
+      }
+    }
+  },
+  "batch_rate_forecast_backtest": {
+    "worlds": 100,
+    "mean_abs_error_pct_points": {
+      "linear_trend": 13.5,
+      "mean_of_past_batches": 17.1,
+      "last_batch": 14.6
+    },
+    "p90_abs_error_pct_points": {
+      "linear_trend": 23.8,
+      "mean_of_past_batches": 25.5,
+      "last_batch": 23.8
+    },
+    "linear_trend_80pct_interval_width_pct_points": {
+      "mean": 45.723,
+      "sd": 19.921,
+      "p05": 12.861,
+      "p95": 76.779
+    }
+  }
+}

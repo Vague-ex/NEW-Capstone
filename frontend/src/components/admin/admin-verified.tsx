@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, Fragment } from 'react';
+import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
-import { fetchVerifiedAlumni } from '../../app/api-client';
+import { fetchVerifiedAlumni, sendRetrackingReminder } from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import {
   Search, CheckCircle2, Users, Briefcase, Star, MapPin,
   ChevronDown, ChevronUp, Camera, X, ChevronLeft, ChevronRight,
-  Clock, Building2, Globe, Award, Maximize2,
+  Clock, Building2, Globe, Award, Maximize2, RefreshCw, Send, AlertTriangle,
 } from 'lucide-react';
 import { ImageLightbox, type LightboxImage } from '../shared/image-lightbox';
 
@@ -103,6 +104,36 @@ function faceImages(a: AlumniRecord): LightboxImage[] {
   return out;
 }
 
+/** "2 yrs 3 mos" from a day count — how long ago a record was confirmed. */
+function formatDuration(days: number): string {
+  const totalMonths = Math.floor(days / 30.44);
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  const parts: string[] = [];
+  if (years) parts.push(`${years} yr${years !== 1 ? 's' : ''}`);
+  if (months) parts.push(`${months} mo${months !== 1 ? 's' : ''}`);
+  return parts.length ? parts.join(' ') : `${days} day${days !== 1 ? 's' : ''}`;
+}
+
+function needsRetracing(a: AlumniRecord): boolean {
+  return a.requiresRetracking === true;
+}
+
+function RetraceBadge({ a }: { a: AlumniRecord }) {
+  if (!needsRetracing(a)) return null;
+  const since = typeof a.daysSinceRetrace === 'number' ? formatDuration(a.daysSinceRetrace) : null;
+  return (
+    <span
+      title={a.lastRetracedAt ? `Employment record last confirmed ${a.lastRetracedAt}` : undefined}
+      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100 whitespace-nowrap"
+      style={{ fontWeight: 600 }}
+    >
+      <RefreshCw className="size-3" />
+      Needs retracing{since ? ` · ${since}` : ''}
+    </span>
+  );
+}
+
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
@@ -119,8 +150,26 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClose: () => void; bsisCore: string[] }) {
+function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
+  a: AlumniRecord;
+  onClose: () => void;
+  bsisCore: string[];
+  onReminderSent: (alumniId: string, sentAt: string) => void;
+}) {
   const [tab, setTab] = useState<ModalTab>('profile');
+  const [reminder, setReminder] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; message?: string }>({ state: 'idle' });
+
+  const handleSendReminder = async () => {
+    if (!a.id) return;
+    setReminder({ state: 'sending' });
+    try {
+      const res = await sendRetrackingReminder(String(a.id));
+      setReminder({ state: 'sent', message: res.message ?? 'Reminder sent.' });
+      onReminderSent(String(a.id), res.sentAt ?? new Date().toISOString());
+    } catch (err) {
+      setReminder({ state: 'error', message: err instanceof Error ? err.message : 'Could not send the reminder.' });
+    }
+  };
   const [viewer, setViewer] = useState<number | null>(null);
   const images = useMemo(() => faceImages(a), [a]);
   const sd = ((a as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
@@ -169,12 +218,50 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700" style={{ fontWeight: 600 }}>
                 <CheckCircle2 className="size-3" /> Verified
               </span>
+              <RetraceBadge a={a} />
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" className="flex size-10 items-center justify-center rounded-lg hover:bg-gray-100 transition shrink-0">
             <X className="size-5 text-gray-500" />
           </button>
         </div>
+
+        {/* Retracing: the record is over two years old, so what the tabs show is
+            the graduate's last known information, not their current situation. */}
+        {needsRetracing(a) && (
+          <div className="shrink-0 border-b border-red-100 bg-red-50 px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+              <AlertTriangle className="size-4 text-red-600 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-red-800 text-xs" style={{ fontWeight: 700 }}>
+                  Needs retracing{typeof a.daysSinceRetrace === 'number' ? ` · outdated ${formatDuration(a.daysSinceRetrace)}` : ''}
+                </p>
+                <p className="text-red-700 text-[11px] leading-snug mt-0.5">
+                  Employment last confirmed {a.lastRetracedAt ?? 'on an unknown date'}. The details below are the last known information.{' '}
+                  {a.lastRetrackingReminderAt
+                    ? `Reminder last sent ${new Date(a.lastRetrackingReminderAt).toLocaleDateString()}.`
+                    : 'No reminder sent yet.'}
+                </p>
+                {reminder.state === 'sent' && (
+                  <p className="text-emerald-700 text-[11px] mt-1" style={{ fontWeight: 600 }}>{reminder.message}</p>
+                )}
+                {reminder.state === 'error' && (
+                  <p className="text-red-800 text-[11px] mt-1" style={{ fontWeight: 600 }}>{reminder.message}</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSendReminder()}
+              disabled={reminder.state === 'sending'}
+              className="inline-flex items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs shrink-0 transition"
+              style={{ fontWeight: 600 }}
+            >
+              <Send className="size-3.5" />
+              {reminder.state === 'sending' ? 'Sending…' : reminder.state === 'sent' ? 'Send again' : 'Send reminder email'}
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-gray-100 shrink-0 px-2 sm:px-5">
@@ -287,6 +374,12 @@ function GraduateDetailModal({ a, onClose, bsisCore }: { a: AlumniRecord; onClos
                   <Row label="Email Address" value={a.email} />
                   <Row label="Graduation Batch" value={`Batch ${a.graduationYear}`} />
                   <Row label="Last Updated" value={a.dateUpdated} />
+                  <Row label="Last Retraced" value={
+                    a.lastRetracedAt
+                      ? `${a.lastRetracedAt}${typeof a.daysSinceRetrace === 'number' ? ` (${formatDuration(a.daysSinceRetrace)} ago)` : ''}`
+                      : '-'
+                  } />
+                  <Row label="Next Retrace Due" value={a.retrackingDueAt ?? '-'} />
                   <Row label="Face Recognition Capture" value={a.biometricCaptured ? 'Captured' : 'Not captured'} />
                   {a.biometricDate && <Row label="Capture Date" value={a.biometricDate} />}
                   {a.lat && a.lng && (
@@ -491,6 +584,9 @@ export function AdminVerified() {
   const [search, setSearch] = useState('');
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
+  // The dashboard links here with ?retracing=needs.
+  const [searchParams] = useSearchParams();
+  const [filterRetrace, setFilterRetrace] = useState(searchParams.get('retracing') === 'needs' ? 'needs' : 'all');
   // Seeded sample/masterlist records are hidden by default so the real demo
   // stays clean; this toggle reveals them (they power the analytics).
   const [showSample, setShowSample] = useState(false);
@@ -559,12 +655,14 @@ export function AdminVerified() {
     const matchYear = filterYear === 'all' || a.graduationYear === parseInt(filterYear);
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
     const matchSample = showSample || !(a as Record<string, unknown>).isSample;
-    return matchQ && matchYear && matchStatus && matchSample;
+    const matchRetrace = filterRetrace === 'all'
+      || (filterRetrace === 'needs' ? needsRetracing(a) : !needsRetracing(a));
+    return matchQ && matchYear && matchStatus && matchSample && matchRetrace;
   }).sort((a, b) => {
     const va = String((a as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     const vb = String((b as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-  }), [backendVerified, search, filterYear, filterStatus, showSample, sortField, sortDir]);
+  }), [backendVerified, search, filterYear, filterStatus, filterRetrace, showSample, sortField, sortDir]);
 
   const handleSort = (f: string) => {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -579,7 +677,7 @@ export function AdminVerified() {
   );
 
   // Snap back to page 1 whenever the filtered set changes shape.
-  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, showSample, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, filterRetrace, showSample, sortField, sortDir]);
 
   const SortIcon = ({ f }: { f: string }) => (
     <span className="inline-flex flex-col ml-1 opacity-60">
@@ -589,6 +687,18 @@ export function AdminVerified() {
   );
 
   const empCount = verifiedAlumni.filter(a => a.employmentStatus !== 'unemployed').length;
+  // Counted before the retracing filter so the card keeps its number while the
+  // filter is toggled.
+  const retraceCount = useMemo(
+    () => backendVerified.filter(a => (showSample || !(a as Record<string, unknown>).isSample) && needsRetracing(a)).length,
+    [backendVerified, showSample],
+  );
+
+  const handleReminderSent = (alumniId: string, sentAt: string) => {
+    const patch = (x: AlumniRecord) => (String(x.id) === alumniId ? { ...x, lastRetrackingReminderAt: sentAt } : x);
+    setBackendVerified(list => list.map(patch));
+    setModalAlumni(current => (current ? patch(current) : current));
+  };
 
   return (
     <PortalLayout role="admin" pageTitle="Verified Graduates" pageSubtitle="All approved graduates with full CHED survey data">
@@ -606,22 +716,37 @@ export function AdminVerified() {
         {/* On phones each card is ~100px wide. Side-by-side icon + text left
             13px for the text, clipping every label, so below sm the icon sits
             above the number and labels wrap instead of truncating. */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
           {[
             { label: 'Total Verified', value: verifiedAlumni.length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
             { label: 'Employed / Self-Employed', value: empCount, icon: Briefcase, color: 'text-[#166534]', bg: 'bg-[#166534]/10' },
             { label: 'Employment Rate', value: `${verifiedAlumni.length ? Math.round(empCount / verifiedAlumni.length * 100) : 0}%`, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
-          ].map(s => (
-            <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
-              <div className={`flex size-8 sm:size-10 items-center justify-center rounded-xl ${s.bg} shrink-0`}>
-                <s.icon className={`size-4 sm:size-5 ${s.color}`} />
-              </div>
-              <div className="min-w-0 w-full">
-                <p className="text-gray-900 text-lg sm:text-[1.3rem]" style={{ fontWeight: 800, lineHeight: 1 }}>{s.value}</p>
-                <p className="text-gray-500 text-[11px] sm:text-xs mt-1 sm:mt-0.5 leading-tight sm:truncate">{s.label}</p>
-              </div>
-            </div>
-          ))}
+            {
+              label: 'Needs Retracing', value: retraceCount, icon: RefreshCw, color: 'text-red-600', bg: 'bg-red-50',
+              onClick: () => setFilterRetrace(f => (f === 'needs' ? 'all' : 'needs')), active: filterRetrace === 'needs',
+            },
+          ].map(s => {
+            const body = (
+              <>
+                <div className={`flex size-8 sm:size-10 items-center justify-center rounded-xl ${s.bg} shrink-0`}>
+                  <s.icon className={`size-4 sm:size-5 ${s.color}`} />
+                </div>
+                <div className="min-w-0 w-full">
+                  <p className="text-gray-900 text-lg sm:text-[1.3rem]" style={{ fontWeight: 800, lineHeight: 1 }}>{s.value}</p>
+                  <p className="text-gray-500 text-[11px] sm:text-xs mt-1 sm:mt-0.5 leading-tight sm:truncate">{s.label}</p>
+                </div>
+              </>
+            );
+            const cardCls = `bg-white rounded-2xl border shadow-sm p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 ${s.active ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-100'}`;
+            return s.onClick ? (
+              <button key={s.label} type="button" onClick={s.onClick} aria-pressed={s.active}
+                className={`${cardCls} text-left hover:border-red-200 transition`}>
+                {body}
+              </button>
+            ) : (
+              <div key={s.label} className={cardCls}>{body}</div>
+            );
+          })}
         </div>
 
         {/* Filters */}
@@ -643,6 +768,12 @@ export function AdminVerified() {
             <option value="employed">Employed</option>
             <option value="self-employed">Self-Employed</option>
             <option value="unemployed">Unemployed</option>
+          </select>
+          <select value={filterRetrace} onChange={e => setFilterRetrace(e.target.value)}
+            className="flex-1 min-w-0 sm:flex-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
+            <option value="all">All Records</option>
+            <option value="needs">Needs Retracing</option>
+            <option value="current">Up to Date</option>
           </select>
           <label className="inline-flex w-full sm:w-auto min-h-11 sm:min-h-0 items-center gap-2 text-xs text-gray-600 cursor-pointer select-none px-2">
             <input type="checkbox" checked={showSample} onChange={e => setShowSample(e.target.checked)} className="size-3.5 rounded border-gray-300" />
@@ -690,6 +821,7 @@ export function AdminVerified() {
                         <p className="text-gray-400 text-[11px] mt-0.5 truncate">
                           Batch {a.graduationYear}{a.workCity ? ` · ${a.workCity}` : ''}
                         </p>
+                        {needsRetracing(a) && <div className="mt-1.5"><RetraceBadge a={a} /></div>}
                       </div>
                       <ChevronRight className="size-4 text-gray-300 shrink-0 self-center" />
                     </button>
@@ -742,6 +874,7 @@ export function AdminVerified() {
                               }`} style={{ fontWeight: 600 }}>
                               {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
                             </span>
+                            {needsRetracing(a) && <div className="mt-1"><RetraceBadge a={a} /></div>}
                           </td>
                           <td className="px-4 py-3 max-w-[160px]">
                             <p className="text-gray-700 text-xs truncate" style={{ fontWeight: 500 }}>{a.jobTitle ?? '-'}</p>
@@ -813,7 +946,8 @@ export function AdminVerified() {
 
       {/* Detail Modal */}
       {modalAlumni && (
-        <GraduateDetailModal a={modalAlumni} onClose={() => setModalAlumni(null)} bsisCore={bsisCore} />
+        <GraduateDetailModal a={modalAlumni} onClose={() => setModalAlumni(null)} bsisCore={bsisCore}
+          onReminderSent={handleReminderSent} />
       )}
     </PortalLayout>
   );

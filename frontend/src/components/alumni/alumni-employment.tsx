@@ -522,6 +522,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           // the "same evaluator?" modal. Same -> reuse existing (no email);
           // different -> graduate shares an invite link (old evaluator silent).
           notify_previous_evaluator: evaluatorSame === null,
+          // Submitting this form confirms the employment record, so it restarts
+          // the two-year retracking clock. Other profile pages never send this.
+          retrace_submission: true,
           skill_entries: [
             ...form.technical_skills.map(name => ({ name, proficiency: 'intermediate' })),
             ...form.soft_skills.map(name => ({ name, proficiency: 'intermediate' })),

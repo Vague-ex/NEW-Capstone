@@ -18,6 +18,15 @@ export interface AlumniRecord {
     workCity?: string;
     unemploymentReason?: string;
     dateUpdated?: string;
+    /** Employment record last confirmed over two years ago. */
+    requiresRetracking?: boolean;
+    /** YYYY-MM-DD the graduate last retraced (or registered). */
+    lastRetracedAt?: string | null;
+    daysSinceRetrace?: number | null;
+    retrackingDueAt?: string | null;
+    retrackingOverdueDays?: number;
+    /** ISO timestamp of the last retracking reminder email. */
+    lastRetrackingReminderAt?: string | null;
     dateEmployed?: string;
     monthsToHire?: number;
     biometricCaptured?: boolean;

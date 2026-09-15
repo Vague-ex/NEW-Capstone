@@ -1,4 +1,5 @@
-"""Send 2-year retracking email reminders to graduates whose employment data is stale.
+"""Send 2-year retracking email reminders to verified graduates whose employment
+record has not been confirmed in two years.
 
 Run daily (e.g. via cron):
     python manage.py send_retracking_reminders
@@ -7,38 +8,25 @@ Run daily (e.g. via cron):
 import logging
 from datetime import timedelta
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
-from django.db.models import Max
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from tracer.models import EmploymentProfile
-from users.email_send import send_branded_email
-from users.models import AlumniAccount
+from users.models import AccountStatus, AlumniAccount
+from users.retracking import (
+    REMINDER_COOLDOWN_DAYS,
+    graduate_first_name,
+    needs_retracking,
+    send_retracking_email,
+)
 
 
 LOGGER = logging.getLogger(__name__)
 
-REMINDER_AT_DAYS = 730  # 2 years
-REMINDER_COOLDOWN_DAYS = 30
-
-
-def _send_retracking_email(*, to_email: str, first_name: str, login_url: str, from_email=None) -> None:
-    """Send the CHMSU-branded retracking reminder via the shared helper."""
-    send_branded_email(
-        to_email=to_email,
-        subject="CHMSU Graduate Tracer: please update your employment record",
-        template_base="retracking_reminder",
-        context={
-            "first_name": first_name,
-            "login_url": login_url,
-        },
-        from_email=from_email,
-    )
-
 
 class Command(BaseCommand):
-    help = "Email graduates whose employment profile is older than 2 years to prompt retracking."
+    help = "Email verified graduates whose employment record is over 2 years old to prompt retracking."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -60,29 +48,29 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options.get("dry_run", False)
         now = timezone.now()
-        threshold = now - timedelta(days=REMINDER_AT_DAYS)
         cooldown_threshold = now - timedelta(days=REMINDER_COOLDOWN_DAYS)
         from_email = options.get("from_email")
-        login_url = options.get("login_url") or getattr(
-            settings, "GRADUATE_LOGIN_URL", "https://chmsu-tracer.example/login",
-        )
+        login_url = options.get("login_url")
 
-        # Find graduates whose latest employment profile updated_at is older than threshold.
-        stale = (
-            EmploymentProfile.objects.values("alumni")
-            .annotate(latest=Max("updated_at"))
-            .filter(latest__lte=threshold)
-            .values_list("alumni", flat=True)
-        )
-
+        # Pending and rejected accounts are never asked to retrace.
         accounts = (
             AlumniAccount.objects.select_related("user", "profile")
-            .filter(id__in=list(stale))
+            .filter(account_status=AccountStatus.ACTIVE)
+            .prefetch_related(
+                Prefetch(
+                    "employment_profiles",
+                    queryset=EmploymentProfile.objects.order_by("-updated_at"),
+                    to_attr="_prefetched_emp",
+                )
+            )
         )
 
         sent = 0
         skipped = 0
         for account in accounts:
+            if not needs_retracking(account):
+                continue
+
             profile = getattr(account, "profile", None)
             if profile and profile.last_retracking_reminder_at and profile.last_retracking_reminder_at >= cooldown_threshold:
                 skipped += 1
@@ -93,10 +81,7 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            first_name = ""
-            if profile and profile.first_name:
-                first_name = profile.first_name.strip()
-            first_name = first_name or email.split("@")[0]
+            first_name = graduate_first_name(account)
 
             if dry_run:
                 self.stdout.write(f"[dry-run] would email {email} ({first_name})")
@@ -104,7 +89,7 @@ class Command(BaseCommand):
                 continue
 
             try:
-                _send_retracking_email(
+                send_retracking_email(
                     to_email=email,
                     first_name=first_name,
                     login_url=login_url,

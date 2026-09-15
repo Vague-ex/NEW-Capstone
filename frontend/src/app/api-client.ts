@@ -396,6 +396,8 @@ export async function updateAlumniEmployment(
         skill_entries?: Array<{ skillId?: string; name?: string; proficiency?: string }>;
         /** When false, suppress the auto re-evaluation email to prior confirmers. */
         notify_previous_evaluator?: boolean;
+        /** True only from the Employment page: restarts the two-year retracking clock. */
+        retrace_submission?: boolean;
     },
 ): Promise<{ alumni?: unknown }> {
     const response = await fetch(
@@ -521,6 +523,20 @@ export async function reviewAlumniRequest(
     await throwIfNotOk(response);
     const data = await response.json();
     return { alumni: data?.alumni ?? data };
+}
+
+/** Email one verified graduate the retracking reminder now. */
+export async function sendRetrackingReminder(alumniId: string): Promise<{ message?: string; sentAt?: string }> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/alumni/${alumniId}/retracking-reminder/`,
+        {
+            method: 'POST',
+            headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({}),
+        },
+    );
+    await throwIfNotOk(response);
+    return response.json();
 }
 
 // ---------------------------------------------------------------------------

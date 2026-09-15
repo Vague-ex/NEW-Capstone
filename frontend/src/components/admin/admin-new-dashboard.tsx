@@ -7,7 +7,7 @@ import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport } from '../../app/
 import {
   Users, Briefcase, Camera, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
-  ClipboardCheck, Upload,
+  ClipboardCheck, Upload, RefreshCw,
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import type { ReportPayload } from '../../app/api-client';
@@ -164,6 +164,8 @@ export function AdminNewDashboard() {
   const bioCaptured = verifiedAlumni.filter(a => Boolean(a.biometricCaptured)).length;
   const empRate = verifiedCount > 0 ? Math.round(((employed + selfEmp) / verifiedCount) * 100) : 0;
   const notificationCount = pendingAlumni.length;
+  // Verified graduates whose employment record is over two years old.
+  const retraceCount = verifiedAlumni.filter(a => a.requiresRetracking === true).length;
 
   const batchYears = useMemo(() => {
     const years = Array.from(
@@ -289,6 +291,15 @@ export function AdminNewDashboard() {
       color: 'text-emerald-600',
       bg: 'bg-emerald-50',
     },
+    {
+      icon: RefreshCw,
+      label: 'Needs Retracing',
+      sub: `${retraceCount} record${retraceCount !== 1 ? 's' : ''} over 2 years old`,
+      path: '/admin/verified?retracing=needs',
+      color: 'text-red-600',
+      bg: 'bg-red-50',
+      badge: retraceCount,
+    },
     { icon: Upload, label: 'Batch Upload', sub: 'Add new graduate IDs', path: '/admin/batch-upload', color: 'text-blue-600', bg: 'bg-blue-50' },
     { icon: MapIcon, label: 'Geomapping', sub: 'Employment location clusters', path: '/admin/map', color: 'text-teal-600', bg: 'bg-teal-50' },
     { icon: BarChart2, label: 'Analytics & Reports', sub: 'Charts and data export', path: '/admin/analytics', color: 'text-purple-600', bg: 'bg-purple-50' },
@@ -329,6 +340,23 @@ export function AdminNewDashboard() {
               className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs px-3 py-1.5 rounded-lg transition shrink-0"
               style={{ fontWeight: 600 }}>
               Review Now <ArrowRight className="size-3" />
+            </button>
+          </div>
+        )}
+
+        {!loading && retraceCount > 0 && (
+          <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+            <RefreshCw className="size-5 text-red-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-red-800 text-sm" style={{ fontWeight: 600 }}>
+                {retraceCount} verified graduate{retraceCount !== 1 ? 's' : ''} need{retraceCount === 1 ? 's' : ''} retracing
+              </p>
+              <p className="text-red-700 text-xs mt-0.5">Their employment records are over two years old, so the figures below use their last known details.</p>
+            </div>
+            <button onClick={() => navigate('/admin/verified?retracing=needs')}
+              className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1.5 rounded-lg transition shrink-0"
+              style={{ fontWeight: 600 }}>
+              View List <ArrowRight className="size-3" />
             </button>
           </div>
         )}

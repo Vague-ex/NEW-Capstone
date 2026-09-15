@@ -30,6 +30,9 @@ from .auth import (
     require_alumni as _require_alumni,
 )
 from .names import derive_last_name
+from .retracking import (
+    graduate_first_name, mark_retraced, needs_retracking, retracking_status, send_retracking_email,
+)
 from .models import (
     AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
     EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, User,
@@ -807,17 +810,24 @@ def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
             base[key] = value
     return base
 
-_RETRACKING_THRESHOLD_DAYS = 730
-
 def _needs_retracking(account: AlumniAccount) -> bool:
-    """True when the alumni's latest EmploymentProfile is >2 years old."""
+    """True when the graduate last confirmed their employment record over two years ago."""
     try:
-        emp = account.employment_profiles.order_by("-updated_at").first()
+        return needs_retracking(account)
     except Exception:  # pragma: no cover - defensive
         return False
-    if not emp or not emp.updated_at:
-        return False
-    return (timezone.now() - emp.updated_at).days >= _RETRACKING_THRESHOLD_DAYS
+
+def _admin_retracking_fields(account: AlumniAccount) -> dict:
+    """Retracking badge data for the admin lists: how stale the record is and
+    when the graduate was last reminded."""
+    try:
+        fields = retracking_status(account)
+    except Exception:  # pragma: no cover - defensive
+        fields = {"requiresRetracking": False, "lastRetracedAt": None, "daysSinceRetrace": None,
+                  "retrackingDueAt": None, "retrackingOverdueDays": 0}
+    reminded = getattr(getattr(account, "profile", None), "last_retracking_reminder_at", None)
+    fields["lastRetrackingReminderAt"] = reminded.isoformat() if reminded else None
+    return fields
 
 def _to_float(value):
     """Coerce a form value to float, or None when absent / non-numeric."""
@@ -1125,6 +1135,7 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "workCity": addr_row.city_municipality if addr_row is not None else "",
         "unemploymentReason": survey_data.get("unemploymentReason") or "",
         "dateUpdated": timezone.localtime(account.updated_at).date().isoformat() if account.updated_at else timezone.localdate().isoformat(),
+        **_admin_retracking_fields(account),
         "biometricCaptured": has_biometric_capture,
         "biometricDate": timezone.localdate().isoformat() if has_biometric_capture else None,
         "facePhotoUrl": primary_face_url,
@@ -1560,6 +1571,9 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         # a client-supplied timestamp.
         "terms_accepted_at": timezone.now() if _as_bool(personal_data.get("terms_accepted")) else None,
         "geomap_consent": _as_bool(personal_data.get("geomap_consent")),
+        # Registering is the first employment confirmation; retracking is due
+        # two years from here.
+        "last_retraced_at": timezone.now(),
 
         # Academic Profile (from survey_data - Section 3).
         # general_average_range is intentionally absent: the form stopped
@@ -2617,6 +2631,12 @@ class AlumniEmploymentUpdateView(APIView):
                 "survey_translator failed for alumni %s: %s", alumni_account.id, exc
             )
 
+        # Only the Employment page flags a save as a retrace. Personal & Education
+        # and Profile saves come through this same endpoint and must not restart
+        # the two-year clock.
+        if str(request.data.get("retrace_submission", "")).strip().lower() in {"true", "1", "yes"}:
+            mark_retraced(alumni_account)
+
         return Response(
             {
                 "message": "Graduate employment details updated.",
@@ -2712,6 +2732,53 @@ class AlumniRequestApproveView(APIView):
                 "message": "Graduate request approved.",
                 "alumni": payload,
             },
+            status=status.HTTP_200_OK,
+        )
+
+class AlumniRetrackingReminderView(APIView):
+    """Admin emails one verified graduate the retracking reminder on demand.
+
+    Sent synchronously so the admin sees whether it actually went out; the
+    send_retracking_reminders command stays the automatic path.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, alumni_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        alumni_account = (
+            AlumniAccount.objects.select_related("user", "profile")
+            .filter(id=alumni_id, account_status=AccountStatus.ACTIVE)
+            .first()
+        )
+        if not alumni_account:
+            return Response(
+                {"detail": "Verified graduate was not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        to_email = alumni_account.user.email if alumni_account.user else ""
+        if not to_email:
+            return Response(
+                {"detail": "This graduate has no email address on file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            send_retracking_email(to_email=to_email, first_name=graduate_first_name(alumni_account))
+        except Exception:
+            logger.exception("Retracking reminder failed for alumni %s", alumni_account.id)
+            return Response(
+                {"detail": "The reminder email could not be sent. Please try again later."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        sent_at = timezone.now()
+        AlumniProfile.objects.filter(alumni=alumni_account).update(last_retracking_reminder_at=sent_at)
+        return Response(
+            {"message": f"Retracking reminder sent to {to_email}.", "sentAt": sent_at.isoformat()},
             status=status.HTTP_200_OK,
         )
 

@@ -1,16 +1,25 @@
 Predictive Employability Model Notes
 
+Full methodology, validity findings, realistic-data stress test and the
+improvement plan live in `documentations/10-ml-pipeline-methodology.md`.
+This file is the short version.
+
 Purpose
-- Predict time-to-hire and employability trends for a target batch (for example Batch 2025).
-- Convert model outputs into admin-friendly timeline buckets.
+- Estimate batch-level employability indicators for BSIS graduates
+  (share employed, share employed within 12 months, time-to-first-job band).
+- Support curriculum decisions with honest, uncertainty-aware numbers.
+- Out of scope: predicting an individual graduate's exact outcome or future
+  job title. Survey answers carry too little signal for that (see methodology
+  doc, section 12).
 
 DFD Placement
 - Main process: P6 Generate Analytics.
 - Supporting data input processes: P1 Manage Registration, P4 Manage Employment, P5 Manage Users.
 
-Planned Data Scope
-- Historical population: about 500 alumni profiles (for example 487 from Batches 2020-2024).
-- Prediction target: selected upcoming batch (for example Batch 2025).
+Data Scope
+- Population: CHMSU BSIS masterlist, 526 graduates (2019-2025, ~70-104 per batch).
+- Current training data: 230 synthetic rows (`backend/ml/scripts/1_generate_synthetic_data.py`).
+  The model has not yet been trained on real graduates.
 
 Inputs and Data Sources
 - DS2 users_alumni_accounts: profile fields, survey data, captured metadata.
@@ -18,51 +27,12 @@ Inputs and Data Sources
 - DS1 users_graduate_master_records: graduation batch and batch linkage.
 - DS6 reference tables: normalized skills, categories, job titles, and regions.
 
-Predictor Variables
-
-| Predictor Variable | Data Type | Collection Method | Why It Helps |
-| --- | --- | --- | --- |
-| Skill Count Technical | Continuous | Count of technical skills in profile | More technical skills often reduce hiring time |
-| Skill Count Soft Skills | Continuous | Count of soft skills in profile | Soft skills correlate with interview success |
-| Has High Demand Skill | Binary (0/1) | Skill-level indicator (for example SQL) | High-demand skills increase employability |
-| Graduation Year Batch | Categorical | Graduation year | Market conditions vary by batch |
-| Scholarship Status | Binary (0/1) | Scholarship yes/no | Proxy for academic support and performance |
-| Certification Count | Continuous | Count of credentials (PRC/TESDA/Civil Service/etc.) | Certifications signal job readiness |
-| Gender | Categorical | Profile field | Used for trend segmentation and monitoring |
-| Internship Relevance Score | Ordinal (1-5) | Survey question | Related internship usually improves job fit |
-
-Target Variables
-
-| Target Variable | Type | Method | Example Output |
-| --- | --- | --- | --- |
-| Time-to-Hire (Months) | Continuous | Multiple Linear Regression | Predicted 2.3 months |
-| Employment Status | Binary (0/1) | Logistic Regression | Probability of Employment 87% |
-| Job-Skill Match Score | Continuous | Linear Regression | Alignment Score 78% |
-
-Planned Modeling Flow
-1. Collect verified historical alumni records.
-2. Build feature matrix from predictors.
-3. Train linear regression for time-to-hire.
-4. Train logistic regression for employment probability.
-5. Predict outcomes for target batch.
-6. Aggregate results into timeline buckets.
-7. Display projection on admin analytics dashboard.
-
-Expected Output Format (Example)
-- Within 1 month: 68% (332 graduates)
-- 1-3 months: 24% (117 graduates)
-- 3-6 months: 6% (29 graduates)
-- 6+ months: 2% (10 graduates)
-- Average Time-to-Hire: 2.1 months
-
-Interpretation Example
-- Graduate A: 5 technical skills, 2 certifications -> faster expected hire.
-- Graduate B: 2 technical skills, 0 certifications -> slower expected hire.
-- Example relationship learned by model:
-  - +1 technical skill -> about 0.8 month lower predicted time-to-hire.
-  - +1 certification -> about 1.2 months lower predicted time-to-hire.
-
 Current Implementation Status
-- This model is planned design documentation.
-- Backend training/inference endpoints are not yet implemented.
-- Current analytics UI uses static/mock projected values.
+- Implemented: `backend/ml/scripts/1-3`, artifacts in `backend/ml/models/`,
+  served by `AdminAnalyticsPredictionsView` and `PredictiveTrendReportView`.
+- Known validity issues (methodology doc, section 11):
+  - The employment classifier uses job-profile fields that only exist once a
+    graduate is employed (target leakage).
+  - Time-to-hire does not beat a constant "1 month" guess.
+  - Forecasts cannot extrapolate past the latest batch and ship intervals that are too narrow.
+- Realistic-data stress test: `backend/ml/experiments/realistic_stress_test.py`.
