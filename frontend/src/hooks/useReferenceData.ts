@@ -236,8 +236,14 @@ export const industriesApi = {
 // Job titles
 export const jobTitlesApi = {
     list: () => apiRequest('/api/reference/job-titles/', 'GET') as Promise<{ job_titles: JobTitleItem[] }>,
+    /** Also links graduates' records that typed this exact title; see linked_records. */
     create: (name: string, industry_id?: string | null) =>
-        apiRequest('/api/reference/job-titles/', 'POST', { name, industry_id }) as Promise<{ job_title: JobTitleItem }>,
+        apiRequest('/api/reference/job-titles/', 'POST', { name, industry_id }) as Promise<{ job_title: JobTitleItem; linked_records?: number }>,
+    /** Admin: titles graduates typed under "My job isn't listed", most common first. */
+    unlisted: () =>
+        apiRequest('/api/reference/job-titles/unlisted/', 'GET') as Promise<{
+            unlisted: { title: string; graduates: number; problem: string | null }[];
+        }>,
     update: (id: string, patch: Partial<JobTitleItem & { industry_id?: string | null }>) =>
         apiRequest(`/api/reference/job-titles/${id}/`, 'PATCH', patch) as Promise<{ job_title: JobTitleItem }>,
     remove: (id: string) => apiRequest(`/api/reference/job-titles/${id}/`, 'DELETE'),

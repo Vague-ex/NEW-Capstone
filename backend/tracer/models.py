@@ -16,6 +16,9 @@ class Industry(models.Model):
 	class Meta:
 		db_table = "tracer_industries"
 		ordering = ["name"]
+		constraints = [
+			models.CheckConstraint(condition=Q(name__regex=r"[[:alpha:]]"), name="industry_name_has_letters"),
+		]
 
 	def __str__(self):
 		return self.name
@@ -73,6 +76,9 @@ class JobTitle(models.Model):
 	class Meta:
 		db_table = "tracer_job_titles"
 		ordering = ["name"]
+		constraints = [
+			models.CheckConstraint(condition=Q(name__regex=r"[[:alpha:]]"), name="job_title_name_has_letters"),
+		]
 
 	def save(self, *args, **kwargs):
 		# Keep the denormalised flag honest no matter who writes the row —
@@ -695,6 +701,12 @@ class EmploymentProfile(models.Model):
 			models.Index(fields=["alumni", "-updated_at"]),
 			models.Index(fields=["employment_status"]),
 		]
+		constraints = [
+			models.CheckConstraint(
+				condition=Q(time_to_hire_months__isnull=True) | Q(time_to_hire_months__in=[1, 3, 4.5, 9, 18, 30]),
+				name="employment_time_to_hire_is_survey_option",
+			),
+		]
 
 	def __str__(self):
 		identifier = self.alumni.master_record.full_name if self.alumni.master_record else self.alumni.user.email
@@ -801,6 +813,15 @@ class WorkAddress(models.Model):
 		indexes = [
 			models.Index(fields=["alumni", "-is_current"]),
 			models.Index(fields=["region"]),
+		]
+		constraints = [
+			models.CheckConstraint(
+				condition=(
+					(Q(latitude__isnull=True) | (Q(latitude__gte=-90) & Q(latitude__lte=90)))
+					& (Q(longitude__isnull=True) | (Q(longitude__gte=-180) & Q(longitude__lte=180)))
+				),
+				name="work_address_coordinates_on_earth",
+			),
 		]
 
 	def __str__(self):

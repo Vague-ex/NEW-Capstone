@@ -13,6 +13,7 @@ from .api import (
     IndustryListView,
     JobTitleDetailView,
     JobTitleListView,
+    UnlistedJobTitleView,
     ProvinceDetailView,
     ProvinceListView,
     ReferenceDataView,
@@ -55,6 +56,7 @@ urlpatterns = [
 
     # Job titles
     path("reference/job-titles/", JobTitleListView.as_view(), name="job-title-list"),
+    path("reference/job-titles/unlisted/", UnlistedJobTitleView.as_view(), name="job-title-unlisted"),
     path("reference/job-titles/<uuid:pk>/", JobTitleDetailView.as_view(), name="job-title-detail"),
 
     # Regions

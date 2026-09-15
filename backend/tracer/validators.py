@@ -170,6 +170,19 @@ class SurveyDataValidator:
             else:
                 self.field_completeness[field] = True
 
+        # Names: letters, spaces, hyphens, apostrophes and periods only. The
+        # full middle name is kept (not an initial), under the same rule.
+        from tracer.text_quality import person_name_problem
+        for field in ('first_name', 'middle_name', 'last_name'):
+            problem = person_name_problem(data.get(field))
+            if problem:
+                self.errors.append({
+                    'section': 'personal_information',
+                    'field': field,
+                    'error': f"{field.replace('_', ' ').capitalize()} {problem}",
+                    'blocking': True,
+                })
+
         # Validate gender
         if data.get('gender') and data['gender'].upper() not in {g.upper() for g in FieldValidationRules.GENDER_CHOICES}:
             self.errors.append({
@@ -201,12 +214,15 @@ class SurveyDataValidator:
                         'warning': f'Age {age} outside typical range {FieldValidationRules.AGE_RANGE}'
                     })
 
-        # Validate mobile format (basic check)
-        if data.get('mobile') and not (len(data['mobile']) >= 10):
+        # Validate mobile format: a real PH mobile number, not just "long enough".
+        from tracer.text_quality import ph_mobile_problem
+        mobile_problem = ph_mobile_problem(data.get('mobile'))
+        if mobile_problem:
             self.errors.append({
                 'section': 'personal_information',
                 'field': 'mobile',
-                'error': 'Mobile number too short'
+                'error': f'Mobile number {mobile_problem}',
+                'blocking': True,
             })
 
     def _validate_educational_background(self, data: Dict):
@@ -289,6 +305,18 @@ class SurveyDataValidator:
     def _validate_first_job_details(self, data: Dict):
         """Validate first job details"""
 
+        # Titles come from the admin list or are typed under "My job isn't
+        # listed"; typed ones must still be real words, never vulgar.
+        from tracer.text_quality import job_text_problem
+        title_problem = job_text_problem(data.get('first_job_title'))
+        if title_problem:
+            self.errors.append({
+                'section': 'first_job_details',
+                'field': 'first_job_title',
+                'error': f'Job title {title_problem}',
+                'blocking': True,
+            })
+
         # Validate time-to-hire
         if data.get('time_to_hire_months') is not None:
             if data['time_to_hire_months'] not in FieldValidationRules.TIME_TO_HIRE_VALID:
@@ -346,6 +374,17 @@ class SurveyDataValidator:
 
     def _validate_current_job_details(self, data: Dict):
         """Validate current/most recent job details"""
+
+        from tracer.text_quality import job_text_problem
+        for field, label in (('current_job_title', 'Job title'), ('current_job_company', 'Company name')):
+            problem = job_text_problem(data.get(field))
+            if problem:
+                self.errors.append({
+                    'section': 'current_job_details',
+                    'field': field,
+                    'error': f'{label} {problem}',
+                    'blocking': True,
+                })
 
         if data.get('current_job_sector') is not None:
             if data['current_job_sector'] not in FieldValidationRules.JOB_SECTOR_VALID:
@@ -631,7 +670,7 @@ def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
     sections: Dict[str, Dict] = {}
 
     personal_info = pick(
-        personal, 'first_name', 'last_name', 'gender', 'birth_date', 'mobile', 'city', 'province'
+        personal, 'first_name', 'middle_name', 'last_name', 'gender', 'birth_date', 'mobile', 'city', 'province'
     )
     if personal_info:
         sections['personal_information'] = personal_info
@@ -646,10 +685,11 @@ def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
         ('first_job_details', (
             'time_to_hire_months', 'first_job_sector', 'first_job_status',
             'first_job_applications_count', 'first_job_source',
-            'first_job_related_to_bsis',
+            'first_job_related_to_bsis', 'first_job_title',
         )),
         ('current_job_details', (
             'current_job_sector', 'location_type', 'current_job_related_to_bsis',
+            'current_job_title', 'current_job_company',
         )),
         ('work_address', (
             'city_municipality', 'province', 'region', 'latitude', 'longitude',
@@ -680,8 +720,14 @@ def validate_registration_payload(survey: Dict, personal: Optional[Dict] = None)
     sections = flat_to_sections(survey, personal)
     result = SurveyDataValidator().validate_comprehensive_survey(sections)
 
-    blocking = [e for e in result['errors'] if e.get('field') in BLOCKING_FIELDS]
-    non_blocking = [e for e in result['errors'] if e.get('field') not in BLOCKING_FIELDS]
+    # An error blocks when its field is always blocking, or when the rule itself
+    # marks it (a present-but-invalid name, mobile or job title). Marking per
+    # error keeps "mobile is required" a warning: most graduates leave it blank.
+    def _is_blocking(e: Dict) -> bool:
+        return bool(e.get('blocking')) or e.get('field') in BLOCKING_FIELDS
+
+    blocking = [e for e in result['errors'] if _is_blocking(e)]
+    non_blocking = [e for e in result['errors'] if not _is_blocking(e)]
 
     # A missing-but-required field is demoted to a warning: the graduate is
     # saved and flagged rather than turned away over an optional answer.

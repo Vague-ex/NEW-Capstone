@@ -134,22 +134,43 @@ export function AdminBatchUpload() {
         const nameIdx = header.findIndex(h => h === 'name' || h === 'fullname');
         const yearIdx = header.findIndex(h => h === 'graduationyear' || h === 'year' || h === 'batch');
 
-        const startIdx = nameIdx >= 0 ? 1 : 0;
-        const entries: BatchEntry[] = [];
-        const errors: string[] = [];
-
-        for (let i = startIdx; i < rawLines.length; i++) {
-          const cols = parseCsvLine(rawLines[i]);
-          const name = (nameIdx >= 0 ? cols[nameIdx] : cols[0]) ?? '';
-          const graduationYear = (yearIdx >= 0 ? cols[yearIdx] : cols[1]) ?? '';
-          const problem = masterRowProblem(name, graduationYear);
-          if (problem) { errors.push(`Row ${i + 1}: ${problem}`); continue; }
-          entries.push({ name: name.trim(), graduationYear: graduationYear.trim() });
+        // The whole file is refused unless it is clearly a master list. A report
+        // CSV uploaded here once put "Total" and "2021" into the graduate list,
+        // so bad rows are never skipped quietly and the rest kept.
+        const refuse = (message: string) => {
+          setCsvError(message);
+          setIsProcessing(false);
+          if (fileRef.current) fileRef.current.value = '';
+        };
+        const usedHeaders = header.filter(Boolean);
+        if (nameIdx < 0 || yearIdx < 0 || usedHeaders.length !== 2) {
+          refuse(`File refused: this is not a master list CSV. The first row must be exactly "name,graduationYear" (found "${rawLines[0].slice(0, 60)}").`);
+          return;
         }
 
+        const entries: BatchEntry[] = [];
+        const errors: string[] = [];
+        const seen = new Set<string>();
+
+        for (let i = 1; i < rawLines.length; i++) {
+          const cols = parseCsvLine(rawLines[i]);
+          const name = (cols[nameIdx] ?? '').replace(/\s+/g, ' ').trim();
+          const graduationYear = (cols[yearIdx] ?? '').trim();
+          const problem = masterRowProblem(name, graduationYear);
+          if (problem) { errors.push(`Row ${i + 1}: ${problem}`); continue; }
+          if (cols.filter(c => c.trim()).length > 2) { errors.push(`Row ${i + 1}: has extra columns`); continue; }
+          const key = `${name.toLowerCase()}|${graduationYear}`;
+          if (seen.has(key)) { errors.push(`Row ${i + 1}: "${name}" is listed twice`); continue; }
+          seen.add(key);
+          entries.push({ name, graduationYear });
+        }
+
+        if (errors.length > 0) {
+          refuse(`File refused, nothing was imported. ${errors.length} row(s) need fixing: ${errors.slice(0, 5).join('; ')}${errors.length > 5 ? '; …' : ''}`);
+          return;
+        }
         if (entries.length === 0) {
-          setCsvError(errors.length ? `No valid rows. ${errors.slice(0, 3).join('; ')}` : 'No valid rows found.');
-          setIsProcessing(false);
+          refuse('File refused: it has a header row but no graduates.');
           return;
         }
 
@@ -157,9 +178,6 @@ export function AdminBatchUpload() {
         setImportedCount(entries.length);
         setCsvStage('review');
         setSavedSummary(null);
-        if (errors.length > 0) {
-          setCsvError(`Parsed ${entries.length} rows. Skipped ${errors.length}: ${errors.slice(0, 3).join('; ')}`);
-        }
         setIsProcessing(false);
       } catch (err) {
         setCsvError(err instanceof Error ? err.message : 'Failed to parse CSV.');
@@ -205,8 +223,11 @@ export function AdminBatchUpload() {
       if (problem) { errors.push(`Row ${i + 1}: ${problem}`); return; }
       cleaned.push({ name: entry.name.trim(), graduation_year: Number(entry.graduationYear.trim()) });
     });
-    if (cleaned.length === 0) {
-      setCsvError(errors.join('; ') || 'No valid rows to save.');
+    // Rows edited in the review table are held to the same rule: all or nothing.
+    if (errors.length > 0 || cleaned.length === 0) {
+      setCsvError(errors.length
+        ? `Fix these rows first, nothing was saved: ${errors.slice(0, 5).join('; ')}`
+        : 'No rows to save.');
       return;
     }
     setIsProcessing(true);

@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { EMPLOYMENT_DRAFT_KEY, saveDraft, loadDraft } from './registration-draft';
 import { JobTitleInput } from './shared/job-title-input';
-import { jobTitleNeedsReview } from '../app/job-titles';
+import { jobTitleProblem } from '../app/job-titles';
 import {
   Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
   AlertCircle, CheckCircle2, Code, Users, Loader, X,
@@ -319,10 +319,13 @@ export default function RegisterAlumniEmployment({
   fieldErrors,
 }: RegisterAlumniEmploymentProps) {
   const { data: referenceData } = useReferenceData();
-  const refJobTitles = useMemo(
-    () => (referenceData?.job_titles ?? []).map((jt) => jt.name),
+  const refJobTitleOptions = useMemo(
+    () => (referenceData?.job_titles ?? [])
+      .filter((jt) => jt.is_active !== false)
+      .map((jt) => ({ name: jt.name, industry: jt.industry_name })),
     [referenceData],
   );
+  const refJobTitles = useMemo(() => refJobTitleOptions.map((o) => o.name), [refJobTitleOptions]);
   const [step, setStep] = useState<EmploymentStep>(1);
   const [form, setForm] = useState<EmploymentFormData>(initialForm ?? INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
@@ -483,9 +486,12 @@ export default function RegisterAlumniEmployment({
           setStepError('Job title is required');
           return false;
         }
-        if (jobTitleNeedsReview(form.first_job_title, refJobTitles)) {
-          setStepError('Please check the spelling of your job title: tap "Use" or "Keep" under it.');
-          return false;
+        {
+          const titleProblem = jobTitleProblem(form.first_job_title, refJobTitles);
+          if (titleProblem) {
+            setStepError(titleProblem);
+            return false;
+          }
         }
         if (!form.first_job_applications_raw) {
           setStepError('Number of applications is required');
@@ -496,12 +502,14 @@ export default function RegisterAlumniEmployment({
           return false;
         }
         break;
-      case 4: // Current Job (all optional, but a typed title is still spell-checked)
-        if (jobTitleNeedsReview(form.current_job_title, refJobTitles)) {
-          setStepError('Please check the spelling of your job title: tap "Use" or "Keep" under it.');
+      case 4: { // Current Job (all optional, but a given title must be listed or marked "not listed")
+        const titleProblem = jobTitleProblem(form.current_job_title, refJobTitles);
+        if (titleProblem) {
+          setStepError(titleProblem);
           return false;
         }
         break;
+      }
       case 5: // Work Address
         if (!form.city_municipality) {
           setStepError('City/Municipality is required');
@@ -807,7 +815,7 @@ export default function RegisterAlumniEmployment({
             <JobTitleInput
               value={form.first_job_title}
               onChange={(v) => setForm((f) => ({ ...f, first_job_title: v }))}
-              referenceTitles={refJobTitles}
+              options={refJobTitleOptions}
               placeholder="e.g., Junior Software Developer"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />
@@ -916,7 +924,7 @@ export default function RegisterAlumniEmployment({
             <JobTitleInput
               value={form.current_job_title}
               onChange={(v) => setForm((f) => ({ ...f, current_job_title: v }))}
-              referenceTitles={refJobTitles}
+              options={refJobTitleOptions}
               placeholder="e.g., Senior Software Developer"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
             />

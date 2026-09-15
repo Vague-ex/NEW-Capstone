@@ -895,30 +895,51 @@ class MasterlistBulkCreateValidationTests(TestCase):
 			role=User.Role.ADMIN, is_staff=True,
 		)
 
-	def test_report_rows_are_skipped_and_real_rows_saved(self):
-		from .models import GraduateMasterRecord
-
-		year = timezone.now().year
-		response = self.client.post(
+	def _post(self, entries):
+		return self.client.post(
 			"/api/admin/masterlist/bulk-create/",
-			{"entries": [
-				{"name": "Avg Time-to-Hire (mo)", "graduation_year": 2},
-				{"name": "2021", "graduation_year": 6},
-				{"name": "Total", "graduation_year": 33},
-				{"name": "Metric", "graduation_year": 2021},
-				{"name": "Pedro Santos", "graduation_year": year + 5},
-				{"name": "Juan Dela Cruz", "graduation_year": 2024},
-			]},
+			{"entries": entries},
 			format="json",
 			HTTP_AUTHORIZATION=f"Bearer {generate_admin_access_token(self.admin_user.id)}",
 		)
+
+	def test_one_bad_row_refuses_the_whole_upload(self):
+		from .models import GraduateMasterRecord
+
+		year = timezone.now().year
+		response = self._post([
+			{"name": "Avg Time-to-Hire (mo)", "graduation_year": 2},
+			{"name": "2021", "graduation_year": 6},
+			{"name": "Total", "graduation_year": 33},
+			{"name": "Metric", "graduation_year": 2021},
+			{"name": "Pedro Santos", "graduation_year": year + 5},
+			{"name": "Juan Dela Cruz", "graduation_year": 2024},
+		])
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.data["invalid"], 5)
+		self.assertIn("nothing was saved", response.data["detail"])
+		self.assertFalse(GraduateMasterRecord.objects.exists())
+
+	def test_duplicate_rows_in_one_upload_are_refused(self):
+		from .models import GraduateMasterRecord
+
+		response = self._post([
+			{"name": "Juan Dela Cruz", "graduation_year": 2024},
+			{"name": "juan  dela cruz", "graduation_year": 2024},
+		])
+		self.assertEqual(response.status_code, 400)
+		self.assertFalse(GraduateMasterRecord.objects.exists())
+
+	def test_clean_upload_is_saved(self):
+		from .models import GraduateMasterRecord
+
+		response = self._post([
+			{"name": "Juan Dela Cruz", "graduation_year": 2024},
+			{"name": "Maria Santos Reyes", "graduation_year": 2025},
+		])
 		self.assertEqual(response.status_code, 201)
-		self.assertEqual(response.data["created"], 1)
-		self.assertEqual(response.data["skipped"], 5)
-		self.assertEqual(
-			list(GraduateMasterRecord.objects.values_list("full_name", "batch_year")),
-			[("Juan Dela Cruz", 2024)],
-		)
+		self.assertEqual(response.data["created"], 2)
+		self.assertEqual(GraduateMasterRecord.objects.count(), 2)
 
 
 class _InlineThread:

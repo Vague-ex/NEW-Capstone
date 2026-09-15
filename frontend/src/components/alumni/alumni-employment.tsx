@@ -15,7 +15,7 @@ import {
   MapPin, AlertTriangle, BookOpen,
 } from 'lucide-react';
 import { JobTitleInput } from '../shared/job-title-input';
-import { jobTitleNeedsReview } from '../../app/job-titles';
+import { jobTitleProblem } from '../../app/job-titles';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -596,9 +596,15 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   // accidentally clear their verified status while only fixing a typo.
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    // Only check title fields that are on screen: a hidden first-job field
+    // (retracking, never employed) could not be fixed by the graduate.
     const refTitles = referenceData.job_titles.map(jt => jt.name);
-    if (jobTitleNeedsReview(form.firstJobTitle, refTitles) || jobTitleNeedsReview(form.currentJobPosition, refTitles)) {
-      setSaveError('Please check the spelling of your job title: tap "Use" or "Keep" under it.');
+    const firstJobShown = !retrackingMode && !isNeverEmployed && !!form.employment_status;
+    const titleProblem =
+      (firstJobShown ? jobTitleProblem(form.firstJobTitle, refTitles) : null)
+      || (isCurrentlyEmployed ? jobTitleProblem(form.currentJobPosition, refTitles) : null);
+    if (titleProblem) {
+      setSaveError(titleProblem);
       return;
     }
     const oldCompany = initialWorkRef.current.company.trim().toLowerCase();
@@ -750,7 +756,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 <FieldLabel>4. Job Title / Position in FIRST JOB</FieldLabel>
                 <JobTitleInput placeholder="e.g. Junior Software Developer"
                   value={form.firstJobTitle} onChange={v => setF('firstJobTitle', v)}
-                  referenceTitles={referenceData.job_titles.map(jt => jt.name)} className={inputCls} />
+                  options={referenceData.job_titles.map(jt => ({ name: jt.name, industry: jt.industry_name }))} className={inputCls} />
               </div>
 
               <div>
@@ -854,7 +860,7 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                     setForm(f => ({ ...f, currentJobPosition: v, currentJobTitleId: '' }));
                     setSaved(false); setSaveError('');
                   }}
-                  referenceTitles={referenceData.job_titles.map(jt => jt.name)}
+                  options={referenceData.job_titles.map(jt => ({ name: jt.name, industry: jt.industry_name }))}
                   className={inputCls}
                 />
               </div>

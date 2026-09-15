@@ -581,10 +581,14 @@ class JobTitleListView(APIView):
         _admin_user, _auth_error = require_admin(request)
         if _auth_error:
             return _auth_error
-        name = (request.data.get("name") or "").strip()
+        from tracer.text_quality import job_text_problem
+
+        name = " ".join((request.data.get("name") or "").split())
         industry_id = request.data.get("industry_id") or None
         if not name:
             return Response({"detail": "name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if (problem := job_text_problem(name)):
+            return Response({"detail": f"Job title {problem}."}, status=status.HTTP_400_BAD_REQUEST)
         if JobTitle.objects.filter(name__iexact=name).exists():
             return Response({"detail": "Job title already exists."}, status=status.HTTP_409_CONFLICT)
         industry = None
@@ -593,8 +597,17 @@ class JobTitleListView(APIView):
                 industry = Industry.objects.get(pk=industry_id)
             except Industry.DoesNotExist:
                 return Response({"detail": "Industry not found."}, status=status.HTTP_400_BAD_REQUEST)
-        jt = JobTitle.objects.create(name=name, industry=industry)
-        return Response({"job_title": _serialize_job_title(jt)}, status=status.HTTP_201_CREATED)
+        from tracer.management.commands.classify_job_titles import classify
+        from tracer.models import EmploymentRecord
+
+        jt = JobTitle.objects.create(name=name, industry=industry, is_field=classify(name))
+        # Graduates who typed this title under "My job isn't listed" are on the
+        # list now: link their records so reports count them under it.
+        linked = EmploymentRecord.objects.filter(job_title__isnull=True, job_title_input__iexact=name).update(job_title=jt)
+        return Response(
+            {"job_title": _serialize_job_title(jt), "linked_records": linked},
+            status=status.HTTP_201_CREATED,
+        )
 
 class JobTitleDetailView(APIView):
     parser_classes = [JSONParser]
@@ -610,7 +623,12 @@ class JobTitleDetailView(APIView):
         except JobTitle.DoesNotExist:
             return Response({"detail": "Job title not found."}, status=status.HTTP_404_NOT_FOUND)
         if "name" in request.data:
-            jt.name = (request.data["name"] or "").strip() or jt.name
+            from tracer.text_quality import job_text_problem
+
+            new_name = " ".join((request.data["name"] or "").split())
+            if new_name and (problem := job_text_problem(new_name)):
+                return Response({"detail": f"Job title {problem}."}, status=status.HTTP_400_BAD_REQUEST)
+            jt.name = new_name or jt.name
         if "industry_id" in request.data:
             ind_id = request.data["industry_id"]
             if ind_id is None:
@@ -636,6 +654,47 @@ class JobTitleDetailView(APIView):
         jt.is_active = False
         jt.save(update_fields=["is_active"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class UnlistedJobTitleView(APIView):
+    """
+    Admin: job titles graduates typed under "My job isn't listed", most common first.
+
+    The admin adds a real one to the list (creating it links the matching
+    records) and ignores the rest. Read-only.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+        from collections import defaultdict
+
+        from tracer.models import EmploymentProfile
+        from tracer.text_quality import job_text_problem
+
+        listed = {n.strip().lower() for n in JobTitle.objects.filter(is_active=True).values_list("name", flat=True)}
+        graduates: dict[str, set] = defaultdict(set)
+        spelling: dict[str, str] = {}
+        for alumni_id, *titles in EmploymentProfile.objects.values_list("alumni_id", "first_job_title", "current_job_title"):
+            for title in titles:
+                text = " ".join((title or "").split())
+                key = text.lower()
+                if not text or key in listed:
+                    continue
+                graduates[key].add(alumni_id)
+                spelling.setdefault(key, text)
+        items = sorted(
+            (
+                {"title": spelling[key], "graduates": len(ids), "problem": job_text_problem(spelling[key])}
+                for key, ids in graduates.items()
+            ),
+            key=lambda item: (-item["graduates"], item["title"].lower()),
+        )
+        return Response({"unlisted": items})
 
 # ── Regions ────────────────────────────────────────────────────────────────────
 

@@ -499,6 +499,14 @@ def apply_survey_data_to_normalized_tables(
     # ─── EmploymentRecord (employer linkage) ────────────────────────────────
     company_name = (sd.get("currentJobCompany") or "").strip()
     job_title = (sd.get("currentJobPosition") or sd.get("firstJobTitle") or "").strip()
+    # Link the record to the admin's job-title list when the title is on it. A
+    # title typed under "My job isn't listed" stays unlinked free text, which is
+    # how the admin's review list and the data audit find it.
+    from tracer.models import JobTitle
+
+    listed_title = (
+        JobTitle.objects.filter(name__iexact=job_title, is_active=True).first() if job_title else None
+    )
     if company_name and job_title:
         employer_account = (
             EmployerAccount.objects.filter(company_name__iexact=company_name).first()
@@ -562,6 +570,7 @@ def apply_survey_data_to_normalized_tables(
                 employer_account=employer_account,
                 employer_name_input=company_name[:255],
                 job_title_input=job_title[:255],
+                job_title=listed_title,
                 employment_status=er_status,
                 work_location=(work_loc or "")[:255],
                 is_current=True,
@@ -578,6 +587,7 @@ def apply_survey_data_to_normalized_tables(
                     employer_account=employer_account,
                     employer_name_input=company_name[:255],
                     job_title_input=job_title[:255],
+                    job_title=listed_title,
                     employment_status=er_status,
                     work_location=(work_loc or "")[:255],
                 ),

@@ -107,6 +107,19 @@ class GraduateMasterRecord(models.Model):
         indexes = [
             models.Index(fields=["batch_year"], name="users_gradu_batch_y_7f0cc1_idx"),
         ]
+        # Database backstop for the upload validation: a report CSV once saved
+        # "Total" / batch 33 here. Postgres refuses such a row even if a future
+        # code path forgets to validate.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(batch_year__gte=2000) & models.Q(batch_year__lte=2100),
+                name="master_batch_year_realistic",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(full_name__regex=r"[[:alpha:]]") & ~models.Q(full_name__regex=r"[0-9]"),
+                name="master_full_name_is_a_name",
+            ),
+        ]
 
     def __str__(self):
         return self.full_name
@@ -319,6 +332,27 @@ class AlumniProfile(models.Model):
 
     class Meta:
         db_table = "users_alumni_profiles"
+        # Backstops for intake validation. Mobile is deliberately not
+        # constrained yet: some save paths store it as typed, so a rule here
+        # would turn a formatting slip into a server error.
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    ~models.Q(first_name__regex=r"[0-9]")
+                    & ~models.Q(middle_name__regex=r"[0-9]")
+                    & ~models.Q(last_name__regex=r"[0-9]")
+                ),
+                name="profile_names_have_no_digits",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(birth_date="") | models.Q(birth_date__regex=r"^[0-9]{4}-(0[1-9]|1[0-2])$"),
+                name="profile_birth_date_is_year_month",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(graduation_date="") | models.Q(graduation_date__regex=r"^[0-9]{4}-(0[1-9]|1[0-2])$"),
+                name="profile_graduation_date_is_year_month",
+            ),
+        ]
 
     def __str__(self):
         return f"Profile<{self.alumni}>"

@@ -4,6 +4,7 @@ import {
   Tag, Briefcase, MapPin, FolderOpen, Building2, Inbox, Users, Shield, ChevronDown,
 } from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
+import { checkJobTitle } from '../../app/job-titles';
 import {
   industriesApi,
   jobTitlesApi,
@@ -810,6 +811,12 @@ export function AdminSettings() {
             onDeleteSkill={removeSkill}
           />
         ) : tab === 'jobs' ? (
+          <>
+          <UnlistedTitlesPanel
+            industries={industries}
+            listedNames={jobTitles.map((j) => j.name)}
+            onAdded={(jt) => setJobTitles((prev) => [...prev, jt].sort((a, b) => a.name.localeCompare(b.name)))}
+          />
           <JobsView
             industries={industries}
             jobs={jobTitles}
@@ -823,6 +830,7 @@ export function AdminSettings() {
             onRenameJob={updateJobTitle}
             onDeleteJob={removeJobTitle}
           />
+          </>
         ) : tab === 'regions' ? (
           <LocationsView
             regions={regions}
@@ -1447,6 +1455,130 @@ function JobsView({
 
 // ── Regions tab ─────────────────────────────────────────────────────────────
 // ── Locations parent view (Regions / Provinces / Cities sub-tabs) ────────────
+
+// ── Job titles typed under "My job isn't listed" ───────────────────────────
+// Graduates pick from the admin list; when their job is missing they type it.
+// Those titles land here so the admin decides what joins the list, instead of
+// free text flowing straight into analytics.
+type UnlistedTitle = { title: string; graduates: number; problem: string | null };
+
+function UnlistedTitlesPanel({
+  industries,
+  listedNames,
+  onAdded,
+}: {
+  industries: IndustryItem[];
+  listedNames: string[];
+  onAdded: (jt: JobTitleItem) => void;
+}) {
+  const [items, setItems] = useState<UnlistedTitle[] | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [industryFor, setIndustryFor] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    jobTitlesApi
+      .unlisted()
+      .then((res) => { if (active) setItems(res.unlisted); })
+      .catch((e) => { if (active) setError(e instanceof Error ? e.message : 'Could not load job titles to review.'); });
+    return () => { active = false; };
+  }, []);
+
+  const add = async (item: UnlistedTitle) => {
+    setBusy(item.title);
+    setError('');
+    setNotice('');
+    try {
+      const res = await jobTitlesApi.create(item.title, industryFor[item.title] || null);
+      onAdded(res.job_title);
+      setItems((prev) => (prev ?? []).filter((i) => i.title !== item.title));
+      setNotice(
+        `Added "${res.job_title.name}" to the list${res.linked_records ? ` and linked ${res.linked_records} graduate record(s)` : ''}.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add this job title.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Nothing to review: stay out of the way.
+  if (items !== null && items.length === 0 && !error) return null;
+
+  return (
+    <section className="bg-white rounded-2xl border border-amber-200 shadow-sm p-4 sm:p-5">
+      <div className="flex items-start gap-2.5 mb-3">
+        <AlertCircle className="size-4 text-amber-600 mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
+            Job titles to review{items ? ` (${items.length})` : ''}
+          </h3>
+          <p className="text-xs text-gray-600 mt-0.5">
+            Typed by graduates under &ldquo;My job isn&apos;t listed&rdquo;. Add real ones to the list; typos and nonsense can be ignored.
+          </p>
+        </div>
+      </div>
+
+      {error && <p className="mb-2 text-xs text-rose-700">{error}</p>}
+      {notice && <p className="mb-2 text-xs text-emerald-700">{notice}</p>}
+
+      {items === null ? (
+        <p className="py-4 text-center text-sm text-gray-500">Loading…</p>
+      ) : (
+        <ul className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+          {items.map((item) => {
+            const near = checkJobTitle(item.title, listedNames);
+            return (
+              <li key={item.title} className="rounded-xl border border-gray-200 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 break-words text-sm text-gray-900" style={{ fontWeight: 600 }}>{item.title}</p>
+                  <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600" style={{ fontWeight: 600 }}>
+                    {item.graduates} graduate{item.graduates === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {item.problem ? (
+                  <p className="mt-1.5 text-xs text-rose-700">Cannot be added: this title {item.problem}.</p>
+                ) : (
+                  <>
+                    {near.kind === 'typo' && (
+                      <p className="mt-1.5 text-xs text-amber-800">
+                        Looks like a typo of &ldquo;{near.suggestion}&rdquo;, which is already on the list.
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap lg:flex-nowrap gap-2">
+                      <select
+                        value={industryFor[item.title] ?? ''}
+                        onChange={(e) => setIndustryFor((m) => ({ ...m, [item.title]: e.target.value }))}
+                        aria-label={`Industry for ${item.title}`}
+                        className="flex-1 min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2.5 lg:py-2 text-sm outline-none focus:border-[#166534] focus:bg-white"
+                      >
+                        <option value="">Industry (optional)</option>
+                        {industries.map((i) => (
+                          <option key={i.id} value={i.id}>{i.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void add(item)}
+                        disabled={busy === item.title}
+                        className="flex min-h-11 lg:min-h-0 shrink-0 items-center gap-1.5 rounded-lg bg-[#166534] px-3 py-2 text-sm text-white transition hover:bg-[#0f3d21] disabled:opacity-60"
+                        style={{ fontWeight: 600 }}
+                      >
+                        <Plus className="size-4" /> Add to list
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 type LocationsSubTab = 'regions' | 'provinces' | 'cities' | 'barangays';
 

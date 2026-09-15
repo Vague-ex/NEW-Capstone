@@ -1779,6 +1779,7 @@ class AlumniRegisterView(APIView):
             _survey_for_validation,
             {
                 "first_name": first_name,
+                "middle_name": request.data.get("middle_name") or request.data.get("middleName") or "",
                 "last_name": family_name,
                 "gender": request.data.get("gender"),
                 "birth_date": request.data.get("birth_date"),
@@ -2543,6 +2544,34 @@ class AlumniEmploymentUpdateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Same clean-data rules as registration. This endpoint writes straight to
+        # the normalized tables (Employment and Personal & Education pages), so
+        # it refuses bad values itself instead of trusting the browser.
+        from tracer.text_quality import job_text_problem, person_name_problem, ph_mobile_problem
+
+        field_rules = (
+            ("firstJobTitle", "First job title", job_text_problem),
+            ("currentJobPosition", "Job title", job_text_problem),
+            ("currentJobCompany", "Company name", job_text_problem),
+            ("firstName", "First name", person_name_problem),
+            ("first_name", "First name", person_name_problem),
+            ("middleName", "Middle name", person_name_problem),
+            ("middle_name", "Middle name", person_name_problem),
+            ("familyName", "Family name", person_name_problem),
+            ("last_name", "Family name", person_name_problem),
+            ("mobile", "Mobile number", ph_mobile_problem),
+        )
+        field_errors = {}
+        for key, label, rule in field_rules:
+            value = incoming_survey_data.get(key)
+            if isinstance(value, str) and (problem := rule(value)):
+                field_errors[key] = f"{label} {problem}."
+        if field_errors:
+            return Response(
+                {"detail": " ".join(field_errors.values()), "field_errors": field_errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         merged_survey_data = {
             **existing_survey_data,
             **incoming_survey_data,
@@ -2888,53 +2917,75 @@ class MasterlistBulkCreateView(APIView):
         entries = request.data.get("entries", [])
         if not isinstance(entries, list) or not entries:
             return Response({"detail": "entries list is required."}, status=status.HTTP_400_BAD_REQUEST)
-        created = []
-        skipped = []
-        duplicates = 0
+        # All or nothing. A report CSV uploaded here by mistake once saved rows
+        # such as "Avg Time-to-Hire (mo)" / batch 2 and "2021" / batch 6. Saving
+        # the good rows of a file like that still means the file was wrong, so
+        # one bad row refuses the whole upload and nothing is written.
+        max_year = _masterlist_max_year()
+        valid: list[tuple[str, int]] = []
+        invalid: list[dict] = []
+        seen: set[tuple[str, int]] = set()
         for position, entry in enumerate(entries, start=1):
-            name = (entry.get("name") or "").strip()
+            if not isinstance(entry, dict):
+                invalid.append({"row": position, "name": "", "reason": "row is not an object"})
+                continue
+            name = " ".join(str(entry.get("name") or "").split())
             year = entry.get("graduation_year") or entry.get("graduationYear")
             if not name or not year:
-                skipped.append({"row": position, "name": name, "reason": "missing name or graduation year"})
+                invalid.append({"row": position, "name": name, "reason": "missing name or graduation year"})
                 continue
             try:
                 year_int = int(year)
             except (TypeError, ValueError):
-                skipped.append({"row": position, "name": name, "reason": f"invalid graduation year {year!r}"})
+                invalid.append({"row": position, "name": name, "reason": f"invalid graduation year {year!r}"})
                 continue
-            # A report CSV uploaded here by mistake once saved rows such as
-            # "Avg Time-to-Hire (mo)" / batch 2 and "2021" / batch 6, so both
-            # columns are checked for plausibility, not just presence.
-            if not (MASTERLIST_MIN_YEAR <= year_int <= _masterlist_max_year()):
-                skipped.append({
+            if not (MASTERLIST_MIN_YEAR <= year_int <= max_year):
+                invalid.append({
                     "row": position,
                     "name": name,
-                    "reason": f"graduation year {year_int} is outside {MASTERLIST_MIN_YEAR}-{_masterlist_max_year()}",
+                    "reason": f"graduation year {year_int} is outside {MASTERLIST_MIN_YEAR}-{max_year}",
                 })
                 continue
             if not _looks_like_full_name(name):
-                skipped.append({"row": position, "name": name, "reason": "name must be a full name (first and last)"})
+                invalid.append({"row": position, "name": name, "reason": "name must be a full name (first and last)"})
                 continue
-            # Registration matches the graduate's family name against
-            # last_name exactly, so a wrong surname locks them out entirely.
-            last = derive_last_name(name)
-            obj, was_created = GraduateMasterRecord.objects.get_or_create(
-                full_name__iexact=name,
-                batch_year=year_int,
-                defaults={"full_name": name, "last_name": last, "batch_year": year_int},
+            key = (name.lower(), year_int)
+            if key in seen:
+                invalid.append({"row": position, "name": name, "reason": "listed twice in this upload"})
+                continue
+            seen.add(key)
+            valid.append((name, year_int))
+
+        if invalid:
+            preview = "; ".join(f"row {r['row']}: {r['reason']}" for r in invalid[:3])
+            return Response(
+                {
+                    "detail": f"Upload refused, nothing was saved. {len(invalid)} invalid row(s): {preview}.",
+                    "invalid": len(invalid),
+                    "invalidRows": invalid[:50],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            if was_created:
-                created.append({"id": str(obj.id), "name": obj.full_name, "batch_year": obj.batch_year})
-            else:
-                duplicates += 1
-        # Skipped rows are reported rather than silently dropped: a coordinator
-        # uploading 500 rows needs to know which ones did not land.
+
+        created = []
+        duplicates = 0
+        with transaction.atomic():
+            for name, year_int in valid:
+                # Registration matches the graduate's family name against
+                # last_name exactly, so a wrong surname locks them out entirely.
+                obj, was_created = GraduateMasterRecord.objects.get_or_create(
+                    full_name__iexact=name,
+                    batch_year=year_int,
+                    defaults={"full_name": name, "last_name": derive_last_name(name), "batch_year": year_int},
+                )
+                if was_created:
+                    created.append({"id": str(obj.id), "name": obj.full_name, "batch_year": obj.batch_year})
+                else:
+                    duplicates += 1
         return Response(
             {
                 "created": len(created),
                 "duplicates": duplicates,
-                "skipped": len(skipped),
-                "skippedRows": skipped[:50],
                 "entries": created,
             },
             status=status.HTTP_201_CREATED,

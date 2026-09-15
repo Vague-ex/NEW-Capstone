@@ -1,40 +1,14 @@
 /**
- * Job-title typo guard.
+ * Job titles: pick from the admin's list, or type one under "My job isn't listed".
  *
- * Job titles stay free text: graduates work far outside the admin's reference
- * list (a freelance artist matches none of the IT titles). Free text let typos
- * such as "Artits" straight into analytics, so a title is checked against the
- * reference list plus common occupations. A near miss asks "Did you mean
- * Artist?" and the graduate either takes the fix or keeps what they typed.
+ * The admin list (Settings > Industries & Jobs) is the source of truth, so
+ * analytics group graduates by a clean title and industry. A graduate whose job
+ * is missing may type it, but a typed title is checked for vulgar words and
+ * nonsense here and again on the server, and stays unlinked so the admin can
+ * review it and add it to the list.
  */
 
-export const COMMON_JOB_TITLES: string[] = [
-  // IT and information systems
-  'Software Developer', 'Software Engineer', 'Web Developer', 'Front-End Developer', 'Back-End Developer',
-  'Full-Stack Developer', 'Mobile App Developer', 'Game Developer', 'Computer Programmer', 'QA Tester',
-  'Quality Assurance Analyst', 'Systems Analyst', 'Business Analyst', 'Business Systems Analyst', 'Data Analyst',
-  'Data Scientist', 'Data Engineer', 'Database Administrator', 'Network Administrator', 'Network Engineer',
-  'Systems Administrator', 'IT Support Specialist', 'Technical Support Specialist', 'Technical Support Representative',
-  'Help Desk Technician', 'Cybersecurity Analyst', 'Cloud Engineer', 'DevOps Engineer', 'UI/UX Designer',
-  'IT Specialist', 'IT Officer', 'IT Auditor', 'IT Consultant', 'IT Instructor', 'MIS Officer',
-  'Information Systems Officer', 'ERP Consultant', 'SAP Consultant', 'Project Manager', 'IT Project Manager',
-  'Product Manager', 'Scrum Master', 'Technical Writer', 'Computer Technician', 'Data Encoder',
-  // Creative and freelance
-  'Artist', 'Visual Artist', 'Digital Artist', 'Freelance Artist', 'Illustrator', 'Graphic Designer',
-  'Multimedia Artist', 'Animator', 'Video Editor', 'Photographer', 'Videographer', 'Content Creator',
-  'Social Media Manager', 'Virtual Assistant', 'Freelancer', 'Copywriter', 'Writer', 'Editor', 'Translator',
-  'Transcriptionist', 'Musician', 'Makeup Artist', 'Tattoo Artist',
-  // Business, office and services
-  'Entrepreneur', 'Business Owner', 'Online Seller', 'Store Manager', 'Sales Associate', 'Sales Representative',
-  'Marketing Assistant', 'Digital Marketing Specialist', 'SEO Specialist', 'Customer Service Representative',
-  'Call Center Agent', 'Team Leader', 'Administrative Assistant', 'Administrative Aide', 'Office Staff', 'Clerk',
-  'Secretary', 'Receptionist', 'Bookkeeper', 'Accounting Staff', 'HR Assistant', 'Recruiter', 'Cashier',
-  'Bank Teller', 'Logistics Coordinator', 'Warehouse Staff', 'Delivery Rider', 'Driver', 'Barista', 'Service Crew',
-  'Cook', 'Chef',
-  // Education, public service and others
-  'Teacher', 'Instructor', 'Professor', 'Tutor', 'Researcher', 'Research Assistant', 'Government Employee',
-  'Police Officer', 'Soldier', 'Nurse', 'Caregiver', 'Electrician', 'Technician', 'Farmer',
-];
+export type JobTitleOption = { name: string; industry?: string | null };
 
 export type JobTitleCheck =
   | { kind: 'empty' }
@@ -44,20 +18,6 @@ export type JobTitleCheck =
 
 function normalize(s: string): string {
   return s.toLowerCase().replace(/[^\p{L}\p{N}/&+ ]/gu, ' ').replace(/\s+/g, ' ').trim();
-}
-
-/** Reference titles first (the admin's spelling wins), then common ones, de-duplicated. */
-export function mergeJobTitles(referenceTitles: string[] = []): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const title of [...referenceTitles, ...COMMON_JOB_TITLES]) {
-    const key = normalize(title);
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      out.push(title.trim());
-    }
-  }
-  return out;
 }
 
 /** Levenshtein distance that also counts an adjacent swap as one edit ("artits" -> "artist" = 1). */
@@ -91,12 +51,16 @@ function allowedEdits(length: number): number {
   return 2;
 }
 
-export function checkJobTitle(value: string, referenceTitles: string[] = []): JobTitleCheck {
+/** Compare a typed title against the listed titles: exact, likely typo, or not on the list. */
+export function checkJobTitle(value: string, listedTitles: string[]): JobTitleCheck {
   const input = normalize(value);
   if (!input) return { kind: 'empty' };
 
-  const titles = mergeJobTitles(referenceTitles);
-  const byNorm = new Map(titles.map((t) => [normalize(t), t]));
+  const byNorm = new Map<string, string>();
+  for (const title of listedTitles) {
+    const key = normalize(title);
+    if (key && !byNorm.has(key)) byNorm.set(key, title.trim());
+  }
   const exact = byNorm.get(input);
   if (exact) return { kind: 'known', canonical: exact };
 
@@ -114,37 +78,6 @@ export function checkJobTitle(value: string, referenceTitles: string[] = []): Jo
     }
   }
   if (best && bestDistance <= allowedEdits(input.length)) return { kind: 'typo', suggestion: best };
-
-  // Word-level: "Senior Web Develper" -> "Senior Web Developer".
-  const vocabulary = new Map<string, string>();
-  for (const title of titles) {
-    for (const word of title.split(/\s+/)) {
-      const key = normalize(word);
-      if (key.length >= 4 && !vocabulary.has(key)) vocabulary.set(key, word);
-    }
-  }
-  let changed = false;
-  const corrected = value.trim().split(/\s+/).map((word) => {
-    const key = normalize(word);
-    if (key.length < 4 || vocabulary.has(key)) return word;
-    let hit: string | null = null;
-    let hitDistance = Infinity;
-    for (const [vocabKey, vocabWord] of vocabulary) {
-      if (Math.abs(vocabKey.length - key.length) > 2) continue;
-      const d = editDistance(key, vocabKey);
-      if (d < hitDistance) {
-        hitDistance = d;
-        hit = vocabWord;
-      }
-    }
-    if (hit && hitDistance <= allowedEdits(key.length)) {
-      changed = true;
-      return hit;
-    }
-    return word;
-  });
-  if (changed) return { kind: 'typo', suggestion: corrected.join(' ') };
-
   return { kind: 'custom' };
 }
 
@@ -167,19 +100,61 @@ export function tidyJobTitle(value: string): string {
     .join(' ');
 }
 
-// Titles the graduate chose to keep despite a suggestion. Module-level so the
-// form's step validation can see a choice made inside the input component.
-const keptAsTyped = new Set<string>();
+// Mirrors backend/tracer/text_quality.py so a typed title is refused here with
+// a clear message instead of only failing on the server.
+const PROFANE_WORDS = new Set([
+  'fuck', 'fucker', 'fucking', 'motherfucker', 'fvck', 'fck', 'fuk', 'phuck', 'shit', 'shyt', 'bullshit',
+  'bitch', 'biatch', 'asshole', 'dick', 'dickhead', 'cunt', 'bastard', 'whore', 'slut', 'nigger', 'nigga',
+  'faggot', 'fag', 'retard', 'porn', 'pussy', 'cock',
+  'putangina', 'tangina', 'tanginamo', 'tangna', 'tngina', 'putang', 'puta', 'pota', 'gago', 'gaga', 'ulol',
+  'tarantado', 'bobo', 'leche', 'pakyu', 'kupal', 'hindot', 'pokpok', 'burat', 'titi', 'puki', 'kantot',
+  'jakol', 'bilat', 'inutil', 'tanga', 'punyeta', 'yawa', 'buang',
+]);
+const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', $: 's', '!': 'i' };
+const collapseRepeats = (s: string) => s.replace(/(.)\1+/g, '$1');
+const COLLAPSED_PROFANE = new Set([...PROFANE_WORDS].map(collapseRepeats));
+const SQUASHED_PROFANE = [...PROFANE_WORDS].filter((w) => w.length >= 6).map(collapseRepeats);
 
-export function keepJobTitleAsTyped(value: string): void {
-  keptAsTyped.add(normalize(value));
+/** Why a typed job title or company cannot be saved, or null when it is fine. */
+export function jobTextProblem(value: string): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  if (!/\p{L}/u.test(text)) return 'has no letters';
+  if (text.replace(/[^\p{L}\p{N}]/gu, '').length < 2) return 'is too short';
+  const folded = collapseRepeats(
+    text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[013457@$!]/g, (c) => LEET[c]),
+  );
+  const words = folded.match(/[a-z]+/g) ?? [];
+  if (words.some((w) => PROFANE_WORDS.has(w) || COLLAPSED_PROFANE.has(w))) return 'contains a word that is not allowed';
+  const squashed = words.join('');
+  if (SQUASHED_PROFANE.some((term) => squashed.includes(term))) return 'contains a word that is not allowed';
+  return null;
 }
 
-export function isKeptAsTyped(value: string): boolean {
-  return keptAsTyped.has(normalize(value));
+// Titles the graduate typed under "My job isn't listed". Module-level so a
+// form's Next/Save validation sees a choice made inside the input component.
+const markedUnlisted = new Set<string>();
+
+export function markJobTitleUnlisted(value: string): void {
+  if (value.trim()) markedUnlisted.add(normalize(value));
 }
 
-/** True while a likely typo has neither been fixed nor explicitly kept. */
-export function jobTitleNeedsReview(value: string, referenceTitles: string[] = []): boolean {
-  return checkJobTitle(value, referenceTitles).kind === 'typo' && !isKeptAsTyped(value);
+export function unmarkJobTitleUnlisted(value: string): void {
+  markedUnlisted.delete(normalize(value));
+}
+
+export function isMarkedUnlisted(value: string): boolean {
+  return markedUnlisted.has(normalize(value));
+}
+
+/** Message to show when a job title cannot be accepted yet, or null when it can. */
+export function jobTitleProblem(value: string, listedTitles: string[]): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  if (checkJobTitle(text, listedTitles).kind === 'known') return null;
+  if (isMarkedUnlisted(text)) {
+    const problem = jobTextProblem(text);
+    return problem ? `Your job title ${problem}. Please change it.` : null;
+  }
+  return 'Please choose your job title from the list, or tap "My job isn\'t listed" under it.';
 }
