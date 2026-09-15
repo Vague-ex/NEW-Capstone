@@ -1267,7 +1267,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   <FieldLabel>Exact Workplace Location (Pin)</FieldLabel>
                   <div
                     ref={workMapContainerRef}
-                    className="flex-1 min-h-[280px] lg:min-h-[360px]"
+                    // isolate: Leaflet's panes use z-index 400+, which would otherwise
+                    // draw over the mobile sidebar (z-50) and the sticky save bar (z-30).
+                    className="isolate flex-1 min-h-[280px] lg:min-h-[360px]"
                     style={{ borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
                   />
                   <p className="text-gray-500 text-xs mt-2">
