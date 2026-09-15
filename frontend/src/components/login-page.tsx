@@ -16,6 +16,7 @@ import {
   type AlumniLoginLivenessSignal,
 } from "../app/api-client";
 import ForgotPasswordModal from "./auth/forgot-password";
+import PrivacyNoticeModal from "./auth/privacy-notice-modal";
 import { captureGps } from "../app/geolocation";
 import { clearFaceMesh, drawFaceMesh } from "../app/face-mesh";
 import { describeCameraError, openFrontCamera } from "../app/camera";
@@ -125,6 +126,8 @@ export function LoginPage() {
   const [passwordError, setPasswordError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+  // Data Privacy Notice: shown on "Create account", before registration starts.
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -761,10 +764,19 @@ export function LoginPage() {
                     sends them, which lands on /verify/:tokenId. */}
                 <p className="text-center text-gray-400 text-xs mt-5">
                   New Graduate?{" "}
-                  <button onClick={() => navigate("/register/alumni")} className="text-[#166534] hover:underline" style={{ fontWeight: 600 }}>
+                  <button type="button" onClick={() => setPrivacyOpen(true)} className="text-[#166534] hover:underline" style={{ fontWeight: 600 }}>
                     Create account →
                   </button>
                 </p>
+
+                <PrivacyNoticeModal
+                  open={privacyOpen}
+                  onClose={() => setPrivacyOpen(false)}
+                  onContinue={() => {
+                    setPrivacyOpen(false);
+                    navigate("/register/alumni");
+                  }}
+                />
               </div>
             )}
 
