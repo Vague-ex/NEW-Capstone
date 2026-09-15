@@ -2811,10 +2811,10 @@ class AlumniRetrackingHistoryView(APIView):
         _admin_user, _auth_error = _require_admin(request)
         if _auth_error:
             return _auth_error
-        alumni_account = AlumniAccount.objects.filter(id=alumni_id).first()
-        if not alumni_account:
-            return Response({"detail": "Graduate was not found."}, status=status.HTTP_404_NOT_FOUND)
-
+        # No AlumniAccount lookup up front: that row carries the face template
+        # and took ~1.7 s of a ~2.7 s response over the Supabase pooler. Every
+        # account has at least its registration event, so existence is only
+        # checked when nothing is found.
         from tracer.models import EmploymentProfile
 
         from .models import RetrackingEvent
@@ -2827,7 +2827,7 @@ class AlumniRetrackingHistoryView(APIView):
 
         rows = []
         try:
-            for event in RetrackingEvent.objects.filter(alumni=alumni_account):
+            for event in RetrackingEvent.objects.filter(alumni_id=alumni_id):
                 days = event.days_since_previous
                 rows.append((event.occurred_at, {
                     "id": str(event.id),
@@ -2846,8 +2846,18 @@ class AlumniRetrackingHistoryView(APIView):
                     "flagged": False,
                     "backfilled": event.is_backfilled,
                 }))
-            decisions = VerificationDecision.objects.filter(token__alumni=alumni_account).select_related(
-                "token__employment_record", "verified_job_title",
+            # Only the columns the timeline shows: a decision row also carries the
+            # 17-field employer evaluation form.
+            decisions = (
+                VerificationDecision.objects.filter(token__alumni_id=alumni_id)
+                .select_related("token__employment_record", "verified_job_title")
+                .only(
+                    "id", "decision", "decided_at", "verified_employer_name", "verifier_name",
+                    "verifier_position", "flagged_for_review",
+                    "token", "token__employment_record",
+                    "token__employment_record__job_title_input", "token__employment_record__employer_name_input",
+                    "verified_job_title", "verified_job_title__name",
+                )
             )
             for decision in decisions:
                 record = decision.token.employment_record if decision.token_id else None
@@ -2866,6 +2876,8 @@ class AlumniRetrackingHistoryView(APIView):
                     "flagged": decision.flagged_for_review,
                     "backfilled": False,
                 }))
+            if not rows and not AlumniAccount.objects.filter(id=alumni_id).exists():
+                return Response({"detail": "Graduate was not found."}, status=status.HTTP_404_NOT_FOUND)
         except (OperationalError, DatabaseError):
             return _temporary_admin_data_unavailable_response("Retracking history")
 

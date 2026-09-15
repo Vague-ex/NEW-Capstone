@@ -102,3 +102,12 @@ class RetrackingHistoryTests(TestCase):
             response.data["summary"],
             {"confirmations": 1, "lateConfirmations": 1, "reminders": 1, "employerDecisions": 1},
         )
+
+    def test_history_of_unknown_graduate_is_not_found_but_empty_history_is_fine(self):
+        from uuid import uuid4
+
+        self.assertEqual(
+            self.client.get(f"/api/admin/alumni/{uuid4()}/retracking-history/", **self.admin_auth).status_code, 404,
+        )
+        response = self.client.get(f"/api/admin/alumni/{self.account.id}/retracking-history/", **self.admin_auth)
+        self.assertEqual((response.status_code, response.data["events"]), (200, []))

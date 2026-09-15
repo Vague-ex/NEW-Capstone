@@ -277,8 +277,37 @@ function HistoryEntry({ e, last }: { e: RetrackingHistoryEvent; last: boolean })
   );
 }
 
+// Histories already loaded this session, and requests still on their way. A
+// reopened graduate shows the cached history instantly while it refreshes, and
+// a request started early (details window opened, History button hovered) is
+// reused by the tab instead of being sent twice.
+const historyCache = new Map<string, RetrackingHistory>();
+const historyInflight = new Map<string, Promise<RetrackingHistory>>();
+
+function loadHistory(alumniId: string, force = false): Promise<RetrackingHistory> {
+  const pending = historyInflight.get(alumniId);
+  if (pending && !force) return pending;
+  const request = fetchRetrackingHistory(alumniId)
+    .then((res) => {
+      historyCache.set(alumniId, res);
+      return res;
+    })
+    .finally(() => {
+      if (historyInflight.get(alumniId) === request) historyInflight.delete(alumniId);
+    });
+  historyInflight.set(alumniId, request);
+  return request;
+}
+
+/** Start loading a graduate's history ahead of time; errors surface in the tab. */
+function prefetchHistory(alumniId: string | number | null | undefined) {
+  if (alumniId == null) return;
+  const id = String(alumniId);
+  if (!historyCache.has(id)) loadHistory(id).catch(() => {});
+}
+
 function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version: number }) {
-  const [data, setData] = useState<RetrackingHistory | null>(null);
+  const [data, setData] = useState<RetrackingHistory | null>(() => historyCache.get(alumniId) ?? null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState<HistoryFilter>('all');
@@ -286,7 +315,8 @@ function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version
   useEffect(() => {
     let active = true;
     setError('');
-    fetchRetrackingHistory(alumniId)
+    // A new reminder or "Try again" must not reuse an older in-flight request.
+    loadHistory(alumniId, version > 0 || attempt > 0)
       .then((res) => { if (active) setData(res); })
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Could not load the history.'); });
     return () => { active = false; };
@@ -417,6 +447,10 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab 
   const [reminder, setReminder] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; message?: string }>({ state: 'idle' });
   // Bumped after a reminder goes out so the History tab reloads with it.
   const [historyVersion, setHistoryVersion] = useState(0);
+
+  // Load the history as soon as the window opens, so it is ready (or nearly)
+  // by the time the admin taps History.
+  useEffect(() => { prefetchHistory(a.id); }, [a.id]);
 
   const handleSendReminder = async () => {
     if (!a.id) return;
@@ -1182,6 +1216,8 @@ export function AdminVerified() {
                                 View Details
                               </button>
                               <button onClick={() => { setModalTab('history'); setModalAlumni(a); }}
+                                onPointerEnter={() => prefetchHistory(a.id)}
+                                onFocus={() => prefetchHistory(a.id)}
                                 aria-label={`Retracking history for ${safeName(a)}`}
                                 className="inline-flex items-center gap-1 text-gray-600 border border-gray-200 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded-lg transition"
                                 style={{ fontWeight: 600 }}>
