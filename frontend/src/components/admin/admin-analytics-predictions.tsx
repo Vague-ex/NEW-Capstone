@@ -441,7 +441,7 @@ export function AdminAnalyticsPredictions() {
           )}
         </div>
 
-        <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+        <div className="min-w-0 flex flex-col bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
           <h3 className="text-gray-800 flex items-center gap-2 mb-1" style={{ fontWeight: 700 }}>
             <Clock className="size-4 text-[#166534]" /> Time to First Job ·{' '}
             <span className="text-gray-500 text-xs" style={{ fontWeight: 500 }}>
@@ -452,24 +452,28 @@ export function AdminAnalyticsPredictions() {
             How long graduates who have had a job took to get their first one{tfj ? ` (${tfj.n} graduates)` : ''}.
             These are their answers, not a prediction.
           </p>
+          {/* flex-1 so the chart fills the card, which stretches to match the
+              taller trend card beside it; min-h keeps it readable when stacked. */}
           {!tfj || tfj.n === 0 ? (
-            <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm">
+            <div className="flex-1 min-h-[260px] flex items-center justify-center text-gray-400 text-sm">
               {loading ? 'Loading...' : 'No graduates have reported a first job yet'}
             </div>
           ) : tfj.suppressed ? (
-            <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm text-center px-6">
+            <div className="flex-1 min-h-[260px] flex items-center justify-center text-gray-400 text-sm text-center px-6">
               Only {tfj.n} graduates reported a first job; groups under 5 are hidden.
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={timeBands} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="band" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <Tooltip formatter={(v: number) => [`${v} graduates`, 'Count']} />
-                <Bar dataKey="graduates" name="Graduates" fill="#166534" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="flex-1 min-h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={timeBands} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="band" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip formatter={(v: number) => [`${v} graduates`, 'Count']} />
+                  <Bar dataKey="graduates" name="Graduates" fill="#166534" radius={[3, 3, 0, 0]} maxBarSize={96} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </div>
       </div>
