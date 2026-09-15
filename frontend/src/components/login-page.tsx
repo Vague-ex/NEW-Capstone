@@ -32,31 +32,45 @@ import {
 } from "../app/modern-face-descriptor";
 
 // The open-mouth challenge was removed per the 2026 panel revision and replaced
-// with a blink, which is both less awkward in public and a stronger signal — a
-// still photo cannot produce the open→closed→open transition a blink requires.
-type LoginChallenge = 'blink' | 'head_turn';
+// with a blink. A blink is still asked for first, but face-api's tiny landmark
+// model runs at only a few frames per second on phones, so the ~100 ms closed
+// phase is often missed. So the blink gets a short window: a detected blink
+// passes liveness on its own; if none is confirmed in time, the flow moves on
+// to a head turn, which is held rather than momentary and so reliable at any
+// frame rate. The UI presents the turn as simply the next step — it never
+// says the blink failed. The turn DIRECTION is randomised, so a pre-recorded
+// clip of one turn fails half the time.
+type TurnChallenge = 'head_turn_left' | 'head_turn_right';
+type LoginChallenge = 'blink' | TurnChallenge;
 
-const LOGIN_CHALLENGES: LoginChallenge[] = ['blink', 'head_turn'];
+const TURN_CHALLENGES: TurnChallenge[] = ['head_turn_left', 'head_turn_right'];
 
-function pickRandomLoginChallenge(): LoginChallenge {
-  return LOGIN_CHALLENGES[Math.floor(Math.random() * LOGIN_CHALLENGES.length)];
+function pickRandomTurnChallenge(): TurnChallenge {
+  return TURN_CHALLENGES[Math.floor(Math.random() * TURN_CHALLENGES.length)];
 }
 
+/** On-screen step number. Step 1 is the frontal alignment. */
+function challengeStep(challenge: LoginChallenge): number {
+  return challenge === 'blink' ? 2 : 3;
+}
+
+// Left/right is the graduate's own left/right. Yaw is measured on the raw,
+// un-mirrored frame (positive = graduate's left, same convention as the
+// registration sweep), so the preview's mirroring does not affect the check.
 function describeChallenge(challenge: LoginChallenge): { title: string; hint: string } {
   switch (challenge) {
     case 'blink':
-      return { title: 'Blink once', hint: 'A single natural blink is enough' };
-    case 'head_turn':
-      // Direction-agnostic: the selfie preview is mirrored, so we accept a turn
-      // to either side instead of guessing left/right.
-      return { title: 'Turn your head', hint: 'Turn slightly to either side' };
+      return { title: 'Blink once', hint: 'Blink naturally while looking at the camera' };
+    case 'head_turn_left':
+      return { title: 'Turn your head left', hint: 'Turn slightly to your left' };
+    case 'head_turn_right':
+      return { title: 'Turn your head right', hint: 'Turn slightly to your right' };
   }
 }
 
 const LIVENESS_TIMEOUT_MS = 10000;
-// A blink cannot be held for the camera the way a head turn can, and the
-// detector first has to learn this person's open-eye baseline, so it gets longer.
-const BLINK_TIMEOUT_MS = 15000;
+// How long to look for a blink before moving on to the head turn.
+const BLINK_WINDOW_MS = 5000;
 const schoolLogo = "/CHMSULogo.png";
 
 type Phase = "login" | "facescan";
@@ -127,7 +141,9 @@ export function LoginPage() {
   // The frontal frame + descriptor captured BEFORE the liveness challenge, used
   // for the actual face match so the match never sees a mid-gesture pose.
   const frontalCaptureRef = useRef<{ blob: Blob; descriptor: number[] } | null>(null);
-  const [challenge, setChallenge] = useState<LoginChallenge>(() => pickRandomLoginChallenge());
+  const [challenge, setChallenge] = useState<LoginChallenge>('blink');
+  // The turn used if no blink is confirmed; re-rolled on every camera start.
+  const turnChallengeRef = useRef<TurnChallenge>(pickRandomTurnChallenge());
   const [livenessPassed, setLivenessPassed] = useState(false);
   const livenessSignalRef = useRef<AlumniLoginLivenessSignal | null>(null);
   const [livenessCountdown, setLivenessCountdown] = useState<number | null>(null);
@@ -231,14 +247,14 @@ export function LoginPage() {
   }, [cameraOn, scanStage, faceAuthBusy]);
 
   // Liveness challenge loop: runs AFTER a frontal frame is captured. Checks the
-  // prompted action (blink / head turn) on each landmark frame, then submits
-  // the already-captured frontal frame. On timeout, fall back to the retry button.
+  // prompted action (blink, then head turn if no blink was confirmed) on each
+  // landmark frame, then submits the already-captured frontal frame. If the
+  // head turn times out, fall back to the retry button.
   //
   // Frames are pulled one at a time: the next detection starts only after the
   // previous one has finished. This used to be a 50ms setInterval, which on a
   // phone (100-250ms per detection) stacked calls up so results arrived late
-  // and out of order, and a 150-300ms blink was often never seen closed. A
-  // head turn is held rather than momentary, which is why only blink timed out.
+  // and out of order.
   useEffect(() => {
     if (!cameraOn || scanStage !== "challenge" || faceAuthBusy) {
       if (autoDetectInterval.current) {
@@ -258,14 +274,20 @@ export function LoginPage() {
 
     livenessTimeoutRef.current = setTimeout(() => {
       stopSampling();
+      if (challenge === 'blink') {
+        // No blink confirmed in the window: continue with the head turn. The
+        // challenge change re-runs this effect with a fresh timeout.
+        setChallenge(turnChallengeRef.current);
+        return;
+      }
       setScanStage("failed");
       setCameraError(
         `Liveness challenge timed out. Please ${describeChallenge(challenge).title.toLowerCase()} and try again.`,
       );
       stopCamera();
-    }, challenge === 'blink' ? BLINK_TIMEOUT_MS : LIVENESS_TIMEOUT_MS);
+    }, challenge === 'blink' ? BLINK_WINDOW_MS : LIVENESS_TIMEOUT_MS);
 
-    const blinkDetector = createBlinkDetector();
+    const blinkDetector = challenge === 'blink' ? createBlinkDetector() : null;
 
     const sampleFrame = async () => {
       if (stopped) return;
@@ -281,7 +303,7 @@ export function LoginPage() {
 
           // Blink is a transition over time, so it must see every frame —
           // including the ones with no face, which reset a half-finished blink.
-          let passed = challenge === 'blink' ? blinkDetector.push(landmarks) : false;
+          let passed = blinkDetector ? blinkDetector.push(landmarks) : false;
 
           if (!landmarks) {
             // Lost the face - reset any running countdown.
@@ -290,9 +312,11 @@ export function LoginPage() {
           } else {
             const mar = computeMouthAspectRatio(landmarks);
             const yaw = estimateHeadYawDegrees(landmarks);
-            if (challenge === 'head_turn') {
-              // Either direction counts (mirror-proof).
-              passed = Math.abs(yaw) >= HEAD_TURN_YAW_THRESHOLD_DEG;
+            // Only the prompted direction counts; a turn the other way is ignored.
+            if (challenge === 'head_turn_left') {
+              passed = yaw >= HEAD_TURN_YAW_THRESHOLD_DEG;
+            } else if (challenge === 'head_turn_right') {
+              passed = yaw <= -HEAD_TURN_YAW_THRESHOLD_DEG;
             }
 
             if (passed) {
@@ -498,7 +522,8 @@ export function LoginPage() {
     setCameraError("");
     // Fresh randomized challenge every camera start - prevents replay attacks
     // with a pre-recorded video of the alumnus.
-    setChallenge(pickRandomLoginChallenge());
+    setChallenge('blink');
+    turnChallengeRef.current = pickRandomTurnChallenge();
     setLivenessPassed(false);
     livenessSignalRef.current = null;
     frontalCaptureRef.current = null;
@@ -930,7 +955,7 @@ export function LoginPage() {
                                 ? "Hold still"
                                 : livenessCountdown !== null
                                   ? "Keep holding the action"
-                                  : `Step 2: ${describeChallenge(challenge).hint}`}
+                                  : `Step ${challengeStep(challenge)}: ${describeChallenge(challenge).hint}`}
                           </p>
                         </div>
                       </div>
@@ -995,7 +1020,7 @@ export function LoginPage() {
                         {scanStage === "aligning"
                           ? "Step 1: centering your face..."
                           : scanStage === "challenge"
-                            ? `Step 2 — ${describeChallenge(challenge).title}`
+                            ? `Step ${challengeStep(challenge)} — ${describeChallenge(challenge).title}`
                             : "Verifying face..."}
                       </span>
                     </div>
