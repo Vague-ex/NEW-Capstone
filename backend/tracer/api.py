@@ -696,6 +696,74 @@ class UnlistedJobTitleView(APIView):
         )
         return Response({"unlisted": items})
 
+
+class ResolveUnlistedJobTitleView(APIView):
+    """
+    Admin: replace typed job titles with one already on the list.
+
+    POST {"fixes": [{"title": "Artits", "job_title_id": "<Artist id>"}, ...]}
+
+    Covers typos and accounts saved before titles came from the list. Every copy
+    of the typed text is rewritten: both titles on the graduate's survey profile
+    and the employment records, which are also linked to the listed title. The
+    profile and the current record end up with the same text, so the graduate's
+    next save does not read as a job change and retire a verified record.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+        from tracer.models import EmploymentProfile, EmploymentRecord
+
+        fixes = request.data.get("fixes")
+        if not isinstance(fixes, list) or not fixes:
+            return Response({"detail": "fixes must be a non-empty list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        replacements: dict[str, JobTitle] = {}
+        for fix in fixes:
+            if not isinstance(fix, dict):
+                return Response({"detail": "Each fix needs a title and a job_title_id."}, status=status.HTTP_400_BAD_REQUEST)
+            key = " ".join(str(fix.get("title") or "").split()).lower()
+            if not key or not fix.get("job_title_id"):
+                return Response({"detail": "Each fix needs a title and a job_title_id."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                replacements[key] = JobTitle.objects.get(pk=fix["job_title_id"], is_active=True)
+            except (JobTitle.DoesNotExist, ValueError, DjangoValidationError):
+                return Response({"detail": "Job title not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        def target(text):
+            return replacements.get(" ".join((text or "").split()).lower())
+
+        profiles = records = 0
+        graduates: set = set()
+        with transaction.atomic():
+            for profile in EmploymentProfile.objects.select_for_update().only("id", "alumni_id", "first_job_title", "current_job_title"):
+                changed = []
+                for field in ("first_job_title", "current_job_title"):
+                    jt = target(getattr(profile, field))
+                    if jt:
+                        setattr(profile, field, jt.name[:150])
+                        changed.append(field)
+                if changed:
+                    profile.save(update_fields=changed)
+                    profiles += 1
+                    graduates.add(profile.alumni_id)
+            for record in EmploymentRecord.objects.select_for_update().only("id", "alumni_id", "job_title_input", "job_title"):
+                jt = target(record.job_title_input)
+                if jt:
+                    record.job_title_input = jt.name[:255]
+                    record.job_title = jt
+                    record.save(update_fields=["job_title_input", "job_title", "updated_at"])
+                    records += 1
+                    graduates.add(record.alumni_id)
+
+        return Response({"graduates": len(graduates), "profiles": profiles, "records": records})
+
 # ── Regions ────────────────────────────────────────────────────────────────────
 
 class RegionListView(APIView):

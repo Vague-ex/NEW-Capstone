@@ -57,3 +57,31 @@ class JobTitleAdminApiTests(TestCase):
         response = self.client.get("/api/reference/job-titles/unlisted/", **self.auth)
         self.assertEqual(response.status_code, 200)
         self.assertIn("unlisted", response.data)
+
+    def test_resolve_rewrites_typed_title_to_listed_one(self):
+        from tracer.models import EmploymentProfile, EmploymentRecord
+        from users.models import AlumniAccount
+
+        artist = JobTitle.objects.create(name="Artist Resolve Test")
+        alumni = AlumniAccount.objects.create(
+            user=User.objects.create_user(email="artits@example.com", password="GradPass123!", role=User.Role.ALUMNI),
+        )
+        EmploymentProfile.objects.create(alumni=alumni, first_job_title="Artits", current_job_title=" artits ")
+        record = EmploymentRecord.objects.create(
+            alumni=alumni, employer_name_input="Studio", job_title_input="Artits", employment_status="employed",
+        )
+
+        payload = {"fixes": [{"title": "Artits", "job_title_id": str(artist.id)}]}
+        self.assertIn(
+            self.client.post("/api/reference/job-titles/unlisted/resolve/", payload, format="json").status_code, (401, 403),
+        )
+        response = self.client.post("/api/reference/job-titles/unlisted/resolve/", payload, format="json", **self.auth)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"graduates": 1, "profiles": 1, "records": 1})
+
+        profile = EmploymentProfile.objects.get(alumni=alumni)
+        self.assertEqual((profile.first_job_title, profile.current_job_title), (artist.name, artist.name))
+        record.refresh_from_db()
+        self.assertEqual((record.job_title_input, record.job_title_id), (artist.name, artist.id))
+        titles = [i["title"] for i in self.client.get("/api/reference/job-titles/unlisted/", **self.auth).data["unlisted"]]
+        self.assertNotIn("Artits", titles)

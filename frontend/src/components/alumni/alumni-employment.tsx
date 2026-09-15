@@ -7,13 +7,15 @@ import {
   useReferenceData,
   provincesApi,
   citiesApi,
+  locationApi,
   type ProvinceItem,
   type CityMunicipalityItem,
 } from '../../hooks/useReferenceData';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
-  MapPin, AlertTriangle, BookOpen,
+  MapPin, AlertTriangle, BookOpen, LocateFixed,
 } from 'lucide-react';
+import { describeGpsFailure, locateDevice } from '../../app/geolocation';
 import { JobTitleInput } from '../shared/job-title-input';
 import { jobTitleProblem } from '../../app/job-titles';
 
@@ -213,6 +215,9 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   const workMapContainerRef = useRef<HTMLDivElement>(null);
   const workLeafletMapRef = useRef<unknown>(null);
   const workMarkerRef = useRef<unknown>(null);
+  // City name the pin was placed for exactly (GPS, drag or tap). The city
+  // auto-pin below skips that city so it doesn't pull the pin to the city centre.
+  const exactPinCityRef = useRef<string | null>(null);
 
   // Empty until a token is minted: without a token there is no meaningful link
   // to share, since the token is what ties the response back to this graduate.
@@ -346,7 +351,10 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           const countryCode = (data.country_code ?? '').toLowerCase();
           const countryName = addr.country || '';
 
-          if (city) setF('city_municipality', city);
+          if (city) {
+            exactPinCityRef.current = city;
+            setF('city_municipality', city);
+          }
           if (province) setForm(f => ({ ...f, province_address: province }));
           // Flip both currentJobLocation and country_address together so the
           // radio + dropdown can never desync after a pin drop.
@@ -417,6 +425,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     if (!isCurrentlyEmployed) return;
     if (!form.city_municipality) return;
     if (!workLeafletMapRef.current || !workMarkerRef.current) return;
+    if (exactPinCityRef.current === form.city_municipality) return;
+    exactPinCityRef.current = null;
 
     const isLocal = form.currentJobLocation !== 'Abroad / Remote Foreign Employer';
     const parts: string[] = [form.city_municipality];
@@ -466,6 +476,76 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
     form.country_address,
     isCurrentlyEmployed,
   ]);
+
+  // ── Use my current location (work address) ──────────────────────────────────
+  // Same GPS -> address lookup as registration's home address, but it fills
+  // only region, province and city: the exact pin already records where the
+  // workplace is, so the barangay is left for the graduate to type if they want.
+  const [locating, setLocating] = useState(false);
+  const [locateNote, setLocateNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+
+  const fillWorkFromMyLocation = async () => {
+    setLocateNote(null);
+    setSaved(false);
+    setSaveError('');
+    setLocating(true);
+    try {
+      const { fix, failure } = await locateDevice();
+      if (!fix) {
+        setLocateNote({ tone: 'error', text: describeGpsFailure(failure) });
+        return;
+      }
+      setWorkLat(fix.lat);
+      setWorkLng(fix.lng);
+      (workMarkerRef.current as { setLatLng: (ll: [number, number]) => void } | null)?.setLatLng([fix.lat, fix.lng]);
+      (workLeafletMapRef.current as { setView: (ll: [number, number], z: number) => void } | null)?.setView([fix.lat, fix.lng], 17);
+
+      try {
+        const found = await locationApi.lookup(fix.lat, fix.lng);
+        if (found.abroad) {
+          exactPinCityRef.current = found.locality || null;
+          setForm(f => ({
+            ...f,
+            currentJobLocation: 'Abroad / Remote Foreign Employer',
+            country_address: found.country || '',
+            city_municipality: found.locality || '',
+            province_address: found.state || '',
+            currentJobRegionId: '',
+            currentJobProvinceId: '',
+            currentJobCityId: '',
+          }));
+          setLocateNote({ tone: 'ok', text: `Pinned in ${found.country || 'your country'}. Please check the details below.` });
+          return;
+        }
+        if (!found.region && !found.city) {
+          setLocateNote({ tone: 'warn', text: "We pinned your workplace but couldn't match an address. Please choose it below." });
+          return;
+        }
+        exactPinCityRef.current = found.city?.name ?? null;
+        // Setting the whole cascade at once is safe: each select shows its
+        // value once its options load.
+        setForm(f => ({
+          ...f,
+          currentJobLocation: 'Local (Philippines)',
+          country_address: 'Philippines',
+          currentJobRegionId: found.region?.id ?? f.currentJobRegionId,
+          currentJobProvinceId: found.province?.id ?? '',
+          currentJobCityId: found.city?.id ?? '',
+          city_municipality: found.city?.name ?? '',
+        }));
+        setLocateNote(found.city
+          ? { tone: 'ok', text: 'Work address filled in from your location. Please check it and adjust anything that is off.' }
+          : { tone: 'warn', text: 'We filled in what we could. Please choose your city below.' });
+      } catch (err) {
+        setLocateNote({
+          tone: 'warn',
+          text: err instanceof Error && err.message ? err.message : "We pinned your workplace but couldn't look up the address. Please fill it in below.",
+        });
+      }
+    } finally {
+      setLocating(false);
+    }
+  };
 
   // ── Save ─────────────────────────────────────────────────────────────────────
 
@@ -931,6 +1011,36 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                   ? ' Pick the closest match; you can fine-tune the pin on the map below.'
                   : ' Type your foreign-country workplace details.'}
               </p>
+
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:p-3.5 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => void fillWorkFromMyLocation()}
+                    disabled={locating}
+                    className="gt-press inline-flex shrink-0 min-h-11 items-center justify-center gap-2 rounded-lg bg-[#166534] hover:bg-[#14532d] disabled:opacity-60 text-white px-3.5 py-2.5 text-sm transition"
+                    style={{ fontWeight: 600 }}
+                  >
+                    {locating
+                      ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      : <LocateFixed className="size-4" />}
+                    {locating ? 'Finding your location…' : 'Use my current location'}
+                  </button>
+                  <p className="text-[11px] text-emerald-900/80 leading-snug">
+                    Use this while you are at your workplace. It fills in the region, province and city and pins the map. Your browser will ask for permission.
+                  </p>
+                </div>
+                {locateNote && (
+                  <p
+                    className={`text-xs leading-snug ${
+                      locateNote.tone === 'ok' ? 'text-emerald-800' : locateNote.tone === 'warn' ? 'text-amber-700' : 'text-red-600'
+                    }`}
+                    role="status"
+                  >
+                    {locateNote.text}
+                  </p>
+                )}
+              </div>
 
               {/* Desktop: address fields left, map right. Mobile: stacked. */}
               <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-4 lg:space-y-0">

@@ -814,7 +814,7 @@ export function AdminSettings() {
           <>
           <UnlistedTitlesPanel
             industries={industries}
-            listedNames={jobTitles.map((j) => j.name)}
+            jobTitles={jobTitles}
             onAdded={(jt) => setJobTitles((prev) => [...prev, jt].sort((a, b) => a.name.localeCompare(b.name)))}
           />
           <JobsView
@@ -1464,18 +1464,55 @@ type UnlistedTitle = { title: string; graduates: number; problem: string | null 
 
 function UnlistedTitlesPanel({
   industries,
-  listedNames,
+  jobTitles,
   onAdded,
 }: {
   industries: IndustryItem[];
-  listedNames: string[];
+  jobTitles: JobTitleItem[];
   onAdded: (jt: JobTitleItem) => void;
 }) {
   const [items, setItems] = useState<UnlistedTitle[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [industryFor, setIndustryFor] = useState<Record<string, string>>({});
+  const [replaceWith, setReplaceWith] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+
+  const listedNames = useMemo(() => jobTitles.map((j) => j.name), [jobTitles]);
+  const idByName = useMemo(() => new Map(jobTitles.map((j) => [j.name.trim(), j.id])), [jobTitles]);
+
+  // Typos of a listed title, fixable in one click (e.g. "Artits" -> "Artist").
+  const typoFixes = useMemo(
+    () =>
+      (items ?? []).flatMap((item) => {
+        const near = checkJobTitle(item.title, listedNames);
+        const id = near.kind === 'typo' ? idByName.get(near.suggestion) : undefined;
+        return id ? [{ title: item.title, job_title_id: id }] : [];
+      }),
+    [items, listedNames, idByName],
+  );
+
+  // Rewrites the graduates' saved title to the listed one; the typed text
+  // then no longer needs review.
+  const resolve = async (fixes: { title: string; job_title_id: string }[], busyKey: string) => {
+    if (!fixes.length) return;
+    setBusy(busyKey);
+    setError('');
+    setNotice('');
+    try {
+      const res = await jobTitlesApi.resolveUnlisted(fixes);
+      const done = new Set(fixes.map((f) => f.title));
+      setItems((prev) => (prev ?? []).filter((i) => !done.has(i.title)));
+      const target = fixes.length === 1 ? jobTitles.find((j) => j.id === fixes[0].job_title_id)?.name : null;
+      setNotice(
+        `${target ? `Changed "${fixes[0].title}" to "${target}"` : `Fixed ${fixes.length} job titles`} for ${res.graduates} graduate${res.graduates === 1 ? '' : 's'}.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not change this job title.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -1516,9 +1553,21 @@ function UnlistedTitlesPanel({
             Job titles to review{items ? ` (${items.length})` : ''}
           </h3>
           <p className="text-xs text-gray-600 mt-0.5">
-            Typed by graduates under &ldquo;My job isn&apos;t listed&rdquo;. Add real ones to the list; typos and nonsense can be ignored.
+            Typed by graduates under &ldquo;My job isn&apos;t listed&rdquo;, or saved before titles came from the list.
+            Add real ones to the list, or change typos and wrong titles to one already on it.
           </p>
         </div>
+        {typoFixes.length > 1 && (
+          <button
+            type="button"
+            onClick={() => void resolve(typoFixes, '__all__')}
+            disabled={busy !== null}
+            className="ml-auto flex min-h-11 lg:min-h-0 shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+            style={{ fontWeight: 600 }}
+          >
+            <Check className="size-4" /> Fix all {typoFixes.length} typos
+          </button>
+        )}
       </div>
 
       {error && <p className="mb-2 text-xs text-rose-700">{error}</p>}
@@ -1530,6 +1579,8 @@ function UnlistedTitlesPanel({
         <ul className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
           {items.map((item) => {
             const near = checkJobTitle(item.title, listedNames);
+            const suggestionId = near.kind === 'typo' ? idByName.get(near.suggestion) : undefined;
+            const chosenId = replaceWith[item.title] ?? '';
             return (
               <li key={item.title} className="rounded-xl border border-gray-200 p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1538,15 +1589,28 @@ function UnlistedTitlesPanel({
                     {item.graduates} graduate{item.graduates === 1 ? '' : 's'}
                   </span>
                 </div>
+                {near.kind === 'typo' && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <p className="text-xs text-amber-800">
+                      Looks like a typo of &ldquo;{near.suggestion}&rdquo;, which is already on the list.
+                    </p>
+                    {suggestionId && (
+                      <button
+                        type="button"
+                        onClick={() => void resolve([{ title: item.title, job_title_id: suggestionId }], item.title)}
+                        disabled={busy !== null}
+                        className="flex min-h-11 lg:min-h-0 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+                        style={{ fontWeight: 600 }}
+                      >
+                        <Check className="size-3.5" /> Change to &ldquo;{near.suggestion}&rdquo;
+                      </button>
+                    )}
+                  </div>
+                )}
                 {item.problem ? (
                   <p className="mt-1.5 text-xs text-rose-700">Cannot be added: this title {item.problem}.</p>
                 ) : (
                   <>
-                    {near.kind === 'typo' && (
-                      <p className="mt-1.5 text-xs text-amber-800">
-                        Looks like a typo of &ldquo;{near.suggestion}&rdquo;, which is already on the list.
-                      </p>
-                    )}
                     <div className="mt-2 flex flex-wrap lg:flex-nowrap gap-2">
                       <select
                         value={industryFor[item.title] ?? ''}
@@ -1562,7 +1626,7 @@ function UnlistedTitlesPanel({
                       <button
                         type="button"
                         onClick={() => void add(item)}
-                        disabled={busy === item.title}
+                        disabled={busy !== null}
                         className="flex min-h-11 lg:min-h-0 shrink-0 items-center gap-1.5 rounded-lg bg-[#166534] px-3 py-2 text-sm text-white transition hover:bg-[#0f3d21] disabled:opacity-60"
                         style={{ fontWeight: 600 }}
                       >
@@ -1571,6 +1635,29 @@ function UnlistedTitlesPanel({
                     </div>
                   </>
                 )}
+                {/* Any title, vulgar ones included, can be swapped for a listed one. */}
+                <div className="mt-2 flex flex-wrap lg:flex-nowrap gap-2">
+                  <select
+                    value={chosenId}
+                    onChange={(e) => setReplaceWith((m) => ({ ...m, [item.title]: e.target.value }))}
+                    aria-label={`Listed job title to replace ${item.title} with`}
+                    className="flex-1 min-w-0 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2.5 lg:py-2 text-sm outline-none focus:border-[#166534] focus:bg-white"
+                  >
+                    <option value="">Change to a listed title…</option>
+                    {jobTitles.map((j) => (
+                      <option key={j.id} value={j.id}>{j.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void resolve([{ title: item.title, job_title_id: chosenId }], item.title)}
+                    disabled={!chosenId || busy !== null}
+                    className="flex min-h-11 lg:min-h-0 shrink-0 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 transition hover:bg-gray-50 disabled:opacity-50"
+                    style={{ fontWeight: 600 }}
+                  >
+                    <RefreshCw className="size-4" /> Change
+                  </button>
+                </div>
               </li>
             );
           })}

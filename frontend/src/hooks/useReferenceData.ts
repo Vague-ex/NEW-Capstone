@@ -244,6 +244,13 @@ export const jobTitlesApi = {
         apiRequest('/api/reference/job-titles/unlisted/', 'GET') as Promise<{
             unlisted: { title: string; graduates: number; problem: string | null }[];
         }>,
+    /** Admin: rewrite typed titles (typos, old accounts) to titles on the list. */
+    resolveUnlisted: (fixes: { title: string; job_title_id: string }[]) =>
+        apiRequest('/api/reference/job-titles/unlisted/resolve/', 'POST', { fixes }) as Promise<{
+            graduates: number;
+            profiles: number;
+            records: number;
+        }>,
     update: (id: string, patch: Partial<JobTitleItem & { industry_id?: string | null }>) =>
         apiRequest(`/api/reference/job-titles/${id}/`, 'PATCH', patch) as Promise<{ job_title: JobTitleItem }>,
     remove: (id: string) => apiRequest(`/api/reference/job-titles/${id}/`, 'DELETE'),
