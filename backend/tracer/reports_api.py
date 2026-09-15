@@ -991,6 +991,8 @@ class PredictiveTrendReportView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        future_graduation = int(frame["future_graduation"].astype(bool).sum())
+        frame = employability.reportable(frame)
         masterlist = employability.masterlist_counts()
         active = employability.load_active_model()
         payload = employability.analytics_payload(frame, masterlist, active, horizon=forecast_years)
@@ -1119,5 +1121,11 @@ class PredictiveTrendReportView(APIView):
                 ],
             },
         ]
+
+        if future_graduation:
+            sections[-1]["rows"].append([
+                f"{future_graduation} graduate record(s) with a graduation date in the future were left out. "
+                f"Correct their dates in Verified Graduates."
+            ])
 
         return _ok("Predictive Employability Trend", sections, filters)

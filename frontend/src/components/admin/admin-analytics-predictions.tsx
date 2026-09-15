@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, BarChart,
+  ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer, BarChart, ErrorBar,
 } from 'recharts';
 import {
   TrendingUp, Clock, Brain, AlertCircle, AlertTriangle, Cpu, Table as TableIcon,
-  Lightbulb, ArrowUpRight, Users, Target, ShieldCheck, Check, X, Info,
+  Lightbulb, Users, Target, ShieldCheck, Check, X, Info,
 } from 'lucide-react';
 import {
   fetchAnalyticsPredictions,
@@ -13,7 +13,7 @@ import {
   BatchIndicators,
   ModelFactor,
   RateEstimate,
-  SkillForecast,
+  SkillRow,
 } from '../../app/api-client';
 
 function pct(v: number | null | undefined, digits = 1): string {
@@ -23,7 +23,7 @@ function pct(v: number | null | undefined, digits = 1): string {
   return `${(v * 100).toFixed(digits)}%`;
 }
 
-/** Chart point: null leaves a gap in the line instead of plotting a false 0. */
+/** Chart point in percent: null leaves a gap instead of plotting a false 0. */
 function point(v: number | null | undefined): number | null {
   return v == null ? null : +(v * 100).toFixed(1);
 }
@@ -37,7 +37,7 @@ function rateValue(r: RateEstimate | undefined): string {
 function rateDetail(r: RateEstimate | undefined, population: string): string {
   if (!r || r.n === 0) return `No graduates ${population} yet`;
   if (r.suppressed) return `Only ${r.n} ${population}; groups under 5 are hidden`;
-  return `95% CI ${pct(r.ci_low, 0)}–${pct(r.ci_high, 0)} · n = ${r.n} ${population}`;
+  return `Likely between ${pct(r.ci_low, 0)} and ${pct(r.ci_high, 0)} · ${r.n} ${population}`;
 }
 
 function rateCell(r: RateEstimate): string {
@@ -47,10 +47,20 @@ function rateCell(r: RateEstimate): string {
 }
 
 function factorReading(f: ModelFactor): string {
-  if (!f.clear) return 'No clear association';
+  if (!f.clear) return 'No clear link';
   return f.odds_ratio >= 1
-    ? `${f.odds_ratio.toFixed(1)}× the odds of work within a year`
-    : `${(1 / f.odds_ratio).toFixed(1)}× lower odds of work within a year`;
+    ? `${f.odds_ratio.toFixed(1)}× the odds of finding work within a year`
+    : `${(1 / f.odds_ratio).toFixed(1)}× lower odds of finding work within a year`;
+}
+
+function skillReading(s: SkillRow, minGroup: number): { text: string; tone: string } {
+  const c = s.comparison;
+  if (!c) return { text: `Too few graduates to compare (each group needs ${minGroup})`, tone: 'text-gray-400' };
+  const points = Math.abs(Math.round(c.difference_points));
+  if (!c.clear) return { text: 'No clear difference; the gap could be chance', tone: 'text-gray-500' };
+  return c.difference_points > 0
+    ? { text: `Employed ${points} points more often`, tone: 'text-emerald-600' }
+    : { text: `Employed ${points} points less often`, tone: 'text-red-500' };
 }
 
 type TrendView = 'employment' | 'within12';
@@ -58,10 +68,22 @@ type TrendView = 'employment' | 'within12';
 type TrendRow = {
   year: string;
   observed: number | null;
-  band: [number, number] | null;
-  expected: number | null;
-  expectedBand: [number, number] | null;
+  observedError: [number, number] | null;
+  next: number | null;
+  nextError: [number, number] | null;
+  detail: string;
 };
+
+function TrendTooltip({ active, payload }: { active?: boolean; payload?: { payload: TrendRow }[] }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs max-w-[240px]">
+      <p className="text-gray-900" style={{ fontWeight: 700 }}>{row.year}</p>
+      <p className="text-gray-600 mt-0.5 leading-relaxed">{row.detail}</p>
+    </div>
+  );
+}
 
 export function AdminAnalyticsPredictions() {
   const [data, setData] = useState<AnalyticsPredictionsResponse | null>(null);
@@ -70,13 +92,12 @@ export function AdminAnalyticsPredictions() {
   const [selectedBatch, setSelectedBatch] = useState<number | 'all'>('all');
   const [trendView, setTrendView] = useState<TrendView>('employment');
   const [rawNumbersOpen, setRawNumbersOpen] = useState(false);
-  const [horizon, setHorizon] = useState<1 | 2>(1);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchAnalyticsPredictions(selectedBatch === 'all' ? undefined : selectedBatch, horizon)
+    fetchAnalyticsPredictions(selectedBatch === 'all' ? undefined : selectedBatch, 1)
       .then((res) => {
         if (!cancelled) setData(res);
       })
@@ -89,42 +110,56 @@ export function AdminAnalyticsPredictions() {
     return () => {
       cancelled = true;
     };
-  }, [selectedBatch, horizon]);
+  }, [selectedBatch]);
 
   const perBatch: BatchIndicators[] = data?.per_batch ?? [];
-  const skillForecast: SkillForecast[] = data?.skill_forecast ?? [];
+  // Batches nobody from has answered (e.g. an old masterlist year) only add empty columns.
+  const answeredBatches = useMemo(
+    () => perBatch.filter((b) => b.respondents > 0).sort((a, b) => a.batch - b.batch),
+    [perBatch],
+  );
   const overall = data?.overall;
   const outlook = data?.outlook;
   const model = data?.model;
   const activeModel = model?.status === 'active' ? model : null;
+  const skills = data?.skills;
+  const futureGraduation = data?.data_issues?.future_graduation ?? 0;
+  const nextRange = outlook?.available ? outlook.years[0] : undefined;
 
   const trendSeries = useMemo<TrendRow[]>(() => {
-    const rows: TrendRow[] = perBatch.map((b) => {
+    const label = trendView === 'employment' ? 'employed' : 'found work within 12 months';
+    const rows: TrendRow[] = answeredBatches.map((b) => {
       const r = trendView === 'employment' ? b.employment_rate : b.employed_within_12_months;
+      const value = point(r.rate);
       const low = point(r.ci_low);
       const high = point(r.ci_high);
-      const shown = r.rate != null && low != null && high != null;
+      const shown = value != null && low != null && high != null;
       return {
         year: String(b.batch),
-        observed: shown ? point(r.rate) : null,
-        band: shown ? ([low, high] as [number, number]) : null,
-        expected: null,
-        expectedBand: null,
+        observed: shown ? value : null,
+        observedError: shown ? ([value - low, high - value] as [number, number]) : null,
+        next: null,
+        nextError: null,
+        detail: shown
+          ? `${pct(r.rate, 0)} ${label}. With ${r.n} graduates, the true rate is likely between ${pct(r.ci_low, 0)} and ${pct(r.ci_high, 0)}.`
+          : r.n === 0
+            ? 'No answers yet.'
+            : `Only ${r.n} graduates answered, too few to show.`,
       };
     });
-    if (trendView === 'employment' && outlook?.available) {
-      for (const y of outlook.years) {
-        rows.push({
-          year: String(y.batch),
-          observed: null,
-          band: null,
-          expected: point(y.centre),
-          expectedBand: [point(y.low) ?? 0, point(y.high) ?? 0],
-        });
-      }
+    if (trendView === 'employment' && nextRange) {
+      const centre = point(nextRange.centre) ?? 0;
+      rows.push({
+        year: String(nextRange.batch),
+        observed: null,
+        observedError: null,
+        next: centre,
+        nextError: [centre - (point(nextRange.low) ?? 0), (point(nextRange.high) ?? 0) - centre],
+        detail: `If this batch does about as well as recent batches, expect ${pct(nextRange.low, 0)} to ${pct(nextRange.high, 0)} employed. This is a range, not a prediction.`,
+      });
     }
     return rows;
-  }, [perBatch, outlook, trendView]);
+  }, [answeredBatches, nextRange, trendView]);
 
   const timeBands = useMemo(
     () => (overall?.time_to_first_job.bands ?? []).map((b) => ({ band: b.label, graduates: b.count })),
@@ -133,16 +168,15 @@ export function AdminAnalyticsPredictions() {
 
   const bsisSeries = useMemo(
     () =>
-      perBatch.map((b) => ({
+      answeredBatches.map((b) => ({
         year: String(b.batch),
         firstJob: point(b.bsis_aligned_first_job.rate),
         currentJob: point(b.bsis_aligned_current_job.rate),
       })),
-    [perBatch],
+    [answeredBatches],
   );
 
-  const batches = perBatch.map((b) => b.batch);
-  const nextRange = outlook?.available ? outlook.years[0] : undefined;
+  const batches = answeredBatches.map((b) => b.batch);
   const expected = overall?.model_expected_within_12_months;
   const checks = activeModel?.checks ?? [];
   const factors = activeModel?.factors ?? [];
@@ -152,16 +186,16 @@ export function AdminAnalyticsPredictions() {
     {
       label: 'Employment Rate',
       value: rateValue(overall?.employment_rate),
-      sub: rateDetail(overall?.employment_rate, 'in the labor force'),
+      sub: rateDetail(overall?.employment_rate, 'working or looking for work'),
       icon: TrendingUp,
       bg: 'bg-emerald-50',
       color: 'text-emerald-600',
     },
     {
-      label: 'Employed Within 12 Months',
+      label: 'Found Work Within 12 Months',
       value: rateValue(overall?.employed_within_12_months),
       sub:
-        rateDetail(overall?.employed_within_12_months, 'with a known outcome') +
+        rateDetail(overall?.employed_within_12_months, 'with a known answer') +
         (expected?.rate != null ? ` · model expects ${pct(expected.rate, 0)}` : ''),
       icon: Clock,
       bg: 'bg-blue-50',
@@ -174,18 +208,16 @@ export function AdminAnalyticsPredictions() {
         ? '—'
         : overall.masterlist_incomplete
           ? `${overall.respondents} answered, but the masterlist lists only ${overall.graduates}; add the missing graduates`
-          : `${overall.respondents} of ${overall.graduates ?? '—'} masterlist graduates answered`,
+          : `${overall.respondents} of ${overall.graduates ?? '—'} graduates on the masterlist answered`,
       icon: Users,
       bg: 'bg-green-50',
       color: 'text-green-600',
     },
     {
-      label: nextRange ? `Expected Employment (${nextRange.batch})` : 'Expected Employment',
+      label: nextRange ? `Likely Range for Batch ${nextRange.batch}` : 'Likely Range for Next Batch',
       value: nextRange ? `${pct(nextRange.low, 0)}–${pct(nextRange.high, 0)}` : '—',
       sub: nextRange
-        ? outlook?.basis === 'backtest'
-          ? 'Range from how much past batches varied'
-          : 'Default ±20-point range until more batches exist'
+        ? 'Employment if the batch does about as well as recent ones. Not a prediction.'
         : outlook?.reason ?? 'Not enough batches yet',
       icon: Target,
       bg: 'bg-amber-50',
@@ -196,35 +228,13 @@ export function AdminAnalyticsPredictions() {
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-br from-[#166534] to-[#14532d] rounded-2xl p-5 text-white">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2" style={{ fontWeight: 700, fontSize: '1.05rem' }}>
-              <Brain className="size-5" /> Employability Trend Analysis
-            </h2>
-            <p className="text-white/75 text-xs mt-1">
-              Observed outcomes for each batch with 95% intervals, the expected employment range for
-              the next {horizon === 1 ? 'batch' : `${horizon} batches`}, and the factors associated with
-              finding work within a year.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-white/70" style={{ fontWeight: 600 }}>Expected range:</span>
-            <div className="flex gap-1 bg-white/10 rounded-lg p-1">
-              {([1, 2] as const).map((h) => (
-                <button
-                  key={h}
-                  onClick={() => setHorizon(h)}
-                  className={`px-2.5 py-1 rounded-lg transition ${
-                    horizon === h ? 'bg-white text-[#166534]' : 'text-white/80 hover:text-white'
-                  }`}
-                  style={{ fontWeight: horizon === h ? 700 : 500 }}
-                >
-                  Next {h} {h === 1 ? 'batch' : 'batches'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+        <h2 className="flex items-center gap-2" style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+          <Brain className="size-5" /> Employability Trend Analysis
+        </h2>
+        <p className="text-white/75 text-xs mt-1">
+          What graduates reported for each batch and how sure those numbers are, a likely range for the next
+          batch, and the answers at graduation linked with finding work within a year.
+        </p>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -246,7 +256,7 @@ export function AdminAnalyticsPredictions() {
             {loading && <span className="text-gray-400 text-xs">Loading...</span>}
           </div>
           <p className="text-[11px] text-gray-400">
-            Changes the summary cards and time-to-first-job chart only. The batch trend always shows every batch.
+            Changes the summary cards and the time-to-first-job chart. The batch trend always shows every batch.
           </p>
         </div>
         {activeModel ? (
@@ -257,9 +267,25 @@ export function AdminAnalyticsPredictions() {
             {activeModel.metrics?.n ?? '—'}
           </p>
         ) : model ? (
-          <p className="text-xs text-gray-400">No model has passed the acceptance gate</p>
+          <p className="text-xs text-gray-400">No model has passed the acceptance checks yet</p>
         ) : null}
       </div>
+
+      {futureGraduation > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
+          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <p style={{ fontWeight: 700 }}>
+              {futureGraduation} graduate {futureGraduation === 1 ? 'record has' : 'records have'} a graduation date
+              in the future
+            </p>
+            <p className="mt-0.5">
+              They are left out of every figure on this page. Correct their graduation dates in Verified Graduates;
+              new registrations can no longer enter a future date.
+            </p>
+          </div>
+        </div>
+      )}
 
       {overall && overall.sample_accounts > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
@@ -318,15 +344,20 @@ export function AdminAnalyticsPredictions() {
         ))}
       </div>
 
-      <p className="text-xs text-gray-500 -mt-1 leading-relaxed flex gap-1.5">
+      <div className="text-xs text-gray-500 -mt-1 leading-relaxed flex gap-1.5">
         <Info className="size-3.5 shrink-0 mt-0.5 text-gray-400" />
-        <span>
-          <span style={{ fontWeight: 600 }}>Reading these numbers:</span> a 95% CI is the range the true rate
-          probably lies in, given how many graduates answered. Groups of fewer than 5 graduates are hidden, never
-          shown as 0%. The expected range reflects how much batch rates have moved in the past; it is not a
-          forecast.
-        </span>
-      </p>
+        <div className="space-y-1">
+          <p>
+            <span style={{ fontWeight: 600 }}>Why ranges?</span> Only some graduates answer, so every rate is an
+            estimate. &ldquo;Likely between&rdquo; is the 95% range: with this many answers, the true rate is very
+            probably inside it. Fewer answers means a wider range.
+          </p>
+          <p>
+            <span style={{ fontWeight: 600 }}>Hidden</span> means fewer than 5 graduates answered. The number is not
+            shown, because it would be unreliable and could point to individual people. It is never shown as 0%.
+          </p>
+        </div>
+      </div>
 
       <div className="grid gap-6 2xl:grid-cols-2">
         <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
@@ -360,11 +391,11 @@ export function AdminAnalyticsPredictions() {
             </div>
           </div>
 
-          <p className="text-gray-500 text-xs mb-4">
+          <p className="text-gray-500 text-xs mb-4 leading-relaxed">
             {trendView === 'employment'
-              ? 'Observed employment rate per batch among graduates in the labor force, with its 95% interval, followed by the expected range for the next batches.'
-              : 'Share of graduates who found a first job within 12 months of graduating, per batch, with its 95% interval.'}{' '}
-            Batches with fewer than 5 graduates leave a gap.
+              ? 'Each dot is the share of a batch that is employed, among graduates working or looking for work. The line through it is the likely range. The orange mark is the likely range for the next batch if it does about as well as recent batches.'
+              : 'Each dot is the share of a batch that found a first job within 12 months of graduating. The line through it is the likely range.'}{' '}
+            Hover a dot for details.
           </p>
           {trendSeries.length === 0 ? (
             <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
@@ -376,52 +407,34 @@ export function AdminAnalyticsPredictions() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
-                <Tooltip
-                  formatter={(v: number | [number, number]) =>
-                    Array.isArray(v) ? `${v[0]}% – ${v[1]}%` : `${v}%`
-                  }
-                />
+                <Tooltip content={<TrendTooltip />} />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                <Area
-                  type="monotone"
-                  dataKey="band"
-                  name="95% interval"
-                  stroke="none"
-                  fill="#166534"
-                  fillOpacity={0.15}
-                  isAnimationActive={false}
-                />
                 <Line
-                  type="monotone"
+                  type="linear"
                   dataKey="observed"
-                  name="Observed"
+                  name="Reported rate (line = likely range)"
                   stroke="#166534"
-                  strokeWidth={2.5}
+                  strokeWidth={2}
                   dot={{ r: 4, fill: '#166534' }}
                   activeDot={{ r: 6 }}
                   connectNulls={false}
-                />
-                {trendView === 'employment' && (
-                  <Area
-                    type="monotone"
-                    dataKey="expectedBand"
-                    name="Expected range"
-                    stroke="none"
-                    fill="#f59e0b"
-                    fillOpacity={0.22}
-                    isAnimationActive={false}
-                  />
-                )}
+                  isAnimationActive={false}
+                >
+                  <ErrorBar dataKey="observedError" width={6} strokeWidth={1.5} stroke="#166534" direction="y" />
+                </Line>
                 {trendView === 'employment' && (
                   <Line
-                    type="monotone"
-                    dataKey="expected"
-                    name="Middle of expected range"
+                    type="linear"
+                    dataKey="next"
+                    name="Likely range for the next batch"
                     stroke="#f59e0b"
                     strokeWidth={0}
-                    dot={{ r: 4, fill: '#f59e0b' }}
+                    dot={{ r: 5, fill: '#f59e0b' }}
                     connectNulls={false}
-                  />
+                    isAnimationActive={false}
+                  >
+                    <ErrorBar dataKey="nextError" width={8} strokeWidth={2} stroke="#f59e0b" direction="y" />
+                  </Line>
                 )}
               </ComposedChart>
             </ResponsiveContainer>
@@ -436,7 +449,8 @@ export function AdminAnalyticsPredictions() {
             </span>
           </h3>
           <p className="text-gray-500 text-xs mb-4">
-            Observed answers from graduates who have had a first job{tfj ? ` (n = ${tfj.n})` : ''}. Not a prediction.
+            How long graduates who have had a job took to get their first one{tfj ? ` (${tfj.n} graduates)` : ''}.
+            These are their answers, not a prediction.
           </p>
           {!tfj || tfj.n === 0 ? (
             <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm">
@@ -463,24 +477,26 @@ export function AdminAnalyticsPredictions() {
       {/* ── Factors from the active model ─────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
         <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-          <ShieldCheck className="size-4 text-[#166534]" /> Factors Associated with Finding Work Within a Year
+          <ShieldCheck className="size-4 text-[#166534]" /> What Is Linked with Finding Work Within a Year
         </h3>
-        <p className="text-gray-500 text-xs mt-1 mb-4">
-          From a logistic regression on answers known at graduation, shown only when the model passes every
-          acceptance check. An odds ratio above 1 means graduates with that answer were more likely to find work
-          within a year. It is an association, not a cause.
+        <p className="text-gray-500 text-xs mt-1 mb-4 leading-relaxed">
+          Compares graduates by their answers at graduation (honors, OJT, prior work, portfolio, scholarship). Shown
+          only when the model passes every acceptance check. &ldquo;2× the odds&rdquo; means graduates with that answer
+          were twice as likely, in odds terms, to find work within a year. It is a link, not proof of cause.
         </p>
 
         {factors.length === 0 ? (
           <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-xs text-gray-600 leading-relaxed">
-            {loading ? 'Loading...' : model?.message ?? 'No active model.'}
+            {loading
+              ? 'Loading...'
+              : 'No model has passed the acceptance checks yet, so no factors are shown. This is expected until enough graduates have answered: with too few answers, any "factor" would likely be chance.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['Factor', 'Odds ratio', '95% CI', 'Reading'].map((h) => (
+                  {['Answer at graduation', 'Odds ratio', 'Likely range', 'What it means'].map((h) => (
                     <th key={h} className="text-left text-gray-400 text-xs pb-2 pr-4" style={{ fontWeight: 600 }}>
                       {h}
                     </th>
@@ -499,16 +515,12 @@ export function AdminAnalyticsPredictions() {
                     </td>
                     <td className="py-2.5 pr-4 text-xs">
                       <span
-                        className={
-                          !f.clear ? 'text-gray-400' : f.odds_ratio >= 1 ? 'text-emerald-600' : 'text-red-500'
-                        }
+                        className={!f.clear ? 'text-gray-400' : f.odds_ratio >= 1 ? 'text-emerald-600' : 'text-red-500'}
                         style={{ fontWeight: 600 }}
                       >
                         {factorReading(f)}
                       </span>
-                      {f.clear && !f.stable && (
-                        <span className="ml-2 text-[11px] text-amber-600">unstable</span>
-                      )}
+                      {f.clear && !f.stable && <span className="ml-2 text-[11px] text-amber-600">unstable</span>}
                     </td>
                   </tr>
                 ))}
@@ -544,55 +556,56 @@ export function AdminAnalyticsPredictions() {
         )}
       </div>
 
-      {/* ── Top Skills ──────────────────────────────────────────────────────── */}
+      {/* ── Skills ──────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-              <Lightbulb className="size-4 text-[#166534]" /> Top Skills for Next Batches
-            </h3>
-            <p className="text-gray-500 text-xs mt-1">
-              Ranked by projected share of graduates holding the skill, employment lift, and growth. Lift compares
-              the employment rate of holders with all graduates; it is a correlation, and skills learned on the job
-              raise it too.
-            </p>
-          </div>
+        <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+          <Lightbulb className="size-4 text-[#166534]" /> Skills Graduates Listed
+        </h3>
+        <p className="text-gray-500 text-xs mt-1 leading-relaxed">
+          The most common skills among the {skills?.respondents ?? 0} graduates who filled in the skills checklist.
+          The last two columns compare graduates who listed the skill with those who did not, among graduates working
+          or looking for work. A difference is a link, not proof the skill got them hired; graduates also learn
+          skills on the job.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3 mb-4 text-[11px] text-gray-500">
+          <p className="rounded-lg bg-gray-50 px-3 py-2">
+            <span className="text-gray-700" style={{ fontWeight: 600 }}>Listed by:</span> share of graduates who
+            ticked the skill.
+          </p>
+          <p className="rounded-lg bg-gray-50 px-3 py-2">
+            <span className="text-gray-700" style={{ fontWeight: 600 }}>Employed, with vs without:</span> employment
+            rate of graduates who listed it, then of those who did not.
+          </p>
+          <p className="rounded-lg bg-gray-50 px-3 py-2">
+            <span className="text-gray-700" style={{ fontWeight: 600 }}>Points:</span> the gap between those two
+            rates. 80% vs 70% is 10 points.
+          </p>
         </div>
-        {skillForecast.length === 0 ? (
-          <div className="h-[160px] flex items-center justify-center text-gray-400 text-sm">
-            {loading ? 'Loading...' : 'Not enough data yet — skill trends need at least 2 graduation years with skill responses.'}
+        {!skills || skills.skills.length === 0 ? (
+          <div className="h-[140px] flex items-center justify-center text-gray-400 text-sm text-center px-6">
+            {loading
+              ? 'Loading...'
+              : `No skill has been listed by at least ${skills?.min_group ?? 5} graduates yet.`}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['#', 'Skill', 'Type', 'Current', 'Projected', 'Lift (correlation)', 'Trend'].map((h) => (
-                    <th key={h} className="text-left text-gray-400 text-xs pb-2 pr-4" style={{ fontWeight: 600 }}>
+                  {['Skill', 'Type', 'Listed by', 'Employed, with vs without', 'What it means'].map((h) => (
+                    <th key={h} className="text-left text-gray-400 text-xs pb-2 pr-4 whitespace-nowrap" style={{ fontWeight: 600 }}>
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {skillForecast.map((s, idx) => {
-                  const next = s.projections[0];
-                  const last = s.projections[s.projections.length - 1];
-                  const liftPct = (s.lift * 100).toFixed(1);
-                  const liftPositive = s.lift > 0.01;
-                  const liftNegative = s.lift < -0.01;
+                {skills.skills.map((s) => {
+                  const reading = skillReading(s, skills.min_group);
                   return (
                     <tr key={s.skill}>
-                      <td className="py-2.5 pr-4">
-                        <span className="text-gray-400 text-xs" style={{ fontWeight: 600 }}>
-                          {idx + 1}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <span className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>
-                          {s.skill}
-                        </span>
-                        <p className="text-gray-400 text-[11px] mt-0.5">{s.holders_total} graduates hold this</p>
+                      <td className="py-2.5 pr-4 text-gray-800 text-xs" style={{ fontWeight: 600 }}>
+                        {s.skill}
                       </td>
                       <td className="py-2.5 pr-4">
                         <span
@@ -604,54 +617,28 @@ export function AdminAnalyticsPredictions() {
                           {s.kind}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-4">
-                        <span className="text-gray-600 text-xs">{pct(s.current_share)}</span>
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <span className="text-green-600 text-xs" style={{ fontWeight: 600 }}>
-                          {next ? pct(next.projected_share) : '-'}
+                      <td className="py-2.5 pr-4 text-xs whitespace-nowrap">
+                        <span className="text-gray-700" style={{ fontWeight: 600 }}>{pct(s.share, 0)}</span>
+                        <span className="text-gray-400 ml-1">
+                          ({s.graduates} of {skills.respondents})
                         </span>
-                        {last && last !== next && (
-                          <span className="text-gray-400 text-[11px] ml-1">
-                            → {pct(last.projected_share)} ({last.batch})
-                          </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-xs whitespace-nowrap">
+                        {s.comparison ? (
+                          <>
+                            <span className="text-gray-700" style={{ fontWeight: 600 }}>
+                              {pct(s.comparison.with_rate, 0)} vs {pct(s.comparison.without_rate, 0)}
+                            </span>
+                            <span className="text-gray-400 ml-1">
+                              ({s.comparison.with_n} vs {s.comparison.without_n})
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 pr-4">
-                        <span
-                          className={`text-xs ${
-                            liftPositive ? 'text-emerald-600' : liftNegative ? 'text-red-500' : 'text-gray-400'
-                          }`}
-                          style={{ fontWeight: 600 }}
-                        >
-                          {s.lift > 0 ? '+' : ''}
-                          {liftPct} pp
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <span
-                          className={`inline-flex items-center gap-1 text-xs ${
-                            s.slope_per_year > 0.005
-                              ? 'text-emerald-600'
-                              : s.slope_per_year < -0.005
-                                ? 'text-red-500'
-                                : 'text-gray-400'
-                          }`}
-                          style={{ fontWeight: 600 }}
-                        >
-                          <ArrowUpRight
-                            className="size-3"
-                            style={{
-                              transform:
-                                s.slope_per_year < 0
-                                  ? 'rotate(90deg)'
-                                  : s.slope_per_year < 0.005
-                                    ? 'rotate(45deg)'
-                                    : 'none',
-                            }}
-                          />
-                          {(s.slope_per_year * 100).toFixed(2)}%/yr
-                        </span>
+                      <td className={`py-2.5 pr-4 text-xs ${reading.tone}`} style={{ fontWeight: 600 }}>
+                        {reading.text}
                       </td>
                     </tr>
                   );
@@ -660,17 +647,23 @@ export function AdminAnalyticsPredictions() {
             </table>
           </div>
         )}
+        {skills && skills.hidden_skills > 0 && (
+          <p className="text-[11px] text-gray-400 mt-3">
+            {skills.hidden_skills} other {skills.hidden_skills === 1 ? 'skill was' : 'skills were'} listed by fewer
+            than {skills.min_group} graduates and {skills.hidden_skills === 1 ? 'is' : 'are'} not shown.
+          </p>
+        )}
       </div>
 
       {/* ── BSIS Alignment (Observed) ───────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
         <div className="mb-3">
           <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Cpu className="size-4 text-[#166534]" /> BSIS-Aligned Employment (Observed)
+            <Cpu className="size-4 text-[#166534]" /> Jobs Related to BSIS
           </h3>
           <p className="text-gray-500 text-xs mt-1">
-            Share of graduates whose first or current job is related to BSIS. Observed values only; batches with
-            fewer than 5 answers are left out.
+            Share of graduates who said their first or current job is related to BSIS. Batches with fewer than 5
+            answers are left blank.
           </p>
         </div>
         {bsisSeries.length === 0 ? (
@@ -714,6 +707,7 @@ export function AdminAnalyticsPredictions() {
               </button>
             </div>
             <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <p className="text-xs text-gray-500 mb-3">Values in brackets are the likely (95%) range.</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -721,12 +715,12 @@ export function AdminAnalyticsPredictions() {
                       {[
                         'Batch',
                         'Graduates',
-                        'Respondents',
+                        'Answered',
                         'Response',
-                        'Employment (95% CI)',
-                        'Within 12 mo (95% CI)',
-                        'BSIS 1st Job',
-                        'BSIS Current',
+                        'Employed',
+                        'Work within 12 mo',
+                        'BSIS first job',
+                        'BSIS current job',
                       ].map((h) => (
                         <th
                           key={h}
@@ -746,7 +740,9 @@ export function AdminAnalyticsPredictions() {
                         </td>
                         <td className="py-2.5 pr-4 text-gray-600 text-xs">{b.graduates ?? '—'}</td>
                         <td className="py-2.5 pr-4 text-gray-600 text-xs">{b.respondents}</td>
-                        <td className="py-2.5 pr-4 text-gray-600 text-xs">{pct(b.response_rate, 0)}</td>
+                        <td className="py-2.5 pr-4 text-gray-600 text-xs">
+                          {b.masterlist_incomplete ? 'masterlist incomplete' : pct(b.response_rate, 0)}
+                        </td>
                         <td className="py-2.5 pr-4 text-gray-700 text-xs whitespace-nowrap" style={{ fontWeight: 600 }}>
                           {rateCell(b.employment_rate)}
                         </td>

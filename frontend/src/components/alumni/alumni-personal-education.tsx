@@ -56,6 +56,12 @@ function toYearMonth(raw: unknown): string {
     return '';
 }
 
+/** This month as "YYYY-MM" in local time: the latest possible graduation date. */
+function currentYearMonth(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function AlumniPersonalEducation() {
     const rawUser = sessionStorage.getItem('alumni_user');
     const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
@@ -126,6 +132,10 @@ export function AlumniPersonalEducation() {
         }
         if (!form.graduationDate.trim()) {
             setSaveError('Date of graduation is required.');
+            return;
+        }
+        if (form.graduationDate > currentYearMonth()) {
+            setSaveError('Date of graduation cannot be later than this month.');
             return;
         }
 
@@ -291,7 +301,7 @@ export function AlumniPersonalEducation() {
 
                             <div>
                                 <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Date of Graduation * <span className="text-gray-400 font-normal">(month &amp; year)</span></label>
-                                <input type="month" value={form.graduationDate} onChange={(e) => setF('graduationDate', e.target.value)} className={inputCls} />
+                                <input type="month" max={currentYearMonth()} value={form.graduationDate} onChange={(e) => setF('graduationDate', e.target.value)} className={inputCls} />
                             </div>
 
                             <div>

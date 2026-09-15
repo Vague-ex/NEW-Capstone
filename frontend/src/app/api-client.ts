@@ -778,20 +778,36 @@ export interface EmployabilityModelSummary {
     factors?: ModelFactor[];
 }
 
-export interface SkillProjection {
-    batch: number;
-    projected_share: number;
+export interface SkillComparison {
+    /** Employment rate of labor-force graduates who listed the skill. */
+    with_rate: number;
+    with_n: number;
+    /** Employment rate of labor-force graduates who did not. */
+    without_rate: number;
+    without_n: number;
+    difference_points: number;
+    difference_low_points: number;
+    difference_high_points: number;
+    /** The 95% interval for the difference does not include zero. */
+    clear: boolean;
 }
 
-export interface SkillForecast {
+export interface SkillRow {
     skill: string;
     kind: 'technical' | 'soft';
-    current_share: number;
-    lift: number;
-    slope_per_year: number;
-    holders_total: number;
-    projections: SkillProjection[];
-    relevance_score: number;
+    graduates: number;
+    /** Share of graduates who listed any skill. */
+    share: number;
+    /** Null when either group has fewer than `min_group` graduates. */
+    comparison: SkillComparison | null;
+}
+
+export interface SkillSummary {
+    respondents: number;
+    labor_force: number;
+    min_group: number;
+    hidden_skills: number;
+    skills: SkillRow[];
 }
 
 export interface AnalyticsPredictionsResponse {
@@ -802,7 +818,9 @@ export interface AnalyticsPredictionsResponse {
     per_batch: BatchIndicators[];
     outlook: EmploymentOutlook;
     model: EmployabilityModelSummary;
-    skill_forecast: SkillForecast[];
+    skills: SkillSummary;
+    /** Records left out of every figure, e.g. graduation dates in the future. */
+    data_issues: { future_graduation: number };
     timestamp: string;
 }
 

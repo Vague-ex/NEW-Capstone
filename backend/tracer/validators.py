@@ -69,9 +69,12 @@ class FieldValidationRules:
     TIME_TO_HIRE_VALID = {1, 3, 4.5, 9, 18, 30}
     # Was hard-coded (2020, 2025), which rejected real graduates: the masterlist
     # holds 2019 batches and a 2026 graduate is already registered. A fixed upper
-    # bound also silently breaks every January. Anchored to the current year so
-    # the rule ages with the system.
-    BATCH_RANGE = (2000, datetime.now().year + 1)
+    # bound also silently breaks every January, so it is anchored to the current
+    # year. It stops AT the current year: nobody can have graduated in the
+    # future, and allowing next year let 2027 records in, which then appeared as
+    # a batch in analytics. _validate_educational_background reads the year at
+    # call time so the bound moves without a server restart.
+    BATCH_RANGE = (2000, datetime.now().year)
     AGE_RANGE = (18, 70)
 
     # Count Ranges
@@ -239,15 +242,24 @@ class SurveyDataValidator:
             else:
                 self.field_completeness[field] = True
 
-        # Validate graduation year range
+        # Validate graduation year range. The upper bound is today's year, read
+        # now rather than from the class attribute, so it moves with the calendar.
+        now = datetime.now()
         if data.get('graduation_year'):
             try:
                 year = int(data['graduation_year'])
-                if not (FieldValidationRules.BATCH_RANGE[0] <= year <= FieldValidationRules.BATCH_RANGE[1]):
+                if year > now.year:
                     self.errors.append({
                         'section': 'educational_background',
                         'field': 'graduation_year',
-                        'error': f'Year {year} outside valid range {FieldValidationRules.BATCH_RANGE}'
+                        'error': f'Graduation year {year} is in the future',
+                        'blocking': True,
+                    })
+                elif year < FieldValidationRules.BATCH_RANGE[0]:
+                    self.errors.append({
+                        'section': 'educational_background',
+                        'field': 'graduation_year',
+                        'error': f'Year {year} outside valid range ({FieldValidationRules.BATCH_RANGE[0]}, {now.year})'
                     })
             except (ValueError, TypeError):
                 self.errors.append({
@@ -255,6 +267,18 @@ class SurveyDataValidator:
                     'field': 'graduation_year',
                     'error': 'Invalid year format'
                 })
+
+        # A graduation month later than this month is a typing mistake, and it
+        # would show up in analytics as a batch that has not graduated yet.
+        import re
+        match = re.match(r'^(\d{4})-(\d{2})', str(data.get('graduation_date') or '').strip())
+        if match and (int(match.group(1)), int(match.group(2))) > (now.year, now.month):
+            self.errors.append({
+                'section': 'educational_background',
+                'field': 'graduation_date',
+                'error': 'Date of graduation cannot be later than this month',
+                'blocking': True,
+            })
 
     def _validate_academic_preemployment(self, data: Dict):
         """Validate academic & pre-employment profile fields"""

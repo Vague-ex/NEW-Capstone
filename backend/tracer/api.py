@@ -1938,131 +1938,6 @@ class SurveyDataRetrievalView(APIView):
 # instead of predicting employability (documentations/10-ml-pipeline-methodology.md,
 # sections 11 to 13).
 
-def _compute_skill_forecast(n_future: int = 2, top_n: int = 10) -> list[dict]:
-    """Per-skill batch-share linear trend, projected forward N batches.
-
-    Pulls live data from CompetencyProfile (technical + soft skill JSON arrays)
-    joined with AlumniProfile.graduation_year and EmploymentProfile.employment_status.
-    Ranks skills by a relevance score that blends projected demand share with
-    employment-lift (how much more likely a holder is to be employed).
-    """
-    import numpy as np
-    from users.models import AlumniProfile
-
-    EMPLOYED_VALUES = {"employed_full_time", "employed_part_time", "self_employed"}
-
-    profiles = (
-        AlumniProfile.objects
-        .select_related("alumni")
-        .prefetch_related("alumni__competency_profiles", "alumni__employment_profiles")
-        .filter(graduation_year__isnull=False)
-    )
-
-    rows: list[dict] = []
-    for p in profiles:
-        comp = p.alumni.competency_profiles.first()
-        if not comp:
-            continue
-        emp = p.alumni.employment_profiles.first()
-        is_employed = bool(emp and emp.employment_status in EMPLOYED_VALUES)
-        tech = [
-            s.get("name") for s in (comp.technical_skills or [])
-            if isinstance(s, dict) and s.get("selected") and s.get("name")
-        ]
-        soft = [
-            s.get("name") for s in (comp.soft_skills or [])
-            if isinstance(s, dict) and s.get("selected") and s.get("name")
-        ]
-        rows.append({
-            "batch": int(p.graduation_year),
-            "employed": is_employed,
-            "tech": set(tech),
-            "soft": set(soft),
-        })
-
-    if len(rows) < 5:
-        return []
-
-    batches = sorted({r["batch"] for r in rows})
-    if len(batches) < 2:
-        return []
-    latest = max(batches)
-
-    skill_universe: dict[str, str] = {}  # name → 'technical' | 'soft'
-    for r in rows:
-        for s in r["tech"]:
-            skill_universe[s] = "technical"
-        for s in r["soft"]:
-            skill_universe.setdefault(s, "soft")
-
-    batch_totals: dict[int, int] = {c: 0 for c in batches}
-    batch_skill_holders: dict[str, dict[int, int]] = {
-        s: {c: 0 for c in batches} for s in skill_universe
-    }
-    employed_total = 0
-    employed_with: dict[str, int] = {s: 0 for s in skill_universe}
-    n_total = len(rows)
-
-    for r in rows:
-        batch_totals[r["batch"]] += 1
-        if r["employed"]:
-            employed_total += 1
-        for s in r["tech"] | r["soft"]:
-            batch_skill_holders[s][r["batch"]] += 1
-            if r["employed"]:
-                employed_with[s] += 1
-
-    base_employment_rate = employed_total / n_total if n_total else 0.0
-    x = np.array(batches, dtype=float)
-
-    forecast_years = [latest + k for k in range(1, n_future + 1)]
-    out: list[dict] = []
-
-    for skill, kind in skill_universe.items():
-        shares = np.array([
-            (batch_skill_holders[skill][c] / batch_totals[c]) if batch_totals[c] else 0.0
-            for c in batches
-        ], dtype=float)
-
-        if np.std(x) > 0 and np.std(shares) > 0:
-            slope, intercept = np.polyfit(x, shares, 1)
-        else:
-            slope, intercept = 0.0, float(shares.mean())
-
-        projections = []
-        for fy in forecast_years:
-            projected = float(np.clip(slope * fy + intercept, 0.0, 1.0))
-            projections.append({"batch": fy, "projected_share": projected})
-
-        holders_total = sum(batch_skill_holders[skill][c] for c in batches)
-        if holders_total >= 3:
-            holder_emp_rate = employed_with[skill] / holders_total
-            lift = holder_emp_rate - base_employment_rate
-        else:
-            lift = 0.0
-
-        latest_share = (
-            batch_skill_holders[skill][latest] / batch_totals[latest]
-            if batch_totals[latest] else 0.0
-        )
-        next_share = projections[0]["projected_share"] if projections else latest_share
-
-        relevance = 0.55 * next_share + 0.30 * max(lift, 0.0) + 0.15 * max(slope * 5, 0.0)
-
-        out.append({
-            "skill": skill,
-            "kind": kind,
-            "current_share": float(latest_share),
-            "lift": float(lift),
-            "slope_per_year": float(slope),
-            "holders_total": int(holders_total),
-            "projections": projections,
-            "relevance_score": float(relevance),
-        })
-
-    out.sort(key=lambda r: r["relevance_score"], reverse=True)
-    return out[:top_n]
-
 class AdminAnalyticsPredictionsView(APIView):
     """
     GET /api/admin/analytics/employability-predictions/?batch=YYYY&horizon=1|2
@@ -2070,7 +1945,7 @@ class AdminAnalyticsPredictionsView(APIView):
     Observed indicators per batch (sample sizes, Wilson 95% intervals, small
     groups suppressed), the expected employment range for the next batches,
     the active "employed within 12 months" model if one has passed the
-    acceptance gate, and the skill ranking. `batch` narrows the overall
+    acceptance gate, and a summary of the skills graduates listed. `batch` narrows the overall
     summary only; the per-batch list always covers every batch.
     """
 
@@ -2119,9 +1994,13 @@ class AdminAnalyticsPredictionsView(APIView):
             horizon=horizon,
         )
         try:
-            payload["skill_forecast"] = _compute_skill_forecast(n_future=horizon, top_n=10)
+            payload["skills"] = employability.skill_summary(employability.reportable(frame))
         except Exception:  # noqa: BLE001
-            payload["skill_forecast"] = []
+            logging.getLogger(__name__).exception("Employability analytics: skill summary failed")
+            payload["skills"] = {
+                "respondents": 0, "labor_force": 0, "min_group": employability.MIN_GROUP,
+                "hidden_skills": 0, "skills": [],
+            }
         payload["timestamp"] = timezone.now().isoformat()
         return Response(payload, status=status.HTTP_200_OK)
 

@@ -2584,6 +2584,14 @@ class AlumniEmploymentUpdateView(APIView):
             value = incoming_survey_data.get(key)
             if isinstance(value, str) and (problem := rule(value)):
                 field_errors[key] = f"{label} {problem}."
+        # Same rule as registration: nobody can have graduated in the future.
+        graduation_value = incoming_survey_data.get("graduationDate", incoming_survey_data.get("graduation_date"))
+        if isinstance(graduation_value, str):
+            import re
+            match = re.match(r"^(\d{4})-(\d{2})", graduation_value.strip())
+            today = date.today()
+            if match and (int(match.group(1)), int(match.group(2))) > (today.year, today.month):
+                field_errors["graduationDate"] = "Date of graduation cannot be later than this month."
         if field_errors:
             return Response(
                 {"detail": " ".join(field_errors.values()), "field_errors": field_errors},

@@ -103,6 +103,7 @@ FRAME_COLUMNS = [
     *MODEL_FEATURES,
     "employment_status", "has_outcome", "employed_now", "in_labor_force",
     "time_to_hire_months", TARGET, "bsis_first", "bsis_current", "is_sample",
+    "future_graduation",
 ]
 
 _YEAR_MONTH = re.compile(r"^(\d{4})-(\d{2})$")
@@ -124,6 +125,18 @@ def months_since_graduation(graduation_date, graduation_year, as_of) -> int | No
     else:
         return None
     return max(0, (as_of.year - year) * 12 + (as_of.month - month))
+
+
+def is_future_graduation(graduation_date, graduation_year, as_of) -> bool:
+    """A graduation month (or, without one, a year) later than `as_of`.
+
+    Such records are data-entry mistakes. Registration now refuses them, but
+    older rows exist, so analytics leaves them out and reports how many.
+    """
+    match = _YEAR_MONTH.match((graduation_date or "").strip())
+    if match:
+        return (int(match.group(1)), int(match.group(2))) > (as_of.year, as_of.month)
+    return bool(graduation_year) and int(graduation_year) > as_of.year
 
 
 def employed_within_12_months(status, time_to_hire_months, months_since) -> int | None:
@@ -239,6 +252,7 @@ def build_graduate_frame(as_of=None):
                 None if not emp or emp.current_job_related_to_bsis is None else int(emp.current_job_related_to_bsis)
             ),
             "is_sample": is_sample_account(account),
+            "future_graduation": is_future_graduation(profile.graduation_date, profile.graduation_year, now),
         })
     return pd.DataFrame(rows, columns=FRAME_COLUMNS)
 
@@ -246,13 +260,26 @@ def build_graduate_frame(as_of=None):
 def masterlist_counts() -> dict[int, int]:
     """Graduates per batch on the masterlist: the denominator for response rates."""
     from django.db.models import Count
+    from django.utils import timezone
     from users.models import GraduateMasterRecord
 
     return {
         int(row["batch_year"]): int(row["n"])
-        for row in GraduateMasterRecord.objects.values("batch_year").annotate(n=Count("id"))
+        for row in (
+            GraduateMasterRecord.objects
+            .filter(batch_year__lte=timezone.now().year)
+            .values("batch_year")
+            .annotate(n=Count("id"))
+        )
         if row["batch_year"]
     }
+
+
+def reportable(frame):
+    """Rows that can be analyzed: records with a future graduation date are left out."""
+    if "future_graduation" not in frame.columns:
+        return frame
+    return frame[~frame["future_graduation"].fillna(False).astype(bool)]
 
 
 # ── Descriptive indicators ────────────────────────────────────────────────────
@@ -417,6 +444,10 @@ def model_summary(active) -> dict:
 
 
 def analytics_payload(frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int = 1) -> dict:
+    future_graduation = (
+        int(frame["future_graduation"].fillna(False).astype(bool).sum()) if "future_graduation" in frame.columns else 0
+    )
+    frame = reportable(frame)
     batches = sorted({int(b) for b in frame["batch"].dropna().unique()} | set(masterlist))
     per_batch = []
     for value in batches:
@@ -435,6 +466,125 @@ def analytics_payload(frame, masterlist: dict[int, int], active=None, batch: int
         "per_batch": per_batch,
         "outlook": employment_outlook(per_batch, horizon),
         "model": model_summary(active),
+        "data_issues": {"future_graduation": future_graduation},
+    }
+
+
+# ── Skills ────────────────────────────────────────────────────────────────────
+
+# The registration form's checklists. Stored skill lists also contain free-text
+# entries and a few soft skills saved under technical, so the type comes from
+# these lists whenever a name matches.
+TECHNICAL_SKILLS = (
+    "Programming/Software Development", "Web Development", "Mobile App Development",
+    "Database Management", "Network Administration", "Cloud Computing",
+    "Data Analytics/Business Intelligence", "System Analysis and Design",
+    "Technical Support/Troubleshooting", "Project Management", "UI/UX Design",
+    "Cybersecurity/Information Security",
+)
+SOFT_SKILLS = (
+    "Oral Communication", "Written Communication", "Teamwork/Collaboration",
+    "Problem-solving/Critical Thinking", "Adaptability/Flexibility", "Leadership",
+    "Customer Service Orientation", "Attention to Detail", "Ability to Work Under Pressure",
+    "Time Management",
+)
+
+
+def skill_key(name: str) -> str:
+    """Case- and spacing-insensitive key, so "Technical Support / Troubleshooting"
+    and "Technical Support/Troubleshooting" count as one skill."""
+    return re.sub(r"\s+", " ", re.sub(r"\s*/\s*", "/", (name or "").strip())).casefold()
+
+
+_CANONICAL_SKILLS = {
+    **{skill_key(name): (name, "technical") for name in TECHNICAL_SKILLS},
+    **{skill_key(name): (name, "soft") for name in SOFT_SKILLS},
+}
+
+
+def rate_difference(k1: int, n1: int, k2: int, n2: int) -> tuple[float, float, float]:
+    """Difference of two proportions with a Newcombe 95% interval (from the two
+    Wilson intervals), which stays sensible when a group is all 1s or all 0s."""
+    p1, p2 = k1 / n1, k2 / n2
+    low1, high1 = wilson_interval(k1, n1)
+    low2, high2 = wilson_interval(k2, n2)
+    difference = p1 - p2
+    low = difference - math.sqrt((p1 - low1) ** 2 + (high2 - p2) ** 2)
+    high = difference + math.sqrt((high1 - p1) ** 2 + (p2 - low2) ** 2)
+    return difference, low, high
+
+
+def skill_summary(frame, top_n: int = 10) -> dict:
+    """The skills graduates listed most, and how employment compares with and
+    without each one.
+
+    - share: graduates who listed the skill, out of graduates who listed any skill.
+    - comparison: employment rate of graduates in the labor force who listed the
+      skill vs those who did not, with a 95% interval for the difference. Given
+      only when both groups have MIN_GROUP or more graduates. It is a link, not a
+      cause: graduates also pick up skills at work.
+    Skills listed by fewer than MIN_GROUP graduates are counted but not shown.
+    """
+    from tracer.models import CompetencyProfile
+
+    ids = {str(a) for a in frame["alumni_id"]}
+    employed = {
+        str(row.alumni_id): int(row.employed_now)
+        for row in frame.itertuples()
+        if row.in_labor_force == 1 and not _is_missing(row.employed_now)
+    }
+
+    holders: dict[str, set[str]] = {}
+    names: dict[str, tuple[str, str]] = {}
+    listed_any: set[str] = set()
+    profiles = CompetencyProfile.objects.filter(alumni_id__in=ids).values("alumni_id", "technical_skills", "soft_skills")
+    for profile in profiles:
+        alumni = str(profile["alumni_id"])
+        for list_kind, items in (("technical", profile["technical_skills"]), ("soft", profile["soft_skills"])):
+            for item in items or []:
+                if not (isinstance(item, dict) and item.get("selected") and str(item.get("name") or "").strip()):
+                    continue
+                key = skill_key(item["name"])
+                names.setdefault(key, _CANONICAL_SKILLS.get(key, (str(item["name"]).strip(), list_kind)))
+                holders.setdefault(key, set()).add(alumni)
+                listed_any.add(alumni)
+
+    respondents = len(listed_any)
+    labor_force = {a for a in listed_any if a in employed}
+    rows = []
+    for key, people in holders.items():
+        if len(people) < MIN_GROUP:
+            continue
+        name, kind = names[key]
+        with_skill = [employed[a] for a in people & labor_force]
+        without_skill = [employed[a] for a in labor_force - people]
+        comparison = None
+        if len(with_skill) >= MIN_GROUP and len(without_skill) >= MIN_GROUP:
+            difference, low, high = rate_difference(sum(with_skill), len(with_skill), sum(without_skill), len(without_skill))
+            comparison = {
+                "with_rate": sum(with_skill) / len(with_skill),
+                "with_n": len(with_skill),
+                "without_rate": sum(without_skill) / len(without_skill),
+                "without_n": len(without_skill),
+                "difference_points": difference * 100,
+                "difference_low_points": low * 100,
+                "difference_high_points": high * 100,
+                "clear": bool(low > 0 or high < 0),
+            }
+        rows.append({
+            "skill": name,
+            "kind": kind,
+            "graduates": len(people),
+            "share": len(people) / respondents,
+            "comparison": comparison,
+        })
+    rows.sort(key=lambda r: (-r["graduates"], r["skill"]))
+    return {
+        "respondents": respondents,
+        "labor_force": len(labor_force),
+        "min_group": MIN_GROUP,
+        "hidden_skills": sum(1 for people in holders.values() if len(people) < MIN_GROUP),
+        "skills": rows[:top_n],
     }
 
 
@@ -775,6 +925,7 @@ def simulated_frame(scenario: str = "harsh", signal: str = "moderate", responden
         "bsis_first": np.nan,
         "bsis_current": np.nan,
         "is_sample": False,
+        "future_graduation": False,
     })
     details = {"scenario": scenario, "signal": signal, "respondents": int(len(frame)), "seed": seed}
     return frame[FRAME_COLUMNS], details

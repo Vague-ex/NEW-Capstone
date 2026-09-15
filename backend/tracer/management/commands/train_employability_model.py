@@ -38,10 +38,16 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         if opts["source"] == "database":
             frame = employability.build_graduate_frame()
+            future = int(frame["future_graduation"].astype(bool).sum())
+            frame = employability.reportable(frame)
             samples = int(frame["is_sample"].astype(bool).sum())
             if not opts["include_samples"]:
                 frame = frame[~frame["is_sample"].astype(bool)]
-            details = {"graduates": int(len(frame)), "sample_accounts_excluded": 0 if opts["include_samples"] else samples}
+            details = {
+                "graduates": int(len(frame)),
+                "sample_accounts_excluded": 0 if opts["include_samples"] else samples,
+                "future_graduation_excluded": future,
+            }
         else:
             frame, details = employability.simulated_frame(
                 scenario=opts["scenario"], signal=opts["signal"],

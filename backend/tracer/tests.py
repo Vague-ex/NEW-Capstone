@@ -946,7 +946,7 @@ class RegistrationValidationGateTests(SimpleTestCase):
 		2026 graduate is already registered, so the old bound rejected real
 		people and would have broken again every January.
 		"""
-		for year in (2019, 2026):
+		for year in (2019, timezone.now().year):
 			result = validate_registration_payload(
 				self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=year)
 			)
@@ -956,6 +956,31 @@ class RegistrationValidationGateTests(SimpleTestCase):
 			self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=2999)
 		)
 		self.assertFalse(future['is_valid'])
+
+	def test_future_graduation_dates_are_refused(self):
+		"""
+		Allowing next year let 2027 graduates register, and they then appeared in
+		analytics as a batch that has not graduated yet.
+		"""
+		today = timezone.now()
+		next_year = validate_registration_payload(
+			self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=today.year + 1)
+		)
+		self.assertFalse(next_year['is_valid'])
+
+		year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+		next_month = validate_registration_payload(
+			self.CLEAN_SURVEY,
+			dict(self.CLEAN_PERSONAL, graduation_year=year, graduation_date=f'{year}-{month:02d}'),
+		)
+		self.assertFalse(next_month['is_valid'])
+		self.assertTrue({'graduation_date', 'graduation_year'} & set(next_month['field_errors']))
+
+		this_month = validate_registration_payload(
+			self.CLEAN_SURVEY,
+			dict(self.CLEAN_PERSONAL, graduation_year=today.year, graduation_date=f'{today.year}-{today.month:02d}'),
+		)
+		self.assertTrue(this_month['is_valid'], this_month.get('field_errors'))
 
 	def test_month_and_year_birth_dates_do_not_error(self):
 		"""
@@ -1006,6 +1031,7 @@ def _graduate_rows(n, strength, seed=7):
 		"bsis_first": np.nan,
 		"bsis_current": np.nan,
 		"is_sample": False,
+		"future_graduation": False,
 	})
 	return frame[FRAME_COLUMNS]
 
@@ -1175,3 +1201,69 @@ class EmployabilityApiTests(TestCase):
 		titles = [s["title"] for s in response.json()["sections"]]
 		self.assertIn("Cross-Batch Timeline", titles)
 		self.assertIn("Model Acceptance Checks", titles)
+
+
+class EmployabilityDataGuardTests(SimpleTestCase):
+	"""Future graduation dates stay out of analytics, and skills are counted once."""
+
+	def test_future_graduation_dates_are_detected(self):
+		from datetime import datetime
+		from tracer.employability import is_future_graduation
+
+		now = datetime(2026, 9, 16)
+		self.assertTrue(is_future_graduation("2027-04", 2027, now))
+		self.assertTrue(is_future_graduation("2026-10", 2026, now))
+		self.assertFalse(is_future_graduation("2026-09", 2026, now))
+		self.assertTrue(is_future_graduation("", 2027, now))
+		self.assertFalse(is_future_graduation("", 2026, now))
+
+	def test_future_graduates_are_left_out_and_counted(self):
+		from tracer.employability import analytics_payload
+
+		frame = _graduate_rows(40, strength=1.0)
+		frame.loc[frame.index[:3], "batch"] = 2027
+		frame.loc[frame.index[:3], "future_graduation"] = True
+		payload = analytics_payload(frame, {2024: 10})
+		self.assertEqual(payload["data_issues"]["future_graduation"], 3)
+		self.assertNotIn(2027, [b["batch"] for b in payload["per_batch"]])
+		self.assertEqual(payload["overall"]["respondents"], 37)
+
+	def test_expected_range_follows_the_latest_reported_batch(self):
+		from tracer.employability import employment_outlook
+
+		batches = [
+			{"batch": 2023, "employment_rate": {"rate": 0.7}},
+			{"batch": 2024, "employment_rate": {"rate": 0.8}},
+			{"batch": 2027, "employment_rate": {"rate": None}},
+		]
+		self.assertEqual(employment_outlook(batches)["years"][0]["batch"], 2025)
+
+	def test_skill_names_are_merged_and_typed_from_the_form_lists(self):
+		from tracer.employability import _CANONICAL_SKILLS, rate_difference, skill_key
+
+		self.assertEqual(skill_key("Technical Support / Troubleshooting"), skill_key("technical support/troubleshooting"))
+		self.assertEqual(_CANONICAL_SKILLS[skill_key("Written Communication")][1], "soft")
+		self.assertEqual(_CANONICAL_SKILLS[skill_key("Cloud Computing")][1], "technical")
+		difference, low, high = rate_difference(9, 10, 5, 10)
+		self.assertAlmostEqual(difference, 0.4)
+		self.assertLess(low, 0.4)
+		self.assertGreater(high, 0.4)
+
+
+class GraduationDateEditTests(TestCase):
+	"""The Personal & Education page saves through the employment update endpoint."""
+
+	def test_portal_refuses_a_future_graduation_date(self):
+		user = User.objects.create_user(email="future-grad@example.com", password="TestPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(alumni=account, first_name="Ana", last_name="Reyes", graduation_year=2022)
+		today = timezone.now()
+		year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+		response = APIClient().post(
+			f"/api/auth/alumni/account/{account.id}/employment/",
+			{"survey_data": {"graduationDate": f"{year}-{month:02d}"}},
+			format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(user.id)}",
+		)
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("graduationDate", response.json()["field_errors"])

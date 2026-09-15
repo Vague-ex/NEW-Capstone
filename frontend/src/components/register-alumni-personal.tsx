@@ -1830,6 +1830,7 @@ export default function RegisterAlumniPersonal({
                   </label>
                   <input
                     type="month"
+                    max={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`}
                     value={form.graduationDate}
                     onChange={(e) => {
                       const v = e.target.value;  // "YYYY-MM" from <input type="month">
