@@ -406,13 +406,14 @@ function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
+function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab = 'profile' }: {
   a: AlumniRecord;
   onClose: () => void;
   bsisCore: string[];
   onReminderSent: (alumniId: string, sentAt: string) => void;
+  initialTab?: ModalTab;
 }) {
-  const [tab, setTab] = useState<ModalTab>('profile');
+  const [tab, setTab] = useState<ModalTab>(initialTab);
   const [reminder, setReminder] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; message?: string }>({ state: 'idle' });
   // Bumped after a reminder goes out so the History tab reloads with it.
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -481,6 +482,19 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
               <RetraceBadge a={a} />
             </div>
           </div>
+          {/* Always visible, for every graduate: the history is not only for overdue records. */}
+          {tab !== 'history' && (
+            <button
+              type="button"
+              onClick={() => setTab('history')}
+              className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-[#166534]/5 px-2.5 sm:px-3 text-xs text-[#166534] transition hover:bg-[#166534]/15"
+              style={{ fontWeight: 600 }}
+            >
+              <History className="size-4" />
+              <span className="sm:hidden">History</span>
+              <span className="hidden sm:inline">View history</span>
+            </button>
+          )}
           <button onClick={onClose} aria-label="Close" className="flex size-10 items-center justify-center rounded-lg hover:bg-gray-100 transition shrink-0">
             <X className="size-5 text-gray-500" />
           </button>
@@ -510,28 +524,16 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent }: {
                 )}
               </div>
             </div>
-            <div className="flex gap-2 shrink-0">
-              {tab !== 'history' && (
-                <button
-                  type="button"
-                  onClick={() => setTab('history')}
-                  className="inline-flex flex-1 sm:flex-none items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg border border-red-200 bg-white hover:bg-red-100 text-red-700 text-xs transition"
-                  style={{ fontWeight: 600 }}
-                >
-                  <History className="size-3.5" /> View history
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void handleSendReminder()}
-                disabled={reminder.state === 'sending'}
-                className="inline-flex flex-1 sm:flex-none items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs transition"
-                style={{ fontWeight: 600 }}
-              >
-                <Send className="size-3.5" />
-                {reminder.state === 'sending' ? 'Sending…' : reminder.state === 'sent' ? 'Send again' : 'Send reminder email'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => void handleSendReminder()}
+              disabled={reminder.state === 'sending'}
+              className="inline-flex items-center justify-center gap-1.5 min-h-11 sm:min-h-0 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs shrink-0 transition"
+              style={{ fontWeight: 600 }}
+            >
+              <Send className="size-3.5" />
+              {reminder.state === 'sending' ? 'Sending…' : reminder.state === 'sent' ? 'Send again' : 'Send reminder email'}
+            </button>
           </div>
         )}
 
@@ -870,6 +872,8 @@ export function AdminVerified() {
   // stays clean; this toggle reveals them (they power the analytics).
   const [showSample, setShowSample] = useState(false);
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
+  // Which tab the details window opens on ("History" button opens it straight there).
+  const [modalTab, setModalTab] = useState<ModalTab>('profile');
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
@@ -1077,7 +1081,7 @@ export function AdminVerified() {
                   <li key={String(a.id ?? a.email ?? safeName(a))}>
                     <button
                       type="button"
-                      onClick={() => setModalAlumni(a)}
+                      onClick={() => { setModalTab('profile'); setModalAlumni(a); }}
                       className="w-full flex items-start gap-3 px-4 py-3.5 text-left active:bg-gray-100 transition"
                     >
                       <div className="flex size-10 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
@@ -1171,11 +1175,19 @@ export function AdminVerified() {
                           </td>
                           <td className="px-4 py-3 text-gray-500 text-xs max-w-[100px] truncate">{a.workCity ?? '-'}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <button onClick={() => setModalAlumni(a)}
-                              className="text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-1.5 rounded-lg transition"
-                              style={{ fontWeight: 600 }}>
-                              View Details
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button onClick={() => { setModalTab('profile'); setModalAlumni(a); }}
+                                className="text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-1.5 rounded-lg transition"
+                                style={{ fontWeight: 600 }}>
+                                View Details
+                              </button>
+                              <button onClick={() => { setModalTab('history'); setModalAlumni(a); }}
+                                aria-label={`Retracking history for ${safeName(a)}`}
+                                className="inline-flex items-center gap-1 text-gray-600 border border-gray-200 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded-lg transition"
+                                style={{ fontWeight: 600 }}>
+                                <History className="size-3.5" /> History
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       </Fragment>
@@ -1225,8 +1237,8 @@ export function AdminVerified() {
 
       {/* Detail Modal */}
       {modalAlumni && (
-        <GraduateDetailModal a={modalAlumni} onClose={() => setModalAlumni(null)} bsisCore={bsisCore}
-          onReminderSent={handleReminderSent} />
+        <GraduateDetailModal key={`${modalAlumni.id}-${modalTab}`} a={modalAlumni} onClose={() => setModalAlumni(null)} bsisCore={bsisCore}
+          onReminderSent={handleReminderSent} initialTab={modalTab} />
       )}
     </PortalLayout>
   );
