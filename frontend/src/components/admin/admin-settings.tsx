@@ -397,10 +397,12 @@ function ItemRow({
     <div className="flex items-center gap-2 px-2 lg:px-3 py-2 rounded-xl hover:bg-gray-50 transition">
       <div className="flex-1 min-w-0">
         <InlineEdit value={name} onSave={onRename} className="w-full" />
-        {/* On phones the badge sits under the name instead of squeezing it. */}
+        {/* The badge sits under the name at every width. Beside it, a long
+            industry ("Professional and Business Services") left the name a few
+            letters per line in the three-column desktop grid. */}
         {badge && (
           <span
-            className={`lg:hidden mt-0.5 inline-block max-w-full truncate align-top text-[11px] px-2 py-0.5 rounded-full ${
+            className={`mt-0.5 inline-block max-w-full truncate align-top text-[11px] px-2 py-0.5 rounded-full ${
               badgeTone === 'navy'
                 ? 'bg-[#166534]/10 text-[#166534]'
                 : 'bg-gray-100 text-gray-500'
@@ -411,18 +413,6 @@ function ItemRow({
           </span>
         )}
       </div>
-      {badge && (
-        <span
-          className={`hidden lg:inline text-[11px] px-2 py-0.5 rounded-full shrink-0 ${
-            badgeTone === 'navy'
-              ? 'bg-[#166534]/10 text-[#166534]'
-              : 'bg-gray-100 text-gray-500'
-          }`}
-          style={{ fontWeight: 600 }}
-        >
-          {badge}
-        </span>
-      )}
       <DeleteButton onConfirm={onDelete} />
     </div>
   );
