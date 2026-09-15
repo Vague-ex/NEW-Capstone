@@ -27,7 +27,18 @@ Inputs and Data Sources
 - DS1 users_graduate_master_records: graduation batch and batch linkage.
 - DS6 reference tables: normalized skills, categories, job titles, and regions.
 
-Current Implementation Status
+Branch `ml-redesign` (Phase A, 2026-09-16)
+- Implemented in `backend/tracer/employability.py`: observed indicators with Wilson
+  95% intervals (groups under 5 hidden), response rate against the masterlist, time
+  to first job, an expected employment range instead of a forecast, and a logistic
+  regression for "employed within 12 months" using answers known at graduation only.
+- A model is shown only after it passes the acceptance gate. Train with
+  `python manage.py train_employability_model [--source simulated] [--activate]`;
+  versions are saved in `backend/ml/models/employability/`.
+- Served by `AdminAnalyticsPredictionsView` and `PredictiveTrendReportView`.
+- Details: `documentations/10-ml-pipeline-methodology.md`, section 13.6.
+
+Current Implementation Status (main branch)
 - Implemented: `backend/ml/scripts/1-3`, artifacts in `backend/ml/models/`,
   served by `AdminAnalyticsPredictionsView` and `PredictiveTrendReportView`.
 - Known validity issues (methodology doc, section 11):

@@ -1,44 +1,74 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
-  LineChart, BarChart,
+  Tooltip, Legend, ResponsiveContainer, BarChart,
 } from 'recharts';
 import {
-  TrendingUp, Clock, Zap, Brain, AlertCircle, AlertTriangle, Cpu, Table as TableIcon, Sparkles,
-  Lightbulb, ArrowUpRight,
+  TrendingUp, Clock, Brain, AlertCircle, AlertTriangle, Cpu, Table as TableIcon,
+  Lightbulb, ArrowUpRight, Users, Target, ShieldCheck, Check, X, Info,
 } from 'lucide-react';
 import {
   fetchAnalyticsPredictions,
   AnalyticsPredictionsResponse,
-  BatchPrediction,
-  BatchForecast,
+  BatchIndicators,
+  ModelFactor,
+  RateEstimate,
   SkillForecast,
 } from '../../app/api-client';
 
-function pct(v: number | null | undefined): string {
-  // Null means the batch had no answers to average. Rendering it as 0% would
-  // assert a real 0% employment rate that nobody reported.
+function pct(v: number | null | undefined, digits = 1): string {
+  // Null means no data or a hidden small group. Rendering it as 0% would
+  // assert a rate that nobody reported.
   if (v == null) return '—';
-  return `${(v * 100).toFixed(1)}%`;
+  return `${(v * 100).toFixed(digits)}%`;
 }
 
-function months(v: number | null | undefined): string {
-  if (v == null) return '—';
-  return v.toFixed(1);
-}
-
-/** Chart points: null leaves a gap in the line instead of plotting a false 0. */
-function pctPoint(v: number | null | undefined): number | null {
+/** Chart point: null leaves a gap in the line instead of plotting a false 0. */
+function point(v: number | null | undefined): number | null {
   return v == null ? null : +(v * 100).toFixed(1);
 }
+
+function rateValue(r: RateEstimate | undefined): string {
+  if (!r || r.n === 0) return '—';
+  if (r.suppressed) return 'Hidden';
+  return pct(r.rate);
+}
+
+function rateDetail(r: RateEstimate | undefined, population: string): string {
+  if (!r || r.n === 0) return `No graduates ${population} yet`;
+  if (r.suppressed) return `Only ${r.n} ${population}; groups under 5 are hidden`;
+  return `95% CI ${pct(r.ci_low, 0)}–${pct(r.ci_high, 0)} · n = ${r.n} ${population}`;
+}
+
+function rateCell(r: RateEstimate): string {
+  if (r.n === 0) return '—';
+  if (r.suppressed) return `hidden (n=${r.n})`;
+  return `${pct(r.rate)} (${pct(r.ci_low, 0)}–${pct(r.ci_high, 0)})`;
+}
+
+function factorReading(f: ModelFactor): string {
+  if (!f.clear) return 'No clear association';
+  return f.odds_ratio >= 1
+    ? `${f.odds_ratio.toFixed(1)}× the odds of work within a year`
+    : `${(1 / f.odds_ratio).toFixed(1)}× lower odds of work within a year`;
+}
+
+type TrendView = 'employment' | 'within12';
+
+type TrendRow = {
+  year: string;
+  observed: number | null;
+  band: [number, number] | null;
+  expected: number | null;
+  expectedBand: [number, number] | null;
+};
 
 export function AdminAnalyticsPredictions() {
   const [data, setData] = useState<AnalyticsPredictionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<number | 'all'>('all');
-  const [projectionView, setProjectionView] = useState<'employment' | 'hire'>('employment');
+  const [trendView, setTrendView] = useState<TrendView>('employment');
   const [rawNumbersOpen, setRawNumbersOpen] = useState(false);
   const [horizon, setHorizon] = useState<1 | 2>(1);
 
@@ -61,109 +91,107 @@ export function AdminAnalyticsPredictions() {
     };
   }, [selectedBatch, horizon]);
 
-  const perBatch: BatchPrediction[] = data?.per_batch ?? [];
-  const forecastList: BatchForecast[] = data?.forecast ?? [];
+  const perBatch: BatchIndicators[] = data?.per_batch ?? [];
   const skillForecast: SkillForecast[] = data?.skill_forecast ?? [];
   const overall = data?.overall;
-  const [distributionYearIdx, setDistributionYearIdx] = useState<number>(-1);
+  const outlook = data?.outlook;
+  const model = data?.model;
+  const activeModel = model?.status === 'active' ? model : null;
 
-  type EmpRow = {
-    year: string;
-    actual: number | null;
-    forecast: number | null;
-    forecastBand: [number, number] | null;
-  };
-  type HireRow = {
-    year: string;
-    actual: number | null;
-    forecast: number | null;
-    forecastBand: [number, number] | null;
-  };
-
-  const employmentSeries = useMemo<EmpRow[]>(() => {
-    const historical: EmpRow[] = perBatch.map((c) => ({
-      year: String(c.batch),
-      actual: pctPoint(c.actual_employment_rate),
-      forecast: null,
-      forecastBand: null,
-    }));
-    const forecast: EmpRow[] = forecastList.map((f) => ({
-      year: String(f.batch),
-      actual: null,
-      forecast: +(f.predicted_employment_rate * 100).toFixed(1),
-      forecastBand: [
-        +(f.employment_rate_lo * 100).toFixed(1),
-        +(f.employment_rate_hi * 100).toFixed(1),
-      ],
-    }));
-    if (perBatch.length > 0 && forecast.length > 0) {
-      historical[historical.length - 1] = {
-        ...historical[historical.length - 1],
-        forecast: historical[historical.length - 1].actual,
+  const trendSeries = useMemo<TrendRow[]>(() => {
+    const rows: TrendRow[] = perBatch.map((b) => {
+      const r = trendView === 'employment' ? b.employment_rate : b.employed_within_12_months;
+      const low = point(r.ci_low);
+      const high = point(r.ci_high);
+      const shown = r.rate != null && low != null && high != null;
+      return {
+        year: String(b.batch),
+        observed: shown ? point(r.rate) : null,
+        band: shown ? ([low, high] as [number, number]) : null,
+        expected: null,
+        expectedBand: null,
       };
+    });
+    if (trendView === 'employment' && outlook?.available) {
+      for (const y of outlook.years) {
+        rows.push({
+          year: String(y.batch),
+          observed: null,
+          band: null,
+          expected: point(y.centre),
+          expectedBand: [point(y.low) ?? 0, point(y.high) ?? 0],
+        });
+      }
     }
-    return [...historical, ...forecast];
-  }, [perBatch, forecastList]);
+    return rows;
+  }, [perBatch, outlook, trendView]);
 
-  const hireSeries = useMemo<HireRow[]>(() => {
-    const historical: HireRow[] = perBatch.map((c) => ({
-      year: String(c.batch),
-      actual: c.actual_mean_time_to_hire_months == null
-        ? null
-        : +c.actual_mean_time_to_hire_months.toFixed(2),
-      forecast: null,
-      forecastBand: null,
-    }));
-    const forecast: HireRow[] = forecastList.map((f) => ({
-      year: String(f.batch),
-      actual: null,
-      forecast: +f.predicted_mean_time_to_hire_months.toFixed(2),
-      forecastBand: [
-        +f.time_to_hire_lo.toFixed(2),
-        +f.time_to_hire_hi.toFixed(2),
-      ],
-    }));
-    if (perBatch.length > 0 && forecast.length > 0) {
-      historical[historical.length - 1] = {
-        ...historical[historical.length - 1],
-        forecast: historical[historical.length - 1].actual,
-      };
-    }
-    return [...historical, ...forecast];
-  }, [perBatch, forecastList]);
+  const timeBands = useMemo(
+    () => (overall?.time_to_first_job.bands ?? []).map((b) => ({ band: b.label, graduates: b.count })),
+    [overall],
+  );
 
-  const bsisObservedSeries = useMemo(
+  const bsisSeries = useMemo(
     () =>
-      perBatch.map((c) => ({
-        year: String(c.batch),
-        firstJob: pctPoint(c.actual_bsis_first_rate),
-        currentJob: pctPoint(c.actual_bsis_current_rate),
+      perBatch.map((b) => ({
+        year: String(b.batch),
+        firstJob: point(b.bsis_aligned_first_job.rate),
+        currentJob: point(b.bsis_aligned_current_job.rate),
       })),
     [perBatch],
   );
 
-  const distributionSource = useMemo(() => {
-    if (distributionYearIdx >= 0 && forecastList[distributionYearIdx]) {
-      return {
-        label: `Forecast ${forecastList[distributionYearIdx].batch}`,
-        dist: forecastList[distributionYearIdx].time_to_hire_distribution,
-      };
-    }
-    return {
-      label: 'Observed (all batches)',
-      dist: overall?.time_to_hire_distribution ?? {},
-    };
-  }, [distributionYearIdx, forecastList, overall]);
+  const batches = perBatch.map((b) => b.batch);
+  const nextRange = outlook?.available ? outlook.years[0] : undefined;
+  const expected = overall?.model_expected_within_12_months;
+  const checks = activeModel?.checks ?? [];
+  const factors = activeModel?.factors ?? [];
+  const tfj = overall?.time_to_first_job;
 
-  const distribution = useMemo(
-    () => Object.entries(distributionSource.dist).map(([bucket, n]) => ({ bucket, n })),
-    [distributionSource],
-  );
-
-  const batches = perBatch.map((c) => c.batch);
-  const observedHire = overall?.actual_mean_time_to_hire_months ?? null;
-  const observedEmp = overall?.actual_employment_rate ?? null;
-  const nextForecast = forecastList[0];
+  const cards = [
+    {
+      label: 'Employment Rate',
+      value: rateValue(overall?.employment_rate),
+      sub: rateDetail(overall?.employment_rate, 'in the labor force'),
+      icon: TrendingUp,
+      bg: 'bg-emerald-50',
+      color: 'text-emerald-600',
+    },
+    {
+      label: 'Employed Within 12 Months',
+      value: rateValue(overall?.employed_within_12_months),
+      sub:
+        rateDetail(overall?.employed_within_12_months, 'with a known outcome') +
+        (expected?.rate != null ? ` · model expects ${pct(expected.rate, 0)}` : ''),
+      icon: Clock,
+      bg: 'bg-blue-50',
+      color: 'text-blue-600',
+    },
+    {
+      label: 'Response Rate',
+      value: pct(overall?.response_rate, 0),
+      sub: !overall
+        ? '—'
+        : overall.masterlist_incomplete
+          ? `${overall.respondents} answered, but the masterlist lists only ${overall.graduates}; add the missing graduates`
+          : `${overall.respondents} of ${overall.graduates ?? '—'} masterlist graduates answered`,
+      icon: Users,
+      bg: 'bg-green-50',
+      color: 'text-green-600',
+    },
+    {
+      label: nextRange ? `Expected Employment (${nextRange.batch})` : 'Expected Employment',
+      value: nextRange ? `${pct(nextRange.low, 0)}–${pct(nextRange.high, 0)}` : '—',
+      sub: nextRange
+        ? outlook?.basis === 'backtest'
+          ? 'Range from how much past batches varied'
+          : 'Default ±20-point range until more batches exist'
+        : outlook?.reason ?? 'Not enough batches yet',
+      icon: Target,
+      bg: 'bg-amber-50',
+      color: 'text-amber-600',
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -171,25 +199,23 @@ export function AdminAnalyticsPredictions() {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2" style={{ fontWeight: 700, fontSize: '1.05rem' }}>
-              <Brain className="size-5" /> Employability Prediction Trend
+              <Brain className="size-5" /> Employability Trend Analysis
             </h2>
             <p className="text-white/75 text-xs mt-1">
-              Predicted employability and skill demand for the next {horizon}{' '}
-              graduating {horizon === 1 ? 'batch' : 'batches'}, based on historical
-              graduate outcomes.
+              Observed outcomes for each batch with 95% intervals, the expected employment range for
+              the next {horizon === 1 ? 'batch' : `${horizon} batches`}, and the factors associated with
+              finding work within a year.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-white/70" style={{ fontWeight: 600 }}>Forecast:</span>
+            <span className="text-white/70" style={{ fontWeight: 600 }}>Expected range:</span>
             <div className="flex gap-1 bg-white/10 rounded-lg p-1">
               {([1, 2] as const).map((h) => (
                 <button
                   key={h}
                   onClick={() => setHorizon(h)}
                   className={`px-2.5 py-1 rounded-lg transition ${
-                    horizon === h
-                      ? 'bg-white text-[#166534]'
-                      : 'text-white/80 hover:text-white'
+                    horizon === h ? 'bg-white text-[#166534]' : 'text-white/80 hover:text-white'
                   }`}
                   style={{ fontWeight: horizon === h ? 700 : 500 }}
                 >
@@ -207,9 +233,7 @@ export function AdminAnalyticsPredictions() {
             <span style={{ fontWeight: 600 }}>Summary for batch:</span>
             <select
               value={selectedBatch}
-              onChange={(e) =>
-                setSelectedBatch(e.target.value === 'all' ? 'all' : Number(e.target.value))
-              }
+              onChange={(e) => setSelectedBatch(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
             >
               <option value="all">All batches</option>
@@ -221,32 +245,45 @@ export function AdminAnalyticsPredictions() {
             </select>
             {loading && <span className="text-gray-400 text-xs">Loading...</span>}
           </div>
-          <p className="text-[11px] text-gray-400">Changes the summary cards only — the forecast always projects from the most recent batch, not the one selected here.</p>
-        </div>
-        {data?.model_metadata && (
-          <p className="text-xs text-gray-400">
-            Model trained {new Date(data.model_metadata.trained_at).toLocaleString()} · n=
-            {data.model_metadata.n_samples} · {data.model_metadata.n_features} features
+          <p className="text-[11px] text-gray-400">
+            Changes the summary cards and time-to-first-job chart only. The batch trend always shows every batch.
           </p>
-        )}
+        </div>
+        {activeModel ? (
+          <p className="text-xs text-gray-400">
+            Model {activeModel.version} · trained{' '}
+            {activeModel.trained_at ? new Date(activeModel.trained_at).toLocaleDateString() : '—'} ·{' '}
+            {activeModel.source === 'simulated' ? 'simulated graduates' : 'graduate records'} · n ={' '}
+            {activeModel.metrics?.n ?? '—'}
+          </p>
+        ) : model ? (
+          <p className="text-xs text-gray-400">No model has passed the acceptance gate</p>
+        ) : null}
       </div>
 
-      {/* The training-provenance banner was removed by request. The backend
-          still reports training_source and training_n, so it can be restored
-          from here without touching the API.
-
-          The banner below is NOT that one: it fires only when live graduate
-          data fails to load and the page falls back to the training file, so
-          it reports a real failure rather than model provenance. */}
-      {data?.data_source === 'synthetic_fallback' && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-2.5 items-start">
-          <AlertTriangle className="size-4 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-xs text-red-900 leading-relaxed">
-            <p style={{ fontWeight: 700 }}>Showing simulated rows, not real graduates</p>
+      {overall && overall.sample_accounts > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
+          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <p style={{ fontWeight: 700 }}>
+              {overall.sample_accounts} of {overall.respondents} records are seeded sample accounts
+            </p>
             <p className="mt-0.5">
-              Live graduate data could not be loaded, so both the actual and predicted
-              figures on this page come from the training file. Do not read these as real
-              outcomes. Check the server log for the cause.
+              These figures include demonstration graduates, so treat them as a demonstration rather than real
+              outcomes. Sample accounts are never used to train the model.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {activeModel?.source === 'simulated' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
+          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <p style={{ fontWeight: 700 }}>The active model was trained on simulated graduates</p>
+            <p className="mt-0.5">
+              Its factors show how the method works, not what drives employment for CHMSU graduates. Retrain on
+              graduate records once enough responses are collected.
             </p>
           </div>
         </div>
@@ -256,79 +293,21 @@ export function AdminAnalyticsPredictions() {
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex gap-2 items-start text-sm text-red-700">
           <AlertCircle className="size-4 mt-0.5" />
           <div>
-            <p style={{ fontWeight: 600 }}>Unable to load predictions</p>
+            <p style={{ fontWeight: 600 }}>Unable to load analytics</p>
             <p className="text-xs mt-1">{error}</p>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 gt-stagger">
-        {[
-          {
-            label: 'Observed Employment Rate',
-            value: pct(observedEmp),
-            sub: `${overall?.n_with_outcome ?? overall?.n_alumni ?? 0} of ${overall?.n_alumni ?? 0} graduates with a known outcome`,
-            icon: TrendingUp,
-            bg: 'bg-emerald-50',
-            color: 'text-emerald-600',
-            trend: '',
-          },
-          {
-            label: 'Observed Time-to-Hire',
-            value: observedHire == null ? '—' : `${observedHire.toFixed(1)}mo`,
-            sub: 'Mean across employed graduates',
-            icon: Clock,
-            bg: 'bg-blue-50',
-            color: 'text-blue-600',
-            trend: '',
-          },
-          {
-            label: nextForecast
-              ? `Forecast Employment (${nextForecast.batch})`
-              : 'Forecast Employment',
-            value: nextForecast ? pct(nextForecast.predicted_employment_rate) : '-',
-            sub: nextForecast
-              ? `80% PI: ${pct(nextForecast.employment_rate_lo)}–${pct(nextForecast.employment_rate_hi)}`
-              : 'Not enough batches yet to forecast',
-            icon: Sparkles,
-            bg: 'bg-green-50',
-            color: 'text-green-600',
-            trend: '',
-          },
-          {
-            label: nextForecast
-              ? `Forecast Time-to-Hire (${nextForecast.batch})`
-              : 'Forecast Time-to-Hire',
-            value: nextForecast
-              ? `${nextForecast.predicted_mean_time_to_hire_months.toFixed(1)}mo`
-              : '-',
-            sub: nextForecast
-              ? `80% PI: ${nextForecast.time_to_hire_lo.toFixed(1)}–${nextForecast.time_to_hire_hi.toFixed(1)}mo`
-              : 'Not enough batches yet to forecast',
-            icon: Sparkles,
-            bg: 'bg-amber-50',
-            color: 'text-amber-600',
-            trend: '',
-          },
-        ].map((k) => (
+        {cards.map((k) => (
           <div key={k.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="flex items-start justify-between mb-3">
               <div className={`flex size-10 items-center justify-center rounded-xl ${k.bg}`}>
                 <k.icon className={`size-5 ${k.color}`} />
               </div>
-              {k.trend && (
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full bg-gray-50 text-gray-600"
-                  style={{ fontWeight: 600 }}
-                >
-                  {k.trend}
-                </span>
-              )}
             </div>
-            <p
-              className="text-gray-900"
-              style={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1 }}
-            >
+            <p className="text-gray-900" style={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1 }}>
               {k.value}
             </p>
             <p className="text-gray-500 text-sm mt-1" style={{ fontWeight: 500 }}>
@@ -339,233 +318,233 @@ export function AdminAnalyticsPredictions() {
         ))}
       </div>
 
-      <p className="text-xs text-gray-500 -mt-1 leading-relaxed">
-        <span style={{ fontWeight: 600 }}>Reading the forecast:</span> the two forecast cards project the next batch past your latest year (e.g. 2025 → 2026). &ldquo;80% PI&rdquo; is the prediction interval — we&rsquo;re about 80% confident the real value lands in that range. Projections further out are rougher estimates.
+      <p className="text-xs text-gray-500 -mt-1 leading-relaxed flex gap-1.5">
+        <Info className="size-3.5 shrink-0 mt-0.5 text-gray-400" />
+        <span>
+          <span style={{ fontWeight: 600 }}>Reading these numbers:</span> a 95% CI is the range the true rate
+          probably lies in, given how many graduates answered. Groups of fewer than 5 graduates are hidden, never
+          shown as 0%. The expected range reflects how much batch rates have moved in the past; it is not a
+          forecast.
+        </span>
       </p>
 
-      {/* Very wide screens: trend and distribution charts side by side. */}
       <div className="grid gap-6 2xl:grid-cols-2">
-      <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Zap className="size-4 text-[#166534]" /> Batch Trend & Forecast
-          </h3>
-          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              {(['employment', 'hire'] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setProjectionView(v)}
-                  className={`px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-lg text-xs transition ${
-                    projectionView === v
-                      ? 'bg-white shadow-sm text-gray-900'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                  style={{ fontWeight: projectionView === v ? 600 : 400 }}
-                >
-                  {v === 'hire' ? 'Time-to-Hire' : 'Employment'}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setRawNumbersOpen(true)}
-              disabled={perBatch.length === 0}
-              className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ fontWeight: 600 }}
-            >
-              <TableIcon className="size-3.5" /> View raw numbers
-            </button>
-          </div>
-        </div>
-
-        {projectionView === 'employment' && (
-          <>
-            <p className="text-gray-500 text-xs mb-4">
-              Observed employment rate per batch with forecast (shaded 80% PI)
-              for the next {forecastList.length || horizon} {forecastList.length === 1 || horizon === 1 ? 'batch' : 'batches'}. Forecast model:{' '}
-              {data?.model_metadata.best_models.employment_status ?? '-'}.
-            </p>
-            {employmentSeries.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
-                {loading ? 'Loading predictions...' : 'No data'}
+        <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+            <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+              <TrendingUp className="size-4 text-[#166534]" /> Batch Trend
+            </h3>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                {(['employment', 'within12'] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setTrendView(v)}
+                    className={`px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-lg text-xs transition ${
+                      trendView === v ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                    style={{ fontWeight: trendView === v ? 600 : 400 }}
+                  >
+                    {v === 'employment' ? 'Employment' : 'Within 12 months'}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <ComposedChart data={employmentSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
-                  <Tooltip
-                    formatter={(v: number | [number, number]) =>
-                      Array.isArray(v) ? `${v[0]}% – ${v[1]}%` : `${v}%`
-                    }
-                  />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="forecastBand"
-                    name="Forecast 80% PI"
-                    stroke="none"
-                    fill="#166534"
-                    fillOpacity={0.18}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="actual"
-                    name="Observed"
-                    stroke="#166534"
-                    strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#166534' }}
-                    activeDot={{ r: 6 }}
-                    connectNulls={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="forecast"
-                    name="Forecast"
-                    stroke="#22c55e"
-                    strokeWidth={2.5}
-                    strokeDasharray="5 4"
-                    dot={{ r: 4, fill: '#22c55e' }}
-                    connectNulls={false}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            )}
-          </>
-        )}
-
-        {projectionView === 'hire' && (
-          <>
-            <p className="text-gray-500 text-xs mb-4">
-              Observed mean time-to-hire (months) with forecast (shaded 80% PI)
-              for the next {forecastList.length || horizon} {forecastList.length === 1 || horizon === 1 ? 'batch' : 'batches'}. Forecast model:{' '}
-              {data?.model_metadata.best_models.time_to_hire ?? '-'}.
-            </p>
-            {hireSeries.length === 0 ? (
-              <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
-                {loading ? 'Loading predictions...' : 'No data'}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <ComposedChart data={hireSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} unit="mo" />
-                  <Tooltip
-                    formatter={(v: number | [number, number]) =>
-                      Array.isArray(v) ? `${v[0]} – ${v[1]} mo` : `${v} months`
-                    }
-                  />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="forecastBand"
-                    name="Forecast 80% PI"
-                    stroke="none"
-                    fill="#166534"
-                    fillOpacity={0.18}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="actual"
-                    name="Observed"
-                    stroke="#166534"
-                    strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#166534' }}
-                    activeDot={{ r: 6 }}
-                    connectNulls={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="forecast"
-                    name="Forecast"
-                    stroke="#22c55e"
-                    strokeWidth={2.5}
-                    strokeDasharray="5 4"
-                    dot={{ r: 4, fill: '#22c55e' }}
-                    connectNulls={false}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-            <Clock className="size-4 text-[#166534]" /> Time-to-Hire Distribution ·{' '}
-            <span className="text-gray-500 text-xs" style={{ fontWeight: 500 }}>
-              {distributionSource.label}
-            </span>
-          </h3>
-          {forecastList.length > 0 && (
-            <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1 self-start sm:self-auto">
               <button
-                onClick={() => setDistributionYearIdx(-1)}
-                className={`px-2.5 py-2 sm:py-1 rounded-lg text-xs transition ${
-                  distributionYearIdx === -1
-                    ? 'bg-white shadow-sm text-gray-900'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-                style={{ fontWeight: distributionYearIdx === -1 ? 600 : 400 }}
+                onClick={() => setRawNumbersOpen(true)}
+                disabled={perBatch.length === 0}
+                className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs border border-gray-200 text-gray-600 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ fontWeight: 600 }}
               >
-                Observed
+                <TableIcon className="size-3.5" /> View raw numbers
               </button>
-              {forecastList.map((f, i) => (
-                <button
-                  key={f.batch}
-                  onClick={() => setDistributionYearIdx(i)}
-                  className={`px-2.5 py-2 sm:py-1 rounded-lg text-xs transition ${
-                    distributionYearIdx === i
-                      ? 'bg-white shadow-sm text-gray-900'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                  style={{ fontWeight: distributionYearIdx === i ? 600 : 400 }}
-                >
-                  Forecast {f.batch}
-                </button>
-              ))}
             </div>
+          </div>
+
+          <p className="text-gray-500 text-xs mb-4">
+            {trendView === 'employment'
+              ? 'Observed employment rate per batch among graduates in the labor force, with its 95% interval, followed by the expected range for the next batches.'
+              : 'Share of graduates who found a first job within 12 months of graduating, per batch, with its 95% interval.'}{' '}
+            Batches with fewer than 5 graduates leave a gap.
+          </p>
+          {trendSeries.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-gray-400 text-sm">
+              {loading ? 'Loading...' : 'No data'}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <ComposedChart data={trendSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
+                <Tooltip
+                  formatter={(v: number | [number, number]) =>
+                    Array.isArray(v) ? `${v[0]}% – ${v[1]}%` : `${v}%`
+                  }
+                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                <Area
+                  type="monotone"
+                  dataKey="band"
+                  name="95% interval"
+                  stroke="none"
+                  fill="#166534"
+                  fillOpacity={0.15}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="observed"
+                  name="Observed"
+                  stroke="#166534"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: '#166534' }}
+                  activeDot={{ r: 6 }}
+                  connectNulls={false}
+                />
+                {trendView === 'employment' && (
+                  <Area
+                    type="monotone"
+                    dataKey="expectedBand"
+                    name="Expected range"
+                    stroke="none"
+                    fill="#f59e0b"
+                    fillOpacity={0.22}
+                    isAnimationActive={false}
+                  />
+                )}
+                {trendView === 'employment' && (
+                  <Line
+                    type="monotone"
+                    dataKey="expected"
+                    name="Middle of expected range"
+                    stroke="#f59e0b"
+                    strokeWidth={0}
+                    dot={{ r: 4, fill: '#f59e0b' }}
+                    connectNulls={false}
+                  />
+                )}
+              </ComposedChart>
+            </ResponsiveContainer>
           )}
         </div>
-        {distribution.length === 0 ? (
-          <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm">
-            {loading ? 'Loading...' : 'No data'}
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={distribution} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="ttDistFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#166534" stopOpacity={0.22} />
-                  <stop offset="100%" stopColor="#166534" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-              <Tooltip formatter={(v: number) => [`${v} graduates`, 'Count']} />
-              <Line
-                type="monotone"
-                dataKey="n"
-                name="Graduate count"
-                stroke="#166534"
-                strokeWidth={2.5}
-                dot={{ r: 5, fill: '#166534' }}
-                activeDot={{ r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+
+        <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+          <h3 className="text-gray-800 flex items-center gap-2 mb-1" style={{ fontWeight: 700 }}>
+            <Clock className="size-4 text-[#166534]" /> Time to First Job ·{' '}
+            <span className="text-gray-500 text-xs" style={{ fontWeight: 500 }}>
+              {selectedBatch === 'all' ? 'All batches' : `Batch ${selectedBatch}`}
+            </span>
+          </h3>
+          <p className="text-gray-500 text-xs mb-4">
+            Observed answers from graduates who have had a first job{tfj ? ` (n = ${tfj.n})` : ''}. Not a prediction.
+          </p>
+          {!tfj || tfj.n === 0 ? (
+            <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm">
+              {loading ? 'Loading...' : 'No graduates have reported a first job yet'}
+            </div>
+          ) : tfj.suppressed ? (
+            <div className="h-[260px] flex items-center justify-center text-gray-400 text-sm text-center px-6">
+              Only {tfj.n} graduates reported a first job; groups under 5 are hidden.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={timeBands} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="band" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip formatter={(v: number) => [`${v} graduates`, 'Count']} />
+                <Bar dataKey="graduates" name="Graduates" fill="#166534" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </div>
 
-      {/* ── Top Skills Forecast ─────────────────────────────────────────── */}
+      {/* ── Factors from the active model ─────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+        <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+          <ShieldCheck className="size-4 text-[#166534]" /> Factors Associated with Finding Work Within a Year
+        </h3>
+        <p className="text-gray-500 text-xs mt-1 mb-4">
+          From a logistic regression on answers known at graduation, shown only when the model passes every
+          acceptance check. An odds ratio above 1 means graduates with that answer were more likely to find work
+          within a year. It is an association, not a cause.
+        </p>
+
+        {factors.length === 0 ? (
+          <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-xs text-gray-600 leading-relaxed">
+            {loading ? 'Loading...' : model?.message ?? 'No active model.'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Factor', 'Odds ratio', '95% CI', 'Reading'].map((h) => (
+                    <th key={h} className="text-left text-gray-400 text-xs pb-2 pr-4" style={{ fontWeight: 600 }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {factors.map((f) => (
+                  <tr key={f.feature}>
+                    <td className="py-2.5 pr-4 text-gray-800 text-xs" style={{ fontWeight: 600 }}>
+                      {f.label}
+                    </td>
+                    <td className="py-2.5 pr-4 text-gray-700 text-xs">{f.odds_ratio.toFixed(2)}</td>
+                    <td className="py-2.5 pr-4 text-gray-500 text-xs whitespace-nowrap">
+                      {f.ci_low.toFixed(2)}–{f.ci_high.toFixed(2)}
+                    </td>
+                    <td className="py-2.5 pr-4 text-xs">
+                      <span
+                        className={
+                          !f.clear ? 'text-gray-400' : f.odds_ratio >= 1 ? 'text-emerald-600' : 'text-red-500'
+                        }
+                        style={{ fontWeight: 600 }}
+                      >
+                        {factorReading(f)}
+                      </span>
+                      {f.clear && !f.stable && (
+                        <span className="ml-2 text-[11px] text-amber-600">unstable</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {checks.length > 0 && (
+          <details className="mt-4 rounded-xl border border-gray-100 p-3">
+            <summary className="cursor-pointer text-xs text-gray-600" style={{ fontWeight: 600 }}>
+              Acceptance checks: {checks.filter((c) => c.passed).length} of {checks.length} passed
+            </summary>
+            <ul className="mt-3 space-y-2">
+              {checks.map((c) => (
+                <li key={c.key} className="flex gap-2 text-xs">
+                  {c.passed ? (
+                    <Check className="size-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <X className="size-4 text-red-500 shrink-0" />
+                  )}
+                  <div>
+                    <p className="text-gray-800" style={{ fontWeight: 600 }}>
+                      {c.label}
+                    </p>
+                    <p className="text-gray-600">{c.value}</p>
+                    <p className="text-gray-400">Rule: {c.rule}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+
+      {/* ── Top Skills ──────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -573,9 +552,9 @@ export function AdminAnalyticsPredictions() {
               <Lightbulb className="size-4 text-[#166534]" /> Top Skills for Next Batches
             </h3>
             <p className="text-gray-500 text-xs mt-1">
-              Ranked by projected demand share, employment-lift (graduates holding the
-              skill are more likely to be employed), and growth slope. Use this to
-              advise current students on which skills to double down on.
+              Ranked by projected share of graduates holding the skill, employment lift, and growth. Lift compares
+              the employment rate of holders with all graduates; it is a correlation, and skills learned on the job
+              raise it too.
             </p>
           </div>
         </div>
@@ -588,12 +567,8 @@ export function AdminAnalyticsPredictions() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['#', 'Skill', 'Type', 'Current', 'Forecast', 'Lift', 'Trend'].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left text-gray-400 text-xs pb-2 pr-4"
-                      style={{ fontWeight: 600 }}
-                    >
+                  {['#', 'Skill', 'Type', 'Current', 'Projected', 'Lift (correlation)', 'Trend'].map((h) => (
+                    <th key={h} className="text-left text-gray-400 text-xs pb-2 pr-4" style={{ fontWeight: 600 }}>
                       {h}
                     </th>
                   ))}
@@ -617,16 +592,12 @@ export function AdminAnalyticsPredictions() {
                         <span className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>
                           {s.skill}
                         </span>
-                        <p className="text-gray-400 text-[11px] mt-0.5">
-                          {s.holders_total} graduates hold this
-                        </p>
+                        <p className="text-gray-400 text-[11px] mt-0.5">{s.holders_total} graduates hold this</p>
                       </td>
                       <td className="py-2.5 pr-4">
                         <span
                           className={`text-[11px] px-2 py-0.5 rounded-full ${
-                            s.kind === 'technical'
-                              ? 'bg-blue-50 text-blue-600'
-                              : 'bg-emerald-50 text-emerald-600'
+                            s.kind === 'technical' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
                           }`}
                           style={{ fontWeight: 600 }}
                         >
@@ -634,9 +605,7 @@ export function AdminAnalyticsPredictions() {
                         </span>
                       </td>
                       <td className="py-2.5 pr-4">
-                        <span className="text-gray-600 text-xs">
-                          {pct(s.current_share)}
-                        </span>
+                        <span className="text-gray-600 text-xs">{pct(s.current_share)}</span>
                       </td>
                       <td className="py-2.5 pr-4">
                         <span className="text-green-600 text-xs" style={{ fontWeight: 600 }}>
@@ -651,11 +620,7 @@ export function AdminAnalyticsPredictions() {
                       <td className="py-2.5 pr-4">
                         <span
                           className={`text-xs ${
-                            liftPositive
-                              ? 'text-emerald-600'
-                              : liftNegative
-                                ? 'text-red-500'
-                                : 'text-gray-400'
+                            liftPositive ? 'text-emerald-600' : liftNegative ? 'text-red-500' : 'text-gray-400'
                           }`}
                           style={{ fontWeight: 600 }}
                         >
@@ -697,26 +662,24 @@ export function AdminAnalyticsPredictions() {
         )}
       </div>
 
-      {/* ── BSIS Alignment (Observed Only - Subordinate) ─────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div>
-            <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
-              <Cpu className="size-4 text-[#166534]" /> BSIS-Aligned Employment (Observed)
-            </h3>
-            <p className="text-gray-500 text-xs mt-1">
-              Share of graduates whose first / current job aligns with the BSIS program.
-              Observed values only - no model prediction.
-            </p>
-          </div>
+      {/* ── BSIS Alignment (Observed) ───────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+        <div className="mb-3">
+          <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+            <Cpu className="size-4 text-[#166534]" /> BSIS-Aligned Employment (Observed)
+          </h3>
+          <p className="text-gray-500 text-xs mt-1">
+            Share of graduates whose first or current job is related to BSIS. Observed values only; batches with
+            fewer than 5 answers are left out.
+          </p>
         </div>
-        {bsisObservedSeries.length === 0 ? (
+        {bsisSeries.length === 0 ? (
           <div className="h-[220px] flex items-center justify-center text-gray-400 text-sm">
             {loading ? 'Loading...' : 'No data'}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={bsisObservedSeries}>
+            <BarChart data={bsisSeries}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="year" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
@@ -736,12 +699,12 @@ export function AdminAnalyticsPredictions() {
           onClick={() => setRawNumbersOpen(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
-                Per-Batch Raw Numbers
+                Per-Batch Numbers
               </h3>
               <button
                 onClick={() => setRawNumbersOpen(false)}
@@ -757,15 +720,17 @@ export function AdminAnalyticsPredictions() {
                     <tr className="border-b border-gray-100">
                       {[
                         'Batch',
-                        'N',
-                        'Employment Rate',
-                        'Time-to-Hire (mo)',
+                        'Graduates',
+                        'Respondents',
+                        'Response',
+                        'Employment (95% CI)',
+                        'Within 12 mo (95% CI)',
                         'BSIS 1st Job',
                         'BSIS Current',
                       ].map((h) => (
                         <th
                           key={h}
-                          className="text-left text-gray-400 text-xs pb-2 pr-4"
+                          className="text-left text-gray-400 text-xs pb-2 pr-4 whitespace-nowrap"
                           style={{ fontWeight: 600 }}
                         >
                           {h}
@@ -774,41 +739,31 @@ export function AdminAnalyticsPredictions() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {perBatch.map((c) => (
-                      <tr key={c.batch}>
-                        <td className="py-2.5 pr-4">
-                          <span className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>
-                            {c.batch}
-                          </span>
+                    {perBatch.map((b) => (
+                      <tr key={b.batch}>
+                        <td className="py-2.5 pr-4 text-gray-800 text-xs" style={{ fontWeight: 600 }}>
+                          {b.batch}
                         </td>
-                        <td className="py-2.5 pr-4">
-                          <span className="text-gray-600 text-xs">{c.n_alumni}</span>
+                        <td className="py-2.5 pr-4 text-gray-600 text-xs">{b.graduates ?? '—'}</td>
+                        <td className="py-2.5 pr-4 text-gray-600 text-xs">{b.respondents}</td>
+                        <td className="py-2.5 pr-4 text-gray-600 text-xs">{pct(b.response_rate, 0)}</td>
+                        <td className="py-2.5 pr-4 text-gray-700 text-xs whitespace-nowrap" style={{ fontWeight: 600 }}>
+                          {rateCell(b.employment_rate)}
                         </td>
-                        <td className="py-2.5 pr-4">
-                          <span className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
-                            {pct(c.actual_employment_rate)}
-                          </span>
+                        <td className="py-2.5 pr-4 text-gray-700 text-xs whitespace-nowrap" style={{ fontWeight: 600 }}>
+                          {rateCell(b.employed_within_12_months)}
                         </td>
-                        <td className="py-2.5 pr-4">
-                          <span className="text-gray-700 text-xs" style={{ fontWeight: 600 }}>
-                            {months(c.actual_mean_time_to_hire_months)}
-                          </span>
+                        <td className="py-2.5 pr-4 text-purple-600 text-xs whitespace-nowrap">
+                          {rateCell(b.bsis_aligned_first_job)}
                         </td>
-                        <td className="py-2.5 pr-4">
-                          <span className="text-purple-600 text-xs" style={{ fontWeight: 600 }}>
-                            {pct(c.actual_bsis_first_rate)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 pr-4">
-                          <span className="text-amber-600 text-xs" style={{ fontWeight: 600 }}>
-                            {pct(c.actual_bsis_current_rate)}
-                          </span>
+                        <td className="py-2.5 pr-4 text-amber-600 text-xs whitespace-nowrap">
+                          {rateCell(b.bsis_aligned_current_job)}
                         </td>
                       </tr>
                     ))}
                     {perBatch.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-6 text-center text-gray-400 text-xs">
+                        <td colSpan={8} className="py-6 text-center text-gray-400 text-xs">
                           No batch data available
                         </td>
                       </tr>

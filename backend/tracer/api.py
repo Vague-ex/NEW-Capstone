@@ -1931,335 +1931,12 @@ class SurveyDataRetrievalView(APIView):
             status=status.HTTP_200_OK
         )
 
-# ── Admin Analytics - Employability Predictions ────────────────────────────────
-
-_ML_CACHE: dict = {}
-
-def _load_ml_artifacts():
-    """Lazy-load joblib models + processed population CSV. Only successful loads are cached."""
-    if _ML_CACHE and "models" in _ML_CACHE:
-        return _ML_CACHE
-    import traceback
-    try:
-        from pathlib import Path
-        import json as _json
-        import joblib
-        import pandas as pd
-
-        root = Path(__file__).resolve().parents[1] / "ml"
-        models = joblib.load(root / "models" / "employability_model.joblib")
-        scaler = joblib.load(root / "models" / "feature_scaler.joblib")
-        with (root / "models" / "model_metadata.json").open("r", encoding="utf-8") as f:
-            meta = _json.load(f)
-        df = pd.read_csv(root / "data" / "processed_training_data.csv")
-
-        _ML_CACHE.clear()
-        _ML_CACHE.update({
-            "models": models, "scaler": scaler, "meta": meta,
-            "df": df, "features": meta["features"],
-            "source_path": str(root),
-        })
-        return _ML_CACHE
-    except Exception as exc:  # noqa: BLE001
-        return {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
-
-# ── Live-DB feature encoding maps (must match training CSV OHE order) ──────────
-_JOB_SOURCE_COLS: dict[str, str] = {
-    "personal_network": "job_source_1",
-    "online_portal":    "job_source_2",
-    "social_media":     "job_source_3",
-    "career_fair":      "job_source_4",
-    "walk_in":          "job_source_5",
-    "entrepreneurship": "job_source_6",
-    "other":            "job_source_7",
-}
-_FIRST_SECTOR_COLS: dict[str, str] = {
-    "government":     "first_sector_1",
-    "private":        "first_sector_2",
-    "entrepreneurial":"first_sector_3",
-}
-_FIRST_STATUS_COLS: dict[str, str] = {
-    "regular":       "first_status_1",
-    "probationary":  "first_status_2",
-    "contractual":   "first_status_3",
-    "self_employed": "first_status_4",
-}
-_CURRENT_SECTOR_COLS: dict[str, str] = {
-    "government":     "current_sector_1",
-    "private":        "current_sector_2",
-    "entrepreneurial":"current_sector_3",
-}
-_EMPLOYED_STATUSES: frozenset[str] = frozenset({"employed_full_time", "employed_part_time", "self_employed"})
-
-def _build_live_df():
-    """Build a feature DataFrame from live verified alumni — same schema as the training CSV.
-
-    Uses AlumniProfile + EmploymentProfile + CompetencyProfile for ACTIVE accounts.
-    Returns an empty DataFrame when no eligible alumni exist (triggers CSV fallback).
-    """
-    import pandas as pd
-    from users.models import AlumniProfile, AccountStatus
-
-    BASE_YEAR = 2020
-
-    profiles = (
-        AlumniProfile.objects
-        .filter(
-            alumni__account_status=AccountStatus.ACTIVE,
-            graduation_year__isnull=False,
-        )
-        .select_related("alumni")
-        .prefetch_related("alumni__employment_profiles", "alumni__competency_profiles")
-    )
-
-    # Impute a missing OJT relevance with the median of the answers we do have,
-    # rather than letting `or 0` fill it in. On a 0–3 scale 0 is a real answer
-    # ("not relevant at all"), so coercing NULL to 0 does not mean "unknown" —
-    # it silently assigns the worst rating, the same defect that made a missing
-    # GPA read as "Below 75".
-    _known_ojt = sorted(
-        v for v in profiles.values_list("ojt_relevance", flat=True) if v is not None
-    )
-    _ojt_fallback = _known_ojt[len(_known_ojt) // 2] if _known_ojt else 0
-
-    rows: list[dict] = []
-    for p in profiles:
-        emp  = p.alumni.employment_profiles.first()
-        comp = p.alumni.competency_profiles.first()
-
-        row: dict = {
-            "batch":                  int(p.graduation_year),
-            "batch_code":             int(p.graduation_year) - BASE_YEAR,
-            "gender":                 1 if (p.gender or "").upper().startswith("F") else 0,
-            "scholarship":            1 if (p.scholarship or "").strip() else 0,
-            # general_average_range was removed from the survey per the 2026
-            # panel revision. It is NOT reintroduced here: post-revision
-            # registrants have NULL, and `int(x or 0)` encoded that as 0 —
-            # which is the "Below 75" bucket, not a neutral value, biasing
-            # every such prediction downward.
-            "academic_honors":        int(p.academic_honors or 1),
-            "prior_work_experience":  int(bool(p.prior_work_experience)),
-            "ojt_relevance":          int(p.ojt_relevance if p.ojt_relevance is not None else _ojt_fallback),
-            "has_portfolio":          int(bool(p.has_portfolio)),
-            "pursuing_postgrad":      1 if getattr(p, "further_studies_status", "") == "enrolled" else 0,
-            "completed_postgrad":     1 if getattr(p, "further_studies_status", "") == "completed" else 0,
-            "technical_skill_count":  int((comp.technical_skill_count if comp else None) or p.technical_skill_count or 0),
-            "soft_skill_count":       int((comp.soft_skill_count     if comp else None) or p.soft_skill_count     or 0),
-        }
-        # All OHE columns default to 0
-        for col in (
-            *_JOB_SOURCE_COLS.values(),
-            *_FIRST_SECTOR_COLS.values(),
-            *_FIRST_STATUS_COLS.values(),
-            *_CURRENT_SECTOR_COLS.values(),
-        ):
-            row[col] = 0
-
-        if emp:
-            row["has_outcome"] = 1
-            row["employment_status"]        = 1 if emp.employment_status in _EMPLOYED_STATUSES else 0
-            row["time_to_hire_months"]      = emp.time_to_hire_months
-            row["bsis_related_job_first"]   = (
-                None if emp.first_job_related_to_bsis is None
-                else int(emp.first_job_related_to_bsis)
-            )
-            row["bsis_related_job_current"] = (
-                None if emp.current_job_related_to_bsis is None
-                else int(emp.current_job_related_to_bsis)
-            )
-            row["job_applications_count"] = int(emp.first_job_applications_count or 0)
-            row["location_type"]          = 1 if emp.location_type else 0
-            for mapping, attr in (
-                (_JOB_SOURCE_COLS,     emp.first_job_source),
-                (_FIRST_SECTOR_COLS,   emp.first_job_sector),
-                (_FIRST_STATUS_COLS,   emp.first_job_status),
-                (_CURRENT_SECTOR_COLS, emp.current_job_sector),
-            ):
-                if attr and attr in mapping:
-                    row[mapping[attr]] = 1
-        else:
-            row.update(
-                # The MODEL still needs a numeric value here, but "no employment
-                # profile" is not the same fact as "not employed". has_outcome
-                # marks the difference so the ACTUAL rate can exclude the row
-                # instead of counting an unknown graduate as unemployed.
-                employment_status=0,
-                time_to_hire_months=None,
-                bsis_related_job_first=None,
-                bsis_related_job_current=None,
-                job_applications_count=0,
-                location_type=0,
-            )
-            row["has_outcome"] = 0
-
-        rows.append(row)
-
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
-
-def _aggregate_for_batch(artifacts: dict, batch: int | None) -> dict:
-    import numpy as np
-    df = artifacts["df"]
-    subset = df if batch is None else df[df["batch"] == batch]
-    if subset.empty:
-        return {"n_alumni": 0}
-
-    feats = artifacts["features"]
-    feature_df = subset[feats].fillna(df[feats].median())
-    X = artifacts["scaler"].transform(feature_df)
-    models = artifacts["models"]
-
-    pred_emp = models["employment_status"].predict(X).astype(int)
-    pred_tth = models["time_to_hire"].predict(X)
-
-    # Actual rates are computed only over graduates whose outcome we actually
-    # know. The synthetic training CSV has no has_outcome column, so everything
-    # in it counts — it is fully populated by construction.
-    known = subset[subset["has_outcome"] == 1] if "has_outcome" in subset.columns else subset
-    actual_emp = known["employment_status"].astype(int).to_numpy()
-    actual_first = subset["bsis_related_job_first"].dropna().astype(int)
-    actual_curr = subset["bsis_related_job_current"].dropna().astype(int)
-    actual_tth = subset["time_to_hire_months"].dropna().to_numpy()
-
-    buckets = {"1-3 months": 0, "3-6 months": 0, "6-12 months": 0, ">12 months": 0}
-    for t in pred_tth:
-        if t < 3:
-            buckets["1-3 months"] += 1
-        elif t < 6:
-            buckets["3-6 months"] += 1
-        elif t < 12:
-            buckets["6-12 months"] += 1
-        else:
-            buckets[">12 months"] += 1
-
-    # Absent actuals are returned as null, never 0.0. A batch with no
-    # time-to-hire answers is "no data", not "hired instantly" — the same
-    # defect that made a missing GPA read as "Below 75" and unknown alignment
-    # read as "not aligned".
-    return {
-        "n_alumni": int(len(subset)),
-        "n_with_outcome": int(len(actual_emp)),
-        "actual_employment_rate": float(actual_emp.mean()) if len(actual_emp) else None,
-        "predicted_employment_rate": float(pred_emp.mean()),
-        "actual_mean_time_to_hire_months": float(actual_tth.mean()) if len(actual_tth) else None,
-        "predicted_mean_time_to_hire_months": float(np.mean(pred_tth)),
-        "actual_bsis_first_rate": float(actual_first.mean()) if len(actual_first) else None,
-        "actual_bsis_current_rate": float(actual_curr.mean()) if len(actual_curr) else None,
-        "time_to_hire_distribution": buckets,
-    }
-
-def _compute_forecast(artifacts: dict, n_future: int = 2) -> list[dict]:
-    """Project per-feature linear trend forward N batches; run through models.
-
-    Returns a list of forecast dicts (one per future batch), each with
-    predicted employment rate, predicted mean time-to-hire, 80% prediction
-    intervals via residual bootstrap, and a TTH bucket distribution.
-    """
-    import numpy as np
-
-    df = artifacts["df"]
-    feats = artifacts["features"]
-    scaler = artifacts["scaler"]
-    models = artifacts["models"]
-
-    batches = sorted(df["batch"].unique().tolist())
-    if len(batches) < 2:
-        return []
-    latest = int(max(batches))
-
-    # Per-feature linear trend — use only batches with ≥25% employment so that
-    # freshly-graduated cohorts (0% employed, no employment OHE data yet) don't
-    # pull slopes sharply negative and corrupt the forecast.
-    batch_emp_rate = df.groupby("batch")["employment_status"].mean()
-    stable_batches = sorted([b for b in batches if batch_emp_rate.get(b, 0.0) >= 0.25])
-    slope_df = df[df["batch"].isin(stable_batches)] if len(stable_batches) >= 2 else df
-    latest_stable = int(max(stable_batches)) if stable_batches else latest
-
-    batch_means = slope_df.groupby("batch")[feats].mean()
-    x = np.array(batch_means.index, dtype=float)
-    slopes: dict[str, float] = {}
-    for f in feats:
-        y = batch_means[f].to_numpy()
-        if np.std(x) == 0 or np.std(y) == 0:
-            slopes[f] = 0.0
-        else:
-            slope, _ = np.polyfit(x, y, 1)
-            slopes[f] = float(slope)
-    slope_vec = np.array([slopes[f] for f in feats], dtype=float)
-
-    # In-sample residuals for bootstrap
-    X_full = scaler.transform(df[feats].fillna(df[feats].median()))
-    pred_emp_in = models["employment_status"].predict(X_full).astype(int)
-    actual_emp = df["employment_status"].astype(int).to_numpy()
-    emp_residuals = (actual_emp - pred_emp_in).astype(float)
-
-    employed = df[df["time_to_hire_months"].notna()]
-    X_emp = scaler.transform(employed[feats].fillna(df[feats].median()))
-    pred_tth_in = models["time_to_hire"].predict(X_emp)
-    tth_residuals = employed["time_to_hire_months"].to_numpy() - pred_tth_in
-
-    rng = np.random.default_rng(42)
-    n_boot = 200
-
-    # Base the projection on the last stable batch so its feature vector is
-    # representative; slope offset is relative to that base year.
-    base_rows = slope_df[slope_df["batch"] == latest_stable][feats].to_numpy(dtype=float)
-    if len(base_rows) == 0:
-        base_rows = slope_df[feats].to_numpy(dtype=float)
-
-    forecasts: list[dict] = []
-    for k in range(1, n_future + 1):
-        future_year = latest + k
-        steps = float(future_year - latest_stable)
-        shifted = base_rows + slope_vec * steps
-        Xf = scaler.transform(shifted)
-
-        pred_emp = models["employment_status"].predict(Xf).astype(int)
-        pred_tth = models["time_to_hire"].predict(Xf)
-
-        emp_rate = float(pred_emp.mean())
-        tth_mean = float(np.mean(pred_tth))
-
-        # 80% bootstrap CI on the batch mean
-        boot_emp = np.empty(n_boot, dtype=float)
-        boot_tth = np.empty(n_boot, dtype=float)
-        for i in range(n_boot):
-            idx_e = rng.integers(0, len(emp_residuals), size=len(emp_residuals))
-            boot_emp[i] = emp_rate + float(emp_residuals[idx_e].mean())
-            if len(tth_residuals):
-                idx_t = rng.integers(0, len(tth_residuals), size=len(tth_residuals))
-                boot_tth[i] = tth_mean + float(tth_residuals[idx_t].mean())
-            else:
-                boot_tth[i] = tth_mean
-
-        emp_lo = float(np.clip(np.percentile(boot_emp, 10), 0, 1))
-        emp_hi = float(np.clip(np.percentile(boot_emp, 90), 0, 1))
-        tth_lo = float(max(0.0, np.percentile(boot_tth, 10)))
-        tth_hi = float(np.percentile(boot_tth, 90))
-
-        buckets = {"1-3 months": 0, "3-6 months": 0, "6-12 months": 0, ">12 months": 0}
-        for t in pred_tth:
-            if t < 3:
-                buckets["1-3 months"] += 1
-            elif t < 6:
-                buckets["3-6 months"] += 1
-            elif t < 12:
-                buckets["6-12 months"] += 1
-            else:
-                buckets[">12 months"] += 1
-
-        forecasts.append({
-            "batch": future_year,
-            "n_alumni_basis": int(len(base_rows)),
-            "predicted_employment_rate": emp_rate,
-            "employment_rate_lo": emp_lo,
-            "employment_rate_hi": emp_hi,
-            "predicted_mean_time_to_hire_months": tth_mean,
-            "time_to_hire_lo": tth_lo,
-            "time_to_hire_hi": tth_hi,
-            "time_to_hire_distribution": buckets,
-        })
-
-    return forecasts
+# ── Admin Analytics - Employability ────────────────────────────────────────────
+# Observed indicators and the gated "employed within 12 months" model live in
+# tracer/employability.py. The model this replaced used job-profile answers that
+# only employed graduates can give, so it read the registration form's skip logic
+# instead of predicting employability (documentations/10-ml-pipeline-methodology.md,
+# sections 11 to 13).
 
 def _compute_skill_forecast(n_future: int = 2, top_n: int = 10) -> list[dict]:
     """Per-skill batch-share linear trend, projected forward N batches.
@@ -2388,10 +2065,13 @@ def _compute_skill_forecast(n_future: int = 2, top_n: int = 10) -> list[dict]:
 
 class AdminAnalyticsPredictionsView(APIView):
     """
-    GET /api/admin/analytics/employability-predictions/?batch=YYYY
+    GET /api/admin/analytics/employability-predictions/?batch=YYYY&horizon=1|2
 
-    Returns aggregate model predictions. If ?batch is omitted, returns
-    per-batch breakdown across the full trained population.
+    Observed indicators per batch (sample sizes, Wilson 95% intervals, small
+    groups suppressed), the expected employment range for the next batches,
+    the active "employed within 12 months" model if one has passed the
+    acceptance gate, and the skill ranking. `batch` narrows the overall
+    summary only; the per-batch list always covers every batch.
     """
 
     permission_classes = []  # Admin only - set in middleware
@@ -2400,120 +2080,50 @@ class AdminAnalyticsPredictionsView(APIView):
         _admin_user, _auth_error = require_admin(request)
         if _auth_error:
             return _auth_error
-        batch_param = request.query_params.get("batch")
+        import logging
+        from django.core.cache import cache
+        from . import employability
+
         batch = None
+        batch_param = request.query_params.get("batch")
         if batch_param:
             try:
                 batch = int(batch_param)
             except ValueError:
                 return Response({"error": "batch must be integer"}, status=status.HTTP_400_BAD_REQUEST)
-
-        horizon_param = request.query_params.get("horizon")
-        n_future = 2
-        if horizon_param:
-            try:
-                n_future = max(1, min(2, int(horizon_param)))
-            except ValueError:
-                n_future = 2
-
-        artifacts = _load_ml_artifacts()
-        if "error" in artifacts:
-            import logging
-            logging.getLogger(__name__).error(
-                "ML artifacts failed to load: %s\n%s",
-                artifacts["error"],
-                artifacts.get("traceback", ""),
-            )
-            return Response(
-                {
-                    "error": "ML artifacts unavailable",
-                    "detail": artifacts["error"],
-                    "traceback": artifacts.get("traceback"),
-                },
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        # --- Inject live DB data; fall back to CSV when DB is empty ---
-        import logging as _logging
-        _log = _logging.getLogger(__name__)
-        # Cache the live feature DataFrame for a short window so repeated
-        # analytics interactions (changing the batch filter or horizon) don't
-        # re-query the DB and re-engineer features every time.
-        from django.core.cache import cache as _django_cache
-
-        live_df = _django_cache.get("analytics_live_df")
-        if live_df is None:
-            try:
-                live_df = _build_live_df()
-            except Exception as _exc:  # noqa: BLE001
-                live_df = None
-                _log.warning("_build_live_df() failed: %s", _exc)
-            if live_df is not None and not live_df.empty:
-                _django_cache.set("analytics_live_df", live_df, 90)
-
-        _live_ok = live_df is not None and not live_df.empty
-        working_df = live_df if _live_ok else artifacts["df"]
-        # Reported to the client, not just logged. Without this the response is
-        # identical whether the numbers describe real graduates or the 230
-        # simulated training rows, and the page would label them the same way.
-        data_source = "live" if _live_ok else "synthetic_fallback"
-        if _live_ok:
-            _log.info("Analytics: using live DB data (%d rows)", len(live_df))
-        else:
-            _log.warning("Analytics: live DB empty or unavailable — falling back to training CSV")
-
-        # Shallow copy so _ML_CACHE["df"] is never mutated
-        local_artifacts = {**artifacts, "df": working_df}
-
-        overall = _aggregate_for_batch(local_artifacts, batch)
-        per_batch = []
-        for c in sorted(local_artifacts["df"]["batch"].unique().tolist()):
-            entry = _aggregate_for_batch(local_artifacts, int(c))
-            entry["batch"] = int(c)
-            per_batch.append(entry)
-
         try:
-            forecast = _compute_forecast(local_artifacts, n_future=n_future)
-        except Exception:  # noqa: BLE001
-            forecast = []
+            horizon = max(1, min(2, int(request.query_params.get("horizon", 1))))
+        except (TypeError, ValueError):
+            horizon = 1
 
+        # Cached briefly so switching the batch filter or horizon does not
+        # rebuild the frame. Indicators still reflect account changes within
+        # 90 seconds; the model itself only changes through the training command.
+        frame = cache.get(employability.FRAME_CACHE_KEY)
+        if frame is None:
+            try:
+                frame = employability.build_graduate_frame()
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger(__name__).exception("Employability analytics: graduate records failed to load")
+                return Response(
+                    {"error": "Graduate records could not be loaded", "detail": f"{type(exc).__name__}: {exc}"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            cache.set(employability.FRAME_CACHE_KEY, frame, 90)
+
+        payload = employability.analytics_payload(
+            frame,
+            employability.masterlist_counts(),
+            employability.load_active_model(),
+            batch=batch,
+            horizon=horizon,
+        )
         try:
-            skill_forecast = _compute_skill_forecast(n_future=n_future, top_n=10)
+            payload["skill_forecast"] = _compute_skill_forecast(n_future=horizon, top_n=10)
         except Exception:  # noqa: BLE001
-            skill_forecast = []
-
-        meta = artifacts["meta"]
-        best = {k: v.get("best_model") for k, v in meta.get("targets", {}).items()}
-
-        return Response({
-            "batch": batch,
-            "overall": overall,
-            "per_batch": per_batch,
-            "forecast": forecast,
-            "skill_forecast": skill_forecast,
-            # Where the NUMBERS came from: real graduates, or the training CSV.
-            "data_source": data_source,
-            # Where the MODEL came from. It is fitted entirely on simulated
-            # records and has never seen a real graduate, so every predicted
-            # figure must be presented as a simulation compared against reality
-            # — not as a forecast derived from this cohort.
-            "training_source": "synthetic",
-            "training_n": meta.get("n_samples"),
-            "model_metadata": {
-                "trained_at": meta.get("trained_at"),
-                "n_samples": meta.get("n_samples"),
-                "n_features": meta.get("n_features"),
-                "best_models": best,
-                "targets": {
-                    k: {
-                        "best_model": v.get("best_model"),
-                        "metrics": v.get("candidates", {}).get(v.get("best_model"), {}),
-                    }
-                    for k, v in meta.get("targets", {}).items()
-                },
-            },
-            "timestamp": timezone.now().isoformat(),
-        }, status=status.HTTP_200_OK)
+            payload["skill_forecast"] = []
+        payload["timestamp"] = timezone.now().isoformat()
+        return Response(payload, status=status.HTTP_200_OK)
 
 # ── Data Export for Model Training ────────────────────────────────────────────
 

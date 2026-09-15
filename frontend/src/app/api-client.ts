@@ -682,33 +682,100 @@ export async function createMasterlistEntries(
 // Analytics - Employability Predictions
 // ---------------------------------------------------------------------------
 
-export interface BatchPrediction {
-    batch: number;
-    n_alumni: number;
-    /** Graduates in this batch whose employment outcome is actually known. */
-    n_with_outcome?: number;
-    // The actual_* fields are null when a batch has no answers to average.
-    // Null means "no data" — rendering it as 0 would claim a 0% employment
-    // rate or an instant time-to-hire that nobody reported.
-    actual_employment_rate: number | null;
-    predicted_employment_rate: number;
-    actual_mean_time_to_hire_months: number | null;
-    predicted_mean_time_to_hire_months: number;
-    actual_bsis_first_rate: number | null;
-    actual_bsis_current_rate: number | null;
-    time_to_hire_distribution: Record<string, number>;
+/** A proportion with its sample size and Wilson 95% interval. `rate` is null
+ *  when there is no data (n = 0) or when the group is too small to show
+ *  (`suppressed`, fewer than 5 graduates). Never render either case as 0%. */
+export interface RateEstimate {
+    n: number;
+    k: number | null;
+    rate: number | null;
+    ci_low: number | null;
+    ci_high: number | null;
+    suppressed: boolean;
 }
 
-export interface BatchForecast {
+export interface TimeToFirstJob {
+    n: number;
+    suppressed: boolean;
+    bands: { label: string; count: number | null }[];
+}
+
+export interface EmployabilityIndicators {
+    respondents: number;
+    /** Graduates on the masterlist for the same batches. */
+    graduates: number | null;
+    response_rate: number | null;
+    /** More respondents than masterlist records: the masterlist is missing graduates, so there is no response rate. */
+    masterlist_incomplete: boolean;
+    /** Seeded demonstration accounts among the respondents. */
+    sample_accounts: number;
+    n_with_outcome: number;
+    /** Employed among graduates who are working or looking for work. */
+    employment_rate: RateEstimate;
+    employed_within_12_months: RateEstimate;
+    bsis_aligned_first_job: RateEstimate;
+    bsis_aligned_current_job: RateEstimate;
+    time_to_first_job: TimeToFirstJob;
+    /** Mean predicted chance of work within 12 months from the active model; null without one. */
+    model_expected_within_12_months: { rate: number | null; n: number; suppressed: boolean } | null;
+}
+
+export interface BatchIndicators extends EmployabilityIndicators {
     batch: number;
-    n_alumni_basis: number;
-    predicted_employment_rate: number;
-    employment_rate_lo: number;
-    employment_rate_hi: number;
-    predicted_mean_time_to_hire_months: number;
-    time_to_hire_lo: number;
-    time_to_hire_hi: number;
-    time_to_hire_distribution: Record<string, number>;
+}
+
+export interface OutlookYear {
+    batch: number;
+    centre: number;
+    low: number;
+    high: number;
+}
+
+/** Expected employment range for the next batches: how much past batches
+ *  varied, not a forecast from graduate answers. */
+export interface EmploymentOutlook {
+    available: boolean;
+    reason?: string;
+    basis?: 'backtest' | 'default';
+    batches_used?: number[];
+    backtest_errors?: number;
+    half_width?: number;
+    years: OutlookYear[];
+}
+
+export interface ModelCheck {
+    key: string;
+    label: string;
+    passed: boolean;
+    value: string;
+    rule: string;
+}
+
+export interface ModelFactor {
+    feature: string;
+    label: string;
+    odds_ratio: number;
+    ci_low: number;
+    ci_high: number;
+    direction_consistency: number;
+    stable: boolean;
+    /** The 95% interval excludes an odds ratio of 1. */
+    clear: boolean;
+}
+
+export interface EmployabilityModelSummary {
+    status: 'active' | 'none';
+    message?: string;
+    version?: string;
+    trained_at?: string;
+    source?: 'database' | 'simulated' | string;
+    source_details?: Record<string, unknown>;
+    target_label?: string;
+    features?: string[];
+    passed?: boolean;
+    metrics?: Record<string, number | null>;
+    checks?: ModelCheck[];
+    factors?: ModelFactor[];
 }
 
 export interface SkillProjection {
@@ -729,23 +796,13 @@ export interface SkillForecast {
 
 export interface AnalyticsPredictionsResponse {
     batch: number | null;
-    overall: Omit<BatchPrediction, 'batch'> & { batch?: number };
-    per_batch: BatchPrediction[];
-    forecast: BatchForecast[];
+    /** Summary for the selected batch, or for all batches. */
+    overall: EmployabilityIndicators;
+    /** Every batch on the masterlist or with respondents, oldest first. */
+    per_batch: BatchIndicators[];
+    outlook: EmploymentOutlook;
+    model: EmployabilityModelSummary;
     skill_forecast: SkillForecast[];
-    /** Where the numbers came from: real graduates, or the training CSV when
-     *  the live query fails. These must never look the same on screen. */
-    data_source?: 'live' | 'synthetic_fallback';
-    /** Where the MODEL came from. It is fitted on simulated records only. */
-    training_source?: 'synthetic';
-    training_n?: number;
-    model_metadata: {
-        trained_at: string;
-        n_samples: number;
-        n_features: number;
-        best_models: Record<string, string>;
-        targets: Record<string, { best_model: string; metrics: Record<string, unknown> }>;
-    };
     timestamp: string;
 }
 

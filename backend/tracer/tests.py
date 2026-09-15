@@ -969,101 +969,209 @@ class RegistrationValidationGateTests(SimpleTestCase):
 			self.assertTrue(result['is_valid'], f'birth_date {value!r} must not block')
 
 
-class PredictionComparisonTests(TestCase):
-	"""
-	The model is trained on synthetic data and APPLIED to real graduates, so the
-	comparison path is where things silently break: a feature drifts and the
-	model quietly receives the wrong column, or a missing actual is reported as
-	a real zero.
+def _graduate_rows(n, strength, seed=7):
+	"""Synthetic graduate frame where `strength` scales how much the
+	pre-graduation answers decide the 12-month outcome (0 = not at all)."""
+	import numpy as np
+	import pandas as pd
+	from tracer.employability import FRAME_COLUMNS, TARGET
 
-	TestCase, not SimpleTestCase — _build_live_df() queries the database, and a
-	fixture is created below so the parity check runs for real instead of
-	skipping on an empty table.
-	"""
+	rng = np.random.default_rng(seed)
+	honors = rng.choice([1, 2, 3, 4], size=n, p=[0.8, 0.12, 0.06, 0.02])
+	prior = rng.integers(0, 2, n)
+	ojt = rng.integers(1, 4, n).astype(float)
+	ojt[rng.random(n) < 0.2] = np.nan
+	portfolio = rng.integers(0, 2, n)
+	scholarship = (rng.random(n) < 0.25).astype(int)
+	logit = -0.2 + strength * (
+		0.9 * prior + 0.7 * (np.nan_to_num(ojt, nan=2.0) - 2) + 0.8 * portfolio + 0.3 * (honors - 1)
+	)
+	outcome = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)
+	frame = pd.DataFrame({
+		"alumni_id": [f"T{i}" for i in range(n)],
+		"batch": rng.choice(range(2019, 2025), size=n),
+		"gender": np.where(rng.random(n) < 0.5, "female", "male"),
+		"months_since_graduation": 24,
+		"academic_honors": honors,
+		"prior_work_experience": prior,
+		"ojt_relevance": ojt,
+		"has_portfolio": portfolio,
+		"scholarship": scholarship,
+		"employment_status": None,
+		"has_outcome": 1,
+		"employed_now": outcome,
+		"in_labor_force": 1,
+		"time_to_hire_months": np.nan,
+		TARGET: outcome,
+		"bsis_first": np.nan,
+		"bsis_current": np.nan,
+		"is_sample": False,
+	})
+	return frame[FRAME_COLUMNS]
+
+
+class EmployabilityIndicatorTests(SimpleTestCase):
+	"""Derived variables and rates. A missing or tiny group must never read as 0%."""
+
+	def test_wilson_interval_brackets_the_rate_and_handles_no_data(self):
+		from tracer.employability import wilson_interval
+
+		low, high = wilson_interval(6, 10)
+		self.assertLess(low, 0.6)
+		self.assertGreater(high, 0.6)
+		self.assertEqual(wilson_interval(0, 0), (None, None))
+
+	def test_small_groups_are_suppressed_and_empty_groups_are_null(self):
+		from tracer.employability import rate_estimate
+
+		tiny = rate_estimate([1, 1, 0])
+		self.assertTrue(tiny["suppressed"])
+		self.assertIsNone(tiny["rate"])
+
+		empty = rate_estimate([None, float("nan")])
+		self.assertEqual(empty["n"], 0)
+		self.assertIsNone(empty["rate"])
+		self.assertFalse(empty["suppressed"])
+
+		shown = rate_estimate([1] * 6 + [0] * 4)
+		self.assertAlmostEqual(shown["rate"], 0.6)
+		self.assertLessEqual(shown["ci_low"], 0.6)
+		self.assertGreaterEqual(shown["ci_high"], 0.6)
+
+	def test_employed_within_12_months_derivation(self):
+		from tracer.employability import employed_within_12_months as within
+
+		self.assertEqual(within("employed_full_time", 9, 30), 1)   # "6 months to 1 year"
+		self.assertEqual(within("employed_full_time", 18, 40), 0)  # "1-2 years"
+		self.assertEqual(within("seeking", None, 30), 0)           # still looking after a year
+		self.assertIsNone(within("seeking", None, 6))              # still inside the 12-month window
+		self.assertIsNone(within("not_seeking", None, 30))         # not in the labor force
+		self.assertIsNone(within("employed_full_time", None, 30))  # employed, hire time unknown
+
+	def test_model_inputs_are_all_known_at_graduation(self):
+		"""The previous model read job fields only employed graduates can fill in."""
+		from tracer.employability import MODEL_FEATURES, leaked_features
+
+		self.assertEqual(leaked_features(MODEL_FEATURES), [])
+		self.assertEqual(
+			leaked_features(["ojt_relevance", "current_sector_2", "first_job_source", "technical_skill_count"]),
+			["current_sector_2", "first_job_source", "technical_skill_count"],
+		)
+
+	def test_expected_range_is_wide_until_enough_batches_exist(self):
+		from tracer.employability import employment_outlook
+
+		def batch(year, rate):
+			return {"batch": year, "employment_rate": {"rate": rate}}
+
+		self.assertFalse(employment_outlook([batch(2023, 0.6)])["available"])
+		short = employment_outlook([batch(2023, 0.6), batch(2024, 0.7)])
+		self.assertEqual(short["basis"], "default")
+		self.assertAlmostEqual(short["years"][0]["high"] - short["years"][0]["low"], 0.4)
+
+
+class EmployabilityGateTests(SimpleTestCase):
+	"""The acceptance gate decides whether a model may be shown at all."""
+
+	def test_gate_rejects_a_model_that_predicts_nothing(self):
+		from tracer.employability import evaluate_candidate
+
+		result = evaluate_candidate(_graduate_rows(600, strength=0.0), repeats=3, n_boot=40)
+		self.assertFalse(result["passed"])
+		checks = {c["key"]: c for c in result["checks"]}
+		self.assertFalse(checks["discrimination"]["passed"])
+
+	def test_gate_accepts_an_informative_model(self):
+		from tracer.employability import evaluate_candidate
+
+		result = evaluate_candidate(_graduate_rows(900, strength=2.0), repeats=3, n_boot=40)
+		failed = [c for c in result["checks"] if not c["passed"]]
+		self.assertTrue(result["passed"], failed)
+		self.assertTrue(any(f["clear"] and f["odds_ratio"] > 1 for f in result["factors"]))
+
+	def test_only_a_passing_version_can_be_activated(self):
+		import shutil
+		import tempfile
+		from tracer import employability as E
+
+		folder = tempfile.mkdtemp()
+		self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+		with self.settings(EMPLOYABILITY_MODEL_DIR=folder):
+			weak = _graduate_rows(600, strength=0.0)
+			failed_version, _ = E.save_version(E.evaluate_candidate(weak, repeats=3, n_boot=20), weak, "test")
+			with self.assertRaises(ValueError):
+				E.activate_version(failed_version)
+			self.assertIsNone(E.load_active_model())
+
+			strong = _graduate_rows(900, strength=2.0)
+			passed_version, _ = E.save_version(E.evaluate_candidate(strong, repeats=3, n_boot=20), strong, "test")
+			E.activate_version(passed_version)
+			active = E.load_active_model()
+			self.assertEqual(active["version"], passed_version)
+			self.assertEqual(active["meta"]["features"], E.MODEL_FEATURES)
+
+
+class EmployabilityApiTests(TestCase):
+	"""Endpoint and report built from real graduate rows, with no active model."""
 
 	def setUp(self):
-		user = User.objects.create_user(
-			email="pred-test@example.com", password="TestPass123!", role=User.Role.ALUMNI
+		import shutil
+		import tempfile
+		from django.core.cache import cache
+
+		cache.clear()
+		self.model_dir = tempfile.mkdtemp()
+		self.addCleanup(shutil.rmtree, self.model_dir, ignore_errors=True)
+		admin = User.objects.create_user(
+			email="analytics-admin@example.com", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
 		)
-		self.alumni = AlumniAccount.objects.create(
-			user=user, account_status=AccountStatus.ACTIVE
-		)
-		AlumniProfile.objects.create(
-			alumni=self.alumni, first_name="Ana", last_name="Reyes", graduation_year=2022
-		)
-		EmploymentProfile.objects.create(
-			alumni=self.alumni,
-			employment_status="employed_full_time",
-			time_to_hire_months=3,
-		)
+		self.headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		for i, (status_value, months) in enumerate([("employed_full_time", 3), ("seeking", None), (None, None)]):
+			user = User.objects.create_user(
+				email=f"graduate{i}@example.com", password="TestPass123!", role=User.Role.ALUMNI,
+			)
+			account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+			AlumniProfile.objects.create(
+				alumni=account, first_name="Grad", last_name=["Reyes", "Santos", "Cruz"][i],
+				graduation_year=2022, graduation_date="2022-06",
+			)
+			if status_value:
+				EmploymentProfile.objects.create(
+					alumni=account, employment_status=status_value, time_to_hire_months=months,
+				)
 
-	def _artifacts(self):
-		from tracer.api import _load_ml_artifacts
-		return _load_ml_artifacts()
+	def test_graduate_frame_keeps_unknown_outcomes_unknown(self):
+		from tracer.employability import TARGET, build_graduate_frame
 
-	def test_model_artifacts_load(self):
-		artifacts = self._artifacts()
-		self.assertNotIn("error", artifacts, artifacts.get("error"))
-		self.assertIn("features", artifacts)
+		frame = build_graduate_frame().set_index("employment_status", drop=False)
+		self.assertEqual(len(frame), 3)
+		unanswered = frame[frame["has_outcome"] == 0].iloc[0]
+		self.assertTrue(unanswered.isna()["employed_now"])
+		self.assertTrue(unanswered.isna()[TARGET])
+		self.assertEqual(frame.loc["employed_full_time", TARGET], 1)
+		# Graduated June 2022 and still looking: more than 12 months, so 0.
+		self.assertEqual(frame.loc["seeking", TARGET], 0)
 
-	def test_live_frame_supplies_every_feature_the_model_expects(self):
-		"""
-		Train/serve parity. If _build_live_df stops emitting a feature the model
-		was trained on, prediction does not raise — it degrades silently, which
-		is far worse. This is the guard against that.
-		"""
-		from tracer.api import _build_live_df
+	def test_endpoint_reports_observed_values_without_a_model(self):
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			response = APIClient().get("/api/admin/analytics/employability-predictions/", **self.headers)
+		self.assertEqual(response.status_code, 200)
+		data = response.json()
+		self.assertEqual(data["model"]["status"], "none")
+		self.assertNotIn("forecast", data)
+		self.assertEqual(data["overall"]["respondents"], 3)
+		# Two graduates in the labor force: too few to show, and never 0%.
+		self.assertTrue(data["overall"]["employment_rate"]["suppressed"])
+		self.assertIsNone(data["overall"]["employment_rate"]["rate"])
 
-		artifacts = self._artifacts()
-		expected = list(artifacts["features"])
+	def test_endpoint_requires_admin(self):
+		response = APIClient().get("/api/admin/analytics/employability-predictions/")
+		self.assertIn(response.status_code, (401, 403))
 
-		live = _build_live_df()
-		self.assertFalse(live.empty, "fixture graduate should produce a live row")
-
-		missing = [f for f in expected if f not in live.columns]
-		self.assertEqual(missing, [], f"live frame is missing trained features: {missing}")
-
-	def test_real_employment_statuses_collapse_to_the_trained_binary(self):
-		"""
-		The model was trained on a binary target. Real data holds five strings,
-		so the collapse has to agree with what the model learned.
-		"""
-		from tracer.api import _EMPLOYED_STATUSES
-
-		for status in ("employed_full_time", "employed_part_time", "self_employed"):
-			self.assertIn(status, _EMPLOYED_STATUSES, f"{status} must count as employed")
-		for status in ("seeking", "not_seeking", "never_employed"):
-			self.assertNotIn(status, _EMPLOYED_STATUSES, f"{status} must not count as employed")
-
-	def test_absent_actuals_are_reported_as_null_not_zero(self):
-		"""
-		A batch with no answers must report None. Zero would assert a real 0%
-		employment rate and an instant time-to-hire that nobody reported.
-		"""
-		import pandas as pd
-		from tracer.api import _aggregate_for_batch
-
-		artifacts = self._artifacts()
-		feats = list(artifacts["features"])
-
-		row = {f: 0 for f in feats}
-		row.update(
-			batch=2024,
-			has_outcome=0,
-			employment_status=0,
-			time_to_hire_months=None,
-			bsis_related_job_first=None,
-			bsis_related_job_current=None,
-		)
-		local = {**artifacts, "df": pd.DataFrame([row])}
-
-		result = _aggregate_for_batch(local, 2024)
-		self.assertIsNone(result["actual_mean_time_to_hire_months"])
-		self.assertIsNone(result["actual_bsis_first_rate"])
-		self.assertIsNone(result["actual_bsis_current_rate"])
-		# has_outcome=0 means the graduate is excluded from the actual rate
-		# rather than silently counted as unemployed.
-		self.assertIsNone(result["actual_employment_rate"])
-		self.assertEqual(result["n_with_outcome"], 0)
-		# A prediction is still produced — the model always has an opinion.
-		self.assertIsNotNone(result["predicted_employment_rate"])
+	def test_predictive_trend_report_builds(self):
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			response = APIClient().get("/api/admin/reports/predictive-trend/", **self.headers)
+		self.assertEqual(response.status_code, 200)
+		titles = [s["title"] for s in response.json()["sections"]]
+		self.assertIn("Cross-Batch Timeline", titles)
+		self.assertIn("Model Acceptance Checks", titles)
