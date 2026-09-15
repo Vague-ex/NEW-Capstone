@@ -500,22 +500,29 @@ export function AdminNewDashboard() {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-5 gt-stagger">
-          <div className="lg:col-span-2 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="lg:col-span-2 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 lg:flex lg:flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Batch Employment Breakdown</h3>
               <span className="text-gray-400 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">Verified only</span>
             </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={batchData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
-                <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {/* Phones: fixed 160px (cards stack). Desktop: the row is as tall as
+                Quick Access, so the chart fills the card instead of leaving the
+                bottom half empty. Absolute inner box so the chart can't grow the row. */}
+            <div className="relative h-[160px] lg:h-auto lg:flex-1 lg:min-h-[260px]">
+              <div className="absolute inset-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={batchData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
+                    <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
