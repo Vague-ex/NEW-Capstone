@@ -4,9 +4,11 @@ Realistic-data stress test for the employability pipeline.
 Question this answers: "If the pipeline were fed REAL CHMSU BSIS tracer data,
 what could it honestly predict?"
 
-The production training data (ml/data/processed_training_data.csv) is clean by
+The retired pipeline trained on a generated corpus that was clean by
 construction. This script instead simulates what a real tracer survey would
-return, then runs the current pipeline and a set of honest alternatives on it.
+return, then runs that pipeline's setup and a set of honest alternatives on it.
+It is still used: the training command's simulated mode imports the generator
+below (see tracer/employability.py, simulated_frame).
 
 What makes the simulated data "realistic"
     - Population = the actual CHMSU BSIS masterlist batch sizes (2019-2024, 524 grads).
@@ -26,8 +28,7 @@ What makes the simulated data "realistic"
     - Form skip logic is reproduced: "Seeking" respondents still fill in their
       First Job, only employed respondents fill in Current Job.
 
-Nothing here reads or writes ml/data or ml/models, so the live dashboard is
-unaffected.
+Nothing here reads or writes ml/models, so the live dashboard is unaffected.
 
 Run from backend/:
     python ml/experiments/realistic_stress_test.py                                   # harsh market, moderate signal
@@ -150,7 +151,7 @@ PRE_GRAD_FEATURES = [
     "technical_skill_count", "soft_skill_count",
 ]
 
-# Exactly the 30 production features, in production order (model_metadata.json).
+# Exactly the 30 features the retired model used, in its metadata order.
 CURRENT_PIPELINE_FEATURES = (
     PRE_GRAD_FEATURES
     + ["job_applications_count"]
@@ -493,7 +494,7 @@ def describe(pop: pd.DataFrame, survey: pd.DataFrame) -> dict:
 
 
 def current_pipeline_as_is(survey: pd.DataFrame) -> dict:
-    """Re-run 2_train_models.py's employment setup (30 features, scaler + RF, KFold F1)."""
+    """Rebuild the retired pipeline's employment setup (30 features, scaler + RF, KFold F1)."""
     X = encode_current_pipeline(survey)
     y = survey["employment_status"].astype(int)
     cv = KFold(n_splits=5, shuffle=True, random_state=RS)

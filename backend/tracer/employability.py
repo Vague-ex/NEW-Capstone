@@ -57,13 +57,18 @@ OUT_OF_LABOR_FORCE_STATUSES = frozenset({"not_seeking"})
 TARGET = "employed_within_12mo"
 TARGET_LABEL = "Employed within 12 months of graduation"
 
-# Answers known at graduation. Skill counts are deliberately excluded: the
-# current form asks which skills a graduate has now, which for older batches
-# includes what they learned on the job.
+# Answers known at graduation.
+#
+# Left out on purpose:
+#   - skill counts: the form asks which skills a graduate has NOW, which for
+#     older batches includes what they learned on the job.
+#   - ojt_relevance: it asks graduates to rate work they did years ago (a 2019
+#     graduate is recalling 2018), and the form only shows the question to
+#     graduates who report prior work experience, so most rows are blank. It is
+#     still collected and shown to admins; it is just too unreliable to model.
 MODEL_FEATURES = [
     "academic_honors",
     "prior_work_experience",
-    "ojt_relevance",
     "has_portfolio",
     "scholarship",
 ]

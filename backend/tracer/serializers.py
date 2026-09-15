@@ -296,22 +296,6 @@ class SurveyDataRetrievalSerializer(serializers.Serializer):
     data = serializers.JSONField()
 
 
-class PredictionDataSerializer(serializers.Serializer):
-    """Response serializer for model predictions"""
-
-    batch = serializers.IntegerField()
-    sample_size = serializers.IntegerField()
-    employment_rate_percent = serializers.FloatField()
-    avg_time_to_hire_months = serializers.FloatField()
-    time_to_hire_distribution = serializers.JSONField()
-    top_technical_skills = serializers.JSONField()
-    bsis_alignment_rate_first_job = serializers.FloatField()
-    bsis_alignment_rate_current = serializers.FloatField()
-    confidence_intervals = serializers.JSONField()
-    model_metadata = serializers.JSONField()
-    timestamp = serializers.DateTimeField()
-
-
 class DataQualityReportSerializer(serializers.Serializer):
     """Response serializer for data quality report"""
 

@@ -26,7 +26,6 @@ from .api import (
     SkillListView,
     AlumniVerificationInviteView,
     SurveyDataRetrievalView,
-    TrainingDataExportView,
     VerificationTokenDecisionView,
     VerificationTokenDetailView,
 )
@@ -101,7 +100,6 @@ urlpatterns = [
 
     # Admin analytics endpoints (Phase 3)
     path("admin/analytics/employability-predictions/", AdminAnalyticsPredictionsView.as_view(), name="admin-predictions"),
-    path("admin/analytics/export-training-data/", TrainingDataExportView.as_view(), name="admin-export-training"),
 
     # Admin report-data endpoints (powering admin-reports.tsx)
     path("admin/reports/batch-summary/", BatchSummaryReportView.as_view(), name="admin-report-batch-summary"),

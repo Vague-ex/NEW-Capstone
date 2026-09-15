@@ -18,8 +18,10 @@ DFD Placement
 
 Data Scope
 - Population: CHMSU BSIS masterlist, 526 graduates (2019-2025, ~70-104 per batch).
-- Current training data: 230 synthetic rows (`backend/ml/scripts/1_generate_synthetic_data.py`).
-  The model has not yet been trained on real graduates.
+- No model is active until one passes the acceptance gate, and none has yet.
+  Demonstration runs train on simulated graduates from
+  `backend/ml/experiments/realistic_stress_test.py`. The model has never been
+  fitted to real graduates.
 
 Inputs and Data Sources
 - DS2 users_alumni_accounts: profile fields, survey data, captured metadata.
@@ -38,9 +40,8 @@ Branch `ml-redesign` (Phase A, 2026-09-16)
 - Served by `AdminAnalyticsPredictionsView` and `PredictiveTrendReportView`.
 - Details: `documentations/10-ml-pipeline-methodology.md`, section 13.6.
 
-Current Implementation Status (main branch)
-- Implemented: `backend/ml/scripts/1-3`, artifacts in `backend/ml/models/`,
-  served by `AdminAnalyticsPredictionsView` and `PredictiveTrendReportView`.
+The retired pipeline (still on `main`, deleted on this branch)
+- Was: `backend/ml/scripts/1-3` plus 30-feature artifacts in `backend/ml/models/`.
 - Known validity issues (methodology doc, section 11):
   - The employment classifier uses job-profile fields that only exist once a
     graduate is employed (target leakage).

@@ -21,11 +21,12 @@ django-cors-headers==4.9.0
 psycopg2-binary==2.9.11
 
 # ── Machine learning (predictive employability model) ────────────────────────
+# matplotlib was dropped with the retired pipeline: only its evaluation script
+# (ml/scripts/3_evaluate_models.py) drew plots, and nothing plots server-side now.
 scikit-learn==1.8.0
 pandas==2.3.3
 numpy==2.4.4
 joblib==1.5.3
-matplotlib==3.10.9
 
 # ── Face recognition support ─────────────────────────────────────────────────
 # headless: no GUI bindings, which is what a server needs. The full
