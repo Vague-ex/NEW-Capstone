@@ -2181,15 +2181,6 @@ export default function RegisterAlumniPersonal({
                           </div>
                         )}
 
-                        {/* Big countdown number */}
-                        {autoCountdown !== null && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-white drop-shadow-lg" style={{ fontWeight: 800, fontSize: '4rem', lineHeight: 1 }}>
-                              {autoCountdown}
-                            </span>
-                          </div>
-                        )}
-
                         {/* Detection status chip */}
                         <div className="absolute top-3 left-0 right-0 flex justify-center">
                           <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${faceDetected ? 'bg-emerald-500/90' : 'bg-black/60'}`}>
@@ -2200,15 +2191,13 @@ export default function RegisterAlumniPersonal({
                           </div>
                         </div>
 
-                        {/* Instruction / countdown caption */}
+                        {/* Instruction caption */}
                         <div className="absolute bottom-3 left-0 right-0 flex justify-center">
                           <div className="bg-black/65 rounded-full px-4 py-1.5">
                             <p className="text-white text-xs text-center" style={{ fontWeight: 600 }}>
-                              {autoCountdown !== null
-                                ? `Hold still — capturing in ${autoCountdown}…`
-                                : shotInstructions[shotIndex]?.kind === 'sweep'
-                                  ? `Step 2/2 - Slowly turn your head left and right (${sweepCount}/${SWEEP_TARGETS.length})`
-                                  : `Step 1/2 - ${shotInstructions[shotIndex]?.label}: ${shotInstructions[shotIndex]?.desc}`}
+                              {shotInstructions[shotIndex]?.kind === 'sweep'
+                                ? `Step 2/2 - Slowly turn your head left and right (${sweepCount}/${SWEEP_TARGETS.length})`
+                                : `Step 1/2 - ${shotInstructions[shotIndex]?.label}: ${shotInstructions[shotIndex]?.desc}`}
                             </p>
                           </div>
                         </div>
