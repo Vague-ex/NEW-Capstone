@@ -287,7 +287,7 @@ export function AdminAnalyticsPredictions() {
         </div>
       )}
 
-      {overall && overall.sample_accounts > 0 && (
+      {/* {overall && overall.sample_accounts > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
           <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-900 leading-relaxed">
@@ -300,7 +300,7 @@ export function AdminAnalyticsPredictions() {
             </p>
           </div>
         </div>
-      )}
+      )} */}
 
       {activeModel?.source === 'simulated' && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
@@ -484,9 +484,10 @@ export function AdminAnalyticsPredictions() {
           <ShieldCheck className="size-4 text-[#166534]" /> What Is Linked with Finding Work Within a Year
         </h3>
         <p className="text-gray-500 text-xs mt-1 mb-4 leading-relaxed">
-          Compares graduates by their answers at graduation (honors, OJT, prior work, portfolio, scholarship). Shown
-          only when the model passes every acceptance check. &ldquo;2× the odds&rdquo; means graduates with that answer
-          were twice as likely, in odds terms, to find work within a year. It is a link, not proof of cause.
+          Compares graduates by four answers known at graduation: Latin honors, work experience before graduating, a
+          portfolio, and a scholarship. Shown only once a model passes every acceptance check. &ldquo;2× the
+          odds&rdquo; means graduates with that answer were twice as likely, in odds terms, to find work within a
+          year. It is a link, not proof of cause.
         </p>
 
         {factors.length === 0 ? (

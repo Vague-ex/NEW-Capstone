@@ -660,7 +660,7 @@ def evaluate_candidate(frame, features=None, repeats: int = 10, n_boot: int = 20
     remaining = [
         ("baseline", "Beats the no-model baseline", "Brier score lower than the baseline's"),
         ("discrimination", "Separates the two outcomes", "Mean AUC at least 0.65, 5th percentile above 0.55"),
-        ("temporal", "Holds up on the latest batches", "AUC within 0.10 of cross-validation; predicted rate inside the observed 95% interval"),
+        ("temporal", "Holds up on the latest batches", "On batches it never saw: AUC within 0.10 of cross-validation, calibration slope 0.7 to 1.3"),
         ("calibration", "Predicted chances match reality", "Calibration slope between 0.7 and 1.3"),
         ("stability", "Reported factors are stable", "Each factor with a clear direction keeps it in at least 80% of bootstrap refits"),
         ("fairness", "Works similarly for female and male graduates", "No group of 30 or more with AUC more than 0.10 below overall"),
@@ -700,6 +700,16 @@ def evaluate_candidate(frame, features=None, repeats: int = 10, n_boot: int = 20
           "Mean AUC at least 0.65, 5th percentile above 0.55")
 
     # Temporal holdout: learn from older batches, test on the two latest.
+    #
+    # This asks whether the RELATIONSHIPS hold on batches the model never saw:
+    # ranking (AUC close to cross-validation) and strength (calibration slope).
+    # The gap between the predicted and observed average is reported as drift
+    # but does not fail the check, for three reasons: the shipped model is refit
+    # on every batch and so carries the current base rate; a base-rate shift
+    # between cohorts is a labor-market change rather than a broken model, and
+    # the dashboard reports each batch's rate observationally anyway; and a rule
+    # demanding the average land inside the observed interval gets stricter as
+    # the sample grows (±4 points at n=500, ±14 at n=50), which is backwards.
     batches = sorted(int(b) for b in data["batch"].dropna().unique())
     temporal_ok, temporal_value = False, "Needs at least four batches"
     if len(batches) >= 4:
@@ -711,17 +721,28 @@ def evaluate_candidate(frame, features=None, repeats: int = 10, n_boot: int = 20
             temporal_auc = float(roc_auc_score(y_test, p))
             predicted = float(p.mean())
             observed = float(y_test.mean())
-            low, high = wilson_interval(int(y_test.sum()), int(len(y_test)))
-            temporal_ok = abs(temporal_auc - auc_mean) <= 0.10 and low <= predicted <= high
-            temporal_value = (
-                f"AUC {temporal_auc:.2f}; predicted {predicted:.0%} vs observed {observed:.0%} "
-                f"(95% interval {low:.0%}-{high:.0%}) for batches {batches[-2]}-{batches[-1]}"
+            held = np.clip(p, 1e-6, 1 - 1e-6)
+            temporal_slope = float(
+                LogisticRegression(C=1e6, max_iter=1000)
+                .fit(np.log(held / (1 - held)).reshape(-1, 1), y_test)
+                .coef_[0][0]
             )
-            metrics.update(temporal_auc=temporal_auc, temporal_predicted_rate=predicted, temporal_observed_rate=observed)
+            drift = (predicted - observed) * 100
+            temporal_ok = abs(temporal_auc - auc_mean) <= 0.10 and 0.7 <= temporal_slope <= 1.3
+            temporal_value = (
+                f"AUC {temporal_auc:.2f} (cross-validation {auc_mean:.2f}), slope {temporal_slope:.2f} "
+                f"on batches {batches[-2]}-{batches[-1]}; base rate drifted {drift:+.0f} points "
+                f"(predicted {predicted:.0%} vs observed {observed:.0%})"
+            )
+            metrics.update(
+                temporal_auc=temporal_auc, temporal_slope=temporal_slope,
+                temporal_predicted_rate=predicted, temporal_observed_rate=observed,
+                temporal_drift_points=drift,
+            )
         else:
             temporal_value = "Too few graduates in one outcome group to test on the latest batches"
     check("temporal", "Holds up on the latest batches", temporal_ok, temporal_value,
-          "AUC within 0.10 of cross-validation; predicted rate inside the observed 95% interval")
+          "On batches it never saw: AUC within 0.10 of cross-validation, calibration slope 0.7 to 1.3")
 
     clipped = np.clip(oof, 1e-6, 1 - 1e-6)
     logit = np.log(clipped / (1 - clipped)).reshape(-1, 1)

@@ -7,7 +7,7 @@ import {
   CheckCircle2, XCircle, Clock, Camera, User,
   Calendar, Briefcase, AlertTriangle, X, Search,
   Mail, MapPin, Star, Building2,
-  BarChart2,
+  BarChart2, ClipboardCheck, ClipboardX,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { RejectReasonModal, GRADUATE_REJECT_REASONS } from './reject-reason-modal';
@@ -446,6 +446,23 @@ export function AdminUnverified() {
                           <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
                             <BarChart2 className="size-3" /> Excl. Analytics
                           </span>
+                          {a.matchStatus === 'matched' ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full"
+                              style={{ fontWeight: 600 }}
+                              title={`Matched to ${a.masterRecordName ?? 'a masterlist record'}${a.masterRecordBatch ? ` (batch ${a.masterRecordBatch})` : ''}`}
+                            >
+                              <ClipboardCheck className="size-3" /> On masterlist
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full border border-orange-200"
+                              style={{ fontWeight: 600 }}
+                              title="No masterlist record matched this name and batch year. Matching is exact, so this can also mean the batch was never uploaded."
+                            >
+                              <ClipboardX className="size-3" /> Not on masterlist
+                            </span>
+                          )}
                         </div>
 
                         {/* Row 2: Contact + batch */}
@@ -583,6 +600,16 @@ export function AdminUnverified() {
                       <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
                         <BarChart2 className="size-3" /> Excl. from Analytics
                       </span>
+                      {a.matchStatus === 'matched' ? (
+                        <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full" style={{ fontWeight: 600 }}>
+                          <ClipboardCheck className="size-3" /> On masterlist
+                          {a.masterRecordName ? <span className="text-emerald-600/80">· {a.masterRecordName}</span> : null}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full border border-orange-200" style={{ fontWeight: 600 }}>
+                          <ClipboardX className="size-3" /> Not on masterlist
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -1127,6 +1127,13 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "accountStatus": account.account_status,
         "rejectionReason": account.rejection_reason or "",
         "isSample": bool(isinstance(template, dict) and template.get("is_sample")),
+        # Whether registration found this graduate on the masterlist. Matching is
+        # exact on surname and batch year, so "unmatched" often means the batch
+        # was never uploaded rather than that the person is not a graduate — the
+        # reviewer needs to see it before approving, not be blocked by it.
+        "matchStatus": account.match_status,
+        "masterRecordName": account.master_record.full_name if account.master_record else None,
+        "masterRecordBatch": account.master_record.batch_year if account.master_record else None,
         "employmentStatus": employment_status,
         "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
         "company": survey_data.get("currentJobCompany") or "",
