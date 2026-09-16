@@ -10,6 +10,7 @@ import {
 import { VALID_ALUMNI } from '../../data/app-data';
 import { fetchAlumniAccountStatus } from '../../app/api-client';
 import { AlumniEmployment } from './alumni-employment';
+import { EmployerInviteModal } from './employer-invite-modal';
 
 export function AlumniDashboard() {
   const navigate = useNavigate();
@@ -53,6 +54,27 @@ export function AlumniDashboard() {
       navigate('/alumni/pending');
     }
   }, [alumni?.verificationStatus, navigate]);
+
+  // First login with a job: the backend sets needsEmployerInvite while the
+  // current employment record has a company but no verification link has
+  // ever been created for it. Opening the modal mints that link, so the flag
+  // clears server-side and the prompt does not come back on the next login.
+  // Graduates without a job never get the flag.
+  const [inviteDismissed, setInviteDismissed] = useState(false);
+  const showEmployerInvite = Boolean(
+    alumni?.needsEmployerInvite
+    && alumni?.verificationStatus === 'verified'
+    && !alumni?.requiresRetracking
+    && !inviteDismissed,
+  );
+  const closeEmployerInvite = () => {
+    setInviteDismissed(true);
+    setAlumni((current: Record<string, unknown>) => {
+      const next = { ...current, needsEmployerInvite: false };
+      sessionStorage.setItem('alumni_user', JSON.stringify(next));
+      return next;
+    });
+  };
 
   if (alumni?.requiresRetracking) {
     return <AlumniEmployment retrackingMode />;
@@ -322,6 +344,16 @@ export function AlumniDashboard() {
         </div>
 
       </div>
+
+      <EmployerInviteModal
+        open={showEmployerInvite}
+        onClose={closeEmployerInvite}
+        alumniId={alumniId}
+        subtitle={alumni.company
+          ? `You're working at ${alumni.company}. Send this link to your employer so they can confirm it.`
+          : 'Send this link to your employer so they can confirm your job.'}
+        footnote="Need another link later? Use “Share verification link with your employer” on the Update Employment page."
+      />
     </PortalLayout>
   );
 }

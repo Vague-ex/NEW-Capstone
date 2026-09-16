@@ -811,6 +811,29 @@ def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
             base[key] = value
     return base
 
+def _needs_employer_invite(account: AlumniAccount) -> bool:
+    """True when the graduate has a current job at a named company but has never
+    created a verification link for it. Drives the dashboard prompt that asks
+    them to send their employer the link; once any token exists for the record
+    (used, expired or still pending) the prompt stops. A company or title change
+    makes a fresh EmploymentRecord, so a new job starts the prompt again."""
+    try:
+        record = (
+            EmploymentRecord.objects
+            .filter(alumni=account, is_current=True)
+            .only("id", "employer_name_input", "employment_status", "verification_status")
+            .first()
+        )
+        if record is None or not (record.employer_name_input or "").strip():
+            return False
+        if record.employment_status == EmploymentRecord.EmploymentStatus.UNEMPLOYED:
+            return False
+        if record.verification_status != EmploymentRecord.VerificationStatus.PENDING:
+            return False
+        return not VerificationToken.objects.filter(employment_record=record).exists()
+    except Exception:  # pragma: no cover - defensive
+        return False
+
 def _needs_retracking(account: AlumniAccount) -> bool:
     """True when the graduate last confirmed their employment record over two years ago."""
     try:
@@ -931,6 +954,7 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "surveyData": survey_data,
         "skills": skills,
         "requiresRetracking": _needs_retracking(account),
+        "needsEmployerInvite": _needs_employer_invite(account),
     }
 
 def _admin_alumni_payload(account: AlumniAccount) -> dict:
