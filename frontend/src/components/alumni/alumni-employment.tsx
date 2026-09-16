@@ -974,6 +974,19 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                     value={form.currentJobCompany} onChange={e => setF('currentJobCompany', e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white" />
                 </div>
+                {/* Persistent way to re-open the share-link sheet. The
+                    post-save modal only fires when the company changed on
+                    that save, so without this the graduate has no way to
+                    fetch the verification link again if they closed it
+                    or landed on the page fresh. */}
+                <button
+                  type="button"
+                  onClick={() => { void openShareLinkWithInvite(); }}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#166534] hover:text-[#14532d] underline underline-offset-2"
+                  style={{ fontWeight: 600 }}
+                >
+                  <Building2 className="size-3.5" /> Share verification link with your employer
+                </button>
               </div>
 
               </div>{/* end left column */}
