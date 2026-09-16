@@ -90,53 +90,59 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   // ── Form state ──────────────────────────────────────────────────────────────
 
-  const [form, setForm] = useState({
+  // Builds the form shape from a surveyData blob + the top-level alumni
+  // object. Used both for the initial mount (from sessionStorage) and after
+  // the on-mount refresh so the edit page always reflects what the backend
+  // actually has, not just whatever the login response happened to cache.
+  const buildFormState = (sdIn: Record<string, unknown>, alumniIn: Record<string, unknown>) => ({
     // Section 4: Academic & Pre-Employment
-    academic_honors: String(sd.academic_honors ?? ''),
-    prior_work_experience: String(sd.prior_work_experience ?? ''),
-    ojt_relevance: String(sd.ojt_relevance ?? ''),
-    has_portfolio: String(sd.has_portfolio ?? ''),
+    academic_honors: String(sdIn.academic_honors ?? ''),
+    prior_work_experience: String(sdIn.prior_work_experience ?? ''),
+    ojt_relevance: String(sdIn.ojt_relevance ?? ''),
+    has_portfolio: String(sdIn.has_portfolio ?? ''),
 
     // Section 5: Employment Status
-    employment_status: String(sd.employment_status ?? alumni.employmentStatus ?? ''),
+    employment_status: String(sdIn.employment_status ?? alumniIn.employmentStatus ?? ''),
 
     // Section 6: First Job
-    timeToHire: String(sd.timeToHire ?? ''),
-    firstJobSector: String(sd.firstJobSector ?? ''),
-    firstJobStatus: String(sd.firstJobStatus ?? ''),
-    firstJobTitle: String(sd.firstJobTitle ?? sd.first_job_title ?? alumni.jobTitle ?? ''),
-    firstJobRelated: String(sd.firstJobRelated ?? ''),
-    firstJobUnrelatedReason: String(sd.firstJobUnrelatedReason ?? ''),
-    firstJobUnrelatedOther: String(sd.firstJobUnrelatedOther ?? ''),
-    jobRetention: String(sd.jobRetention ?? ''),
-    jobApplications: String(sd.jobApplications ?? ''),
-    jobSource: String(sd.jobSource ?? ''),
-    jobSourceOther: String(sd.jobSourceOther ?? ''),
+    timeToHire: String(sdIn.timeToHire ?? ''),
+    firstJobSector: String(sdIn.firstJobSector ?? ''),
+    firstJobStatus: String(sdIn.firstJobStatus ?? ''),
+    firstJobTitle: String(sdIn.firstJobTitle ?? sdIn.first_job_title ?? alumniIn.jobTitle ?? ''),
+    firstJobRelated: String(sdIn.firstJobRelated ?? ''),
+    firstJobUnrelatedReason: String(sdIn.firstJobUnrelatedReason ?? ''),
+    firstJobUnrelatedOther: String(sdIn.firstJobUnrelatedOther ?? ''),
+    jobRetention: String(sdIn.jobRetention ?? ''),
+    jobApplications: String(sdIn.jobApplications ?? ''),
+    jobSource: String(sdIn.jobSource ?? ''),
+    jobSourceOther: String(sdIn.jobSourceOther ?? ''),
 
     // Section 7: Current Job
-    currentJobSector: String(sd.currentJobSector ?? ''),
-    currentJobTitleId: String(sd.currentJobTitleId ?? alumni.jobTitleId ?? ''),
-    currentJobPosition: String(sd.currentJobPosition ?? sd.current_job_title ?? alumni.jobTitle ?? ''),
-    currentJobCompany: String(sd.currentJobCompany ?? sd.current_job_company ?? alumni.company ?? ''),
-    currentJobRelated: String(sd.currentJobRelated ?? ''),
-    currentJobLocation: String(sd.currentJobLocation ?? (alumni.workLocation?.toLowerCase().includes('abroad') ? 'Abroad / Remote Foreign Employer' : 'Local (Philippines)')),
+    currentJobSector: String(sdIn.currentJobSector ?? ''),
+    currentJobTitleId: String(sdIn.currentJobTitleId ?? alumniIn.jobTitleId ?? ''),
+    currentJobPosition: String(sdIn.currentJobPosition ?? sdIn.current_job_title ?? alumniIn.jobTitle ?? ''),
+    currentJobCompany: String(sdIn.currentJobCompany ?? sdIn.current_job_company ?? alumniIn.company ?? ''),
+    currentJobRelated: String(sdIn.currentJobRelated ?? ''),
+    currentJobLocation: String(sdIn.currentJobLocation ?? ((alumniIn.workLocation as string | undefined)?.toLowerCase().includes('abroad') ? 'Abroad / Remote Foreign Employer' : 'Local (Philippines)')),
 
     // Section 8: Work Address
-    street_address: String(sd.street_address ?? ''),
-    barangay: String(sd.barangay ?? ''),
-    city_municipality: String(sd.city_municipality ?? ''),
-    currentJobRegionId: String(sd.currentJobRegionId ?? sd.region_address ?? alumni.regionId ?? ''),
-    currentJobProvinceId: String(sd.currentJobProvinceId ?? ''),
-    currentJobCityId: String(sd.currentJobCityId ?? ''),
-    province_address: String(sd.province_address ?? ''),
-    zip_code: String(sd.zip_code ?? ''),
-    country_address: String(sd.country_address ?? 'Philippines'),
+    street_address: String(sdIn.street_address ?? ''),
+    barangay: String(sdIn.barangay ?? ''),
+    city_municipality: String(sdIn.city_municipality ?? ''),
+    currentJobRegionId: String(sdIn.currentJobRegionId ?? sdIn.region_address ?? alumniIn.regionId ?? ''),
+    currentJobProvinceId: String(sdIn.currentJobProvinceId ?? ''),
+    currentJobCityId: String(sdIn.currentJobCityId ?? ''),
+    province_address: String(sdIn.province_address ?? ''),
+    zip_code: String(sdIn.zip_code ?? ''),
+    country_address: String(sdIn.country_address ?? 'Philippines'),
 
     // Section 9: Skills
-    technical_skills: Array.isArray(sd.technical_skills) ? (sd.technical_skills as string[]) : [],
-    soft_skills: Array.isArray(sd.soft_skills) ? (sd.soft_skills as string[]) : [],
-    professional_certifications: String(sd.professional_certifications ?? ''),
+    technical_skills: Array.isArray(sdIn.technical_skills) ? (sdIn.technical_skills as string[]) : [],
+    soft_skills: Array.isArray(sdIn.soft_skills) ? (sdIn.soft_skills as string[]) : [],
+    professional_certifications: String(sdIn.professional_certifications ?? ''),
   });
+
+  const [form, setForm] = useState(() => buildFormState(sd, alumni));
 
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -266,6 +272,54 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
       setEmployerLinkStatus('Could not create a verification link. Please try again.');
     }
   };
+
+  // Pull the authoritative alumni record from the backend once on mount and
+  // fill any empty form fields from it. sessionStorage's snapshot is written
+  // at login time and can lag behind the tables the analytics dashboards read
+  // from — that's why the edit page can look empty even though the graduate's
+  // data is still in the database. This never clobbers a field the graduate
+  // has already filled: only empty fields (and empty skill arrays) are
+  // hydrated, so in-progress typing survives a slow response.
+  useEffect(() => {
+    if (!alumniId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const refreshed = await fetchAlumniAccountStatus(alumniId);
+        if (cancelled || !refreshed || typeof refreshed !== 'object') return;
+        const merged = { ...alumni, ...(refreshed as Record<string, unknown>) };
+        sessionStorage.setItem('alumni_user', JSON.stringify(merged));
+        const freshSd = ((merged as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
+        const fresh = buildFormState(freshSd, merged as Record<string, unknown>);
+        setForm(current => {
+          const next: typeof current = { ...current };
+          (Object.keys(fresh) as (keyof typeof fresh)[]).forEach((k) => {
+            const cur = current[k];
+            const fv = fresh[k];
+            const curEmpty = Array.isArray(cur) ? cur.length === 0 : (cur === '' || cur == null);
+            const fvHasValue = Array.isArray(fv) ? fv.length > 0 : (fv !== '' && fv != null);
+            if (curEmpty && fvHasValue) {
+              (next as Record<string, unknown>)[k as string] = fv;
+            }
+          });
+          return next;
+        });
+        // Keep the re-eval baseline aligned with what actually landed in the
+        // form, so the "your employer must re-verify" modal only fires on
+        // real user-driven company/title edits, not on a mount-time refresh.
+        initialWorkRef.current = {
+          company: String(fresh.currentJobCompany || initialWorkRef.current.company || ''),
+          title: String(fresh.currentJobPosition || initialWorkRef.current.title || ''),
+        };
+      } catch {
+        // Silent — the form still shows the sessionStorage snapshot.
+      }
+    })();
+    return () => { cancelled = true; };
+    // Intentionally only on mount / alumniId change; `alumni` from
+    // sessionStorage is a stable JSON snapshot for this session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alumniId]);
 
   const setF = (key: string, value: string) => {
     setSaved(false); setSaveError('');
