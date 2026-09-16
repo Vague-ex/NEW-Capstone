@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { VALID_ALUMNI } from '../../data/app-data';
-import { fetchAlumniAccountStatus, updateAlumniEmployment, createAlumniVerificationInvite } from '../../app/api-client';
+import { fetchAlumniAccountStatus, updateAlumniEmployment, createAlumniVerificationInvite, ApiClientError } from '../../app/api-client';
 import {
   useReferenceData,
   provincesApi,
@@ -258,7 +258,13 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   const openShareLinkWithInvite = async () => {
     setShareLinkModalOpen(true);
     setEmployerLinkStatus('');
-    if (!alumniId) return;
+    // Clear any link left over from a previous open — otherwise a fresh mint
+    // that fails silently would leave the stale URL visible as if it were new.
+    setEmployerPortalLink('');
+    if (!alumniId) {
+      setEmployerLinkStatus('Your session has expired. Please sign in again.');
+      return;
+    }
     try {
       const res = await createAlumniVerificationInvite(alumniId);
       const tokenId = res?.token?.id;
@@ -268,8 +274,13 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
       } else {
         setEmployerLinkStatus('Could not create a verification link. Please try again.');
       }
-    } catch {
-      setEmployerLinkStatus('Could not create a verification link. Please try again.');
+    } catch (err) {
+      // Surface the backend's own message when there is one — the common
+      // failures ("save your current job first", the live-links cap, an
+      // expired session) all need a different fix by the graduate, and the
+      // old catch-all hid every one of them behind the same retry prompt.
+      const detail = err instanceof ApiClientError ? err.message : '';
+      setEmployerLinkStatus(detail || 'Could not create a verification link. Please try again.');
     }
   };
 
@@ -1590,9 +1601,15 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 This link works once and expires in 7 days. You can create another for a different contact.
               </p>
               {employerLinkStatus && (
-                <p className="flex items-start gap-1.5 text-sm sm:text-xs text-emerald-700" style={{ fontWeight: 600 }}>
-                  <CheckCircle2 className="size-4 text-emerald-500 mt-0.5 shrink-0" /> <span>{employerLinkStatus}</span>
-                </p>
+                employerPortalLink ? (
+                  <p className="flex items-start gap-1.5 text-sm sm:text-xs text-emerald-700" style={{ fontWeight: 600 }}>
+                    <CheckCircle2 className="size-4 text-emerald-500 mt-0.5 shrink-0" /> <span>{employerLinkStatus}</span>
+                  </p>
+                ) : (
+                  <p className="flex items-start gap-1.5 text-sm sm:text-xs text-red-700" style={{ fontWeight: 600 }}>
+                    <AlertTriangle className="size-4 text-red-500 mt-0.5 shrink-0" /> <span>{employerLinkStatus}</span>
+                  </p>
+                )
               )}
             </div>
             <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex flex-col-reverse sm:flex-row items-stretch sm:items-center sm:justify-end gap-2">
@@ -1613,7 +1630,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               <button
                 type="button"
                 onClick={handleShareLink}
-                className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
+                disabled={!employerPortalLink}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#166534]"
                 style={{ fontWeight: 600 }}
               >
                 <Building2 className="size-4" /> Copy link
