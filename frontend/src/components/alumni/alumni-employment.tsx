@@ -78,7 +78,11 @@ function normalizeEmploymentStatus(status: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: boolean } = {}) {
+export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { retrackingMode?: boolean } = {}) {
+  // Retracking can be requested two ways: the dashboard renders this page with
+  // the prop, or redirects to /alumni/employment?retracking=1. Either one counts.
+  const retrackingMode = retrackingProp
+    || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('retracking') === '1');
   const navigate = useNavigate();
   const { data: referenceData } = useReferenceData();
   const rawUser = sessionStorage.getItem('alumni_user');
@@ -724,8 +728,6 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   };
 
   // ── Render ────────────────────────────────────────────────────────────────────
-
-  const retrackingMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('retracking') === '1';
 
   return (
     <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey - Employment Record">
