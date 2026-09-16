@@ -1374,3 +1374,21 @@ class SimulatedSourceTests(TestCase):
 			send_branded_email(to_email="bea.santos21@gmail.test", subject="x", template_base="unused", context={})
 		smtp.assert_not_called()
 		resend.assert_not_called()
+
+	def test_verified_payload_query_count_does_not_grow_with_graduates(self):
+		from django.db import connection
+		from django.test.utils import CaptureQueriesContext
+		from users.api import _admin_alumni_payload, _alumni_dashboard_queryset
+
+		def queries():
+			with CaptureQueriesContext(connection) as captured:
+				for account in _alumni_dashboard_queryset(AlumniAccount.objects.all()):
+					_admin_alumni_payload(account)
+			return len(captured.captured_queries)
+
+		before = queries()
+		# Graduates with no work address, skills or competency profile used to
+		# cost a query each (an empty prefetch was treated as "not prefetched").
+		for i in range(4):
+			self._graduate(f"extra{i}@gmail.test", sample=True)
+		self.assertEqual(queries(), before)

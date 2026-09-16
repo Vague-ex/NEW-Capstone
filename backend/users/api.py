@@ -603,10 +603,15 @@ def _alumni_dashboard_queryset(qs):
     from N+1 queries (one per related table per alumni) to a constant 4
     additional queries regardless of result-set size.
     """
-    from tracer.models import CompetencyProfile, EmploymentProfile, WorkAddress
+    from tracer.models import AlumniSkill, CompetencyProfile, EmploymentProfile, WorkAddress
     from .models import FaceScan
 
     return qs.select_related("user", "master_record", "profile").prefetch_related(
+        Prefetch(
+            "skills",
+            queryset=AlumniSkill.objects.select_related("skill__category"),
+            to_attr="_prefetched_skills",
+        ),
         Prefetch(
             "employment_profiles",
             queryset=EmploymentProfile.objects.order_by("-updated_at"),
@@ -639,6 +644,22 @@ def _first_prefetched(account, attr):
     if isinstance(cached, list):
         return cached[0] if cached else None
     return None
+
+def _first_related(account, attr, query):
+    """First row of a prefetched list, or ``query()`` when nothing was prefetched.
+
+    A prefetched EMPTY list means "this graduate has none". Treating it like
+    "not prefetched" re-queried once per graduate without, e.g., a work
+    address: about a thousand extra Supabase round trips for 500 graduates on
+    the verified list, geomap and dashboard.
+    """
+    cached = getattr(account, attr, None)
+    if isinstance(cached, list):
+        return cached[0] if cached else None
+    try:
+        return query()
+    except Exception:
+        return None
 
 def _normalized_view_from_tables(account: AlumniAccount) -> dict:
     """Read AlumniProfile / EmploymentProfile / WorkAddress / AlumniSkill rows for
@@ -700,12 +721,7 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             view["has_portfolio"] = prof.has_portfolio
 
     # ── EmploymentProfile ──────────────────────────────────────────────────────
-    emp = _first_prefetched(account, "_prefetched_emp")
-    if emp is None:
-        try:
-            emp = account.employment_profiles.order_by("-updated_at").first()
-        except Exception:
-            emp = None
+    emp = _first_related(account, "_prefetched_emp", lambda: account.employment_profiles.order_by("-updated_at").first())
     if emp is not None:
         if emp.employment_status:
             view["employment_status"] = emp.employment_status
@@ -748,12 +764,10 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             )
 
     # ── WorkAddress ───────────────────────────────────────────────────────────
-    addr = _first_prefetched(account, "_prefetched_addr")
-    if addr is None:
-        try:
-            addr = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
-        except Exception:
-            addr = None
+    addr = _first_related(
+        account, "_prefetched_addr",
+        lambda: account.work_addresses.filter(is_current=True).order_by("-created_at").first(),
+    )
     if addr is not None:
         view["city_municipality"] = addr.city_municipality
         view["country_address"] = addr.country
@@ -775,7 +789,11 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
     tech: list[str] = []
     soft: list[str] = []
     try:
-        alumni_skills = list(account.skills.select_related("skill", "skill__category").all())
+        prefetched_skills = getattr(account, "_prefetched_skills", None)
+        alumni_skills = (
+            prefetched_skills if isinstance(prefetched_skills, list)
+            else list(account.skills.select_related("skill", "skill__category").all())
+        )
         # Admin categories (Web Development, Database, ...) are technical too;
         # only "Soft" is soft.
         soft = [s.skill.name for s in alumni_skills if s.skill.category and s.skill.category.name == "Soft"]
@@ -784,12 +802,10 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
         alumni_skills = []
 
     if not tech and not soft:
-        comp = _first_prefetched(account, "_prefetched_comp")
-        if comp is None:
-            try:
-                comp = account.competency_profiles.order_by("-assessment_date").first()
-            except Exception:
-                comp = None
+        comp = _first_related(
+            account, "_prefetched_comp",
+            lambda: account.competency_profiles.order_by("-assessment_date").first(),
+        )
         if comp is not None:
             tech = [s.get("name") for s in (comp.technical_skills or []) if isinstance(s, dict) and s.get("selected")]
             soft = [s.get("name") for s in (comp.soft_skills or []) if isinstance(s, dict) and s.get("selected")]
@@ -926,12 +942,10 @@ def _as_form_labels(survey_data: dict, blob: dict, account: AlumniAccount) -> di
 
     # Work address: the tables keep region/province/city as names, but the
     # form's selects need reference-table ids.
-    addr = _first_prefetched(account, "_prefetched_addr")
-    if addr is None:
-        try:
-            addr = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
-        except Exception:
-            addr = None
+    addr = _first_related(
+        account, "_prefetched_addr",
+        lambda: account.work_addresses.filter(is_current=True).order_by("-created_at").first(),
+    )
     if addr is not None:
         if addr.province and addr.province != "—" and not sd.get("province_address"):
             sd["province_address"] = addr.province
@@ -1261,12 +1275,10 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
     if home_lat is not None and home_lng is not None:
         lat, lng, location_source = home_lat, home_lng, "home"
 
-    addr_row = _first_prefetched(account, "_prefetched_addr")
-    if addr_row is None:
-        try:
-            addr_row = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
-        except Exception:
-            addr_row = None
+    addr_row = _first_related(
+        account, "_prefetched_addr",
+        lambda: account.work_addresses.filter(is_current=True).order_by("-created_at").first(),
+    )
     if addr_row is not None and addr_row.latitude is not None and addr_row.longitude is not None:
         lat, lng, location_source = addr_row.latitude, addr_row.longitude, "work"
 
