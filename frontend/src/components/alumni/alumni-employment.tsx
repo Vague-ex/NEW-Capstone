@@ -148,6 +148,9 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   });
 
   const [form, setForm] = useState(() => buildFormState(sd, alumni));
+  // What the form held at mount, so the backend refresh below can tell a field
+  // the graduate has edited apart from one still showing the cached snapshot.
+  const mountFormRef = useRef(form);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -238,9 +241,10 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   // fill any empty form fields from it. sessionStorage's snapshot is written
   // at login time and can lag behind the tables the analytics dashboards read
   // from — that's why the edit page can look empty even though the graduate's
-  // data is still in the database. This never clobbers a field the graduate
-  // has already filled: only empty fields (and empty skill arrays) are
-  // hydrated, so in-progress typing survives a slow response.
+  // data is still in the database. A field is replaced only while it still
+  // holds its mount-time value; the cached snapshot can hold stale shapes
+  // (e.g. "Yes" instead of the option label) that would otherwise block the
+  // fresh answer. Anything the graduate has touched is left alone.
   useEffect(() => {
     if (!alumniId) return;
     let cancelled = false;
@@ -257,14 +261,26 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
           (Object.keys(fresh) as (keyof typeof fresh)[]).forEach((k) => {
             const cur = current[k];
             const fv = fresh[k];
-            const curEmpty = Array.isArray(cur) ? cur.length === 0 : (cur === '' || cur == null);
+            const untouched = JSON.stringify(cur) === JSON.stringify(mountFormRef.current[k]);
             const fvHasValue = Array.isArray(fv) ? fv.length > 0 : (fv !== '' && fv != null);
-            if (curEmpty && fvHasValue) {
+            if (untouched && fvHasValue) {
               (next as Record<string, unknown>)[k as string] = fv;
             }
           });
           return next;
         });
+        // Restore the saved work pin when the cached snapshot had none.
+        const freshLat = freshSd.work_latitude != null && freshSd.work_latitude !== '' ? Number(freshSd.work_latitude) : null;
+        const freshLng = freshSd.work_longitude != null && freshSd.work_longitude !== '' ? Number(freshSd.work_longitude) : null;
+        if (freshLat != null && freshLng != null && Number.isFinite(freshLat) && Number.isFinite(freshLng)
+          && sd.work_latitude == null && sd.work_longitude == null) {
+          // Exact pin: keep the city auto-pin from dragging it to the city centre.
+          exactPinCityRef.current = fresh.city_municipality || null;
+          setWorkLat(freshLat);
+          setWorkLng(freshLng);
+          (workMarkerRef.current as { setLatLng: (ll: [number, number]) => void } | null)?.setLatLng([freshLat, freshLng]);
+          (workLeafletMapRef.current as { setView: (ll: [number, number], z: number) => void } | null)?.setView([freshLat, freshLng], 13);
+        }
         // Keep the re-eval baseline aligned with what actually landed in the
         // form, so the "your employer must re-verify" modal only fires on
         // real user-driven company/title edits, not on a mount-time refresh.

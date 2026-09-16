@@ -114,6 +114,23 @@ _JOB_APPLICATIONS_BUCKET = {
     "31+": 4,
 }
 
+_ACADEMIC_HONORS = {
+    "summa cum laude": 4,
+    "magna cum laude": 3,
+    "cum laude": 2,
+    "no academic honors": 1,
+    "none": 1,
+}
+
+_OJT_RELEVANCE = {
+    "yes, directly related": 3,
+    "directly related": 3,
+    "somewhat related": 2,
+    "not related": 1,
+    "have not secured a job yet / not applicable": 0,
+    "not applicable": 0,
+}
+
 _COMPANY_STOP_WORDS = {
     "philippines", "corp", "corporation", "inc", "ltd", "co", "company", "ph", "the", "and", "of",
 }
@@ -196,6 +213,12 @@ def _to_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _code_or_label(value: Any, labels: dict[str, int]) -> int | None:
+    """An encoded int as-is, or the int behind a human-readable option label."""
+    code = _to_int(value)
+    return code if code is not None else _map(labels, value)
 
 
 def _to_bool(value: Any) -> bool:
@@ -344,13 +367,15 @@ def apply_survey_data_to_normalized_tables(
     # NOTE: general_average_range is no longer collected (removed per the 2026
     # panel revision). The column is retained for historical rows; nothing
     # writes it any more.
-    if (val := _to_int(_first("academic_honors", "academicHonors"))) is not None:
+    # Registration sends the encoded ints; the Employment Details page sends
+    # the option labels. Accept both, or edits to these two never save.
+    if (val := _code_or_label(_first("academic_honors", "academicHonors"), _ACADEMIC_HONORS)) is not None:
         profile_updates["academic_honors"] = val
     if "prior_work_experience" in sd or "priorWorkExperience" in sd:
         profile_updates["prior_work_experience"] = _to_bool(
             sd.get("prior_work_experience", sd.get("priorWorkExperience"))
         )
-    if (val := _to_int(_first("ojt_relevance", "ojtRelevance"))) is not None:
+    if (val := _code_or_label(_first("ojt_relevance", "ojtRelevance"), _OJT_RELEVANCE)) is not None:
         profile_updates["ojt_relevance"] = val
     if "has_portfolio" in sd or "hasPortfolio" in sd:
         profile_updates["has_portfolio"] = _to_bool(

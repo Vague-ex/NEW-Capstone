@@ -811,6 +811,177 @@ def _merge_survey_view(survey_data: dict, account: AlumniAccount) -> dict:
             base[key] = value
     return base
 
+# Stored value -> the exact option label the graduate's Employment Details page
+# (alumni-employment.tsx) matches its radios against. The tables hold encoded
+# values (ints, booleans, enum codes), so without this the page loads blank even
+# though the answers are in the database.
+_ACADEMIC_HONORS_LABELS = {4: "Summa Cum Laude", 3: "Magna Cum Laude", 2: "Cum Laude", 1: "No Academic Honors"}
+_OJT_RELEVANCE_LABELS = {
+    3: "Yes, directly related",
+    2: "Somewhat related",
+    1: "Not related",
+    0: "Have not secured a job yet / Not applicable",
+}
+_TIME_TO_HIRE_LABELS = {
+    1.0: "Within 1 month",
+    3.0: "1 - 3 months",
+    4.5: "3 - 6 months",
+    9.0: "6 months to 1 year",
+    18.0: "1 - 2 years",
+    30.0: "More than 2 years",
+}
+_JOB_STATUS_LABELS = {
+    "regular": "Regular/Permanent",
+    "probationary": "Probationary",
+    "contractual": "Contractual/Casual/Job Order",
+    "self_employed": "Self-Employed / Freelance",
+}
+_JOB_RETENTION_LABELS = {
+    "2": "Less than 3 months",
+    "4": "3 - 6 months",
+    "9": "6 months to 1 year",
+    "18": "1 - 2 years",
+    "30": "More than 2 years",
+}
+_JOB_APPLICATIONS_LABELS = {
+    "1": "1 - 5 applications",
+    "2": "6 - 15 applications",
+    "3": "16 - 30 applications",
+    "4": "31+ applications",
+}
+_JOB_SOURCE_LABELS = {
+    "online_portal": "Online Job Portal (JobStreet, LinkedIn, etc.)",
+    "career_fair": "CHMSU Career Orientation / Job Fair",
+    "personal_network": "Personal Network / Referral",
+    "walk_in": "Company Walk-in / Direct Hire",
+    "social_media": "Social media (Facebook groups, etc.)",
+    "entrepreneurship": "Started own business / Freelance platform",
+    "other": "Others",
+}
+# Registration's reason codes, mapped onto the closest edit-page option.
+_UNRELATED_REASON_LABELS = {
+    "higher_pay": "Salary & Benefits",
+    "better_opportunity": "Career Challenge/Advancement",
+    "location": "Proximity to Residence",
+    "family_reasons": "Family/Peer influence",
+    "career_change": "Others",
+    "other": "Others",
+}
+_RELATED_LABELS = {"Yes": "Yes, directly related (IT/IS role)", "No": "Not related (different field)"}
+
+
+def _as_form_labels(survey_data: dict, blob: dict, account: AlumniAccount) -> dict:
+    """Rewrite a merged survey view into the label shape the graduate's edit
+    form expects. Values that are already labels pass through unchanged.
+
+    Only the graduate's own session payload uses this. Admin pages read the
+    raw shape ('Yes'/'No', numbers, booleans) and must not change."""
+    sd = dict(survey_data)
+
+    honors = sd.get("academic_honors")
+    if isinstance(honors, int) and not isinstance(honors, bool):
+        sd["academic_honors"] = _ACADEMIC_HONORS_LABELS.get(honors, "")
+    ojt = sd.get("ojt_relevance")
+    if isinstance(ojt, int) and not isinstance(ojt, bool):
+        sd["ojt_relevance"] = _OJT_RELEVANCE_LABELS.get(ojt, "")
+    for key in ("prior_work_experience", "has_portfolio"):
+        if isinstance(sd.get(key), bool):
+            sd[key] = "Yes" if sd[key] else "No"
+
+    tth = sd.get("timeToHire")
+    if tth:
+        from .survey_translator import _TIME_TO_HIRE_MONTHS, _norm
+        months = _TIME_TO_HIRE_MONTHS.get(_norm(tth))
+        if months in _TIME_TO_HIRE_LABELS:
+            sd["timeToHire"] = _TIME_TO_HIRE_LABELS[months]
+
+    lookups = (
+        ("firstJobStatus", _JOB_STATUS_LABELS),
+        ("jobRetention", _JOB_RETENTION_LABELS),
+        ("jobApplications", _JOB_APPLICATIONS_LABELS),
+        ("jobSource", _JOB_SOURCE_LABELS),
+        ("firstJobUnrelatedReason", _UNRELATED_REASON_LABELS),
+    )
+    for key, labels in lookups:
+        value = sd.get(key)
+        if value not in (None, "") and str(value) in labels:
+            sd[key] = labels[str(value)]
+
+    # The tables store relatedness as a boolean, so "Somewhat related" comes
+    # back as "Yes". Keep the graduate's original answer when it agrees.
+    from .survey_translator import _related_to_bsis
+    for key in ("firstJobRelated", "currentJobRelated"):
+        value = sd.get(key)
+        if value not in _RELATED_LABELS:
+            continue
+        original = blob.get(key)
+        if original and _related_to_bsis(original) == (value == "Yes"):
+            sd[key] = original
+        else:
+            sd[key] = _RELATED_LABELS[value]
+
+    # Work address: the tables keep region/province/city as names, but the
+    # form's selects need reference-table ids.
+    addr = _first_prefetched(account, "_prefetched_addr")
+    if addr is None:
+        try:
+            addr = account.work_addresses.filter(is_current=True).order_by("-created_at").first()
+        except Exception:
+            addr = None
+    if addr is not None:
+        if addr.province and addr.province != "—" and not sd.get("province_address"):
+            sd["province_address"] = addr.province
+        if addr.latitude is not None and sd.get("work_latitude") in (None, ""):
+            sd["work_latitude"] = addr.latitude
+        if addr.longitude is not None and sd.get("work_longitude") in (None, ""):
+            sd["work_longitude"] = addr.longitude
+    if not sd.get("currentJobRegionId") and sd.get("region_address") and sd.get("region_address") != "Abroad":
+        sd.update(_location_ids_for(sd.get("region_address"), sd.get("province_address"), sd.get("city_municipality")))
+    return sd
+
+
+def _location_ids_for(region_value, province_name, city_name) -> dict:
+    """Resolve stored region/province/city names to the PSGC reference ids the
+    Region -> Province -> City selects use. Missing matches are left out."""
+    from django.db.models import Q
+    from tracer.models import CityMunicipality, Province, Region
+
+    ids: dict = {}
+    try:
+        region = (
+            Region.objects.filter(is_active=True)
+            .exclude(psgc_id="")
+            .filter(Q(code__iexact=region_value) | Q(name__iexact=region_value) | Q(name__istartswith=f"{region_value} ("))
+            .first()
+        )
+        if region is None:
+            return ids
+        ids["currentJobRegionId"] = str(region.id)
+
+        province = None
+        if province_name and province_name != "—":
+            province = Province.objects.filter(region=region, name__iexact=province_name).first()
+            if province:
+                ids["currentJobProvinceId"] = str(province.id)
+
+        if city_name:
+            # PSGC names cities "City of X" while typed/geocoded ones say "X"
+            # or "X City", so try each spelling.
+            bare = re.sub(r"^city of\s+|\s+city$", "", city_name.strip(), flags=re.IGNORECASE)
+            spellings = Q(name__iexact=city_name) | Q(name__iexact=f"City of {bare}") | Q(name__iexact=f"{bare} City")
+            cities = CityMunicipality.objects.filter(spellings, region=region)
+            # Independent cities (e.g. Davao City) sit outside their province.
+            city = (cities.filter(province=province).first() if province else None) or cities.first()
+            if city:
+                ids["currentJobCityId"] = str(city.id)
+                # The province select must hold the city's own province, or the
+                # city list it loads won't contain the city.
+                if city.province_id:
+                    ids["currentJobProvinceId"] = str(city.province_id)
+    except Exception:  # pragma: no cover - a lookup miss must never break login
+        pass
+    return ids
+
 def _needs_employer_invite(account: AlumniAccount) -> bool:
     """True when the graduate has a current job at a named company but has never
     created a verification link for it. Drives the dashboard prompt that asks
@@ -888,7 +1059,7 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     if not isinstance(survey_data_blob, dict):
         survey_data_blob = {}
     # Tables are now the source of truth — overlay them on the legacy blob.
-    survey_data = _merge_survey_view(survey_data_blob, account)
+    survey_data = _as_form_labels(_merge_survey_view(survey_data_blob, account), survey_data_blob, account)
 
     graduation_year = None
     try:
