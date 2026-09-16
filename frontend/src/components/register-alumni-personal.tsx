@@ -32,6 +32,7 @@ import {
 import { API_BASE_URL } from '../app/api-client';
 import { captureGps, describeGpsFailure, locateDevice, type GpsFix } from '../app/geolocation';
 import HomeLocationMap from './home-location-map';
+import { FloatingAlert } from './shared/floating-alert';
 import {
   useReferenceData,
   provincesApi,
@@ -129,14 +130,59 @@ export interface BiometricData {
 const COUNTRY_CODES = [
   { code: '+63', flag: '🇵🇭', name: 'Philippines' },
   { code: '+1', flag: '🇺🇸', name: 'United States' },
+  { code: '+1', flag: '🇨🇦', name: 'Canada' },
   { code: '+44', flag: '🇬🇧', name: 'United Kingdom' },
   { code: '+61', flag: '🇦🇺', name: 'Australia' },
+  { code: '+64', flag: '🇳🇿', name: 'New Zealand' },
   { code: '+65', flag: '🇸🇬', name: 'Singapore' },
   { code: '+60', flag: '🇲🇾', name: 'Malaysia' },
+  { code: '+62', flag: '🇮🇩', name: 'Indonesia' },
+  { code: '+66', flag: '🇹🇭', name: 'Thailand' },
+  { code: '+84', flag: '🇻🇳', name: 'Vietnam' },
   { code: '+81', flag: '🇯🇵', name: 'Japan' },
   { code: '+82', flag: '🇰🇷', name: 'South Korea' },
   { code: '+86', flag: '🇨🇳', name: 'China' },
+  { code: '+852', flag: '🇭🇰', name: 'Hong Kong' },
+  { code: '+853', flag: '🇲🇴', name: 'Macau' },
+  { code: '+886', flag: '🇹🇼', name: 'Taiwan' },
+  { code: '+91', flag: '🇮🇳', name: 'India' },
+  { code: '+92', flag: '🇵🇰', name: 'Pakistan' },
+  { code: '+880', flag: '🇧🇩', name: 'Bangladesh' },
   { code: '+971', flag: '🇦🇪', name: 'United Arab Emirates' },
+  { code: '+966', flag: '🇸🇦', name: 'Saudi Arabia' },
+  { code: '+974', flag: '🇶🇦', name: 'Qatar' },
+  { code: '+965', flag: '🇰🇼', name: 'Kuwait' },
+  { code: '+973', flag: '🇧🇭', name: 'Bahrain' },
+  { code: '+968', flag: '🇴🇲', name: 'Oman' },
+  { code: '+972', flag: '🇮🇱', name: 'Israel' },
+  { code: '+90', flag: '🇹🇷', name: 'Turkey' },
+  { code: '+49', flag: '🇩🇪', name: 'Germany' },
+  { code: '+33', flag: '🇫🇷', name: 'France' },
+  { code: '+39', flag: '🇮🇹', name: 'Italy' },
+  { code: '+34', flag: '🇪🇸', name: 'Spain' },
+  { code: '+351', flag: '🇵🇹', name: 'Portugal' },
+  { code: '+31', flag: '🇳🇱', name: 'Netherlands' },
+  { code: '+32', flag: '🇧🇪', name: 'Belgium' },
+  { code: '+41', flag: '🇨🇭', name: 'Switzerland' },
+  { code: '+43', flag: '🇦🇹', name: 'Austria' },
+  { code: '+46', flag: '🇸🇪', name: 'Sweden' },
+  { code: '+47', flag: '🇳🇴', name: 'Norway' },
+  { code: '+45', flag: '🇩🇰', name: 'Denmark' },
+  { code: '+358', flag: '🇫🇮', name: 'Finland' },
+  { code: '+353', flag: '🇮🇪', name: 'Ireland' },
+  { code: '+48', flag: '🇵🇱', name: 'Poland' },
+  { code: '+420', flag: '🇨🇿', name: 'Czech Republic' },
+  { code: '+7', flag: '🇷🇺', name: 'Russia' },
+  { code: '+380', flag: '🇺🇦', name: 'Ukraine' },
+  { code: '+52', flag: '🇲🇽', name: 'Mexico' },
+  { code: '+55', flag: '🇧🇷', name: 'Brazil' },
+  { code: '+54', flag: '🇦🇷', name: 'Argentina' },
+  { code: '+56', flag: '🇨🇱', name: 'Chile' },
+  { code: '+57', flag: '🇨🇴', name: 'Colombia' },
+  { code: '+27', flag: '🇿🇦', name: 'South Africa' },
+  { code: '+20', flag: '🇪🇬', name: 'Egypt' },
+  { code: '+234', flag: '🇳🇬', name: 'Nigeria' },
+  { code: '+254', flag: '🇰🇪', name: 'Kenya' },
 ];
 
 const PERSONAL_STEP_CONFIG = [
@@ -396,11 +442,13 @@ export default function RegisterAlumniPersonal({
   // Smooth-scroll the active step's error banner into view whenever a new
   // error fires. Each step's banner gets `ref={errorRef}` - only one is
   // mounted at a time, so the ref always points at the visible banner.
+  // Skipped on step 4 (biometrics), where the error renders as a floating
+  // modal instead so it never shoves the camera off the fold.
   useEffect(() => {
-    if (stepError && errorRef.current) {
+    if (stepError && errorRef.current && step !== 4) {
       errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [stepError]);
+  }, [stepError, step]);
   const [showPass, setShowPass] = useState(false);
   const [pwFocused, setPwFocused] = useState(false);
 
@@ -1527,8 +1575,8 @@ export default function RegisterAlumniPersonal({
                       className="w-[6rem] shrink-0 px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white"
                     >
                       {COUNTRY_CODES.map(c => (
-                        <option key={c.code} value={c.code} aria-label={`${c.name} ${c.code}`}>
-                          {c.flag} {c.code}
+                        <option key={c.name} value={c.code} aria-label={`${c.name} ${c.code}`}>
+                          {c.flag} {c.code} — {c.name}
                         </option>
                       ))}
                     </select>
@@ -1579,7 +1627,7 @@ export default function RegisterAlumniPersonal({
                   )}
                 </div>
 
-                {/* Home address - toggle between Philippines (cascading dropdowns) and Outside Philippines (free-text) */}
+                {/* Home address - toggle between Philippines (cascading dropdowns) and Abroad (free-text) */}
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                     Home Address Location
@@ -2018,18 +2066,10 @@ export default function RegisterAlumniPersonal({
                     </div>
                   </div>
 
-                  {stepError && (
-                    <div ref={errorRef} className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3 scroll-mt-24">
-                      <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-                      <p className="text-red-700 text-xs">{stepError}</p>
-                    </div>
-                  )}
-                  {cameraError && (
-                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
-                      <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-                      <p className="text-red-700 text-xs">{cameraError}</p>
-                    </div>
-                  )}
+                  <FloatingAlert
+                    message={stepError || cameraError}
+                    onClose={() => { setStepError(''); setCameraError(''); }}
+                  />
 
                   {/* Shot progress tiles */}
                   <div className="flex gap-2 mb-4">
@@ -2109,27 +2149,24 @@ export default function RegisterAlumniPersonal({
                     {/* Face guide overlay when camera is live */}
                     {cameraOn && !allCaptured && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        {/* The same guide as the login scan, so both camera
-                            screens read as one system: dashed white while
-                            searching, emerald once a face is found, solid while
-                            the front photo is counting down. */}
+                        {/* The face guide. Same shape whether the front-photo
+                            hold is counting down or not — the countdown flash
+                            was distracting for graduates and made the border
+                            "blink" whenever a hold was interrupted. */}
                         {(() => {
-                          const solid = autoCountdown !== null;
-                          const c = solid
-                            ? 'rgba(16,185,129,0.95)'
-                            : faceDetected ? 'rgba(52,211,153,0.85)' : 'rgba(255,255,255,0.4)';
+                          const c = faceDetected ? 'rgba(52,211,153,0.85)' : 'rgba(255,255,255,0.4)';
                           return (
                             <>
                               <div className="relative" style={{ width: '55%', aspectRatio: '3/4' }}>
                                 <div style={{
                                   position: 'absolute', inset: '-10px', borderRadius: '50%',
                                   boxShadow: `0 0 28px 6px ${c}`,
-                                  opacity: solid ? 0.35 : faceDetected ? 0.2 : 0.1,
+                                  opacity: faceDetected ? 0.2 : 0.1,
                                   transition: 'opacity .35s ease, box-shadow .35s ease',
                                 }} />
                                 <div style={{
                                   position: 'absolute', inset: 0, borderRadius: '50%',
-                                  border: `${solid ? '3px solid' : '2px dashed'} ${c}`,
+                                  border: `2px dashed ${c}`,
                                   transition: 'border-color .35s ease',
                                 }} />
                               </div>
@@ -2142,8 +2179,8 @@ export default function RegisterAlumniPersonal({
                                     bottom: pos.startsWith('b') ? '12%' : undefined,
                                     left: pos.endsWith('l') ? '20%' : undefined,
                                     right: pos.endsWith('r') ? '20%' : undefined,
-                                    width: solid ? '26px' : '20px',
-                                    height: solid ? '26px' : '20px',
+                                    width: '20px',
+                                    height: '20px',
                                     borderTop: pos.startsWith('t') ? `2px solid ${c}` : 'none',
                                     borderBottom: pos.startsWith('b') ? `2px solid ${c}` : 'none',
                                     borderLeft: pos.endsWith('l') ? `2px solid ${c}` : 'none',

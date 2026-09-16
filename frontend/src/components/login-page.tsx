@@ -149,8 +149,6 @@ export function LoginPage() {
   const turnChallengeRef = useRef<TurnChallenge>(pickRandomTurnChallenge());
   const [livenessPassed, setLivenessPassed] = useState(false);
   const livenessSignalRef = useRef<AlumniLoginLivenessSignal | null>(null);
-  const [livenessCountdown, setLivenessCountdown] = useState<number | null>(null);
-  const countdownValRef = useRef<number | null>(null);
   // The guide used to look identical whether the camera had a perfect view or
   // none at all, which left the user with nothing to correct. These drive its
   // colour so the frame answers "can you see me?" continuously.
@@ -308,11 +306,7 @@ export function LoginPage() {
           // including the ones with no face, which reset a half-finished blink.
           let passed = blinkDetector ? blinkDetector.push(landmarks) : false;
 
-          if (!landmarks) {
-            // Lost the face - reset any running countdown.
-            countdownValRef.current = null;
-            setLivenessCountdown(null);
-          } else {
+          if (landmarks) {
             const mar = computeMouthAspectRatio(landmarks);
             const yaw = estimateHeadYawDegrees(landmarks);
             // Only the prompted direction counts; a turn the other way is ignored.
@@ -530,8 +524,6 @@ export function LoginPage() {
     setLivenessPassed(false);
     livenessSignalRef.current = null;
     frontalCaptureRef.current = null;
-    countdownValRef.current = null;
-    setLivenessCountdown(null);
     // Frontal capture happens first, then the liveness challenge.
     setScanStage("aligning");
     try {
@@ -571,8 +563,6 @@ export function LoginPage() {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
-    countdownValRef.current = null;
-    setLivenessCountdown(null);
     setCameraOn(false);
   };
 
@@ -942,15 +932,6 @@ export function LoginPage() {
                         />
                       ))}
 
-                      {/* 3-2-1 countdown while the gesture is held */}
-                      {livenessCountdown !== null && scanStage !== "detecting" && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <span className="text-white drop-shadow-lg" style={{ fontWeight: 800, fontSize: "4.5rem", lineHeight: 1 }}>
-                            {livenessCountdown}
-                          </span>
-                        </div>
-                      )}
-
                       <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-2">
                         <div className="bg-black/65 backdrop-blur-sm rounded-xl px-4 py-2 text-center">
                           <p className="text-white text-sm" style={{ fontWeight: 700 }}>
@@ -965,9 +946,7 @@ export function LoginPage() {
                               ? "Face forward, neutral expression, good lighting"
                               : scanStage === "detecting"
                                 ? "Hold still"
-                                : livenessCountdown !== null
-                                  ? "Keep holding the action"
-                                  : `Step ${challengeStep(challenge)}: ${describeChallenge(challenge).hint}`}
+                                : `Step ${challengeStep(challenge)}: ${describeChallenge(challenge).hint}`}
                           </p>
                         </div>
                       </div>

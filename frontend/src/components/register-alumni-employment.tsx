@@ -374,7 +374,16 @@ export default function RegisterAlumniEmployment({
   // Cascading location dropdowns now sourced live from the reference DB
   // (Region → Province → CityMunicipality). The legacy /ph-locations.json
   // fallback is dropped - admin reference-data CRUD is the source of truth.
-  const isPhilippinesWork = !form.country || form.country === 'Philippines';
+  //
+  // Step 4's yes/no ("Philippines" vs "Abroad") wins when set; otherwise fall
+  // back to the country value. That prevents step 5 from showing the PSGC
+  // cascade for a graduate who already said their work is abroad but hasn't
+  // picked a foreign country yet (country would still be empty at that point).
+  const isPhilippinesWork = form.location_type === true
+    ? true
+    : form.location_type === false
+      ? false
+      : (!form.country || form.country === 'Philippines');
   const apiRegions: RegionItem[] = referenceData?.regions ?? [];
   const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
   const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
@@ -461,7 +470,10 @@ export default function RegisterAlumniEmployment({
 
     switch (step) {
       case 1: // Academic Profile
-        // No extra validation needed once has_portfolio is just a yes/no.
+        if (form.academic_honors === null || form.academic_honors === undefined) {
+          setStepError('Please select your academic honors (choose "None" if not applicable).');
+          return false;
+        }
         break;
       case 2: // Employment Status
         if (!form.employment_status) {
@@ -517,6 +529,10 @@ export default function RegisterAlumniEmployment({
         }
         if (isPhilippinesWork && !form.region) {
           setStepError('Region is required');
+          return false;
+        }
+        if (!isPhilippinesWork && !form.country) {
+          setStepError('Country is required for work abroad.');
           return false;
         }
         {
@@ -662,7 +678,7 @@ export default function RegisterAlumniEmployment({
 
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Academic Honors
+              Academic Honors <span className="text-red-500">*</span>
             </label>
             <select
               value={form.academic_honors ?? ''}
@@ -675,6 +691,9 @@ export default function RegisterAlumniEmployment({
               <option value="2">Cum Laude</option>
               <option value="1">None</option>
             </select>
+            <p className="mt-1.5 text-[11px] text-gray-500">
+              Required. Pick &quot;None&quot; if you did not graduate with honors.
+            </p>
           </div>
 
           <div>
@@ -726,7 +745,7 @@ export default function RegisterAlumniEmployment({
             </div>
           </div>
 
-          <NavButtons onBack={prevStep} onNext={nextStep} />
+          <NavButtons onBack={prevStep} onNext={nextStep} nextDisabled={form.academic_honors === null || form.academic_honors === undefined} />
         </div>
       )}
 
@@ -952,8 +971,35 @@ export default function RegisterAlumniEmployment({
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-3">Work Location</label>
             <div className="flex gap-3">
-              <RadioOption label="Local (Philippines)" value={true} current={form.location_type} onSelect={(v) => setForm({ ...form, location_type: v })} />
-              <RadioOption label="Abroad / Remote" value={false} current={form.location_type} onSelect={(v) => setForm({ ...form, location_type: v })} />
+              <RadioOption
+                label="Philippines"
+                value={true}
+                current={form.location_type}
+                onSelect={(v) => setForm({
+                  ...form,
+                  location_type: v,
+                  // Locking country to Philippines here makes the Work Address
+                  // step render the PSGC cascading dropdowns. Without this,
+                  // switching from Abroad would leave `country` on the last
+                  // foreign value and step 5 would still show free-text inputs.
+                  country: 'Philippines',
+                })}
+              />
+              <RadioOption
+                label="Abroad"
+                value={false}
+                current={form.location_type}
+                onSelect={(v) => setForm({
+                  ...form,
+                  location_type: v,
+                  // Clear the PH default so the Work Address step's country
+                  // picker prompts the graduate to choose their actual country
+                  // instead of silently keeping "Philippines" selected.
+                  country: form.country === 'Philippines' ? '' : form.country,
+                  region: '',
+                  province_work: '',
+                })}
+              />
             </div>
           </div>
 
@@ -1073,6 +1119,7 @@ export default function RegisterAlumniEmployment({
                 onChange={(e) => setForm({ ...form, country: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
               >
+                <option value="">Select country</option>
                 <optgroup label="ASEAN">
                   <option value="Philippines">Philippines</option>
                   <option value="Indonesia">Indonesia</option>
