@@ -615,6 +615,14 @@ class EmploymentProfile(models.Model):
 		blank=True,
 		help_text="Job title of first employment"
 	)
+	# Not on the CHED form (additions only): lets "my current job is the same
+	# as my first job" carry the company across.
+	first_job_company = models.CharField(
+		max_length=200,
+		null=True,
+		blank=True,
+		help_text="Company or organization of first employment"
+	)
 	first_job_related_to_bsis = models.BooleanField(
 		null=True,
 		blank=True,

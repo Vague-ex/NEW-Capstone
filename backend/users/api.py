@@ -713,6 +713,8 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             view["timeToHire"] = emp.time_to_hire_raw
         if emp.first_job_title:
             view["firstJobTitle"] = emp.first_job_title
+        if emp.first_job_company:
+            view["firstJobCompany"] = emp.first_job_company
         if emp.first_job_sector:
             view["firstJobSector"] = _SECTOR_LABELS.get(emp.first_job_sector, emp.first_job_sector)
         if emp.first_job_status:
@@ -774,8 +776,10 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
     soft: list[str] = []
     try:
         alumni_skills = list(account.skills.select_related("skill", "skill__category").all())
-        tech = [s.skill.name for s in alumni_skills if s.skill.category and s.skill.category.name == "Technical"]
+        # Admin categories (Web Development, Database, ...) are technical too;
+        # only "Soft" is soft.
         soft = [s.skill.name for s in alumni_skills if s.skill.category and s.skill.category.name == "Soft"]
+        tech = [s.skill.name for s in alumni_skills if not (s.skill.category and s.skill.category.name == "Soft")]
     except Exception:
         alumni_skills = []
 
@@ -1815,6 +1819,7 @@ def _extract_employment_profile_data(survey_data: dict) -> dict:
         "first_job_sector": survey_data.get("first_job_sector"),
         "first_job_status": survey_data.get("first_job_status"),
         "first_job_title": survey_data.get("first_job_title"),
+        "first_job_company": (survey_data.get("first_job_company") or "").strip()[:200] or None,
         "first_job_related_to_bsis": survey_data.get("first_job_related_to_bsis"),
         "first_job_unrelated_reason": survey_data.get("first_job_unrelated_reason"),
         "first_job_duration_months": survey_data.get("first_job_duration_months"),
@@ -1846,13 +1851,49 @@ def _extract_work_address_data(survey_data: dict) -> dict:
         "street_address": survey_data.get("street_address", "").strip(),
         "barangay": survey_data.get("barangay", "").strip(),
         "city_municipality": survey_data.get("city_municipality", "").strip(),
-        "province": survey_data.get("province", "").strip(),
+        # The registration form names this field province_work.
+        "province": (survey_data.get("province_work") or survey_data.get("province") or "").strip(),
         "region": survey_data.get("region"),
         "zip_code": survey_data.get("zip_code", "").strip(),
         "country": survey_data.get("country", "Philippines"),
         "latitude": survey_data.get("latitude"),
         "longitude": survey_data.get("longitude"),
     }
+
+def _create_registration_employment_record(alumni_account, survey_data: dict):
+    """Current-job EmploymentRecord from the registration survey, or None when
+    the graduate isn't employed or left the company or title blank."""
+    from tracer.models import JobTitle
+
+    status_value = survey_data.get("employment_status")
+    if status_value == "self_employed":
+        record_status = EmploymentRecord.EmploymentStatus.SELF_EMPLOYED
+    elif status_value in {"employed_full_time", "employed_part_time"}:
+        record_status = EmploymentRecord.EmploymentStatus.EMPLOYED
+    else:
+        return None
+
+    company = (survey_data.get("current_job_company") or "").strip()
+    title = (survey_data.get("current_job_title") or "").strip()
+    if not company or not title:
+        return None
+
+    if survey_data.get("location_type") is False:
+        work_location = "Abroad / Remote"
+    else:
+        work_location = (survey_data.get("city_municipality") or "").strip() or "Philippines"
+
+    return EmploymentRecord.objects.create(
+        alumni=alumni_account,
+        employer_account=EmployerAccount.objects.filter(company_name__iexact=company).first(),
+        employer_name_input=company[:255],
+        job_title_input=title[:255],
+        job_title=JobTitle.objects.filter(name__iexact=title, is_active=True).first(),
+        employment_status=record_status,
+        work_location=work_location[:255],
+        is_current=True,
+        verification_status=EmploymentRecord.VerificationStatus.PENDING,
+    )
 
 def _create_alumni_skills(alumni_account, survey_data: dict) -> int:
     """
@@ -2265,6 +2306,13 @@ class AlumniRegisterView(APIView):
                     employment_profile=employment_profile,
                     **work_addr_dict
                 )
+
+            # 5b. Create the current EmploymentRecord for an employed graduate.
+            # The employer-invite prompt on first login keys off this row
+            # (_needs_employer_invite); registration used to skip it, so the
+            # prompt only ever appeared after a later save on the edit page.
+            if employment_profile:
+                _create_registration_employment_record(alumni_account, survey_data)
 
             # 6. Create AlumniSkill entries (if technical or soft skills submitted)
             if survey_data and (survey_data.get("technical_skills") or survey_data.get("soft_skills")):

@@ -70,6 +70,12 @@ const EMPLOYMENT_STATUS_OPTIONS = [
   { value: 'never_employed', label: 'Never employed' },
 ];
 
+const EMPLOYMENT_STATUS_HINTS: Record<string, string> = {
+  seeking: "You don't have a job right now and are looking for one. Choose this even if you worked before.",
+  not_seeking: "You don't have a job right now and aren't looking for one, for example because of further studies, family or health. Choose this even if you worked before.",
+  never_employed: 'You have not had any job at all since you graduated.',
+};
+
 function normalizeEmploymentStatus(status: string): string {
   if (status === 'employed_full_time' || status === 'employed_part_time') return 'employed';
   if (status === 'self_employed') return 'self-employed';
@@ -102,7 +108,6 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   const buildFormState = (sdIn: Record<string, unknown>, alumniIn: Record<string, unknown>) => ({
     // Section 4: Academic & Pre-Employment
     academic_honors: String(sdIn.academic_honors ?? ''),
-    prior_work_experience: String(sdIn.prior_work_experience ?? ''),
     ojt_relevance: String(sdIn.ojt_relevance ?? ''),
     has_portfolio: String(sdIn.has_portfolio ?? ''),
 
@@ -114,6 +119,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     firstJobSector: String(sdIn.firstJobSector ?? ''),
     firstJobStatus: String(sdIn.firstJobStatus ?? ''),
     firstJobTitle: String(sdIn.firstJobTitle ?? sdIn.first_job_title ?? alumniIn.jobTitle ?? ''),
+    firstJobCompany: String(sdIn.firstJobCompany ?? sdIn.first_job_company ?? ''),
     firstJobRelated: String(sdIn.firstJobRelated ?? ''),
     firstJobUnrelatedReason: String(sdIn.firstJobUnrelatedReason ?? ''),
     firstJobUnrelatedOther: String(sdIn.firstJobUnrelatedOther ?? ''),
@@ -307,6 +313,20 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
 
   const isCurrentlyEmployed = ['employed_full_time', 'employed_part_time', 'self_employed'].includes(form.employment_status);
   const isNeverEmployed = form.employment_status === 'never_employed';
+  const isUnemployedNow = form.employment_status === 'seeking' || form.employment_status === 'not_seeking';
+  // Seeking / Not seeking: "have you had a job since graduating?" decides
+  // whether First Job applies. Pre-answered from any first-job data on record.
+  const [hasWorkedSinceGraduation, setHasWorkedSinceGraduation] = useState<boolean | null>(
+    () => (form.firstJobTitle || form.timeToHire ? true : null),
+  );
+  // The backend refresh can bring first-job answers in after mount.
+  useEffect(() => {
+    if (hasWorkedSinceGraduation === null && (form.firstJobTitle || form.timeToHire)) {
+      setHasWorkedSinceGraduation(true);
+    }
+  }, [form.firstJobTitle, form.timeToHire, hasWorkedSinceGraduation]);
+  const firstJobApplies = !retrackingMode && !!form.employment_status && !isNeverEmployed
+    && (!isUnemployedNow || hasWorkedSinceGraduation === true);
 
   // ── Leaflet work-location map ────────────────────────────────────────────────
 
@@ -380,44 +400,15 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
       workMarkerRef.current = marker;
       workLeafletMapRef.current = map;
 
-      const reverseGeocode = (lat: number, lng: number) => {
-        void fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-          { headers: { 'Accept-Language': 'en' } },
-        ).then(r => r.json()).then((data: { address?: Record<string, string>; country_code?: string }) => {
-          const addr = data.address ?? {};
-          const city = addr.city || addr.town || addr.municipality || addr.suburb || '';
-          const province = addr.province || addr.state || '';
-          const countryCode = (data.country_code ?? '').toLowerCase();
-          const countryName = addr.country || '';
-
-          if (city) {
-            exactPinCityRef.current = city;
-            setF('city_municipality', city);
-          }
-          if (province) setForm(f => ({ ...f, province_address: province }));
-          // Flip both currentJobLocation and country_address together so the
-          // radio + dropdown can never desync after a pin drop.
-          if (countryCode && countryCode !== 'ph' && countryName) {
-            setForm(f => ({
-              ...f,
-              country_address: countryName,
-              currentJobLocation: 'Abroad / Remote Foreign Employer',
-            }));
-          } else if (!countryCode || countryCode === 'ph') {
-            setForm(f => ({
-              ...f,
-              country_address: 'Philippines',
-              currentJobLocation: 'Local (Philippines)',
-            }));
-          }
-        }).catch(() => { /* silent */ });
-      };
-
+      // A dropped or dragged pin fills Region / Province / City the same way
+      // "Use my current location" does. It used to reverse-geocode with
+      // Nominatim and write only the city name, which matched no dropdown
+      // option, so the cascade stayed blank or kept the old city.
       const updatePin = (lat: number, lng: number) => {
         setWorkLat(lat);
         setWorkLng(lng);
-        reverseGeocode(lat, lng);
+        setSaved(false);
+        void fillWorkAddressFromPoint(lat, lng, 'pin');
       };
 
       marker.on('dragend', () => {
@@ -524,6 +515,53 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   const [locating, setLocating] = useState(false);
   const [locateNote, setLocateNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
 
+  /** Look up the address at a point and fill the work-address fields. */
+  const fillWorkAddressFromPoint = async (lat: number, lng: number, via: 'gps' | 'pin') => {
+    const subject = via === 'gps' ? 'your location' : 'the pin';
+    try {
+      const found = await locationApi.lookup(lat, lng);
+      if (found.abroad) {
+        exactPinCityRef.current = found.locality || null;
+        setForm(f => ({
+          ...f,
+          currentJobLocation: 'Abroad / Remote Foreign Employer',
+          country_address: found.country || '',
+          city_municipality: found.locality || '',
+          province_address: found.state || '',
+          currentJobRegionId: '',
+          currentJobProvinceId: '',
+          currentJobCityId: '',
+        }));
+        setLocateNote({ tone: 'ok', text: `Pinned in ${found.country || 'another country'}. Please check the details below.` });
+        return;
+      }
+      if (!found.region && !found.city) {
+        setLocateNote({ tone: 'warn', text: "We pinned your workplace but couldn't match an address. Please choose it below." });
+        return;
+      }
+      exactPinCityRef.current = found.city?.name ?? null;
+      // Setting the whole cascade at once is safe: each select shows its
+      // value once its options load.
+      setForm(f => ({
+        ...f,
+        currentJobLocation: 'Local (Philippines)',
+        country_address: 'Philippines',
+        currentJobRegionId: found.region?.id ?? f.currentJobRegionId,
+        currentJobProvinceId: found.province?.id ?? '',
+        currentJobCityId: found.city?.id ?? '',
+        city_municipality: found.city?.name ?? '',
+      }));
+      setLocateNote(found.city
+        ? { tone: 'ok', text: `Work address filled in from ${subject}. Please check it and adjust anything that is off.` }
+        : { tone: 'warn', text: 'We filled in what we could. Please choose your city below.' });
+    } catch (err) {
+      setLocateNote({
+        tone: 'warn',
+        text: err instanceof Error && err.message ? err.message : "We pinned your workplace but couldn't look up the address. Please fill it in below.",
+      });
+    }
+  };
+
   const fillWorkFromMyLocation = async () => {
     setLocateNote(null);
     setSaved(false);
@@ -540,48 +578,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
       (workMarkerRef.current as { setLatLng: (ll: [number, number]) => void } | null)?.setLatLng([fix.lat, fix.lng]);
       (workLeafletMapRef.current as { setView: (ll: [number, number], z: number) => void } | null)?.setView([fix.lat, fix.lng], 17);
 
-      try {
-        const found = await locationApi.lookup(fix.lat, fix.lng);
-        if (found.abroad) {
-          exactPinCityRef.current = found.locality || null;
-          setForm(f => ({
-            ...f,
-            currentJobLocation: 'Abroad / Remote Foreign Employer',
-            country_address: found.country || '',
-            city_municipality: found.locality || '',
-            province_address: found.state || '',
-            currentJobRegionId: '',
-            currentJobProvinceId: '',
-            currentJobCityId: '',
-          }));
-          setLocateNote({ tone: 'ok', text: `Pinned in ${found.country || 'your country'}. Please check the details below.` });
-          return;
-        }
-        if (!found.region && !found.city) {
-          setLocateNote({ tone: 'warn', text: "We pinned your workplace but couldn't match an address. Please choose it below." });
-          return;
-        }
-        exactPinCityRef.current = found.city?.name ?? null;
-        // Setting the whole cascade at once is safe: each select shows its
-        // value once its options load.
-        setForm(f => ({
-          ...f,
-          currentJobLocation: 'Local (Philippines)',
-          country_address: 'Philippines',
-          currentJobRegionId: found.region?.id ?? f.currentJobRegionId,
-          currentJobProvinceId: found.province?.id ?? '',
-          currentJobCityId: found.city?.id ?? '',
-          city_municipality: found.city?.name ?? '',
-        }));
-        setLocateNote(found.city
-          ? { tone: 'ok', text: 'Work address filled in from your location. Please check it and adjust anything that is off.' }
-          : { tone: 'warn', text: 'We filled in what we could. Please choose your city below.' });
-      } catch (err) {
-        setLocateNote({
-          tone: 'warn',
-          text: err instanceof Error && err.message ? err.message : "We pinned your workplace but couldn't look up the address. Please fill it in below.",
-        });
-      }
+      await fillWorkAddressFromPoint(fix.lat, fix.lng, 'gps');
     } finally {
       setLocating(false);
     }
@@ -621,9 +618,23 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     const resolvedJobTitleId = form.currentJobTitleId || matchedByName?.id || undefined;
     const resolvedRegionId = form.currentJobRegionId || undefined;
 
+    // A seeking / not-seeking graduate who says they never worked, or a
+    // never-employed one, has no first job: don't resend stale answers.
+    const firstJobCleared = !retrackingMode && !firstJobApplies
+      ? {
+        timeToHire: '', firstJobSector: '', firstJobStatus: '', firstJobTitle: '', firstJobCompany: '',
+        firstJobRelated: '', firstJobUnrelatedReason: '', firstJobUnrelatedOther: '', jobRetention: '',
+        jobApplications: '', jobSource: '', jobSourceOther: '',
+        // Blank answers are ignored on save, so ask for the columns to be cleared.
+        clear_first_job: true,
+      }
+      // Explicitly false: the stored survey blob is spread into every save, so
+      // a stale true from an earlier save would wipe a newly entered first job.
+      : { clear_first_job: false };
     const surveyDataPayload = {
       ...sd,
       ...form,
+      ...firstJobCleared,
       currentJobTitleId: resolvedJobTitleId || '',
       currentJobRegionId: resolvedRegionId || '',
       work_latitude: workLat ?? null,
@@ -722,7 +733,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     // Only check title fields that are on screen: a hidden first-job field
     // (retracking, never employed) could not be fixed by the graduate.
     const refTitles = referenceData.job_titles.map(jt => jt.name);
-    const firstJobShown = !retrackingMode && !isNeverEmployed && !!form.employment_status;
+    const firstJobShown = firstJobApplies;
     const titleProblem =
       (firstJobShown ? jobTitleProblem(form.firstJobTitle, refTitles) : null)
       || (isCurrentlyEmployed ? jobTitleProblem(form.currentJobPosition, refTitles) : null);
@@ -806,16 +817,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
             </div>
 
             <div>
-              <FieldLabel>2. Work experience (part-time, freelance, internship beyond OJT) BEFORE graduating?</FieldLabel>
-              <div className="flex gap-2">
-                {['Yes', 'No'].map(opt => (
-                  <RadioOption key={opt} label={opt} value={opt} current={form.prior_work_experience} onSelect={v => setF('prior_work_experience', v)} />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <FieldLabel>3. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
+              <FieldLabel>2. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {['Yes, directly related', 'Somewhat related', 'Not related', 'Have not secured a job yet / Not applicable'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.ojt_relevance} onSelect={v => setF('ojt_relevance', v)} />
@@ -824,7 +826,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
             </div>
 
             <div>
-              <FieldLabel>4. Online portfolio, GitHub profile, or project showcase when applying?</FieldLabel>
+              <FieldLabel>3. Online portfolio, GitHub profile, or project showcase when applying?</FieldLabel>
               <div className="flex gap-2">
                 {['Yes', 'No'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.has_portfolio} onSelect={v => setF('has_portfolio', v)} />
@@ -849,13 +851,32 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
+              {EMPLOYMENT_STATUS_HINTS[form.employment_status] && (
+                <p className="mt-1.5 text-xs text-gray-500">{EMPLOYMENT_STATUS_HINTS[form.employment_status]}</p>
+              )}
             </div>
+            {isUnemployedNow && !retrackingMode && (
+              <div>
+                <FieldLabel>Have you had a job at any point since graduating?</FieldLabel>
+                <div className="flex flex-wrap gap-2">
+                  {([['Yes, I have worked before', true], ['No, not yet', false]] as const).map(([label, value]) => (
+                    <RadioOption
+                      key={label}
+                      label={label}
+                      value={String(value)}
+                      current={hasWorkedSinceGraduation === null ? '' : String(hasWorkedSinceGraduation)}
+                      onSelect={() => { setHasWorkedSinceGraduation(value); setSaved(false); }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </SectionCard>
 
           </div>{/* end lg:grid for Part III + IV */}
 
           {/* ── Section 6: First Job (one-time history; hidden when retracking) ── */}
-          {!retrackingMode && !isNeverEmployed && form.employment_status && (
+          {firstJobApplies && (
             <SectionCard icon={Clock} title="Part V - First Job Details">
               <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 lg:items-start space-y-5 lg:space-y-0">
               <div className="space-y-5">
@@ -892,6 +913,13 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                 <JobTitleInput placeholder="e.g. Junior Software Developer"
                   value={form.firstJobTitle} onChange={v => setF('firstJobTitle', v)}
                   options={referenceData.job_titles.map(jt => ({ name: jt.name, industry: jt.industry_name }))} className={inputCls} />
+              </div>
+
+              <div>
+                <FieldLabel>Company / Organization of FIRST JOB</FieldLabel>
+                <input type="text" placeholder="Company or organization name"
+                  value={form.firstJobCompany} onChange={e => setF('firstJobCompany', e.target.value)}
+                  className={inputCls} />
               </div>
 
               <div>
@@ -972,6 +1000,26 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
           {isCurrentlyEmployed && (
             <SectionCard icon={Building2} title="Part VI - Current / Most Recent Job Details">
               {/* Desktop: 2-column grid for compact layout */}
+              {firstJobApplies && (form.firstJobTitle || form.firstJobCompany) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForm(f => ({
+                      ...f,
+                      currentJobSector: f.firstJobSector || f.currentJobSector,
+                      currentJobPosition: f.firstJobTitle || f.currentJobPosition,
+                      currentJobTitleId: f.firstJobTitle ? '' : f.currentJobTitleId,
+                      currentJobCompany: f.firstJobCompany || f.currentJobCompany,
+                      currentJobRelated: f.firstJobRelated || f.currentJobRelated,
+                    }));
+                    setSaved(false); setSaveError('');
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 hover:bg-emerald-100 transition"
+                  style={{ fontWeight: 600 }}
+                >
+                  <Briefcase className="size-3.5" /> Same as my first job (copy those details)
+                </button>
+              )}
               <div className="lg:grid lg:grid-cols-2 lg:gap-x-8 space-y-5 lg:space-y-0">
               <div className="space-y-5">
 

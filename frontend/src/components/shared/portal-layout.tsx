@@ -211,7 +211,12 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
 
   const RoleIcon = role === 'admin' ? Shield : GraduationCap;
 
-  const SidebarContent = () => (
+  // Called as a function, never rendered as a <SidebarContent /> element. A component
+  // defined inside render is a new type on every render, so React remounted
+  // the whole sidebar on each keystroke in the page and replayed its
+  // gt-stagger entrance animation: the "flickering sidebar" (invisible on
+  // machines with reduced motion, which disables that animation).
+  const renderSidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className={`p-5 bg-gradient-to-b ${config.color} border-b border-white/10`}>
@@ -292,7 +297,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Desktop Sidebar */}
       <aside className={`hidden lg:flex flex-col w-60 bg-gradient-to-b ${config.color} shrink-0`}>
-        <SidebarContent />
+        {renderSidebarContent()}
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -300,7 +305,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
           <aside className={`relative z-10 flex flex-col w-64 bg-gradient-to-b ${config.color}`}>
-            <SidebarContent />
+            {renderSidebarContent()}
           </aside>
         </div>
       )}

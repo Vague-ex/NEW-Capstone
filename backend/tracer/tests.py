@@ -1008,8 +1008,10 @@ def _graduate_rows(n, strength, seed=7):
 	ojt[rng.random(n) < 0.2] = np.nan
 	portfolio = rng.integers(0, 2, n)
 	scholarship = (rng.random(n) < 0.25).astype(int)
+	# Only the modelled answers carry signal (prior work experience was retired
+	# from the model in 2026-09; OJT relevance was never modelled).
 	logit = -0.2 + strength * (
-		0.9 * prior + 0.7 * (np.nan_to_num(ojt, nan=2.0) - 2) + 0.8 * portfolio + 0.3 * (honors - 1)
+		1.2 * portfolio + 0.6 * (honors - 1) + 0.9 * scholarship
 	)
 	outcome = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)
 	frame = pd.DataFrame({

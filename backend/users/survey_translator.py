@@ -382,7 +382,12 @@ def apply_survey_data_to_normalized_tables(
             sd.get("has_portfolio", sd.get("hasPortfolio"))
         )
 
-    technical_skills = _split_skills(sd.get("technical_skills") or sd.get("skills"))
+    # An explicit (possibly empty) technical_skills list wins: `skills` is the
+    # technical + soft union, so falling back to it would re-add soft skills as
+    # technical the moment a graduate clears their technical list.
+    technical_skills = _split_skills(
+        sd.get("technical_skills") if "technical_skills" in sd else sd.get("skills")
+    )
     soft_skills = _split_skills(sd.get("soft_skills"))
     if technical_skills:
         profile_updates["technical_skill_count"] = min(len(technical_skills), 12)
@@ -420,6 +425,19 @@ def apply_survey_data_to_normalized_tables(
         employment_updates["first_job_status"] = val
     if sd.get("firstJobTitle"):
         employment_updates["first_job_title"] = str(sd["firstJobTitle"])[:150]
+    if sd.get("firstJobCompany"):
+        employment_updates["first_job_company"] = str(sd["firstJobCompany"])[:200]
+
+    if sd.get("clear_first_job") is True:
+        # The graduate said they have had no job since graduating. Blank
+        # answers are skipped above, so wipe the first-job columns explicitly.
+        employment_updates.update({
+            "time_to_hire_raw": None, "time_to_hire_months": None,
+            "first_job_sector": None, "first_job_status": None, "first_job_title": None,
+            "first_job_company": None, "first_job_related_to_bsis": None,
+            "first_job_unrelated_reason": None, "first_job_duration_months": None,
+            "first_job_applications_count": None, "first_job_source": None,
+        })
 
     related = _related_to_bsis(sd.get("firstJobRelated"))
     if related is not None:
@@ -521,6 +539,16 @@ def apply_survey_data_to_normalized_tables(
         )
         touched["competency_profile"] = True
 
+    # ─── AlumniSkill ────────────────────────────────────────────────────────
+    # The session view reads AlumniSkill first, so edits must land here too or
+    # the graduate's saved skills snap back to their registration answers.
+    if "technical_skills" in sd or "soft_skills" in sd:
+        if "technical_skills" in sd:
+            _sync_alumni_skills(alumni_account, technical_skills, "Technical")
+        if "soft_skills" in sd:
+            _sync_alumni_skills(alumni_account, soft_skills, "Soft")
+        touched["alumni_skills"] = True
+
     # ─── EmploymentRecord (employer linkage) ────────────────────────────────
     company_name = (sd.get("currentJobCompany") or "").strip()
     job_title = (sd.get("currentJobPosition") or sd.get("firstJobTitle") or "").strip()
@@ -620,6 +648,36 @@ def apply_survey_data_to_normalized_tables(
         touched["employment_record"] = True
 
     return {"applied": True, "touched": touched}
+
+
+def _sync_alumni_skills(alumni_account, names: list[str], category_name: str) -> None:
+    """Make the graduate's AlumniSkill rows in one category (Technical or Soft)
+    match `names`: add the new ones, drop the ones no longer selected.
+
+    Skills filed under an admin category (Web Development, Database, ...) count
+    as technical, so everything that isn't Soft is treated as one bucket."""
+    from tracer.models import AlumniSkill, Skill, SkillCategory
+
+    is_soft = category_name == "Soft"
+    wanted = {n.strip().lower(): n.strip() for n in names if n and n.strip()}
+    existing = AlumniSkill.objects.filter(alumni=alumni_account).select_related("skill__category")
+    for row in existing:
+        row_is_soft = bool(row.skill.category and row.skill.category.name == "Soft")
+        if row_is_soft != is_soft:
+            continue
+        if wanted.pop(row.skill.name.strip().lower(), None) is None:
+            row.delete()
+
+    if not wanted:
+        return
+    category, _ = SkillCategory.objects.get_or_create(name=category_name)
+    for name in wanted.values():
+        skill = Skill.objects.filter(name__iexact=name).first() or Skill.objects.create(name=name, category=category)
+        AlumniSkill.objects.get_or_create(
+            alumni=alumni_account,
+            skill=skill,
+            defaults={"proficiency_level": AlumniSkill.Proficiency.INTERMEDIATE},
+        )
 
 
 def _queue_reevaluation_emails(*, alumni_account, old_record, new_company: str, new_title: str) -> None:

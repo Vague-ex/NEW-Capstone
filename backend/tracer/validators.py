@@ -521,8 +521,11 @@ class SurveyDataValidator:
         first_job = survey_data.get('first_job_details', {})
         time_to_hire = first_job.get('time_to_hire_months')
 
-        # Consistency rule 1: Unemployed but has time-to-hire
-        if employment_status in ['seeking', 'not_seeking', 'never_employed']:
+        # Consistency rule 1: never employed but has time-to-hire. Seeking and
+        # not-seeking graduates may have held a job since graduating (the form
+        # asks, and collects First Job when they did), so a time-to-hire is
+        # legitimate for them.
+        if employment_status == 'never_employed':
             if time_to_hire is not None:
                 self.errors.append({
                     'consistency': True,

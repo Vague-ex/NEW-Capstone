@@ -31,12 +31,18 @@ type EmploymentStep = 1 | 2 | 3 | 4 | 5 | 6;
 export interface EmploymentFormData {
   // Step 1: Academic & Pre-Employment Profile
   academic_honors: number | null;
+  /** No longer asked (every BSIS graduate completes an OJT). Kept so the
+   *  payload shape and older drafts stay valid. */
   prior_work_experience: boolean;
   ojt_relevance: number | null;
   has_portfolio: boolean;
 
   // Step 2: Employment Status
   employment_status: string;
+  /** Follow-up for Seeking / Not seeking: have they held any job since
+   *  graduating? Decides whether First Job is asked. Not sent as an answer of
+   *  its own; the First Job details (or their absence) carry it. */
+  has_worked_since_graduation: boolean | null;
 
   // Step 3: First Job Details
   time_to_hire_months: number | null;
@@ -44,6 +50,7 @@ export interface EmploymentFormData {
   first_job_sector: string;
   first_job_status: string;
   first_job_title: string;
+  first_job_company: string;
   first_job_related_to_bsis: boolean | null;
   first_job_unrelated_reason: string;
   first_job_applications_count: number | null;
@@ -121,14 +128,26 @@ const PHILIPPINE_REGIONS = [
 
 // Mirrors EmploymentProfile.EmploymentStatusChoices in backend/tracer/models.py,
 // plus 'never_employed' which the survey tracks separately from 'seeking'.
+// Labels match the Employment Details page (alumni-employment.tsx) word for
+// word. The options come from the CHED tracer and must not be removed or
+// reworded in meaning, so the confusing ones get a hint instead.
 const EMPLOYMENT_STATUS_OPTIONS = [
-  { label: 'Employed Full-Time', value: 'employed_full_time' },
-  { label: 'Employed Part-Time', value: 'employed_part_time' },
-  { label: 'Self-Employed / Freelance', value: 'self_employed' },
-  { label: 'Seeking Employment', value: 'seeking' },
-  { label: 'Not Seeking Employment', value: 'not_seeking' },
-  { label: 'Never Been Employed', value: 'never_employed' },
+  { label: 'Yes, full-time', value: 'employed_full_time' },
+  { label: 'Yes, part-time', value: 'employed_part_time' },
+  { label: 'Yes, self-employed/freelance', value: 'self_employed' },
+  { label: 'No, currently seeking employment', value: 'seeking' },
+  { label: 'No, not seeking employment (further studies, personal reasons)', value: 'not_seeking' },
+  { label: 'Never employed', value: 'never_employed' },
 ];
+
+const EMPLOYMENT_STATUS_HINTS: Record<string, string> = {
+  seeking: "You don't have a job right now and are looking for one. Choose this even if you worked before.",
+  not_seeking: "You don't have a job right now and aren't looking for one, for example because of further studies, family or health. Choose this even if you worked before.",
+  never_employed: 'You have not had any job at all since you graduated.',
+};
+
+const EMPLOYED_STATUSES = ['employed_full_time', 'employed_part_time', 'self_employed'];
+const UNEMPLOYED_STATUSES = ['seeking', 'not_seeking'];
 
 const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   academic_honors: null,
@@ -136,11 +155,13 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   ojt_relevance: null,
   has_portfolio: false,
   employment_status: '',
+  has_worked_since_graduation: null,
   time_to_hire_months: null,
   time_to_hire_raw: '',
   first_job_sector: '',
   first_job_status: '',
   first_job_title: '',
+  first_job_company: '',
   first_job_related_to_bsis: null,
   first_job_unrelated_reason: '',
   first_job_applications_count: null,
@@ -165,6 +186,17 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   soft_skills: [],
   professional_certifications: '',
 };
+
+const FIELD_CLS = 'w-full px-3 py-2 border rounded-lg text-gray-900';
+
+/** Input classes, red when the graduate tried to continue past it empty. */
+function fieldCls(invalid: boolean, extra = '') {
+  return `${FIELD_CLS} ${invalid ? 'border-red-500 bg-red-50 ring-1 ring-red-500' : 'border-gray-300'} ${extra}`.trim();
+}
+
+function Required() {
+  return <span className="text-red-500"> *</span>;
+}
 
 // Reusable Components (imported from context or duplicated here)
 function SectionHeader({ icon: Icon, title, subtitle }: any) {
@@ -329,6 +361,10 @@ export default function RegisterAlumniEmployment({
   const [step, setStep] = useState<EmploymentStep>(1);
   const [form, setForm] = useState<EmploymentFormData>(initialForm ?? INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
+  // Set when Continue is pressed with required answers missing; outlines those
+  // inputs in red until the step changes.
+  const [showMissing, setShowMissing] = useState(false);
+  const missing = (empty: boolean) => showMissing && empty;
   const [isSubmitting, setIsSubmitting] = useState(false);
   // "Is your current job the same as your first job?" - copies the first-job
   // answers into the current-job fields so the graduate doesn't retype them.
@@ -343,6 +379,7 @@ export default function RegisterAlumniEmployment({
         // Sector option values are identical between first/current job selects.
         current_job_sector: f.first_job_sector,
         current_job_title: f.first_job_title,
+        current_job_company: f.first_job_company,
         current_job_related_to_bsis: f.first_job_related_to_bsis,
       }));
     }
@@ -467,36 +504,34 @@ export default function RegisterAlumniEmployment({
   // Validation logic
   const validateStep = (): boolean => {
     setStepError('');
+    setShowMissing(false);
+    const fail = (message: string) => {
+      setStepError(message);
+      setShowMissing(true);
+      return false;
+    };
 
     switch (step) {
       case 1: // Academic Profile
         if (form.academic_honors === null || form.academic_honors === undefined) {
-          setStepError('Please select your academic honors (choose "None" if not applicable).');
-          return false;
+          return fail('Please select your academic honors (choose "None" if not applicable).');
         }
         break;
       case 2: // Employment Status
         if (!form.employment_status) {
-          setStepError('Please select employment status');
-          return false;
+          return fail('Please select your employment status.');
+        }
+        if (UNEMPLOYED_STATUSES.includes(form.employment_status) && form.has_worked_since_graduation === null) {
+          return fail('Please tell us whether you have had a job since graduating.');
         }
         break;
       case 3: // First Job Details
-        if (!form.time_to_hire_raw) {
-          setStepError('Time to hire is required');
-          return false;
-        }
-        if (!form.first_job_sector) {
-          setStepError('First job sector is required');
-          return false;
-        }
-        if (!form.first_job_status) {
-          setStepError('First job status is required');
-          return false;
-        }
-        if (!form.first_job_title) {
-          setStepError('Job title is required');
-          return false;
+        // Check everything at once so every missing box turns red together.
+        if (
+          !form.time_to_hire_raw || !form.first_job_sector || !form.first_job_status
+          || !form.first_job_title || !form.first_job_applications_raw || !form.first_job_source_display
+        ) {
+          return fail('Please answer the questions marked with a red asterisk.');
         }
         {
           const titleProblem = jobTitleProblem(form.first_job_title, refJobTitles);
@@ -504,14 +539,6 @@ export default function RegisterAlumniEmployment({
             setStepError(titleProblem);
             return false;
           }
-        }
-        if (!form.first_job_applications_raw) {
-          setStepError('Number of applications is required');
-          return false;
-        }
-        if (!form.first_job_source_display) {
-          setStepError('Where you found the job is required');
-          return false;
         }
         break;
       case 4: { // Current Job (all optional, but a given title must be listed or marked "not listed")
@@ -523,17 +550,8 @@ export default function RegisterAlumniEmployment({
         break;
       }
       case 5: // Work Address
-        if (!form.city_municipality) {
-          setStepError('City/Municipality is required');
-          return false;
-        }
-        if (isPhilippinesWork && !form.region) {
-          setStepError('Region is required');
-          return false;
-        }
-        if (!isPhilippinesWork && !form.country) {
-          setStepError('Country is required for work abroad.');
-          return false;
+        if (!form.city_municipality || (isPhilippinesWork && !form.region) || (!isPhilippinesWork && !form.country)) {
+          return fail('Please answer the questions marked with a red asterisk.');
         }
         {
           const expectedZipLen = isPhilippinesWork ? 4 : 5;
@@ -556,41 +574,45 @@ export default function RegisterAlumniEmployment({
   // currently employed skips First Job/Current Job/Work Address as appropriate
   // and goes straight to Skills (step 6), so they are never forced to enter a
   // workplace they don't have.
+  //
+  // Seeking / Not seeking graduates are asked whether they have worked since
+  // graduating: those who have fill in First Job, those who haven't skip it.
+  // Either way they are not currently employed, so Current Job and Work
+  // Address are skipped rather than saved empty.
+  const isEmployedNow = EMPLOYED_STATUSES.includes(form.employment_status);
+  const asksFirstJob = isEmployedNow
+    || (UNEMPLOYED_STATUSES.includes(form.employment_status) && form.has_worked_since_graduation === true);
+
+  const goToStep = (next: EmploymentStep) => {
+    setShowMissing(false);
+    setStepError('');
+    setStep(next);
+  };
+
   const nextStep = () => {
     if (!validateStep()) return;
 
-    // Never employed / not seeking: no job history and no workplace → Skills.
-    if (step === 2 && ['never_employed', 'not_seeking'].includes(form.employment_status)) {
-      setStep(6 as EmploymentStep);
+    if (step === 2 && !asksFirstJob) {
+      goToStep(6);
       return;
     }
-
-    // Seeking: answered First Job, but isn't currently employed → skip Current
-    // Job and Work Address, go to Skills.
-    if (step === 3 && form.employment_status === 'seeking') {
-      setStep(6 as EmploymentStep);
+    if (step === 3 && !isEmployedNow) {
+      goToStep(6);
       return;
     }
-
     if (step < 6) {
-      setStep((s) => (s + 1) as EmploymentStep);
+      goToStep((step + 1) as EmploymentStep);
     }
   };
 
   const prevStep = () => {
     // Mirror the forward skips when navigating back from Skills (step 6).
-    if (step === 6) {
-      if (['never_employed', 'not_seeking'].includes(form.employment_status)) {
-        setStep(2 as EmploymentStep);
-        return;
-      }
-      if (form.employment_status === 'seeking') {
-        setStep(3 as EmploymentStep);
-        return;
-      }
+    if (step === 6 && !isEmployedNow) {
+      goToStep(asksFirstJob ? 3 : 2);
+      return;
     }
     if (step > 1) {
-      setStep((s) => (s - 1) as EmploymentStep);
+      goToStep((step - 1) as EmploymentStep);
     } else {
       onBack();
     }
@@ -603,13 +625,38 @@ export default function RegisterAlumniEmployment({
     setIsSubmitting(true);
     try {
       // Apply encoding transformations
+      // Answers left behind on steps the graduate ended up skipping (e.g.
+      // they filled First Job, then went back and chose "Never employed") must
+      // not be saved as if they applied.
+      const kept: EmploymentFormData = { ...form };
+      if (!asksFirstJob) {
+        Object.assign(kept, {
+          time_to_hire_raw: '', first_job_sector: '', first_job_status: '', first_job_title: '',
+          first_job_company: '', first_job_related_to_bsis: null, first_job_unrelated_reason: '',
+          first_job_applications_raw: '', first_job_source_display: '',
+        });
+      }
+      if (!isEmployedNow) {
+        Object.assign(kept, {
+          current_job_sector: '', current_job_title: '', current_job_company: '',
+          current_job_related_to_bsis: null, location_type: null,
+          street_address: '', barangay: '', city_municipality: '', province_work: '', region: '',
+          zip_code: '', latitude: null, longitude: null,
+        });
+      }
+      if (!UNEMPLOYED_STATUSES.includes(kept.employment_status)) {
+        kept.has_worked_since_graduation = null;
+      }
+      if (isEmployedNow && isPhilippinesWork) {
+        kept.country = 'Philippines';
+      }
       const encoded: EmploymentFormData = {
-        ...form,
-        time_to_hire_months: timeToHireMapper(form.time_to_hire_raw),
-        first_job_applications_count: jobApplicationsMapper(form.first_job_applications_raw),
-        first_job_source: jobSourceMapper(form.first_job_source_display),
-        first_job_sector: sectorMapper(form.first_job_sector),
-        current_job_sector: form.current_job_sector ? sectorMapper(form.current_job_sector) : '',
+        ...kept,
+        time_to_hire_months: timeToHireMapper(kept.time_to_hire_raw),
+        first_job_applications_count: jobApplicationsMapper(kept.first_job_applications_raw),
+        first_job_source: kept.first_job_source_display ? jobSourceMapper(kept.first_job_source_display) : '',
+        first_job_sector: kept.first_job_sector ? sectorMapper(kept.first_job_sector) : '',
+        current_job_sector: kept.current_job_sector ? sectorMapper(kept.current_job_sector) : '',
       };
 
       await onComplete(encoded);
@@ -683,7 +730,7 @@ export default function RegisterAlumniEmployment({
             <select
               value={form.academic_honors ?? ''}
               onChange={(e) => setForm({ ...form, academic_honors: e.target.value ? parseInt(e.target.value) : null })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(form.academic_honors === null || form.academic_honors === undefined))}
             >
               <option value="">Select Academic Honors</option>
               <option value="4">Summa Cum Laude</option>
@@ -696,38 +743,29 @@ export default function RegisterAlumniEmployment({
             </p>
           </div>
 
+          {/* The "prior work experience" question was removed: every BSIS
+              graduate completes an OJT, so it read as redundant. The OJT
+              question used to hide behind it and is now always asked. */}
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-3">
-              Prior Work Experience Before Graduation
+            <label className="block text-sm font-semibold text-gray-900 mb-2">
+              Was your required OJT/Internship related to the job you eventually got?
             </label>
-            <div className="flex gap-3">
-              <RadioOption label="Yes" value={true} current={form.prior_work_experience} onSelect={(v) => setForm({ ...form, prior_work_experience: v })} />
-              <RadioOption label="No" value={false} current={form.prior_work_experience} onSelect={(v) => setForm({ ...form, prior_work_experience: v })} />
-            </div>
+            <select
+              value={form.ojt_relevance ?? ''}
+              onChange={(e) => setForm({ ...form, ojt_relevance: e.target.value ? parseInt(e.target.value) : null })}
+              className={fieldCls(false)}
+            >
+              <option value="">Select relevance</option>
+              <option value="3">Yes, directly related</option>
+              <option value="2">Somewhat related</option>
+              <option value="1">Not related</option>
+              <option value="0">Have not secured a job yet / Not applicable</option>
+            </select>
           </div>
 
-          {form.prior_work_experience && (
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">
-                How Related was Your OJT/Internship to BSIS?
-              </label>
-              <select
-                value={form.ojt_relevance ?? ''}
-                onChange={(e) => setForm({ ...form, ojt_relevance: e.target.value ? parseInt(e.target.value) : null })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
-              >
-                <option value="">Select Relevance</option>
-                <option value="3">Directly Related</option>
-                <option value="2">Somewhat Related</option>
-                <option value="1">Not Related</option>
-                <option value="0">Not Applicable</option>
-              </select>
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-3">
-              Portfolio / GitHub Profile
+              Online portfolio, GitHub profile, or project showcase when applying?
             </label>
             <div className="flex gap-3">
               <RadioOption
@@ -745,7 +783,7 @@ export default function RegisterAlumniEmployment({
             </div>
           </div>
 
-          <NavButtons onBack={prevStep} onNext={nextStep} nextDisabled={form.academic_honors === null || form.academic_honors === undefined} />
+          <NavButtons onBack={prevStep} onNext={nextStep} />
         </div>
       )}
 
@@ -756,21 +794,46 @@ export default function RegisterAlumniEmployment({
 
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Are you presently employed?
+              Are you presently employed?<Required />
             </label>
             <select
               value={form.employment_status}
-              onChange={(e) => setForm({ ...form, employment_status: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              onChange={(e) => setForm({
+                ...form,
+                employment_status: e.target.value,
+                // Only meaningful for Seeking / Not seeking; re-ask on a change.
+                has_worked_since_graduation: UNEMPLOYED_STATUSES.includes(e.target.value)
+                  ? form.has_worked_since_graduation
+                  : null,
+              })}
+              className={fieldCls(missing(!form.employment_status))}
             >
               <option value="">Select Employment Status</option>
               {EMPLOYMENT_STATUS_OPTIONS.map(({ label, value }) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+            {EMPLOYMENT_STATUS_HINTS[form.employment_status] && (
+              <p className="mt-1.5 text-xs text-gray-500">{EMPLOYMENT_STATUS_HINTS[form.employment_status]}</p>
+            )}
           </div>
 
-          <NavButtons onBack={prevStep} onNext={nextStep} nextDisabled={!form.employment_status} />
+          {UNEMPLOYED_STATUSES.includes(form.employment_status) && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-1">
+                Have you had a job at any point since graduating?<Required />
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                If yes, we&apos;ll ask about your first job next.
+              </p>
+              <div className={`flex flex-wrap gap-3 rounded-lg ${missing(form.has_worked_since_graduation === null) ? 'ring-2 ring-red-500 ring-offset-2' : ''}`}>
+                <RadioOption label="Yes, I have worked before" value={true} current={form.has_worked_since_graduation} onSelect={(v) => setForm({ ...form, has_worked_since_graduation: v })} />
+                <RadioOption label="No, not yet" value={false} current={form.has_worked_since_graduation} onSelect={(v) => setForm({ ...form, has_worked_since_graduation: v })} />
+              </div>
+            </div>
+          )}
+
+          <NavButtons onBack={prevStep} onNext={nextStep} />
         </div>
       )}
 
@@ -781,12 +844,12 @@ export default function RegisterAlumniEmployment({
 
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Time to Hire (from graduation to employment)
+              Time to Hire (from graduation to employment)<Required />
             </label>
             <select
               value={form.time_to_hire_raw}
               onChange={(e) => setForm({ ...form, time_to_hire_raw: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(!form.time_to_hire_raw))}
             >
               <option value="">Select Time Frame</option>
               <option value="Within 1 month">Within 1 month</option>
@@ -800,11 +863,11 @@ export default function RegisterAlumniEmployment({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Sector</label>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Sector<Required /></label>
               <select
                 value={form.first_job_sector}
                 onChange={(e) => setForm({ ...form, first_job_sector: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                className={fieldCls(missing(!form.first_job_sector))}
               >
                 <option value="">Select Sector</option>
                 <option value="Government">Government</option>
@@ -814,11 +877,11 @@ export default function RegisterAlumniEmployment({
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Status</label>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Status<Required /></label>
               <select
                 value={form.first_job_status}
                 onChange={(e) => setForm({ ...form, first_job_status: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                className={fieldCls(missing(!form.first_job_status))}
               >
                 <option value="">Select Status</option>
                 <option value="regular">Regular / Permanent</option>
@@ -830,13 +893,24 @@ export default function RegisterAlumniEmployment({
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Job Title</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Job Title<Required /></label>
             <JobTitleInput
               value={form.first_job_title}
               onChange={(v) => setForm((f) => ({ ...f, first_job_title: v }))}
               options={refJobTitleOptions}
               placeholder="e.g., Junior Software Developer"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(!form.first_job_title))}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Company / Organization Name</label>
+            <input
+              type="text"
+              value={form.first_job_company}
+              onChange={(e) => setForm({ ...form, first_job_company: e.target.value })}
+              placeholder="e.g., Tech Company Inc."
+              className={fieldCls(false)}
             />
           </div>
 
@@ -868,11 +942,11 @@ export default function RegisterAlumniEmployment({
           )}
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Number of applications before getting hired</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Number of applications before getting hired<Required /></label>
             <select
               value={form.first_job_applications_raw}
               onChange={(e) => setForm({ ...form, first_job_applications_raw: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(!form.first_job_applications_raw))}
             >
               <option value="">Select range</option>
               <option value="1-5 applications">1-5 applications</option>
@@ -883,11 +957,11 @@ export default function RegisterAlumniEmployment({
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Where did you find this job?</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Where did you find this job?<Required /></label>
             <select
               value={form.first_job_source_display}
               onChange={(e) => setForm({ ...form, first_job_source_display: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(!form.first_job_source_display))}
             >
               <option value="">Select source</option>
               <option value="Personal Network/Referral">Personal Network / Referral</option>
@@ -910,7 +984,7 @@ export default function RegisterAlumniEmployment({
           <SectionHeader icon={Briefcase} title="Your Current / Most Recent Job" />
 
           {/* Quick-fill: reuse the first-job answers when it's the same job. */}
-          {(form.first_job_title || form.first_job_sector) && (
+          {(form.first_job_title || form.first_job_sector || form.first_job_company) && (
             <label className="flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 cursor-pointer">
               <input
                 type="checkbox"
@@ -1026,11 +1100,11 @@ export default function RegisterAlumniEmployment({
           {isPhilippinesWork ? (
             <>
               <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">Region *</label>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Region<Required /></label>
                 <select
                   value={form.region}
                   onChange={(e) => setForm({ ...form, region: e.target.value, province_work: '', city_municipality: '', barangay: '', zip_code: '' })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  className={fieldCls(missing(!form.region))}
                 >
                   <option value="">Select Region</option>
                   {(phRegionsWork.length > 0 ? phRegionsWork.map(r => r.name) : regions).map((r: string) => (
@@ -1053,7 +1127,7 @@ export default function RegisterAlumniEmployment({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality *</label>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality<Required /></label>
                   <select
                     value={form.city_municipality}
                     onChange={(e) => {
@@ -1061,7 +1135,7 @@ export default function RegisterAlumniEmployment({
                       setForm({ ...form, city_municipality: e.target.value, barangay: '' });
                     }}
                     disabled={!form.province_work && phProvincesWork.length > 0}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                    className={fieldCls(missing(!form.city_municipality), 'disabled:bg-gray-100')}
                   >
                     <option value="">Select City</option>
                     {phCitiesWork.map(c => <option key={c.id} value={c.name}>{c.name}{c.is_city ? ' (City)' : ''}</option>)}
@@ -1077,13 +1151,13 @@ export default function RegisterAlumniEmployment({
           ) : (
             <>
               <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality *</label>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality<Required /></label>
                 <input
                   type="text"
                   value={form.city_municipality}
                   onChange={(e) => setForm({ ...form, city_municipality: e.target.value })}
                   placeholder="Required"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  className={fieldCls(missing(!form.city_municipality))}
                 />
               </div>
               {/* Barangay omitted on the work address form (see note above). */}
@@ -1113,15 +1187,24 @@ export default function RegisterAlumniEmployment({
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Country</label>
+              <label className="block text-sm font-semibold text-gray-900 mb-2">Country<Required /></label>
+              {isPhilippinesWork ? (
+                // Work Location "Philippines" was picked, so the country is fixed.
+                <select
+                  value="Philippines"
+                  disabled
+                  className={fieldCls(false, 'bg-gray-100 text-gray-700 cursor-not-allowed')}
+                >
+                  <option value="Philippines">Philippines</option>
+                </select>
+              ) : (
               <select
-                value={form.country}
+                value={form.country === 'Philippines' ? '' : form.country}
                 onChange={(e) => setForm({ ...form, country: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                className={fieldCls(missing(!form.country))}
               >
                 <option value="">Select country</option>
                 <optgroup label="ASEAN">
-                  <option value="Philippines">Philippines</option>
                   <option value="Indonesia">Indonesia</option>
                   <option value="Malaysia">Malaysia</option>
                   <option value="Singapore">Singapore</option>
@@ -1158,6 +1241,7 @@ export default function RegisterAlumniEmployment({
                 </optgroup>
                 <option value="Other">Other</option>
               </select>
+              )}
             </div>
           </div>
 

@@ -63,15 +63,21 @@ TARGET_LABEL = "Employed within 12 months of graduation"
 #   - skill counts: the form asks which skills a graduate has NOW, which for
 #     older batches includes what they learned on the job.
 #   - ojt_relevance: it asks graduates to rate work they did years ago (a 2019
-#     graduate is recalling 2018), and the form only shows the question to
-#     graduates who report prior work experience, so most rows are blank. It is
-#     still collected and shown to admins; it is just too unreliable to model.
+#     graduate is recalling 2018), and until 2026-09 the form only showed it to
+#     graduates who reported prior work experience, so most older rows are
+#     blank. It is still collected and shown to admins; it is just too
+#     unreliable to model.
+#   - prior_work_experience: removed from the forms in 2026-09 (every BSIS
+#     graduate completes an OJT, so the question read as redundant). New
+#     graduates store the column default, so it no longer describes anyone.
 MODEL_FEATURES = [
     "academic_honors",
-    "prior_work_experience",
     "has_portfolio",
     "scholarship",
 ]
+# Still built into the frame so a model version trained before the removal
+# keeps loading and predicting until a retrain replaces it.
+RETIRED_FEATURES = ["prior_work_experience"]
 FEATURE_LABELS = {
     "academic_honors": "Latin honors (1 = none, 4 = summa cum laude)",
     "prior_work_experience": "Had work experience before graduating",
@@ -106,6 +112,7 @@ TIME_BANDS = (
 FRAME_COLUMNS = [
     "alumni_id", "batch", "gender", "months_since_graduation",
     *MODEL_FEATURES,
+    *RETIRED_FEATURES,
     "employment_status", "has_outcome", "employed_now", "in_labor_force",
     "time_to_hire_months", TARGET, "bsis_first", "bsis_current", "is_sample",
     "future_graduation",

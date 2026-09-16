@@ -37,6 +37,13 @@ const SOFT_SKILLS = [
   'Time Management',
 ];
 
+// Skill names are spelled with and without spaces around "/" across the
+// registration form, the reference table and this page.
+const skillKey = (name: string) => name.toLowerCase().replace(/\s+/g, '');
+const isListed = (name: string, list: string[]) => list.some(s => skillKey(s) === skillKey(name));
+const toCanonical = (names: string[], list: string[]) =>
+  Array.from(new Set(names.map(n => list.find(s => skillKey(s) === skillKey(n)) ?? n)));
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function AlumniSkills() {
@@ -45,10 +52,19 @@ export function AlumniSkills() {
   const alumniId = String(graduate?.id ?? '');
   const surveyData = graduate?.surveyData ?? {};
 
-  const [selectedSkills, setSelectedSkills] = useState<string[]>(graduate.skills ?? surveyData.skills ?? []);
-  const [selectedSoftSkills, setSelectedSoftSkills] = useState<string[]>(
-    Array.isArray(surveyData.soft_skills) ? surveyData.soft_skills : [],
+  // `graduate.skills` / `surveyData.skills` are technical + soft combined, so
+  // seeding the technical list from them put every soft skill under
+  // "Additional Technical Skills". Seed each list from its own key, and map
+  // spelling variants ("Teamwork/Collaboration") onto this page's names.
+  const [selectedSoftSkills, setSelectedSoftSkills] = useState<string[]>(() =>
+    toCanonical(Array.isArray(surveyData.soft_skills) ? surveyData.soft_skills : [], SOFT_SKILLS),
   );
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(() => {
+    const technical = Array.isArray(surveyData.technical_skills)
+      ? surveyData.technical_skills
+      : (graduate.skills ?? surveyData.skills ?? []);
+    return toCanonical(technical, BSIS_CORE_SKILLS).filter((s: string) => !isListed(s, SOFT_SKILLS));
+  });
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -59,8 +75,10 @@ export function AlumniSkills() {
     const grouped: Record<string, string[]> = {};
     for (const skill of referenceData.skills) {
       if (!skill.is_active || !skill.category_name) continue;
-      if (BSIS_CORE_SKILLS.includes(skill.name)) continue;
-      if (SOFT_SKILLS.includes(skill.name)) continue;
+      // Soft skills have their own section below; never offer them as technical.
+      if (skill.category_name.toLowerCase().includes('soft')) continue;
+      if (isListed(skill.name, BSIS_CORE_SKILLS)) continue;
+      if (isListed(skill.name, SOFT_SKILLS)) continue;
       const bucket = grouped[skill.category_name] ?? (grouped[skill.category_name] = []);
       if (!bucket.includes(skill.name)) bucket.push(skill.name);
     }
@@ -102,6 +120,9 @@ export function AlumniSkills() {
       const payloadSurveyData = {
         ...surveyData,
         skills: selectedSkills,
+        // The backend reads technical_skills before skills, so without this
+        // the stale list already in surveyData would win.
+        technical_skills: selectedSkills,
         soft_skills: selectedSoftSkills,
       };
 

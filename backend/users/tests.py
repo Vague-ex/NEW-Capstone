@@ -1317,3 +1317,93 @@ class RegistrationCleanDataGateTests(TestCase):
 		# account. The gate runs before any write for exactly this reason.
 		self.assertFalse(User.objects.filter(email="gate-test@example.com").exists())
 		self.assertEqual(AlumniAccount.objects.count(), 0)
+
+
+
+class RegistrationFeedbackFixTests(TestCase):
+	"""Tester feedback, 2026-09: employer invite on first login, graduates who
+	lost a job, and skill edits that never stuck."""
+
+	def setUp(self):
+		user = User.objects.create_user(email="feedback@example.com", password="Pass12345!", role=User.Role.ALUMNI)
+		self.account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+
+	def test_registration_creates_current_record_so_invite_prompt_shows(self):
+		api._create_registration_employment_record(self.account, {
+			"employment_status": "employed_full_time",
+			"current_job_company": "Acme Corp",
+			"current_job_title": "Systems Analyst",
+			"location_type": True,
+			"city_municipality": "City of Talisay",
+		})
+		record = EmploymentRecord.objects.get(alumni=self.account, is_current=True)
+		self.assertEqual(record.verification_status, EmploymentRecord.VerificationStatus.PENDING)
+		self.assertTrue(api._needs_employer_invite(self.account))
+
+	def test_no_record_for_graduate_without_a_current_job(self):
+		for status_value in ("seeking", "not_seeking", "never_employed"):
+			api._create_registration_employment_record(self.account, {
+				"employment_status": status_value,
+				"current_job_company": "Acme Corp",
+				"current_job_title": "Systems Analyst",
+			})
+		self.assertFalse(EmploymentRecord.objects.filter(alumni=self.account).exists())
+		self.assertFalse(api._needs_employer_invite(self.account))
+
+	def test_seeking_graduate_with_a_past_job_passes_validation(self):
+		from tracer.validators import validate_registration_payload
+
+		result = validate_registration_payload({
+			"employment_status": "seeking", "academic_honors": 1,
+			"time_to_hire_months": 3, "first_job_title": "Software Developer",
+			"first_job_sector": "private", "first_job_status": "regular",
+		})
+		self.assertEqual(result["errors"], [])
+
+	def test_never_employed_with_time_to_hire_is_still_an_error(self):
+		from tracer.validators import validate_registration_payload
+
+		result = validate_registration_payload({
+			"employment_status": "never_employed", "academic_honors": 1, "time_to_hire_months": 3,
+		})
+		self.assertTrue(any(e.get("consistency") for e in result["errors"]))
+
+	def test_skill_edits_replace_the_saved_rows(self):
+		from tracer.models import AlumniSkill
+		from users.survey_translator import apply_survey_data_to_normalized_tables
+
+		apply_survey_data_to_normalized_tables(self.account, {
+			"technical_skills": ["Web Development", "Database Management"],
+			"soft_skills": ["Leadership", "Customer Service Orientation"],
+		})
+		apply_survey_data_to_normalized_tables(self.account, {
+			"technical_skills": ["Web Development"],
+			"soft_skills": ["Leadership"],
+		})
+		rows = AlumniSkill.objects.filter(alumni=self.account).select_related("skill__category")
+		by_category = {(r.skill.category.name, r.skill.name) for r in rows}
+		self.assertEqual(by_category, {("Technical", "Web Development"), ("Soft", "Leadership")})
+
+		# A soft skill never comes back under technical.
+		view = api._normalized_view_from_tables(self.account)
+		self.assertEqual(view["technical_skills"], ["Web Development"])
+		self.assertEqual(view["soft_skills"], ["Leadership"])
+
+	def test_clear_first_job_wipes_first_job_columns(self):
+		from tracer.models import EmploymentProfile
+		from users.survey_translator import apply_survey_data_to_normalized_tables
+
+		apply_survey_data_to_normalized_tables(self.account, {
+			"employment_status": "seeking", "timeToHire": "1 - 3 months",
+			"firstJobTitle": "QA Tester", "firstJobCompany": "Acme Corp",
+		})
+		profile = EmploymentProfile.objects.get(alumni=self.account)
+		self.assertEqual(profile.first_job_company, "Acme Corp")
+
+		apply_survey_data_to_normalized_tables(self.account, {
+			"employment_status": "seeking", "timeToHire": "", "firstJobTitle": "", "clear_first_job": True,
+		})
+		profile.refresh_from_db()
+		self.assertIsNone(profile.first_job_title)
+		self.assertIsNone(profile.first_job_company)
+		self.assertIsNone(profile.time_to_hire_months)

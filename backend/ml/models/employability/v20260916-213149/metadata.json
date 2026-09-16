@@ -1,0 +1,89 @@
+{
+  "version": "v20260916-213149",
+  "trained_at": "2026-09-16T21:31:49.452644+00:00",
+  "source": "database",
+  "source_details": {
+    "graduates": 9,
+    "sample_accounts_excluded": 36,
+    "future_graduation_excluded": 0
+  },
+  "target": "employed_within_12mo",
+  "target_label": "Employed within 12 months of graduation",
+  "features": [
+    "academic_honors",
+    "has_portfolio",
+    "scholarship"
+  ],
+  "feature_labels": {
+    "academic_honors": "Latin honors (1 = none, 4 = summa cum laude)",
+    "has_portfolio": "Has a portfolio or GitHub profile",
+    "scholarship": "Held a scholarship"
+  },
+  "passed": false,
+  "has_model_file": false,
+  "metrics": {
+    "n": 8,
+    "n_positive": 6,
+    "outcome_rate": 0.75
+  },
+  "checks": [
+    {
+      "key": "leakage",
+      "label": "No input measured after the outcome",
+      "passed": true,
+      "value": "All inputs are known at graduation",
+      "rule": "Every input is known at graduation"
+    },
+    {
+      "key": "sample_size",
+      "label": "Enough graduates",
+      "passed": false,
+      "value": "8 graduates, 2 in the smaller outcome group",
+      "rule": "At least 150 graduates and 40 in the smaller outcome group"
+    },
+    {
+      "key": "baseline",
+      "label": "Beats the no-model baseline",
+      "passed": false,
+      "value": "Not evaluated: too few graduates in one outcome group",
+      "rule": "Brier score lower than the baseline's"
+    },
+    {
+      "key": "discrimination",
+      "label": "Separates the two outcomes",
+      "passed": false,
+      "value": "Not evaluated: too few graduates in one outcome group",
+      "rule": "Mean AUC at least 0.65, 5th percentile above 0.55"
+    },
+    {
+      "key": "temporal",
+      "label": "Holds up on the latest batches",
+      "passed": false,
+      "value": "Not evaluated: too few graduates in one outcome group",
+      "rule": "On batches it never saw: AUC within 0.10 of cross-validation, calibration slope 0.7 to 1.3"
+    },
+    {
+      "key": "calibration",
+      "label": "Predicted chances match reality",
+      "passed": false,
+      "value": "Not evaluated: too few graduates in one outcome group",
+      "rule": "Calibration slope between 0.7 and 1.3"
+    },
+    {
+      "key": "stability",
+      "label": "Reported factors are stable",
+      "passed": false,
+      "value": "Not evaluated: too few graduates in one outcome group",
+      "rule": "Each factor with a clear direction keeps it in at least 80% of bootstrap refits"
+    },
+    {
+      "key": "fairness",
+      "label": "Works similarly for female and male graduates",
+      "passed": false,
+      "value": "Not evaluated: too few graduates in one outcome group",
+      "rule": "No group of 30 or more with AUC more than 0.10 below overall"
+    }
+  ],
+  "factors": [],
+  "dataset_sha256": "10efeb4d883202652afc38543c893b03d0c3abf8fc22136baa3c790ecdf0e071"
+}
