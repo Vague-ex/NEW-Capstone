@@ -140,7 +140,7 @@ export default function PrivacyNoticeModal({ open, onClose, onContinue }: Props)
               The BSIS Graduate Tracer System is a capstone research project of the Bachelor of Science in Information
               Systems program, Carlos Hilado Memorial State University – Talisay Campus. Your information is used to
               trace the employment outcomes of BSIS graduates, analyse employability trends, and support curriculum
-              improvement and accreditation reporting.
+              improvement.
             </p>
           </Section>
 

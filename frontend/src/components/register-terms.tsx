@@ -83,7 +83,7 @@ export default function RegisterTerms({ onComplete, onBack }: Props) {
         <p>
           Carlos Hilado Memorial State University - Talisay Campus collects this information through the
           BSIS Graduate Tracer System to trace the employment outcomes of its graduates, to evaluate and
-          improve the BSIS curriculum, and to satisfy accreditation and government reporting requirements.
+          improve the BSIS curriculum.
         </p>
 
         <p style={{ fontWeight: 700 }}>2. Information We Collect</p>

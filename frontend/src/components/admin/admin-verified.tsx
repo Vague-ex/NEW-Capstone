@@ -218,7 +218,13 @@ function EmployerDecisionPanel({ decision, loading, error }: {
         <p><span className="text-gray-500">Answered by:</span> {decision.verifierName || 'Not recorded'}
           {decision.verifierPosition ? `, ${decision.verifierPosition}` : ''}</p>
         <p><span className="text-gray-500">Their email:</span> {decision.verifierEmail || 'Not recorded'}</p>
-        <p><span className="text-gray-500">Invite sent to:</span> {decision.invitedEmail || 'Not recorded'}</p>
+        {/* Only shown when the graduate supplied the employer's address when
+            generating the link. The portal does not ask for it, so this is
+            usually absent — and without it the "answered from a different
+            address" check can never fire. */}
+        {decision.invitedEmail && (
+          <p><span className="text-gray-500">Invite sent to:</span> {decision.invitedEmail}</p>
+        )}
         <p><span className="text-gray-500">Employer:</span> {decision.verifiedEmployerName || 'Not recorded'}</p>
         <p><span className="text-gray-500">Job title:</span> {decision.verifiedJobTitle || 'Not recorded'}</p>
         <p><span className="text-gray-500">Decision:</span> {decision.decision === 'confirm' ? 'Confirmed' : 'Denied'}</p>
