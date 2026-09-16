@@ -788,6 +788,8 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
+  const retrackingMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('retracking') === '1';
+
   return (
     <PortalLayout role="alumni" pageTitle="Employment Details" pageSubtitle="CHED Graduate Tracer Survey - Employment Record">
       <div className="max-w-3xl lg:max-w-none mx-auto space-y-5 pb-28">
@@ -799,6 +801,18 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
               <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Employment record retracking required</p>
               <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
                 Your employment data is over 2 years old. Please review and update every section before continuing - your dashboard and other features remain locked until this form is submitted.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {retrackingMode && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-300 rounded-2xl p-4">
+            <AlertTriangle className="size-5 text-red-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Re-tracking required</p>
+              <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
+                Your employment record is over 2 years old. Please re-complete this form to continue using the Graduate Tracer System.
               </p>
             </div>
           </div>

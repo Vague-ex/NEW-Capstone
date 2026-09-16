@@ -60,6 +60,13 @@ export function AlumniDashboard() {
 
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = (alumni.verificationStatus ?? 'pending') === 'pending';
+  const requiresRetracking = Boolean(alumni?.requiresRetracking);
+
+  useEffect(() => {
+    if (requiresRetracking) {
+      navigate('/alumni/employment?retracking=1', { replace: true });
+    }
+  }, [requiresRetracking, navigate]);
 
   const statusColorMap: Record<string, { bg: string; text: string; dot: string; label: string }> = {
     employed: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Employed' },

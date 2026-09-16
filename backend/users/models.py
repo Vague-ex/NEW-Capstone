@@ -334,6 +334,9 @@ class AlumniProfile(models.Model):
     # personal-detail saves deliberately never touch it.
     last_retraced_at = models.DateTimeField(null=True, blank=True)
 
+    # Tracks when the 2-year retracking email reminder was last sent (used by send_retracking_reminders)
+    last_retracking_reminder_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "users_alumni_profiles"
         # Backstops for intake validation. Mobile is deliberately not
