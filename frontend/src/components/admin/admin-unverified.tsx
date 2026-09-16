@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { fetchPendingAlumni, reviewAlumniRequest } from '../../app/api-client';
+import { fetchPendingAlumni, fetchProfileReviewAlumni, reviewAlumniRequest } from '../../app/api-client';
 import type { AlumniRecord } from '../../data/app-data';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import {
@@ -219,7 +219,47 @@ function getSurveyData(a: AlumniRecord): SurveyData {
   };
 }
 
-export function AdminUnverified() {
+// The same review screen serves two lists. Pending Verification holds graduates
+// not found on the masterlist: they cannot sign in until approved. Profile
+// Review holds masterlist matches: already active, the admin only confirms the
+// person is real. Rejecting from either emails the reason and deletes the account.
+type ReviewMode = 'pending' | 'profile-review';
+
+const MODE_COPY = {
+  pending: {
+    pageTitle: 'Pending Verification',
+    pageSubtitle: 'Graduate data is submitted and visible - excluded from analytics until verified',
+    bannerTitle: 'Pending graduates have already submitted their full employment and survey data during registration.',
+    bannerBody: 'Their information is visible here for review but is excluded from analytics, reports, and geomapping until you approve their account.',
+    countSuffix: 'awaiting verification',
+    loading: 'Loading pending graduate accounts…',
+    emptyTitle: 'All Verified!',
+    emptyBody: 'No pending graduate accounts to review.',
+    approve: 'Approve',
+    approveLong: 'Approve & Verify',
+    approveError: 'Unable to approve graduate right now.',
+  },
+  'profile-review': {
+    pageTitle: 'Profile Review',
+    pageSubtitle: 'Masterlist matches that can already sign in - confirm each one is the real graduate',
+    bannerTitle: 'These graduates matched the BSIS masterlist, so their accounts are already active.',
+    bannerBody: 'Check the face scan and details. Confirm if this is the real graduate. If not, reject: the account is deleted and the graduate is emailed your reason.',
+    countSuffix: 'awaiting profile review',
+    loading: 'Loading graduate profiles…',
+    emptyTitle: 'All Reviewed!',
+    emptyBody: 'No masterlist-matched profiles left to check.',
+    approve: 'Confirm',
+    approveLong: 'Confirm Profile',
+    approveError: 'Unable to confirm this profile right now.',
+  },
+} as const;
+
+export function AdminProfileReview() {
+  return <AdminUnverified mode="profile-review" />;
+}
+
+export function AdminUnverified({ mode = 'pending' }: { mode?: ReviewMode } = {}) {
+  const copy = MODE_COPY[mode];
   const { data: refData } = useReferenceData();
   const bsisCore = useMemo(
     () => refData.skills.filter(s => s.is_active).map(s => s.name),
@@ -243,7 +283,7 @@ export function AdminUnverified() {
       setLoadingPending(true);
       setFetchError('');
       try {
-        const results = await fetchPendingAlumni();
+        const results = mode === 'profile-review' ? await fetchProfileReviewAlumni() : await fetchPendingAlumni();
         if (!active) return;
         setBackendPending(results as AlumniRecord[]);
       } catch (err) {
@@ -258,7 +298,7 @@ export function AdminUnverified() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [mode]);
 
   const getRecordId = (a: AlumniRecord) => String(a.id ?? a.email ?? '');
 
@@ -276,7 +316,7 @@ export function AdminUnverified() {
       setBackendPending((prev) => prev.filter((a) => getRecordId(a) !== id));
       setReviewAlumni(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to approve graduate right now.';
+      const message = err instanceof Error ? err.message : copy.approveError;
       setActionError(message);
     } finally {
       setActionLoading(null);
@@ -328,8 +368,8 @@ export function AdminUnverified() {
   return (
     <PortalLayout
       role="admin"
-      pageTitle="Pending Verification"
-      pageSubtitle="Graduate data is submitted and visible - excluded from analytics until verified"
+      pageTitle={copy.pageTitle}
+      pageSubtitle={copy.pageSubtitle}
       notificationCount={pendingAlumni.length}
     >
       <div className="gt-stagger space-y-5">
@@ -357,10 +397,10 @@ export function AdminUnverified() {
           <BarChart2 className="size-4 text-amber-500 shrink-0 mt-0.5" />
           <div>
             <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>
-              Pending graduates have already submitted their full employment and survey data during registration.
+              {copy.bannerTitle}
             </p>
             <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
-              Their information is visible here for review but is <span style={{ fontWeight: 700 }}>excluded from analytics, reports, and geomapping</span> until you approve their account.
+              {copy.bannerBody}
             </p>
           </div>
         </div>
@@ -370,7 +410,7 @@ export function AdminUnverified() {
           <div className="flex items-center gap-3 bg-white border border-gray-100 rounded-xl shadow-sm px-4 py-2.5">
             <Clock className="size-4 text-amber-500" />
             <span className="text-gray-700 text-sm" style={{ fontWeight: 600 }}>
-              {pendingAlumni.length} account{pendingAlumni.length !== 1 ? 's' : ''} awaiting verification
+              {pendingAlumni.length} account{pendingAlumni.length !== 1 ? 's' : ''} {copy.countSuffix}
             </span>
           </div>
           <div className="relative w-full sm:w-auto">
@@ -389,13 +429,13 @@ export function AdminUnverified() {
         {loadingPending ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
             <span className="inline-flex size-8 border-2 border-gray-200 border-t-[#166534] rounded-full animate-spin" />
-            <p className="text-gray-500 text-sm mt-3">Loading pending graduate accounts…</p>
+            <p className="text-gray-500 text-sm mt-3">{copy.loading}</p>
           </div>
         ) : pendingAlumni.length === 0 ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
             <CheckCircle2 className="size-12 text-emerald-400 mx-auto mb-4" />
-            <h3 className="text-gray-700" style={{ fontWeight: 700 }}>All Verified!</h3>
-            <p className="text-gray-400 text-sm mt-1">No pending graduate accounts to review.</p>
+            <h3 className="text-gray-700" style={{ fontWeight: 700 }}>{copy.emptyTitle}</h3>
+            <p className="text-gray-400 text-sm mt-1">{copy.emptyBody}</p>
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -443,9 +483,11 @@ export function AdminUnverified() {
                               <XCircle className="size-3" /> No face recognition scan
                             </span>
                           )}
-                          <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
-                            <BarChart2 className="size-3" /> Excl. Analytics
-                          </span>
+                          {mode === 'pending' && (
+                            <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200" style={{ fontWeight: 600 }}>
+                              <BarChart2 className="size-3" /> Excl. Analytics
+                            </span>
+                          )}
                           {a.matchStatus === 'matched' ? (
                             <span
                               className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full"
@@ -535,7 +577,7 @@ export function AdminUnverified() {
                           {actionLoading === rowId + '-approve'
                             ? <span className="size-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
                             : <CheckCircle2 className="size-3.5" />}
-                          Approve
+                          {copy.approve}
                         </button>
                         <button
                           onClick={() => openReject(rowId, a.name ?? '')}
@@ -966,8 +1008,8 @@ export function AdminUnverified() {
                   {actionLoading
                     ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     : <CheckCircle2 className="size-4" />}
-                  <span className="sm:hidden">Approve</span>
-                  <span className="hidden sm:inline">Approve &amp; Verify</span>
+                  <span className="sm:hidden">{copy.approve}</span>
+                  <span className="hidden sm:inline">{copy.approveLong}</span>
                 </button>
               </div>
             </div>

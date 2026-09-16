@@ -19,7 +19,7 @@ import { GraduatePending } from './components/alumni/graduate-pending';
 
 // Admin Portal
 import { AdminNewDashboard } from './components/admin/admin-new-dashboard';
-import { AdminUnverified } from './components/admin/admin-unverified';
+import { AdminUnverified, AdminProfileReview } from './components/admin/admin-unverified';
 import { AdminVerified } from './components/admin/admin-verified';
 import { AdminBatchUpload } from './components/admin/admin-batch-upload';
 import { AdminMap } from './components/admin/admin-map';
@@ -76,6 +76,7 @@ export const routes: RouteObject[] = [
   // ── Admin Portal ──
   adminRoute('/admin/dashboard', AdminNewDashboard),
   adminRoute('/admin/unverified', AdminUnverified),
+  adminRoute('/admin/profile-review', AdminProfileReview),
   adminRoute('/admin/verified', AdminVerified),
   adminRoute('/admin/batch-upload', AdminBatchUpload),
   adminRoute('/admin/map', AdminMap),

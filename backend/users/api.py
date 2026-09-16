@@ -1156,6 +1156,7 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         # was never uploaded rather than that the person is not a graduate — the
         # reviewer needs to see it before approving, not be blocked by it.
         "matchStatus": account.match_status,
+        "profileReviewedAt": account.profile_reviewed_at.isoformat() if account.profile_reviewed_at else None,
         "masterRecordName": account.master_record.full_name if account.master_record else None,
         "masterRecordBatch": account.master_record.batch_year if account.master_record else None,
         "employmentStatus": employment_status,
@@ -2035,7 +2036,11 @@ class AlumniRegisterView(APIView):
                     "engine": _active_engine.name,
                     "engine_dim": _active_engine.dimensions,
                 }),
-                account_status=AccountStatus.PENDING,
+                # A masterlist match is enough to let the graduate in. The admin
+                # still checks the person is real from the Profile Review list,
+                # and rejecting there deletes the account. Anyone not on the
+                # masterlist waits in Pending Verification as before.
+                account_status=AccountStatus.ACTIVE if master_record else AccountStatus.PENDING,
             )
 
             # 2b. Create FaceScan DB records for whichever angles were uploaded
@@ -2099,7 +2104,11 @@ class AlumniRegisterView(APIView):
 
         return Response(
             {
-                "message": "Graduate registration submitted. Account is pending verification.",
+                "message": (
+                    "Graduate registration submitted. Account is active."
+                    if alumni_account.account_status == AccountStatus.ACTIVE
+                    else "Graduate registration submitted. Account is pending verification."
+                ),
                 "user": {
                     "id": str(user.id),
                     "email": user.email,
@@ -2726,6 +2735,37 @@ class PendingAlumniListView(APIView):
             status=status.HTTP_200_OK,
         )
 
+class ProfileReviewAlumniListView(APIView):
+    """Masterlist-matched graduates who are already active but whose profile an
+    admin has not yet checked. Confirm uses the approve endpoint; reject uses
+    the usual reject endpoint (email + delete)."""
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            accounts = _alumni_dashboard_queryset(
+                AlumniAccount.objects.filter(
+                    account_status=AccountStatus.ACTIVE,
+                    profile_reviewed_at__isnull=True,
+                )
+            ).order_by("-created_at")
+            results = [_admin_alumni_payload(account) for account in accounts]
+        except (OperationalError, DatabaseError):
+            return _temporary_admin_data_unavailable_response("Profile review")
+
+        return Response(
+            {
+                "count": len(results),
+                "results": results,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 class VerifiedAlumniListView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -2767,19 +2807,25 @@ class AlumniRequestApproveView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Approving a pending account and confirming an already-active one
+        # (Profile Review) both land here. Only the first needs the approval
+        # email: a matched graduate has been able to sign in since registering.
+        was_active = alumni_account.account_status == AccountStatus.ACTIVE
         alumni_account.account_status = AccountStatus.ACTIVE
-        alumni_account.save(update_fields=["account_status", "updated_at"])
+        alumni_account.profile_reviewed_at = alumni_account.profile_reviewed_at or timezone.now()
+        alumni_account.save(update_fields=["account_status", "profile_reviewed_at", "updated_at"])
 
         payload = _admin_alumni_payload(alumni_account)
-        _send_approval_email(
-            to_email=alumni_account.user.email if alumni_account.user else "",
-            recipient_name=payload.get("name") or "",
-            is_employer=False,
-        )
+        if not was_active:
+            _send_approval_email(
+                to_email=alumni_account.user.email if alumni_account.user else "",
+                recipient_name=payload.get("name") or "",
+                is_employer=False,
+            )
 
         return Response(
             {
-                "message": "Graduate request approved.",
+                "message": "Graduate profile confirmed." if was_active else "Graduate request approved.",
                 "alumni": payload,
             },
             status=status.HTTP_200_OK,
@@ -3461,6 +3507,8 @@ class DebugFaceAccountView(APIView):
                 # ACTIVE so the login path is reachable; PENDING would bail out
                 # before the face comparison and defeat the purpose.
                 account_status=AccountStatus.ACTIVE,
+                # Not a real graduate, so keep it out of Profile Review.
+                profile_reviewed_at=timezone.now(),
                 biometric_template=json.dumps({"is_debug": True}),
             )
         except (DatabaseError, OperationalError) as exc:

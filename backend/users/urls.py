@@ -18,6 +18,7 @@ from .api import (
     MasterlistCheckView,
     MasterlistListView,
     PendingAlumniListView,
+    ProfileReviewAlumniListView,
     VerifiedAlumniListView,
 )
 
@@ -82,6 +83,7 @@ urlpatterns = [
         name="forgot-password-verify",
     ),
     path("admin/alumni/pending/", PendingAlumniListView.as_view(), name="admin-pending-alumni"),
+    path("admin/alumni/profile-review/", ProfileReviewAlumniListView.as_view(), name="admin-profile-review-alumni"),
     path("admin/alumni/verified/", VerifiedAlumniListView.as_view(), name="admin-verified-alumni"),
     path(
         "admin/alumni/requests/<uuid:alumni_id>/approve/",

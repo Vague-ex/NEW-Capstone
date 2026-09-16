@@ -498,6 +498,16 @@ export async function fetchPendingAlumni(): Promise<unknown[]> {
     return Array.isArray(data) ? data : (data.results ?? []);
 }
 
+/** Masterlist-matched graduates who are already active but not yet checked by an admin. */
+export async function fetchProfileReviewAlumni(): Promise<unknown[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/profile-review/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data) ? data : (data.results ?? []);
+}
+
 export async function fetchVerifiedAlumni(): Promise<unknown[]> {
     const response = await fetch(`${API_BASE_URL}/api/admin/alumni/verified/`, {
         headers: withAdminAuthHeaders(),

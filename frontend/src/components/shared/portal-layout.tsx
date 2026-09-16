@@ -8,7 +8,7 @@ import {
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
   Settings, UserCheck,
 } from 'lucide-react';
-import { ADMIN_ACCESS_TOKEN_KEY, fetchPendingAlumni } from '../../app/api-client';
+import { ADMIN_ACCESS_TOKEN_KEY, fetchPendingAlumni, fetchProfileReviewAlumni } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 
 type PortalRole = 'alumni' | 'admin';
@@ -29,6 +29,7 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
   admin: [
     { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Pending Verification', path: '/admin/unverified', icon: ClipboardCheck },
+    { label: 'Profile Review', path: '/admin/profile-review', icon: UserCheck },
     { label: 'Verified Graduates', path: '/admin/verified', icon: CheckCircle2 },
     { label: 'Batch Upload', path: '/admin/batch-upload', icon: Upload },
     { label: 'Geomapping', path: '/admin/map', icon: Map },
@@ -72,6 +73,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingAlumniCount, setPendingAlumniCount] = useState(0);
+  const [profileReviewCount, setProfileReviewCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifButtonRef = useRef<HTMLButtonElement>(null);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
@@ -140,14 +142,19 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     let active = true;
     const updateAdminNotificationCount = async () => {
       try {
-        const pendingAlumni = await fetchPendingAlumni();
+        const [pendingAlumni, profileReview] = await Promise.all([
+          fetchPendingAlumni(),
+          // A failed review fetch must not blank the pending count too.
+          fetchProfileReviewAlumni().catch(() => [] as unknown[]),
+        ]);
         if (!active) return;
 
         // Employer requests no longer exist — employers verify by one-time
-        // link and never await approval, so pending graduates are the only
-        // thing the admin bell counts.
-        const totalPending = pendingAlumni.length;
+        // link and never await approval. The bell counts graduates waiting on
+        // approval plus masterlist matches waiting on a profile check.
+        const totalPending = pendingAlumni.length + profileReview.length;
         setPendingAlumniCount(pendingAlumni.length);
+        setProfileReviewCount(profileReview.length);
 
         const previousTotal = lastKnownAdminPendingRef.current;
         if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
@@ -199,7 +206,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   };
 
   const bellNotificationCount = role === 'admin'
-    ? pendingAlumniCount
+    ? pendingAlumniCount + profileReviewCount
     : notificationCount;
 
   const RoleIcon = role === 'admin' ? Shield : GraduationCap;
@@ -247,6 +254,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               {item.path === '/admin/unverified' && pendingAlumniCount > 0 && !isActive && (
                 <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
                   {pendingAlumniCount}
+                </span>
+              )}
+              {item.path === '/admin/profile-review' && profileReviewCount > 0 && !isActive && (
+                <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
+                  {profileReviewCount}
                 </span>
               )}
             </button>
@@ -336,7 +348,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-gray-800 text-sm" style={{ fontWeight: 600 }}>Notifications</p>
                     </div>
-                    {pendingAlumniCount === 0 ? (
+                    {pendingAlumniCount + profileReviewCount === 0 ? (
                       <div className="px-4 py-5 text-center text-gray-400 text-xs">No pending items</div>
                     ) : (
                       <div>
@@ -351,6 +363,20 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                             <div>
                               <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{pendingAlumniCount} Graduates Pending Verification</p>
                               <p className="text-gray-400 text-xs">Awaiting face recognition review</p>
+                            </div>
+                          </button>
+                        )}
+                        {profileReviewCount > 0 && (
+                          <button
+                            onClick={() => { navigate('/admin/profile-review'); setNotifOpen(false); }}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left"
+                          >
+                            <span className="flex size-8 items-center justify-center rounded-full bg-emerald-100 shrink-0">
+                              <UserCheck className="size-4 text-emerald-600" />
+                            </span>
+                            <div>
+                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{profileReviewCount} Profiles to Review</p>
+                              <p className="text-gray-400 text-xs">Masterlist matches already signed in</p>
                             </div>
                           </button>
                         )}

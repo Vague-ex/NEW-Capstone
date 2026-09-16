@@ -167,6 +167,10 @@ class AlumniAccount(models.Model):
     # request lists and included in the rejection email sent to the graduate.
     rejection_reason = models.TextField(blank=True, default="")
     matched_at = models.DateTimeField(null=True, blank=True)
+    # When an admin checked this graduate is real. A masterlist-matched
+    # registration is active straight away but stays in the admin's Profile
+    # Review list until this is set (or the account is rejected and deleted).
+    profile_reviewed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

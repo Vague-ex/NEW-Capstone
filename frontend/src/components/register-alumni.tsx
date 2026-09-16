@@ -171,20 +171,30 @@ function RegistrationComplete({
           <h2 className="text-gray-900 mb-2" style={{ fontWeight: 700, fontSize: '1.4rem' }}>Registration Submitted</h2>
           <p className="text-gray-600 text-sm mb-4">Thank you{firstName ? `, ${firstName}` : ''}!</p>
 
-          <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-3">
-            <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Awaiting BSIS Admin approval</span>
-          </div>
-          {isMatched && (
-            <p className="text-emerald-700 text-xs mb-3" style={{ fontWeight: 600 }}>
-              Your name was found in the BSIS graduate list.
-            </p>
+          {isMatched ? (
+            <>
+              <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-3">
+                <span className="size-2 rounded-full bg-emerald-500" />
+                <span className="text-emerald-700 text-xs" style={{ fontWeight: 600 }}>Account active</span>
+              </div>
+              <p className="text-gray-500 text-sm mb-6 leading-relaxed">
+                Your name was found in the BSIS graduate list, so you can sign in now.
+                The BSIS Admin may still review your details and face scan.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-4 py-1.5 mb-3">
+                <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-amber-700 text-xs" style={{ fontWeight: 600 }}>Awaiting BSIS Admin approval</span>
+              </div>
+              <p className="text-gray-500 text-sm mb-5 leading-relaxed">
+                The BSIS Admin will review your details and face scan. You don't need to wait on this page.
+              </p>
+            </>
           )}
 
-          <p className="text-gray-500 text-sm mb-5 leading-relaxed">
-            The BSIS Admin will review your details and face scan. You don't need to wait on this page.
-          </p>
-
+          {!isMatched && (
           <div className="flex items-start gap-3 bg-green-50 border border-green-100 rounded-xl p-4 mb-6 text-left">
             <Mail className="size-5 text-[#166534] shrink-0 mt-0.5" />
             <div className="min-w-0">
@@ -196,13 +206,14 @@ function RegistrationComplete({
               </p>
             </div>
           </div>
+          )}
 
           <button
             onClick={() => navigate('/')}
             className="gt-press w-full flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] text-white px-8 py-3 rounded-xl text-sm transition"
             style={{ fontWeight: 600 }}
           >
-            Back to Login
+            {isMatched ? 'Sign In Now' : 'Back to Login'}
           </button>
         </div>
       </div>
@@ -346,10 +357,15 @@ export function RegisterAlumni() {
         );
       }
 
-      await registerAlumni(payload);
-      // No session is stored. The new account is PENDING until the BSIS admin
-      // approves it, and the graduate is told by email when that happens --
-      // there is nothing in the portal for them to open until then.
+      const registered = await registerAlumni(payload);
+      // No session is stored. A masterlist match is active at once and can sign
+      // in now; anyone else is PENDING until the BSIS admin approves them and is
+      // told by email. The server's answer decides which screen they see, not
+      // the live masterlist check on the form.
+      const serverStatus = (registered as { alumni?: { verificationStatus?: string } })?.alumni?.verificationStatus;
+      if (serverStatus) {
+        dispatch({ type: 'SET_MATCH_STATUS', matchStatus: serverStatus === 'verified' ? 'matched' : 'unmatched' });
+      }
       // Registration succeeded, so the drafts have served their purpose. Left
       // behind, the next graduate to register in this tab would inherit these
       // answers as their own starting point.
