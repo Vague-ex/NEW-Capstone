@@ -227,6 +227,24 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
   // different evaluator at (possibly) the same company.
   const [evaluatorSame, setEvaluatorSame] = useState<boolean | null>(null);
 
+  // Short read-lock so the graduate can't accidentally tap Close before they
+  // have registered what the share-link modal is telling them.
+  const [shareLinkCloseCountdown, setShareLinkCloseCountdown] = useState(3);
+  useEffect(() => {
+    if (!shareLinkModalOpen) return;
+    setShareLinkCloseCountdown(3);
+    const id = window.setInterval(() => {
+      setShareLinkCloseCountdown(c => (c > 0 ? c - 1 : 0));
+    }, 1000);
+    // Prevent the page under the modal from scrolling on mobile.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.clearInterval(id);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [shareLinkModalOpen]);
+
   // Mint a one-time verification token and build the link the graduate sends
   // to their employer. The token row holds an `alumni` foreign key, so the
   // response comes back tied to this graduate automatically — the employer
@@ -1469,15 +1487,28 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
           and the share prompt is timed to when the alumnus actually needs
           to forward the link to their new employer. */}
       {shareLinkModalOpen && (
-        <div className="fixed inset-0 z-[1200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60">
-          <div className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-md max-h-screen sm:max-h-[90vh] flex flex-col overflow-hidden">
+        <div
+          className="fixed inset-0 z-[1200] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-link-title"
+        >
+          {/* Backdrop and Escape intentionally do NOT close the modal —
+              this is the graduate's first look at how their employer
+              actually verifies them, and a mis-tap outside should not
+              dismiss it before they have read it. */}
+          <div className="bg-white w-full rounded-t-2xl sm:rounded-2xl shadow-2xl sm:max-w-md max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom)]">
+            {/* Grabber — visual cue that this is a sheet on mobile. */}
+            <div className="pt-2 pb-1 sm:hidden flex justify-center" aria-hidden="true">
+              <div className="h-1 w-10 rounded-full bg-gray-300" />
+            </div>
             <div className="px-5 py-4 border-b border-gray-100 flex items-start gap-3">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
+              <div className="flex size-10 sm:size-9 items-center justify-center rounded-xl bg-amber-100 shrink-0">
                 <Building2 className="size-5 text-amber-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Share your verification link</p>
-                <p className="text-gray-500 text-xs mt-0.5">Your employer needs this link to confirm your new role.</p>
+                <p id="share-link-title" className="text-gray-900 text-base sm:text-sm" style={{ fontWeight: 700 }}>Share your verification link</p>
+                <p className="text-gray-500 text-sm sm:text-xs mt-0.5">Your employer needs this link to confirm your new role.</p>
               </div>
             </div>
             <div className="px-5 py-4 text-sm text-gray-700 space-y-3 overflow-y-auto">
@@ -1485,31 +1516,37 @@ export function AlumniEmployment({ retrackingMode = false }: { retrackingMode?: 
                 To verify your employment, your <span style={{ fontWeight: 600 }}>employer or HR supervisor</span> just opens the link below and answers a few questions.
                 <span style={{ fontWeight: 600 }}> No account or sign-up is needed.</span> The link already identifies you, so they never have to look you up.
               </p>
-              <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-xs font-mono break-all text-gray-700">
+              <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-sm sm:text-xs font-mono break-all text-gray-700 leading-relaxed">
                 {employerPortalLink || 'Creating your link…'}
               </div>
-              <p className="text-gray-400 text-xs">
+              <p className="text-gray-500 text-xs">
                 This link works once and expires in 7 days. You can create another for a different contact.
               </p>
               {employerLinkStatus && (
-                <p className="flex items-center gap-1.5 text-xs text-emerald-700" style={{ fontWeight: 600 }}>
-                  <CheckCircle2 className="size-4 text-emerald-500" /> {employerLinkStatus}
+                <p className="flex items-start gap-1.5 text-sm sm:text-xs text-emerald-700" style={{ fontWeight: 600 }}>
+                  <CheckCircle2 className="size-4 text-emerald-500 mt-0.5 shrink-0" /> <span>{employerLinkStatus}</span>
                 </p>
               )}
             </div>
-            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-2">
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex flex-col-reverse sm:flex-row items-stretch sm:items-center sm:justify-end gap-2">
               <button
                 type="button"
-                onClick={() => { setShareLinkModalOpen(false); setEmployerLinkStatus(''); }}
-                className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-700 text-sm transition"
+                onClick={() => {
+                  if (shareLinkCloseCountdown > 0) return;
+                  setShareLinkModalOpen(false);
+                  setEmployerLinkStatus('');
+                }}
+                disabled={shareLinkCloseCountdown > 0}
+                aria-live="polite"
+                className="px-4 py-3 sm:py-2 rounded-xl border border-gray-200 text-gray-700 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-gray-100"
                 style={{ fontWeight: 500 }}
               >
-                Close
+                {shareLinkCloseCountdown > 0 ? `Please read first (${shareLinkCloseCountdown})` : "I've got the link"}
               </button>
               <button
                 type="button"
                 onClick={handleShareLink}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
                 style={{ fontWeight: 600 }}
               >
                 <Building2 className="size-4" /> Copy link
