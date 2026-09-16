@@ -1601,7 +1601,7 @@ export default function RegisterAlumniPersonal({
                       }}
                       className={`px-3 py-1.5 text-xs rounded-md transition ${form.homeIsAbroad ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
                     >
-                      Outside Philippines
+                      Abroad
                     </button>
                   </div>
                 </div>
