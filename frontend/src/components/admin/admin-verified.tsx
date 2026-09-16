@@ -516,19 +516,8 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab 
               <RetraceBadge a={a} />
             </div>
           </div>
-          {/* Always visible, for every graduate: the history is not only for overdue records. */}
-          {tab !== 'history' && (
-            <button
-              type="button"
-              onClick={() => setTab('history')}
-              className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-[#166534]/5 px-2.5 sm:px-3 text-xs text-[#166534] transition hover:bg-[#166534]/15"
-              style={{ fontWeight: 600 }}
-            >
-              <History className="size-4" />
-              <span className="sm:hidden">History</span>
-              <span className="hidden sm:inline">View history</span>
-            </button>
-          )}
+          {/* No history button here: the History tab below covers it, and the
+              row's History button opens this window straight to that tab. */}
           <button onClick={onClose} aria-label="Close" className="flex size-10 items-center justify-center rounded-lg hover:bg-gray-100 transition shrink-0">
             <X className="size-5 text-gray-500" />
           </button>
