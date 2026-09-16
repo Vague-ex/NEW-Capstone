@@ -568,6 +568,51 @@ export interface RetrackingHistory {
     summary: { confirmations: number; lateConfirmations: number; reminders: number; employerDecisions: number };
 }
 
+export interface EmployerEvaluationDetail {
+    submitted: boolean;
+    submittedAt: string | null;
+    evaluatorName: string;
+    employeeStatus: string;
+    employeeStatusOther: string;
+    yearsInCompany: number | null;
+    educationalAttainment: string;
+    typeOfBusiness: string;
+    dateOfEvaluation: string | null;
+    ratings: { field: string; label: string; value: string; valueLabel: string }[];
+    strengths: string;
+    improvements: string;
+}
+
+export interface EmployerDecisionDetail {
+    id: string;
+    decision: 'confirm' | 'deny' | string;
+    decidedAt: string;
+    comment: string;
+    verifierName: string;
+    verifierEmail: string;
+    verifierPosition: string;
+    /** Address the invite was sent to; differs from verifierEmail on some flagged rows. */
+    invitedEmail: string;
+    flaggedForReview: boolean;
+    /** Soft checks recorded at submission; empty when nothing was flagged. */
+    flagReasons: string[];
+    verifiedEmployerName: string;
+    verifiedJobTitle: string;
+    /** Null when the employer confirmed without filling the evaluation form. */
+    evaluation: EmployerEvaluationDetail | null;
+}
+
+/** Every employer decision for one graduate, with flag reasons and evaluations. */
+export async function fetchEmployerDecisions(alumniId: string): Promise<EmployerDecisionDetail[]> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/alumni/${alumniId}/employer-decisions/`,
+        { method: 'GET', headers: withAdminAuthHeaders({}) },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return (data.decisions ?? []) as EmployerDecisionDetail[];
+}
+
 /** One graduate's retracking history, newest first. */
 export async function fetchRetrackingHistory(alumniId: string): Promise<RetrackingHistory> {
     const response = await fetch(

@@ -2812,6 +2812,88 @@ class AlumniRetrackingReminderView(APIView):
         )
 
 
+def _serialize_employer_decision(decision) -> dict:
+    """One employer decision with its flag reason and evaluation form.
+
+    The history timeline only carries enough to draw a row; this is what an
+    admin needs to actually review a flagged answer.
+    """
+    ratings = [
+        {
+            "field": field,
+            "label": field[len("rating_"):].replace("_", " ").capitalize(),
+            "value": getattr(decision, field, "") or "",
+            "valueLabel": dict(VerificationDecision.Rating.choices).get(getattr(decision, field, ""), ""),
+        }
+        for field in VerificationDecision.RATING_FIELDS
+        if getattr(decision, field, "")
+    ]
+    record = decision.token.employment_record if decision.token_id else None
+    return {
+        "id": str(decision.id),
+        "decision": decision.decision,
+        "decidedAt": decision.decided_at.isoformat(),
+        "comment": decision.comment or "",
+        "verifierName": decision.verifier_name or "",
+        "verifierEmail": decision.verifier_email or "",
+        "verifierPosition": decision.verifier_position or "",
+        "invitedEmail": decision.invited_email or "",
+        "flaggedForReview": decision.flagged_for_review,
+        # Semicolon-joined soft checks recorded when the answer was submitted.
+        "flagReasons": [part.strip() for part in (decision.flag_reason or "").split(";") if part.strip()],
+        "verifiedEmployerName": decision.verified_employer_name or (record.employer_name_input if record else ""),
+        "verifiedJobTitle": (
+            decision.verified_job_title.name if decision.verified_job_title_id
+            else (record.job_title_input if record else "")
+        ),
+        "evaluation": {
+            "submitted": decision.evaluation_submitted,
+            "submittedAt": decision.evaluation_submitted_at.isoformat() if decision.evaluation_submitted_at else None,
+            "evaluatorName": decision.evaluator_name or "",
+            "employeeStatus": dict(VerificationDecision.EmployeeStatus.choices).get(
+                decision.employee_status, decision.employee_status or ""
+            ),
+            "employeeStatusOther": decision.employee_status_other or "",
+            "yearsInCompany": decision.years_in_company,
+            "educationalAttainment": decision.educational_attainment or "",
+            "typeOfBusiness": decision.type_of_business or "",
+            "dateOfEvaluation": decision.date_of_evaluation.isoformat() if decision.date_of_evaluation else None,
+            "ratings": ratings,
+            "strengths": decision.assessment_strengths or "",
+            "improvements": decision.assessment_improvements or "",
+        } if decision.evaluation_submitted else None,
+    }
+
+
+class AlumniEmployerDecisionsView(APIView):
+    """Admin: every employer decision for one graduate, newest first.
+
+    Backs the "Flagged for review" and "View evaluation" buttons in the history
+    timeline. The flag is a soft check recorded at submission (answered from a
+    different address than the invite, same device as the link, or within a
+    minute of it) — it never blocked the answer, so an admin has to be able to
+    read what the employer actually said.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, alumni_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            decisions = (
+                VerificationDecision.objects
+                .filter(token__alumni_id=alumni_id)
+                .select_related("token__employment_record", "verified_job_title")
+                .order_by("-decided_at")
+            )
+            payload = [_serialize_employer_decision(decision) for decision in decisions]
+        except (OperationalError, DatabaseError):
+            return _temporary_admin_data_unavailable_response("Employer decisions")
+        return Response({"decisions": payload}, status=status.HTTP_200_OK)
+
+
 class AlumniRetrackingHistoryView(APIView):
     """Admin: one graduate's retracking history, newest first.
 

@@ -10,6 +10,7 @@ from .api import (
     AlumniRequestRejectView,
     AlumniRetrackingReminderView,
     AlumniRetrackingHistoryView,
+    AlumniEmployerDecisionsView,
     AlumniFaceEnrolView,
     AlumniLoginView,
     AlumniRegisterView,
@@ -96,6 +97,11 @@ urlpatterns = [
         "admin/alumni/<uuid:alumni_id>/retracking-reminder/",
         AlumniRetrackingReminderView.as_view(),
         name="admin-alumni-retracking-reminder",
+    ),
+    path(
+        "admin/alumni/<uuid:alumni_id>/employer-decisions/",
+        AlumniEmployerDecisionsView.as_view(),
+        name="admin-alumni-employer-decisions",
     ),
     path(
         "admin/alumni/<uuid:alumni_id>/retracking-history/",

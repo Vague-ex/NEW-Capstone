@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
 import {
+  fetchEmployerDecisions,
   fetchRetrackingHistory,
   fetchVerifiedAlumni,
   sendRetrackingReminder,
+  type EmployerDecisionDetail,
   type RetrackingEventKind,
   type RetrackingHistory,
   type RetrackingHistoryEvent,
@@ -188,7 +190,95 @@ function eventLook(kind: RetrackingEventKind): { title: string; icon: React.Elem
   }
 }
 
-function HistoryEntry({ e, last }: { e: RetrackingHistoryEvent; last: boolean }) {
+function EmployerDecisionPanel({ decision, loading, error }: {
+  decision: EmployerDecisionDetail | null;
+  loading: boolean;
+  error: string;
+}) {
+  if (loading) return <p className="text-gray-500">Loading the employer's answer…</p>;
+  if (error) return <p className="text-red-700">{error}</p>;
+  if (!decision) return <p className="text-gray-500">This answer could not be found.</p>;
+
+  const evaluation = decision.evaluation;
+  return (
+    <div className="mt-2 space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+      {decision.flagReasons.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+          <p className="text-[11px] text-amber-900" style={{ fontWeight: 700 }}>Why this was flagged</p>
+          <ul className="mt-1 list-disc pl-4 text-[11px] text-amber-900 space-y-0.5">
+            {decision.flagReasons.map((reason) => <li key={reason}>{reason}</li>)}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-amber-800">
+            These checks never blocked the answer. Read it below and decide whether to trust it.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+        <p><span className="text-gray-500">Answered by:</span> {decision.verifierName || 'Not recorded'}
+          {decision.verifierPosition ? `, ${decision.verifierPosition}` : ''}</p>
+        <p><span className="text-gray-500">Their email:</span> {decision.verifierEmail || 'Not recorded'}</p>
+        <p><span className="text-gray-500">Invite sent to:</span> {decision.invitedEmail || 'Not recorded'}</p>
+        <p><span className="text-gray-500">Employer:</span> {decision.verifiedEmployerName || 'Not recorded'}</p>
+        <p><span className="text-gray-500">Job title:</span> {decision.verifiedJobTitle || 'Not recorded'}</p>
+        <p><span className="text-gray-500">Decision:</span> {decision.decision === 'confirm' ? 'Confirmed' : 'Denied'}</p>
+      </div>
+
+      {decision.comment && (
+        <p className="text-[11px] text-gray-700"><span className="text-gray-500">Comment:</span> {decision.comment}</p>
+      )}
+
+      {!evaluation ? (
+        <p className="text-[11px] text-gray-500">
+          The employer confirmed the job but did not fill in the evaluation form.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[11px] text-gray-900" style={{ fontWeight: 700 }}>Employer&rsquo;s evaluation</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+            <p><span className="text-gray-500">Evaluator:</span> {evaluation.evaluatorName || 'Not recorded'}</p>
+            <p><span className="text-gray-500">Employment status:</span> {evaluation.employeeStatus || 'Not recorded'}
+              {evaluation.employeeStatusOther ? ` (${evaluation.employeeStatusOther})` : ''}</p>
+            {evaluation.yearsInCompany != null && (
+              <p><span className="text-gray-500">Years in company:</span> {evaluation.yearsInCompany}</p>
+            )}
+            {evaluation.typeOfBusiness && (
+              <p><span className="text-gray-500">Type of business:</span> {evaluation.typeOfBusiness}</p>
+            )}
+          </div>
+
+          {evaluation.ratings.length > 0 && (
+            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">
+              {evaluation.ratings.map((r) => (
+                <li key={r.field} className="flex items-center justify-between gap-3 px-2.5 py-1.5 text-[11px]">
+                  <span className="text-gray-600">{r.label}</span>
+                  <span className="text-gray-900" style={{ fontWeight: 600 }}>{r.valueLabel || r.value}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {evaluation.strengths && (
+            <p className="text-[11px] text-gray-700"><span className="text-gray-500">Strengths:</span> {evaluation.strengths}</p>
+          )}
+          {evaluation.improvements && (
+            <p className="text-[11px] text-gray-700"><span className="text-gray-500">Needs improvement:</span> {evaluation.improvements}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HistoryEntry({ e, last, decision, expanded, loading, error, onToggle }: {
+  e: RetrackingHistoryEvent;
+  last: boolean;
+  decision?: EmployerDecisionDetail | null;
+  expanded?: boolean;
+  loading?: boolean;
+  error?: string;
+  onToggle?: () => void;
+}) {
   const look = eventLook(e.kind);
   const when = new Date(e.occurredAt);
   const job = [e.jobTitle, e.company].filter(Boolean).join(' at ');
@@ -216,11 +306,23 @@ function HistoryEntry({ e, last }: { e: RetrackingHistoryEvent; last: boolean })
                 On time
               </span>
             )}
-            {e.flagged && (
+            {e.flagged && (onToggle ? (
+              // A flag with nowhere to look is just an alarm. This opens what
+              // the employer actually answered, and why the row was flagged.
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={!!expanded}
+                className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800 transition hover:bg-amber-100"
+                style={{ fontWeight: 600 }}
+              >
+                Flagged for review · {expanded ? 'hide' : 'review'}
+              </button>
+            ) : (
               <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800" style={{ fontWeight: 600 }}>
                 Flagged for review
               </span>
-            )}
+            ))}
           </div>
         </div>
         <time dateTime={e.occurredAt} className="mt-0.5 block text-[11px] text-gray-500">
@@ -265,6 +367,20 @@ function HistoryEntry({ e, last }: { e: RetrackingHistoryEvent; last: boolean })
             <>
               {job && <p>{job}</p>}
               {e.verifier && <p className="text-gray-500">By {e.verifier}</p>}
+              {onToggle && (
+                <button
+                  type="button"
+                  onClick={onToggle}
+                  aria-expanded={!!expanded}
+                  className="mt-1 inline-flex min-h-8 items-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 transition hover:bg-gray-50"
+                  style={{ fontWeight: 600 }}
+                >
+                  {expanded ? 'Hide employer answer' : 'View employer answer'}
+                </button>
+              )}
+              {expanded && (
+                <EmployerDecisionPanel decision={decision ?? null} loading={!!loading} error={error ?? ''} />
+              )}
             </>
           )}
 
@@ -311,6 +427,31 @@ function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState<HistoryFilter>('all');
+  // Employer answers are fetched only when an admin opens one: most visits to
+  // this tab never touch them, and the evaluation form is a wide row to carry.
+  const [openDecisionId, setOpenDecisionId] = useState<string | null>(null);
+  const [decisions, setDecisions] = useState<Record<string, EmployerDecisionDetail>>({});
+  const [decisionsLoading, setDecisionsLoading] = useState(false);
+  const [decisionsError, setDecisionsError] = useState('');
+
+  const toggleDecision = (id: string) => {
+    if (openDecisionId === id) {
+      setOpenDecisionId(null);
+      return;
+    }
+    setOpenDecisionId(id);
+    if (decisions[id] || decisionsLoading) return;
+    setDecisionsError('');
+    setDecisionsLoading(true);
+    fetchEmployerDecisions(alumniId)
+      .then((list) => {
+        setDecisions(Object.fromEntries(list.map((d) => [d.id, d])));
+      })
+      .catch((err) => {
+        setDecisionsError(err instanceof Error ? err.message : 'Could not load the employer answer.');
+      })
+      .finally(() => setDecisionsLoading(false));
+  };
 
   useEffect(() => {
     let active = true;
@@ -423,7 +564,20 @@ function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version
               <h4 className="mb-2 text-xs text-[#166534]" style={{ fontWeight: 700 }}>{group.year}</h4>
               <ol>
                 {group.items.map((e, i) => (
-                  <HistoryEntry key={e.id} e={e} last={i === group.items.length - 1} />
+                  <HistoryEntry
+                    key={e.id}
+                    e={e}
+                    last={i === group.items.length - 1}
+                    decision={decisions[e.id] ?? null}
+                    expanded={openDecisionId === e.id}
+                    loading={decisionsLoading && openDecisionId === e.id}
+                    error={openDecisionId === e.id ? decisionsError : ''}
+                    onToggle={
+                      e.kind === 'employer_confirmed' || e.kind === 'employer_denied'
+                        ? () => toggleDecision(e.id)
+                        : undefined
+                    }
+                  />
                 ))}
               </ol>
             </section>
