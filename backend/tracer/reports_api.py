@@ -39,6 +39,7 @@ from users.api import (
 from users.auth import require_admin, require_alumni
 from users.models import AccountStatus, AlumniAccount
 
+from . import employability
 from .alignment import resolve_alignment, summarize, verified_titles_by_alumni
 from .models import JobTitle, VerificationDecision
 
@@ -125,12 +126,14 @@ def _parse_filters(request) -> dict[str, Any]:
         "batch_start": start,
         "batch_end": end,
         "include_unverified": include_unverified,
+        # Real graduates or the seeded simulated ones, as set on /admin/debug/a.
+        "data_source": employability.analytics_source(),
     }
 
 
 def _alumni_qs(filters: dict[str, Any]):
     """Build the prefetched AlumniAccount queryset filtered by the report filters."""
-    qs = AlumniAccount.objects.all()
+    qs = employability.filter_source(AlumniAccount.objects.all(), filters["data_source"])
     if not filters["include_unverified"]:
         qs = qs.filter(account_status=AccountStatus.ACTIVE)
     qs = qs.filter(
@@ -307,10 +310,14 @@ class BatchSummaryReportView(APIView):
 
         # ── Section B: Employer Feedback Aggregates per Batch ───────────────────
         eval_qs = (
-            VerificationDecision.objects.filter(
-                evaluation_submitted=True,
-                token__alumni__profile__graduation_year__gte=filters["batch_start"],
-                token__alumni__profile__graduation_year__lte=filters["batch_end"],
+            employability.filter_source(
+                VerificationDecision.objects.filter(
+                    evaluation_submitted=True,
+                    token__alumni__profile__graduation_year__gte=filters["batch_start"],
+                    token__alumni__profile__graduation_year__lte=filters["batch_end"],
+                ),
+                filters["data_source"],
+                prefix="token__alumni__",
             )
             .values_list(
                 "token__alumni__profile__graduation_year",
@@ -580,16 +587,6 @@ class EmploymentOutcomesReportView(APIView):
 # ── 3. Skills Inventory ────────────────────────────────────────────────────
 
 
-def _selected_names(items) -> list[str]:
-    if not isinstance(items, list):
-        return []
-    return [
-        str(s.get("name")).strip()
-        for s in items
-        if isinstance(s, dict) and s.get("selected") and s.get("name")
-    ]
-
-
 class SkillsInventoryReportView(APIView):
     permission_classes = [AllowAny]
 
@@ -607,22 +604,20 @@ class SkillsInventoryReportView(APIView):
         n_overall = 0
         n_per_batch: dict[int, int] = defaultdict(int)
 
-        for acc in qs:
-            comp = _first_prefetched(acc, "_prefetched_comp")
+        accounts = list(qs)
+        # AlumniSkill is what registration and My Skills write; the old
+        # CompetencyProfile lists are only a fallback for older records.
+        listed = employability.graduate_skills(acc.id for acc in accounts)
+        for acc in accounts:
             year = _grad_year(acc)
             n_overall += 1
             if year is not None:
                 n_per_batch[year] += 1
-            if comp is None:
-                continue
-            for name in _selected_names(comp.technical_skills):
-                tech_overall[name] += 1
+            for name, kind in listed.get(str(acc.id), []):
+                overall, per_batch = (soft_overall, per_batch_soft) if kind == "soft" else (tech_overall, per_batch_tech)
+                overall[name] += 1
                 if year is not None:
-                    per_batch_tech[year][name] += 1
-            for name in _selected_names(comp.soft_skills):
-                soft_overall[name] += 1
-                if year is not None:
-                    per_batch_soft[year][name] += 1
+                    per_batch[year][name] += 1
 
         def _top_rows(counter: Counter, total: int, top_n: int = 12):
             out = []
@@ -803,17 +798,30 @@ class DataQualityReportView(APIView):
         per_batch_total: dict[int, int] = defaultdict(int)
         per_batch_completed: dict[int, int] = defaultdict(int)
 
+        # The form only asks about a first job of graduates who have worked, and
+        # about the current job and workplace of graduates employed now, so
+        # those answers only count as missing for them.
+        employed_now = {"employed_full_time", "employed_part_time", "self_employed"}
+
+        def _is_employed_now(emp) -> bool:
+            return bool(emp and emp.employment_status in employed_now)
+
+        def _has_worked(emp) -> bool:
+            return bool(emp and (emp.employment_status in employed_now or emp.first_job_title))
+
         REQUIRED_FIELDS = [
-            ("Employment status", lambda emp, addr, comp: emp and emp.employment_status),
-            ("Time-to-hire", lambda emp, addr, comp: emp and emp.time_to_hire_months is not None),
-            ("Current job sector", lambda emp, addr, comp: emp and emp.current_job_sector),
-            ("Current job title", lambda emp, addr, comp: emp and emp.current_job_title),
-            ("Work address", lambda emp, addr, comp: addr is not None),
-            ("Technical skills", lambda emp, addr, comp: comp and comp.technical_skill_count > 0),
-            ("Soft skills", lambda emp, addr, comp: comp and comp.soft_skill_count > 0),
+            ("Employment status", lambda emp, addr, skills: emp and emp.employment_status),
+            ("Time-to-hire", lambda emp, addr, skills: not _has_worked(emp) or emp.time_to_hire_months is not None),
+            ("Current job sector", lambda emp, addr, skills: not _is_employed_now(emp) or emp.current_job_sector),
+            ("Current job title", lambda emp, addr, skills: not _is_employed_now(emp) or emp.current_job_title),
+            ("Work address", lambda emp, addr, skills: not _is_employed_now(emp) or addr is not None),
+            ("Technical skills", lambda emp, addr, skills: any(kind == "technical" for _, kind in skills)),
+            ("Soft skills", lambda emp, addr, skills: any(kind == "soft" for _, kind in skills)),
         ]
 
-        for acc in qs:
+        accounts = list(qs)
+        listed = employability.graduate_skills(acc.id for acc in accounts)
+        for acc in accounts:
             n_total += 1
             year = _grad_year(acc)
             if year is not None:
@@ -821,19 +829,19 @@ class DataQualityReportView(APIView):
 
             emp = _first_prefetched(acc, "_prefetched_emp")
             addr = _first_prefetched(acc, "_prefetched_addr")
-            comp = _first_prefetched(acc, "_prefetched_comp")
+            skills = listed.get(str(acc.id), [])
 
             if emp:
                 n_with_employment += 1
             if addr:
                 n_with_address += 1
-            if comp and (comp.technical_skill_count or comp.soft_skill_count):
+            if skills:
                 n_with_skills += 1
 
             missing_for_this = []
             for label, check in REQUIRED_FIELDS:
                 try:
-                    ok = bool(check(emp, addr, comp))
+                    ok = bool(check(emp, addr, skills))
                 except Exception:
                     ok = False
                 if not ok:
@@ -951,7 +959,9 @@ def _employability_summary(batches: list[dict], overall: dict, outlook: dict, mo
         )
 
     if model["status"] == "active":
-        source = "simulated graduates" if model.get("source") == "simulated" else "graduate records"
+        source = (
+            "simulated graduates" if model.get("source") in {"simulated", "simulated-accounts"} else "graduate records"
+        )
         parts.append(f"The active model ({model['version']}, trained on {source}) passed every acceptance check.")
     else:
         parts.append("No predictive model has passed the acceptance gate, so this report shows observed values only.")
@@ -973,17 +983,18 @@ class PredictiveTrendReportView(APIView):
         _admin_user, _auth_error = require_admin(request)
         if _auth_error:
             return _auth_error
-        from . import employability
-
         filters = _parse_filters(request)
+        source = filters["data_source"]
+        # One batch ahead, like the Analytics tab: a second batch was only a
+        # wider copy of the first, not new information.
         try:
-            forecast_years = int(request.query_params.get("forecast_years", 2))
+            forecast_years = int(request.query_params.get("forecast_years", 1))
         except (TypeError, ValueError):
-            forecast_years = 2
+            forecast_years = 1
         forecast_years = max(1, min(forecast_years, 3))
 
         try:
-            frame = employability.build_graduate_frame()
+            frame = employability.build_graduate_frame(source=source)
         except Exception as exc:  # noqa: BLE001
             logger.error("Predictive trend report: graduate records failed to load - %s", exc)
             return Response(
@@ -993,9 +1004,9 @@ class PredictiveTrendReportView(APIView):
 
         future_graduation = int(frame["future_graduation"].astype(bool).sum())
         frame = employability.reportable(frame)
-        masterlist = employability.masterlist_counts()
-        active = employability.load_active_model()
-        payload = employability.analytics_payload(frame, masterlist, active, horizon=forecast_years)
+        masterlist = employability.masterlist_counts(source)
+        active = employability.load_active_model(source)
+        payload = employability.analytics_payload(frame, masterlist, active, horizon=forecast_years, source=source)
         in_range = lambda b: filters["batch_start"] <= b <= filters["batch_end"]  # noqa: E731
         batches = [b for b in payload["per_batch"] if in_range(b["batch"])]
         selected = frame[frame["batch"].apply(lambda b: in_range(int(b)))] if len(frame) else frame
@@ -1012,7 +1023,11 @@ class PredictiveTrendReportView(APIView):
             return "-" if estimate["rate"] is None else f"{estimate['rate'] * 100:.1f}%"
 
         if batches:
-            intro_text = (
+            simulated_note = (
+                "These are SIMULATED graduates generated for demonstration, not real CHMSU graduates. "
+                if source == employability.SOURCE_SIMULATED else ""
+            )
+            intro_text = simulated_note + (
                 f"This report summarizes the employability of BSIS graduates for batches "
                 f"{batches[0]['batch']}-{batches[-1]['batch']} from the graduate tracer records. Every rate is "
                 f"shown with the number of graduates behind it and a 95% interval, and groups of fewer than "

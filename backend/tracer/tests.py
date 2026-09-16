@@ -1008,10 +1008,8 @@ def _graduate_rows(n, strength, seed=7):
 	ojt[rng.random(n) < 0.2] = np.nan
 	portfolio = rng.integers(0, 2, n)
 	scholarship = (rng.random(n) < 0.25).astype(int)
-	# Only the modelled answers carry signal (prior work experience was retired
-	# from the model in 2026-09; OJT relevance was never modelled).
 	logit = -0.2 + strength * (
-		1.2 * portfolio + 0.6 * (honors - 1) + 0.9 * scholarship
+		0.9 * prior + 0.7 * (np.nan_to_num(ojt, nan=2.0) - 2) + 0.8 * portfolio + 0.3 * (honors - 1)
 	)
 	outcome = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)
 	frame = pd.DataFrame({
@@ -1269,3 +1267,110 @@ class GraduationDateEditTests(TestCase):
 		)
 		self.assertEqual(response.status_code, 400)
 		self.assertIn("graduationDate", response.json()["field_errors"])
+
+
+class SimulatedSourceTests(TestCase):
+	"""Seeded simulated graduates stay apart from real ones, switched on /admin/debug/a."""
+
+	def setUp(self):
+		import shutil
+		import tempfile
+		from django.core.cache import cache
+
+		cache.clear()
+		self.model_dir = tempfile.mkdtemp()
+		self.addCleanup(shutil.rmtree, self.model_dir, ignore_errors=True)
+		admin = User.objects.create_user(
+			email="debug-admin@example.com", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
+		)
+		self.headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		self.real = self._graduate("real.grad@example.com", sample=False)
+		self.simulated = self._graduate("bea.santos21@gmail.test", sample=True)
+
+	def _graduate(self, email, sample):
+		user = User.objects.create_user(email=email, password=None, role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(
+			user=user, account_status=AccountStatus.ACTIVE,
+			biometric_template={"is_sample": True} if sample else {},
+		)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Bea", last_name="Santos", graduation_year=2022, graduation_date="2022-06",
+		)
+		EmploymentProfile.objects.create(alumni=account, employment_status="employed_full_time", time_to_hire_months=3)
+		return account
+
+	def test_frame_follows_the_source(self):
+		from tracer import employability as E
+
+		real = E.build_graduate_frame(source=E.SOURCE_REAL)
+		simulated = E.build_graduate_frame(source=E.SOURCE_SIMULATED)
+		self.assertEqual(list(real["alumni_id"]), [str(self.real.id)])
+		self.assertEqual(list(simulated["alumni_id"]), [str(self.simulated.id)])
+		self.assertEqual(len(E.build_graduate_frame()), 2)
+		self.assertEqual(E.masterlist_counts(E.SOURCE_SIMULATED), {2022: 1})
+
+	def test_settings_default_to_real_and_persist(self):
+		from tracer import employability as E
+
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			self.assertEqual(E.debug_settings(), {"source": "real", "show_samples_in_verified": False})
+			E.update_debug_settings(source="simulated", show_samples_in_verified=True)
+			self.assertEqual(E.analytics_source(), "simulated")
+			with self.assertRaises(ValueError):
+				E.update_debug_settings(source="everything")
+
+	def test_verified_list_hides_simulated_until_toggled(self):
+		client = APIClient()
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			emails = lambda r: sorted(a["email"] for a in r.json()["results"])  # noqa: E731
+			self.assertEqual(emails(client.get("/api/admin/alumni/verified/", **self.headers)), ["real.grad@example.com"])
+
+			response = client.put(
+				"/api/admin/debug/analytics-settings/", {"show_samples_in_verified": True}, format="json", **self.headers,
+			)
+			self.assertEqual(response.status_code, 200)
+			self.assertEqual(response.json()["counts"], {"real": 1, "simulated": 1})
+			self.assertEqual(len(client.get("/api/admin/alumni/verified/", **self.headers).json()["results"]), 2)
+
+			# The geomap follows the analytics source instead.
+			client.put("/api/admin/debug/analytics-settings/", {"source": "simulated"}, format="json", **self.headers)
+			self.assertEqual(
+				emails(client.get("/api/admin/alumni/verified/?purpose=analytics", **self.headers)),
+				["bea.santos21@gmail.test"],
+			)
+
+	def test_analytics_endpoint_reports_its_source(self):
+		from tracer import employability as E
+
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			E.update_debug_settings(source="simulated")
+			data = APIClient().get("/api/admin/analytics/employability-predictions/", **self.headers).json()
+		self.assertEqual(data["data_source"], "simulated")
+		self.assertEqual(data["overall"]["respondents"], 1)
+
+	def test_debug_edit_and_bulk_delete(self):
+		client = APIClient()
+		response = client.patch(
+			f"/api/admin/debug/alumni/{self.real.id}/",
+			{"firstName": "Carlo", "graduationYear": 2023, "employmentStatus": "seeking"}, format="json", **self.headers,
+		)
+		self.assertEqual(response.status_code, 200)
+		self.real.profile.refresh_from_db()
+		self.assertEqual((self.real.profile.first_name, self.real.profile.graduation_year), ("Carlo", 2023))
+
+		bad = client.patch(f"/api/admin/debug/alumni/{self.real.id}/", {"firstName": "C4rlo"}, format="json", **self.headers)
+		self.assertEqual(bad.status_code, 400)
+
+		deleted = client.post("/api/admin/debug/simulated-accounts/delete/", **self.headers)
+		self.assertEqual(deleted.json()["deleted"], 1)
+		self.assertFalse(AlumniAccount.objects.filter(id=self.simulated.id).exists())
+		self.assertTrue(AlumniAccount.objects.filter(id=self.real.id).exists())
+
+	def test_no_email_is_sent_to_seeded_addresses(self):
+		from unittest.mock import patch
+		from users.email_send import send_branded_email
+
+		with patch("users.email_send._send_via_django_smtp") as smtp, patch("users.email_send._send_via_resend") as resend:
+			send_branded_email(to_email="bea.santos21@gmail.test", subject="x", template_base="unused", context={})
+		smtp.assert_not_called()
+		resend.assert_not_called()

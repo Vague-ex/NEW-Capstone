@@ -1051,9 +1051,6 @@ export function AdminVerified() {
   // The dashboard links here with ?retracing=needs.
   const [searchParams] = useSearchParams();
   const [filterRetrace, setFilterRetrace] = useState(searchParams.get('retracing') === 'needs' ? 'needs' : 'all');
-  // Seeded sample/masterlist records are hidden by default so the real demo
-  // stays clean; this toggle reveals them (they power the analytics).
-  const [showSample, setShowSample] = useState(false);
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
   // Which tab the details window opens on ("History" button opens it straight there).
   const [modalTab, setModalTab] = useState<ModalTab>('profile');
@@ -1120,15 +1117,14 @@ export function AdminVerified() {
       || (a.company ?? '').toLowerCase().includes(q);
     const matchYear = filterYear === 'all' || a.graduationYear === parseInt(filterYear);
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
-    const matchSample = showSample || !(a as Record<string, unknown>).isSample;
     const matchRetrace = filterRetrace === 'all'
       || (filterRetrace === 'needs' ? needsRetracing(a) : !needsRetracing(a));
-    return matchQ && matchYear && matchStatus && matchSample && matchRetrace;
+    return matchQ && matchYear && matchStatus && matchRetrace;
   }).sort((a, b) => {
     const va = String((a as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     const vb = String((b as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-  }), [backendVerified, search, filterYear, filterStatus, filterRetrace, showSample, sortField, sortDir]);
+  }), [backendVerified, search, filterYear, filterStatus, filterRetrace, sortField, sortDir]);
 
   const handleSort = (f: string) => {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -1143,7 +1139,7 @@ export function AdminVerified() {
   );
 
   // Snap back to page 1 whenever the filtered set changes shape.
-  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, filterRetrace, showSample, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, filterRetrace, sortField, sortDir]);
 
   const SortIcon = ({ f }: { f: string }) => (
     <span className="inline-flex flex-col ml-1 opacity-60">
@@ -1156,8 +1152,8 @@ export function AdminVerified() {
   // Counted before the retracing filter so the card keeps its number while the
   // filter is toggled.
   const retraceCount = useMemo(
-    () => backendVerified.filter(a => (showSample || !(a as Record<string, unknown>).isSample) && needsRetracing(a)).length,
-    [backendVerified, showSample],
+    () => backendVerified.filter(needsRetracing).length,
+    [backendVerified],
   );
 
   const handleReminderSent = (alumniId: string, sentAt: string) => {
@@ -1241,10 +1237,8 @@ export function AdminVerified() {
             <option value="needs">Needs Retracing</option>
             <option value="current">Up to Date</option>
           </select>
-          <label className="inline-flex w-full sm:w-auto min-h-11 sm:min-h-0 items-center gap-2 text-xs text-gray-600 cursor-pointer select-none px-2">
-            <input type="checkbox" checked={showSample} onChange={e => setShowSample(e.target.checked)} className="size-3.5 rounded border-gray-300" />
-            Show masterlist records
-          </label>
+          {/* Simulated (seeded) graduates are included by the server only when
+              "Show simulated accounts" is on at /admin/debug/a. */}
           <span className="text-gray-400 text-xs ml-auto">{verifiedAlumni.length} records</span>
         </div>
 

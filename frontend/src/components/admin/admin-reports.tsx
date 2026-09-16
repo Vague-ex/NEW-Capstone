@@ -23,7 +23,7 @@ const REPORTS: ReportDef[] = [
     id: 'batch-summary',
     title: 'Batch Summary',
     description:
-      'Per-batch employment outcomes, employer feedback aggregates, cross-batch timeline (with chart in PDF), and common-themes word counts.',
+      'Per-batch employment rate, time-to-hire and BSIS alignment, employer feedback ratings, a cross-batch timeline (charted in PDF), common themes, and curriculum alignment split into employer-verified and self-reported.',
     endpoint: 'batch-summary',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Users,
@@ -33,7 +33,7 @@ const REPORTS: ReportDef[] = [
     id: 'employment-outcomes',
     title: 'Employment Outcomes',
     description:
-      'Status breakdown, sector mix, BSIS-aligned vs unrelated jobs, employer-verified counts.',
+      'A roster of graduates with their employer, position, sector, time-to-hire, work location and whether the job is BSIS-aligned.',
     endpoint: 'employment-outcomes',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Briefcase,
@@ -43,7 +43,7 @@ const REPORTS: ReportDef[] = [
     id: 'skills-inventory',
     title: 'Skills Inventory',
     description:
-      'Top skills by frequency, skill-gap signal (training vs current job), and category coverage.',
+      'The technical and soft skills graduates listed most, overall and per batch, with the share of graduates holding each.',
     endpoint: 'skills-inventory',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Wrench,
@@ -63,7 +63,7 @@ const REPORTS: ReportDef[] = [
     id: 'data-quality',
     title: 'Data Quality',
     description:
-      'Counts of unverified, unverifiable, and missing-field profiles. Helps prioritize follow-ups.',
+      'How complete graduate records are: coverage, which answers are missing (job questions only count for graduates they apply to), and completion rate per batch.',
     endpoint: 'data-quality',
     formats: ['pdf'],
     Icon: ShieldCheck,
@@ -73,7 +73,7 @@ const REPORTS: ReportDef[] = [
     id: 'predictive-trend',
     title: 'Predictive Employability Trend',
     description:
-      'Actual vs predicted employment rate and time-to-hire per past batch, plus a forward forecast for the next several years and a short narrative summary.',
+      'Observed employment rates per batch with 95% intervals, time to first job, the expected range for the next batch (not a forecast), and the factors and acceptance checks of the active model.',
     endpoint: 'predictive-trend',
     formats: ['pdf', 'xlsx'],
     Icon: TrendingUp,

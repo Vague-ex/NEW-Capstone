@@ -124,6 +124,8 @@ export function AdminAnalyticsPredictions() {
   const activeModel = model?.status === 'active' ? model : null;
   const skills = data?.skills;
   const futureGraduation = data?.data_issues?.future_graduation ?? 0;
+  const simulatedSource = data?.data_source === 'simulated';
+  const modelFromSimulation = activeModel?.source === 'simulated' || activeModel?.source === 'simulated-accounts';
   const nextRange = outlook?.available ? outlook.years[0] : undefined;
 
   const trendSeries = useMemo<TrendRow[]>(() => {
@@ -263,7 +265,7 @@ export function AdminAnalyticsPredictions() {
           <p className="text-xs text-gray-400">
             Model {activeModel.version} · trained{' '}
             {activeModel.trained_at ? new Date(activeModel.trained_at).toLocaleDateString() : '—'} ·{' '}
-            {activeModel.source === 'simulated' ? 'simulated graduates' : 'graduate records'} · n ={' '}
+            {modelFromSimulation ? 'simulated graduates' : 'graduate records'} · n ={' '}
             {activeModel.metrics?.n ?? '—'}
           </p>
         ) : model ? (
@@ -302,7 +304,19 @@ export function AdminAnalyticsPredictions() {
         </div>
       )} */}
 
-      {activeModel?.source === 'simulated' && (
+      {simulatedSource && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
+          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <p style={{ fontWeight: 700 }}>Showing simulated graduates</p>
+            <p className="mt-0.5">
+              Every figure on this page comes from generated demonstration graduates, not real CHMSU graduates.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {modelFromSimulation && !simulatedSource && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
           <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-900 leading-relaxed">

@@ -508,8 +508,14 @@ export async function fetchProfileReviewAlumni(): Promise<unknown[]> {
     return Array.isArray(data) ? data : (data.results ?? []);
 }
 
-export async function fetchVerifiedAlumni(): Promise<unknown[]> {
-    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/verified/`, {
+/**
+ * `analytics` (geomap, dashboard) follows the real/simulated source chosen on
+ * /admin/debug/a; the default (Verified Graduates) is real graduates, plus
+ * simulated ones only when that page's "show simulated accounts" is on.
+ */
+export async function fetchVerifiedAlumni(purpose: 'list' | 'analytics' = 'list'): Promise<unknown[]> {
+    const query = purpose === 'analytics' ? '?purpose=analytics' : '';
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/verified/${query}`, {
         headers: withAdminAuthHeaders(),
     });
     await throwIfNotOk(response);
@@ -876,6 +882,8 @@ export interface AnalyticsPredictionsResponse {
     skills: SkillSummary;
     /** Records left out of every figure, e.g. graduation dates in the future. */
     data_issues: { future_graduation: number };
+    /** Real graduates or the seeded simulated ones (set on /admin/debug/a). */
+    data_source?: 'real' | 'simulated';
     timestamp: string;
 }
 
@@ -950,6 +958,13 @@ export interface DebugAccountRow {
     name: string;
     status: string;
     createdAt: string | null;
+    // Graduate rows only.
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    graduationYear?: number | null;
+    employmentStatus?: string;
+    isSample?: boolean;
 }
 
 export interface DebugAccountsResponse {
@@ -977,6 +992,66 @@ export async function deleteDebugAccount(role: DebugAccountRole, id: string): Pr
         headers: withAdminAuthHeaders(),
     });
     await throwIfNotOk(response);
+}
+
+// ── Graduate accounts + analytics source (backs /admin/debug/a) ─────────────
+
+export type AnalyticsSource = 'real' | 'simulated';
+
+export interface DebugAnalyticsSettings {
+    source: AnalyticsSource;
+    show_samples_in_verified: boolean;
+    counts: { real: number; simulated: number };
+    models: Record<AnalyticsSource, { version: string; trainedAt: string | null; auc: number | null } | null>;
+    commands: { seed: string; train: string };
+}
+
+export interface DebugAlumniUpdate {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    email?: string;
+    graduationYear?: number;
+    status?: string;
+    employmentStatus?: string;
+}
+
+export async function fetchDebugAnalyticsSettings(): Promise<DebugAnalyticsSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/analytics-settings/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+export async function updateDebugAnalyticsSettings(
+    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified'>>,
+): Promise<DebugAnalyticsSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/analytics-settings/`, {
+        method: 'PUT',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(changes),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+export async function updateDebugAlumni(id: string, changes: DebugAlumniUpdate): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/alumni/${id}/`, {
+        method: 'PATCH',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(changes),
+    });
+    await throwIfNotOk(response);
+}
+
+export async function deleteDebugSimulatedAccounts(): Promise<{ deleted: number }> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/simulated-accounts/delete/`, {
+        method: 'POST',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return response.json();
 }
 
 // ── Face / liveness harness (backs /admin/debug/face) ───────────────────────

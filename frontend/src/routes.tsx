@@ -19,7 +19,7 @@ import { GraduatePending } from './components/alumni/graduate-pending';
 
 // Admin Portal
 import { AdminNewDashboard } from './components/admin/admin-new-dashboard';
-import { AdminUnverified, AdminProfileReview } from './components/admin/admin-unverified';
+import { AdminUnverified } from './components/admin/admin-unverified';
 import { AdminVerified } from './components/admin/admin-verified';
 import { AdminBatchUpload } from './components/admin/admin-batch-upload';
 import { AdminMap } from './components/admin/admin-map';
@@ -27,6 +27,7 @@ import { AdminAnalytics } from './components/admin/admin-analytics';
 import { AdminSettings } from './components/admin/admin-settings';
 // #region DEBUG-ONLY:CurrenChanDebug
 import { AdminFaceDebug } from './components/admin/admin-face-debug';
+import { AdminAccountsDebug } from './components/admin/admin-accounts-debug';
 // #endregion DEBUG-ONLY:CurrenChanDebug
 
 /**
@@ -76,7 +77,8 @@ export const routes: RouteObject[] = [
   // ── Admin Portal ──
   adminRoute('/admin/dashboard', AdminNewDashboard),
   adminRoute('/admin/unverified', AdminUnverified),
-  adminRoute('/admin/profile-review', AdminProfileReview),
+  // Profile Review is now the "Masterlist matches" tab of Pending Verification.
+  { path: '/admin/profile-review', element: <Navigate to="/admin/unverified?tab=review" replace /> },
   adminRoute('/admin/verified', AdminVerified),
   adminRoute('/admin/batch-upload', AdminBatchUpload),
   adminRoute('/admin/map', AdminMap),
@@ -87,6 +89,8 @@ export const routes: RouteObject[] = [
   // URL-only, deliberately absent from the sidebar. Maintenance hatch, not
   // a feature — omit from DFDs / use-case docs.
   adminRoute('/admin/debug/face', AdminFaceDebug),
+  // "a" = accounts: graduate accounts, analytics source, simulated graduates.
+  adminRoute('/admin/debug/a', AdminAccountsDebug),
   // #endregion DEBUG-ONLY:CurrenChanDebug
 
   // Legacy fallbacks

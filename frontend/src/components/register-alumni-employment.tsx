@@ -31,8 +31,7 @@ type EmploymentStep = 1 | 2 | 3 | 4 | 5 | 6;
 export interface EmploymentFormData {
   // Step 1: Academic & Pre-Employment Profile
   academic_honors: number | null;
-  /** No longer asked (every BSIS graduate completes an OJT). Kept so the
-   *  payload shape and older drafts stay valid. */
+  /** Paid work besides the required OJT, before graduating. */
   prior_work_experience: boolean;
   ojt_relevance: number | null;
   has_portfolio: boolean;
@@ -743,9 +742,20 @@ export default function RegisterAlumniEmployment({
             </p>
           </div>
 
-          {/* The "prior work experience" question was removed: every BSIS
-              graduate completes an OJT, so it read as redundant. The OJT
-              question used to hide behind it and is now always asked. */}
+          {/* Worded to exclude the OJT: every BSIS graduate completes one, and
+              the old "Prior Work Experience" label read as asking about it. */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-3">
+              Besides your required OJT, did you have any paid work before graduating?
+              <span className="block text-xs font-normal text-gray-500 mt-0.5">Part-time jobs, freelance work, or an extra internship.</span>
+            </label>
+            <div className="flex gap-3">
+              <RadioOption label="Yes" value={true} current={form.prior_work_experience} onSelect={(v) => setForm({ ...form, prior_work_experience: v })} />
+              <RadioOption label="No" value={false} current={form.prior_work_experience} onSelect={(v) => setForm({ ...form, prior_work_experience: v })} />
+            </div>
+          </div>
+
+          {/* Asked of everyone: it used to appear only after a Yes above. */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
               Was your required OJT/Internship related to the job you eventually got?

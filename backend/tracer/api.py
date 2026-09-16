@@ -1974,24 +1974,28 @@ class AdminAnalyticsPredictionsView(APIView):
         # Cached briefly so switching the batch filter or horizon does not
         # rebuild the frame. Indicators still reflect account changes within
         # 90 seconds; the model itself only changes through the training command.
-        frame = cache.get(employability.FRAME_CACHE_KEY)
+        # Real graduates or the seeded simulated ones, as chosen on /admin/debug/a.
+        source = employability.analytics_source()
+        cache_key = employability.frame_cache_key(source)
+        frame = cache.get(cache_key)
         if frame is None:
             try:
-                frame = employability.build_graduate_frame()
+                frame = employability.build_graduate_frame(source=source)
             except Exception as exc:  # noqa: BLE001
                 logging.getLogger(__name__).exception("Employability analytics: graduate records failed to load")
                 return Response(
                     {"error": "Graduate records could not be loaded", "detail": f"{type(exc).__name__}: {exc}"},
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-            cache.set(employability.FRAME_CACHE_KEY, frame, 90)
+            cache.set(cache_key, frame, 90)
 
         payload = employability.analytics_payload(
             frame,
-            employability.masterlist_counts(),
-            employability.load_active_model(),
+            employability.masterlist_counts(source),
+            employability.load_active_model(source),
             batch=batch,
             horizon=horizon,
+            source=source,
         )
         try:
             payload["skills"] = employability.skill_summary(employability.reportable(frame))

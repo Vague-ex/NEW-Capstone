@@ -28,6 +28,9 @@ from .api import (
 from .api import (
     DebugAccountListView,
     DebugAccountDeleteView,
+    DebugAlumniUpdateView,
+    DebugAnalyticsSettingsView,
+    DebugSimulatedAccountsDeleteView,
     DebugFaceAccountView,
     DebugFaceEnginesView,
     DebugFaceEnrolView,
@@ -122,6 +125,14 @@ urlpatterns = [
         "admin/debug/accounts/<str:role>/<uuid:account_id>/",
         DebugAccountDeleteView.as_view(),
         name="debug-account-delete",
+    ),
+    # Graduate accounts + analytics source — backs /admin/debug/a.
+    path("admin/debug/alumni/<uuid:account_id>/", DebugAlumniUpdateView.as_view(), name="debug-alumni-update"),
+    path("admin/debug/analytics-settings/", DebugAnalyticsSettingsView.as_view(), name="debug-analytics-settings"),
+    path(
+        "admin/debug/simulated-accounts/delete/",
+        DebugSimulatedAccountsDeleteView.as_view(),
+        name="debug-simulated-accounts-delete",
     ),
     # Face / liveness harness — backs /admin/debug/face.
     path(

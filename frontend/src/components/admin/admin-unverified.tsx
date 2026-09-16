@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { fetchPendingAlumni, fetchProfileReviewAlumni, reviewAlumniRequest } from '../../app/api-client';
 import type { AlumniRecord } from '../../data/app-data';
@@ -219,15 +220,16 @@ function getSurveyData(a: AlumniRecord): SurveyData {
   };
 }
 
-// The same review screen serves two lists. Pending Verification holds graduates
-// not found on the masterlist: they cannot sign in until approved. Profile
-// Review holds masterlist matches: already active, the admin only confirms the
-// person is real. Rejecting from either emails the reason and deletes the account.
+// Pending Verification has two tabs. "Not on masterlist" holds graduates not
+// found on the masterlist: they cannot sign in until approved. "Masterlist
+// matches" (formerly the separate Profile Review page) holds masterlist
+// matches: already active, the admin only confirms the person is real.
+// Rejecting from either emails the reason and deletes the account.
 type ReviewMode = 'pending' | 'profile-review';
 
 const MODE_COPY = {
   pending: {
-    pageTitle: 'Pending Verification',
+    tabLabel: 'Not on masterlist',
     pageSubtitle: 'Graduate data is submitted and visible - excluded from analytics until verified',
     bannerTitle: 'Pending graduates have already submitted their full employment and survey data during registration.',
     bannerBody: 'Their information is visible here for review but is excluded from analytics, reports, and geomapping until you approve their account.',
@@ -240,7 +242,7 @@ const MODE_COPY = {
     approveError: 'Unable to approve graduate right now.',
   },
   'profile-review': {
-    pageTitle: 'Profile Review',
+    tabLabel: 'Masterlist matches',
     pageSubtitle: 'Masterlist matches that can already sign in - confirm each one is the real graduate',
     bannerTitle: 'These graduates matched the BSIS masterlist, so their accounts are already active.',
     bannerBody: 'Check the face scan and details. Confirm if this is the real graduate. If not, reject: the account is deleted and the graduate is emailed your reason.',
@@ -254,11 +256,11 @@ const MODE_COPY = {
   },
 } as const;
 
-export function AdminProfileReview() {
-  return <AdminUnverified mode="profile-review" />;
-}
-
-export function AdminUnverified({ mode = 'pending' }: { mode?: ReviewMode } = {}) {
+export function AdminUnverified() {
+  // The tab lives in the URL so the bell and the old /admin/profile-review
+  // link can open "Masterlist matches" directly.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mode: ReviewMode = searchParams.get('tab') === 'review' ? 'profile-review' : 'pending';
   const copy = MODE_COPY[mode];
   const { data: refData } = useReferenceData();
   const bsisCore = useMemo(
@@ -266,7 +268,10 @@ export function AdminUnverified({ mode = 'pending' }: { mode?: ReviewMode } = {}
     [refData.skills],
   );
 
-  const [backendPending, setBackendPending] = useState<AlumniRecord[]>([]);
+  const [lists, setLists] = useState<Record<ReviewMode, AlumniRecord[]>>({ pending: [], 'profile-review': [] });
+  const backendPending = lists[mode];
+  const setBackendPending = (update: (prev: AlumniRecord[]) => AlumniRecord[]) =>
+    setLists(current => ({ ...current, [mode]: update(current[mode]) }));
   const [loadingPending, setLoadingPending] = useState(true);
   const [fetchError, setFetchError] = useState('');
   const [reviewAlumni, setReviewAlumni] = useState<AlumniRecord | null>(null);
@@ -283,9 +288,10 @@ export function AdminUnverified({ mode = 'pending' }: { mode?: ReviewMode } = {}
       setLoadingPending(true);
       setFetchError('');
       try {
-        const results = mode === 'profile-review' ? await fetchProfileReviewAlumni() : await fetchPendingAlumni();
+        // Both lists load together so each tab can show its count.
+        const [pending, review] = await Promise.all([fetchPendingAlumni(), fetchProfileReviewAlumni()]);
         if (!active) return;
-        setBackendPending(results as AlumniRecord[]);
+        setLists({ pending: pending as AlumniRecord[], 'profile-review': review as AlumniRecord[] });
       } catch (err) {
         if (!active) return;
         const message = err instanceof Error ? err.message : 'Failed to load pending graduates.';
@@ -298,7 +304,15 @@ export function AdminUnverified({ mode = 'pending' }: { mode?: ReviewMode } = {}
     return () => {
       active = false;
     };
-  }, [mode]);
+  }, []);
+
+  const switchTab = (next: ReviewMode) => {
+    if (next === mode) return;
+    setSearch('');
+    setReviewAlumni(null);
+    setActionError('');
+    setSearchParams(next === 'profile-review' ? { tab: 'review' } : {}, { replace: true });
+  };
 
   const getRecordId = (a: AlumniRecord) => String(a.id ?? a.email ?? '');
 
@@ -368,11 +382,34 @@ export function AdminUnverified({ mode = 'pending' }: { mode?: ReviewMode } = {}
   return (
     <PortalLayout
       role="admin"
-      pageTitle={copy.pageTitle}
+      pageTitle="Pending Verification"
       pageSubtitle={copy.pageSubtitle}
-      notificationCount={pendingAlumni.length}
+      notificationCount={lists.pending.length + lists['profile-review'].length}
     >
       <div className="gt-stagger space-y-5">
+
+        {/* Tabs */}
+        <div role="tablist" className="grid grid-cols-2 gap-1 rounded-xl border border-gray-100 bg-white p-1 shadow-sm sm:inline-grid">
+          {(['pending', 'profile-review'] as const).map(tab => {
+            const selected = tab === mode;
+            return (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => switchTab(tab)}
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm transition ${selected ? 'bg-[#166534] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                style={{ fontWeight: selected ? 600 : 500 }}
+              >
+                {MODE_COPY[tab].tabLabel}
+                <span className={`rounded-full px-2 py-0.5 text-[11px] ${selected ? 'bg-white/20' : 'bg-gray-100 text-gray-600'}`}>
+                  {loadingPending ? '…' : lists[tab].length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
         {fetchError && (
           <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">

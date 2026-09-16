@@ -18,10 +18,10 @@ DFD Placement
 
 Data Scope
 - Population: CHMSU BSIS masterlist, 526 graduates (2019-2025, ~70-104 per batch).
-- No model is active until one passes the acceptance gate, and none has yet.
-  Demonstration runs train on simulated graduates from
-  `backend/ml/experiments/realistic_stress_test.py`. The model has never been
-  fitted to real graduates.
+- No model is active for real graduates until one passes the acceptance gate,
+  and none has yet. The simulated-graduate model is trained on accounts seeded
+  from `backend/ml/experiments/realistic_stress_test.py`. The model has never
+  been fitted to real graduates.
 
 Inputs and Data Sources
 - DS2 users_alumni_accounts: profile fields, survey data, captured metadata.
@@ -38,6 +38,11 @@ Branch `ml-redesign` (Phase A, 2026-09-16)
   `python manage.py train_employability_model [--source simulated] [--activate]`;
   versions are saved in `backend/ml/models/employability/`.
 - Served by `AdminAnalyticsPredictionsView` and `PredictiveTrendReportView`.
+- Inputs: Latin honors, prior paid work besides the OJT, portfolio, scholarship.
+- Real vs simulated graduates: `manage.py seed_simulated_graduates` seeds a
+  masterlist-sized simulated census; `/admin/debug/a` switches analytics between
+  real and simulated graduates, each with its own active model
+  (`--source simulated-accounts` trains the simulated one).
 - Details: `documentations/10-ml-pipeline-methodology.md`, section 13.6.
 
 The retired pipeline (still on `main`, deleted on this branch)

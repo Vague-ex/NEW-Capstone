@@ -108,6 +108,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   const buildFormState = (sdIn: Record<string, unknown>, alumniIn: Record<string, unknown>) => ({
     // Section 4: Academic & Pre-Employment
     academic_honors: String(sdIn.academic_honors ?? ''),
+    prior_work_experience: String(sdIn.prior_work_experience ?? ''),
     ojt_relevance: String(sdIn.ojt_relevance ?? ''),
     has_portfolio: String(sdIn.has_portfolio ?? ''),
 
@@ -817,7 +818,16 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
             </div>
 
             <div>
-              <FieldLabel>2. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
+              <FieldLabel>2. Besides your required OJT, did you have any paid work before graduating? (part-time, freelance, extra internship)</FieldLabel>
+              <div className="flex gap-2">
+                {['Yes', 'No'].map(opt => (
+                  <RadioOption key={opt} label={opt} value={opt} current={form.prior_work_experience} onSelect={v => setF('prior_work_experience', v)} />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel>3. Was your required OJT/Internship related to the job you eventually got?</FieldLabel>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {['Yes, directly related', 'Somewhat related', 'Not related', 'Have not secured a job yet / Not applicable'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.ojt_relevance} onSelect={v => setF('ojt_relevance', v)} />
@@ -826,7 +836,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
             </div>
 
             <div>
-              <FieldLabel>3. Online portfolio, GitHub profile, or project showcase when applying?</FieldLabel>
+              <FieldLabel>4. Online portfolio, GitHub profile, or project showcase when applying?</FieldLabel>
               <div className="flex gap-2">
                 {['Yes', 'No'].map(opt => (
                   <RadioOption key={opt} label={opt} value={opt} current={form.has_portfolio} onSelect={v => setF('has_portfolio', v)} />

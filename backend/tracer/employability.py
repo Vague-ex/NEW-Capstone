@@ -50,6 +50,13 @@ DEFAULT_GRADUATION_MONTH = 6
 FRAME_CACHE_KEY = "employability_graduate_frame"
 SAMPLE_EMAIL_DOMAIN = "sample.masterlist.local"
 
+# Which graduates the analytics describe. "real" is every registered graduate
+# except seeded accounts; "simulated" is only the seeded accounts made by
+# `manage.py seed_simulated_graduates`. Chosen on the admin debug page.
+SOURCE_REAL = "real"
+SOURCE_SIMULATED = "simulated"
+SOURCES = (SOURCE_REAL, SOURCE_SIMULATED)
+
 EMPLOYED_STATUSES = frozenset({"employed_full_time", "employed_part_time", "self_employed"})
 LOOKING_STATUSES = frozenset({"seeking", "never_employed"})
 OUT_OF_LABOR_FORCE_STATUSES = frozenset({"not_seeking"})
@@ -67,20 +74,18 @@ TARGET_LABEL = "Employed within 12 months of graduation"
 #     graduates who reported prior work experience, so most older rows are
 #     blank. It is still collected and shown to admins; it is just too
 #     unreliable to model.
-#   - prior_work_experience: removed from the forms in 2026-09 (every BSIS
-#     graduate completes an OJT, so the question read as redundant). New
-#     graduates store the column default, so it no longer describes anyone.
+#
+# prior_work_experience means paid work BESIDES the required OJT. The form was
+# reworded in 2026-09 after testers read the old label as asking about the OJT.
 MODEL_FEATURES = [
     "academic_honors",
+    "prior_work_experience",
     "has_portfolio",
     "scholarship",
 ]
-# Still built into the frame so a model version trained before the removal
-# keeps loading and predicting until a retrain replaces it.
-RETIRED_FEATURES = ["prior_work_experience"]
 FEATURE_LABELS = {
     "academic_honors": "Latin honors (1 = none, 4 = summa cum laude)",
-    "prior_work_experience": "Had work experience before graduating",
+    "prior_work_experience": "Had paid work besides the OJT before graduating",
     "ojt_relevance": "OJT relevance to BSIS (1 = not related, 3 = directly related)",
     "has_portfolio": "Has a portfolio or GitHub profile",
     "scholarship": "Held a scholarship",
@@ -112,7 +117,6 @@ TIME_BANDS = (
 FRAME_COLUMNS = [
     "alumni_id", "batch", "gender", "months_since_graduation",
     *MODEL_FEATURES,
-    *RETIRED_FEATURES,
     "employment_status", "has_outcome", "employed_now", "in_labor_force",
     "time_to_hire_months", TARGET, "bsis_first", "bsis_current", "is_sample",
     "future_graduation",
@@ -185,6 +189,73 @@ def is_sample_account(account) -> bool:
     return bool(isinstance(template, dict) and template.get("is_sample"))
 
 
+def sample_q(prefix: str = ""):
+    """Q matching seeded accounts, for a queryset on AlumniAccount (prefix "")
+    or on a model that points at one (e.g. prefix "alumni__")."""
+    from django.db.models import Q
+
+    # `contains` (jsonb @>) is false, not NULL, for templates without the key,
+    # so exclude() keeps real graduates. A key lookup would drop them all.
+    return (
+        Q(**{f"{prefix}biometric_template__contains": {"is_sample": True}})
+        | Q(**{f"{prefix}user__email__iendswith": "@" + SAMPLE_EMAIL_DOMAIN})
+    )
+
+
+def filter_source(queryset, source: str | None, prefix: str = ""):
+    """Keep only real graduates, only seeded ones, or (source None) everyone."""
+    if source == SOURCE_REAL:
+        return queryset.exclude(sample_q(prefix))
+    if source == SOURCE_SIMULATED:
+        return queryset.filter(sample_q(prefix))
+    return queryset
+
+
+# ── Admin debug settings (analytics source, sample visibility) ────────────────
+
+_SETTINGS_DEFAULTS = {"source": SOURCE_REAL, "show_samples_in_verified": False}
+
+
+def _settings_path() -> Path:
+    # Kept with the model versions: ml/models is a mounted volume on the VPS,
+    # so the choice survives image rebuilds the same way active.json does.
+    return model_root() / "analytics_source.json"
+
+
+def debug_settings() -> dict:
+    try:
+        stored = json.loads(_settings_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        stored = {}
+    settings = {**_SETTINGS_DEFAULTS, **{k: v for k, v in stored.items() if k in _SETTINGS_DEFAULTS}}
+    if settings["source"] not in SOURCES:
+        settings["source"] = SOURCE_REAL
+    settings["show_samples_in_verified"] = bool(settings["show_samples_in_verified"])
+    return settings
+
+
+def update_debug_settings(**changes) -> dict:
+    settings = debug_settings()
+    if "source" in changes:
+        if changes["source"] not in SOURCES:
+            raise ValueError(f"source must be one of {', '.join(SOURCES)}")
+        settings["source"] = changes["source"]
+    if "show_samples_in_verified" in changes:
+        settings["show_samples_in_verified"] = bool(changes["show_samples_in_verified"])
+    path = _settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    return settings
+
+
+def analytics_source() -> str:
+    return debug_settings()["source"]
+
+
+def frame_cache_key(source: str | None) -> str:
+    return f"{FRAME_CACHE_KEY}:{source or 'all'}"
+
+
 def _scholarship(text) -> int:
     value = (text or "").strip().lower()
     return 0 if value in {"", "none", "no", "n/a", "na", "not applicable"} else 1
@@ -201,18 +272,24 @@ def leaked_features(features) -> list[str]:
     ]
 
 
-def build_graduate_frame(as_of=None):
-    """One row per active graduate with a graduation year."""
+def build_graduate_frame(as_of=None, source: str | None = None):
+    """One row per active graduate with a graduation year.
+
+    `source` narrows it to real graduates or seeded ones (see SOURCES); None
+    keeps both, with the is_sample column telling them apart.
+    """
     import pandas as pd
     from django.utils import timezone
     from users.models import AccountStatus, AlumniProfile
 
     now = as_of or timezone.now()
-    profiles = (
+    profiles = filter_source(
         AlumniProfile.objects
         .filter(alumni__account_status=AccountStatus.ACTIVE, graduation_year__isnull=False)
         .select_related("alumni", "alumni__user")
-        .prefetch_related("alumni__employment_profiles")
+        .prefetch_related("alumni__employment_profiles"),
+        source,
+        prefix="alumni__",
     )
 
     rows: list[dict] = []
@@ -246,8 +323,7 @@ def build_graduate_frame(as_of=None):
             "prior_work_experience": (
                 None if profile.prior_work_experience is None else int(bool(profile.prior_work_experience))
             ),
-            # 0 is the form's "Not applicable". The question is also hidden unless
-            # prior work experience is Yes, so 0 and blank both mean unknown.
+            # 0 is the form's "Not applicable", so 0 and blank both mean unknown.
             "ojt_relevance": profile.ojt_relevance if profile.ojt_relevance else None,
             "has_portfolio": None if profile.has_portfolio is None else int(bool(profile.has_portfolio)),
             "scholarship": _scholarship(profile.scholarship),
@@ -269,11 +345,23 @@ def build_graduate_frame(as_of=None):
     return pd.DataFrame(rows, columns=FRAME_COLUMNS)
 
 
-def masterlist_counts() -> dict[int, int]:
-    """Graduates per batch on the masterlist: the denominator for response rates."""
+def masterlist_counts(source: str = SOURCE_REAL) -> dict[int, int]:
+    """Graduates per batch on the masterlist: the denominator for response rates.
+
+    Seeded graduates are not on the real masterlist. They are a simulated
+    census of it, so their own batch sizes stand in as its denominator.
+    """
     from django.db.models import Count
     from django.utils import timezone
-    from users.models import GraduateMasterRecord
+    from users.models import AccountStatus, AlumniProfile, GraduateMasterRecord
+
+    if source == SOURCE_SIMULATED:
+        rows = filter_source(
+            AlumniProfile.objects.filter(alumni__account_status=AccountStatus.ACTIVE, graduation_year__isnull=False),
+            SOURCE_SIMULATED,
+            prefix="alumni__",
+        ).values("graduation_year").annotate(n=Count("id"))
+        return {int(row["graduation_year"]): int(row["n"]) for row in rows}
 
     return {
         int(row["batch_year"]): int(row["n"])
@@ -436,13 +524,18 @@ def employment_outlook(per_batch: list[dict], horizon: int = 1) -> dict:
     }
 
 
-def model_summary(active) -> dict:
+def model_summary(active, source: str = SOURCE_REAL) -> dict:
     if not active:
+        command = (
+            "python manage.py train_employability_model --source simulated-accounts --activate"
+            if source == SOURCE_SIMULATED
+            else "python manage.py train_employability_model"
+        )
         return {
             "status": "none",
             "message": (
                 "No model has passed the acceptance gate yet, so only observed values are shown. "
-                "Train one with: python manage.py train_employability_model"
+                f"Train one with: {command}"
             ),
         }
     meta = active["meta"]
@@ -455,7 +548,10 @@ def model_summary(active) -> dict:
     }
 
 
-def analytics_payload(frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int = 1) -> dict:
+def analytics_payload(
+    frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int = 1,
+    source: str = SOURCE_REAL,
+) -> dict:
     future_graduation = (
         int(frame["future_graduation"].fillna(False).astype(bool).sum()) if "future_graduation" in frame.columns else 0
     )
@@ -477,8 +573,9 @@ def analytics_payload(frame, masterlist: dict[int, int], active=None, batch: int
         "overall": overall,
         "per_batch": per_batch,
         "outlook": employment_outlook(per_batch, horizon),
-        "model": model_summary(active),
+        "model": model_summary(active, source),
         "data_issues": {"future_graduation": future_graduation},
+        "data_source": source,
     }
 
 
@@ -526,6 +623,35 @@ def rate_difference(k1: int, n1: int, k2: int, n2: int) -> tuple[float, float, f
     return difference, low, high
 
 
+def graduate_skills(alumni_ids) -> dict[str, list[tuple[str, str]]]:
+    """alumni_id -> [(skill name, "technical" | "soft")].
+
+    AlumniSkill is what registration and the My Skills page write. Graduates
+    with no AlumniSkill rows fall back to the legacy CompetencyProfile lists,
+    so records saved before AlumniSkill existed still count.
+    """
+    from tracer.models import AlumniSkill, CompetencyProfile
+
+    ids = {str(a) for a in alumni_ids}
+    found: dict[str, list[tuple[str, str]]] = {}
+    rows = AlumniSkill.objects.filter(alumni_id__in=ids).values_list("alumni_id", "skill__name", "skill__category__name")
+    for alumni_id, name, category in rows:
+        if name and name.strip():
+            kind = "soft" if (category or "").strip().lower() == "soft" else "technical"
+            found.setdefault(str(alumni_id), []).append((name.strip(), kind))
+
+    missing = ids - set(found)
+    if missing:
+        legacy = CompetencyProfile.objects.filter(alumni_id__in=missing).values("alumni_id", "technical_skills", "soft_skills")
+        for profile in legacy:
+            alumni = str(profile["alumni_id"])
+            for kind, items in (("technical", profile["technical_skills"]), ("soft", profile["soft_skills"])):
+                for item in items or []:
+                    if isinstance(item, dict) and item.get("selected") and str(item.get("name") or "").strip():
+                        found.setdefault(alumni, []).append((str(item["name"]).strip(), kind))
+    return found
+
+
 def skill_summary(frame, top_n: int = 10) -> dict:
     """The skills graduates listed most, and how employment compares with and
     without each one.
@@ -537,8 +663,6 @@ def skill_summary(frame, top_n: int = 10) -> dict:
       cause: graduates also pick up skills at work.
     Skills listed by fewer than MIN_GROUP graduates are counted but not shown.
     """
-    from tracer.models import CompetencyProfile
-
     ids = {str(a) for a in frame["alumni_id"]}
     employed = {
         str(row.alumni_id): int(row.employed_now)
@@ -549,17 +673,12 @@ def skill_summary(frame, top_n: int = 10) -> dict:
     holders: dict[str, set[str]] = {}
     names: dict[str, tuple[str, str]] = {}
     listed_any: set[str] = set()
-    profiles = CompetencyProfile.objects.filter(alumni_id__in=ids).values("alumni_id", "technical_skills", "soft_skills")
-    for profile in profiles:
-        alumni = str(profile["alumni_id"])
-        for list_kind, items in (("technical", profile["technical_skills"]), ("soft", profile["soft_skills"])):
-            for item in items or []:
-                if not (isinstance(item, dict) and item.get("selected") and str(item.get("name") or "").strip()):
-                    continue
-                key = skill_key(item["name"])
-                names.setdefault(key, _CANONICAL_SKILLS.get(key, (str(item["name"]).strip(), list_kind)))
-                holders.setdefault(key, set()).add(alumni)
-                listed_any.add(alumni)
+    for alumni, listed in graduate_skills(ids).items():
+        for name, list_kind in listed:
+            key = skill_key(name)
+            names.setdefault(key, _CANONICAL_SKILLS.get(key, (name, list_kind)))
+            holders.setdefault(key, set()).add(alumni)
+            listed_any.add(alumni)
 
     respondents = len(listed_any)
     labor_force = {a for a in listed_any if a in employed}
@@ -859,7 +978,14 @@ def save_version(result: dict, frame, source: str, source_details: dict | None =
     return folder.name, meta
 
 
-def activate_version(version: str) -> None:
+def _pointer_name(source: str) -> str:
+    return "active-simulated.json" if source == SOURCE_SIMULATED else "active.json"
+
+
+def activate_version(version: str, source: str = SOURCE_REAL) -> None:
+    """Make a passing version the active model for real or seeded graduates.
+    Each source has its own pointer, so switching the analytics source on the
+    debug page never swaps a real-data model for a simulated one."""
     from django.utils import timezone
 
     root = model_root()
@@ -869,7 +995,7 @@ def activate_version(version: str) -> None:
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     if not meta.get("passed") or not meta.get("has_model_file"):
         raise ValueError(f"{version} did not pass the acceptance gate and cannot be activated")
-    pointer = root / "active.json"
+    pointer = root / _pointer_name(source)
     previous = None
     if pointer.exists():
         try:
@@ -885,19 +1011,20 @@ def activate_version(version: str) -> None:
 _ACTIVE_CACHE: dict = {}
 
 
-def load_active_model() -> dict | None:
-    """The active model, reloaded whenever active.json changes."""
+def load_active_model(source: str = SOURCE_REAL) -> dict | None:
+    """The active model for a source, reloaded whenever its pointer changes."""
     import joblib
 
     root = model_root()
-    pointer = root / "active.json"
+    pointer = root / _pointer_name(source)
     try:
         stamp = pointer.stat().st_mtime_ns
     except OSError:
         return None
     key = (str(root), stamp)
-    if _ACTIVE_CACHE.get("key") == key:
-        return _ACTIVE_CACHE["value"]
+    cached = _ACTIVE_CACHE.get(source)
+    if cached and cached["key"] == key:
+        return cached["value"]
 
     value = None
     try:
@@ -910,24 +1037,32 @@ def load_active_model() -> dict | None:
             logger.warning("Active employability model %s did not pass the gate; ignoring it", version)
     except (OSError, ValueError, KeyError):
         logger.exception("Could not load the active employability model")
-    _ACTIVE_CACHE.update(key=key, value=value)
+    _ACTIVE_CACHE[source] = {"key": key, "value": value}
     return value
 
 
 # ── Simulated graduates (for demonstrating the pipeline before real data) ──────
 
-def simulated_frame(scenario: str = "harsh", signal: str = "moderate", respondents: int | None = None, seed: int = 20260916):
-    """Graduate frame from the realistic-data stress test generator."""
+def load_simulator():
+    """The realistic-data generator in ml/experiments/realistic_stress_test.py.
+    Also used by `manage.py seed_simulated_graduates`."""
     import importlib.util
 
-    import numpy as np
-    import pandas as pd
     from django.conf import settings
 
     path = Path(settings.BASE_DIR) / "ml" / "experiments" / "realistic_stress_test.py"
     spec = importlib.util.spec_from_file_location("realistic_stress_test", path)
     sim = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sim)
+    return sim
+
+
+def simulated_frame(scenario: str = "harsh", signal: str = "moderate", respondents: int | None = None, seed: int = 20260916):
+    """Graduate frame from the realistic-data stress test generator."""
+    import numpy as np
+    import pandas as pd
+
+    sim = load_simulator()
 
     params = {**sim.SCENARIOS[scenario], **sim.SIGNAL_LEVELS[signal]}
     sizes = dict(sim.MASTERLIST_BATCH_SIZES)

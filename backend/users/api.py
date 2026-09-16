@@ -2994,9 +2994,22 @@ class VerifiedAlumniListView(APIView):
         _admin_user, _auth_error = _require_admin(request)
         if _auth_error:
             return _auth_error
+        from tracer import employability
+
+        # Seeded simulated graduates (seed_simulated_graduates), both set on
+        # /admin/debug/a:
+        #   ?purpose=analytics (geomap, dashboard) follows the analytics source,
+        #   so it shows real graduates or seeded ones, never a mix;
+        #   the Verified Graduates list shows real graduates, plus the seeded
+        #   ones only while "show simulated accounts" is on.
+        settings = employability.debug_settings()
+        if request.query_params.get("purpose") == "analytics":
+            source = settings["source"]
+        else:
+            source = None if settings["show_samples_in_verified"] else employability.SOURCE_REAL
         try:
             verified_accounts = _alumni_dashboard_queryset(
-                AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
+                employability.filter_source(AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE), source)
             ).order_by("-updated_at")
             results = [_admin_alumni_payload(account) for account in verified_accounts]
         except (OperationalError, DatabaseError):
@@ -3584,8 +3597,19 @@ class DebugAccountListView(APIView):
         _admin_user, _auth_error = _require_admin(request)
         if _auth_error:
             return _auth_error
+        from tracer.employability import is_sample_account
+
         alumni_rows = []
-        for acc in AlumniAccount.objects.select_related("user", "profile", "master_record").order_by("-created_at"):
+        accounts = (
+            AlumniAccount.objects.select_related("user", "profile", "master_record")
+            .prefetch_related(Prefetch(
+                "employment_profiles",
+                queryset=EmploymentProfile.objects.order_by("-updated_at"),
+                to_attr="_prefetched_emp",
+            ))
+            .order_by("-created_at")
+        )
+        for acc in accounts:
             profile = getattr(acc, "profile", None)
             full_name = ""
             if profile:
@@ -3594,12 +3618,19 @@ class DebugAccountListView(APIView):
                 ).strip()
             if not full_name and acc.master_record:
                 full_name = acc.master_record.full_name or ""
+            emp = _first_prefetched(acc, "_prefetched_emp")
             alumni_rows.append({
                 "role": "alumni",
                 "id": str(acc.id),
                 "userId": str(acc.user_id) if acc.user_id else None,
                 "email": acc.user.email if acc.user else "",
                 "name": full_name,
+                "firstName": getattr(profile, "first_name", "") or "",
+                "middleName": getattr(profile, "middle_name", "") or "",
+                "lastName": getattr(profile, "last_name", "") or "",
+                "graduationYear": getattr(profile, "graduation_year", None),
+                "employmentStatus": (emp.employment_status if emp else "") or "",
+                "isSample": is_sample_account(acc),
                 "status": acc.account_status,
                 "createdAt": acc.created_at.isoformat() if acc.created_at else None,
             })
@@ -3633,6 +3664,193 @@ class DebugAccountListView(APIView):
             "employer": employer_rows,
             "admin": admin_rows,
         }, status=status.HTTP_200_OK)
+
+_DEBUG_EMPLOYMENT_STATUSES = {
+    "employed_full_time", "employed_part_time", "self_employed", "seeking", "not_seeking", "never_employed",
+}
+
+
+class DebugAlumniUpdateView(APIView):
+    """Edit a graduate's name, email, batch, account status or employment
+    status from /admin/debug/a. Goes through the same model constraints as the
+    real pages; no survey answers are recomputed."""
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, account_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        account = AlumniAccount.objects.select_related("user", "profile").filter(id=account_id).first()
+        if not account:
+            return Response({"detail": "Graduate account not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        data = request.data if isinstance(request.data, dict) else {}
+        errors: dict[str, str] = {}
+        user_fields: list[str] = []
+        account_fields: list[str] = []
+        profile_changes: dict = {}
+
+        if "email" in data:
+            email = str(data.get("email") or "").strip().lower()
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                errors["email"] = "Enter a valid email address."
+            else:
+                if User.objects.filter(email__iexact=email).exclude(id=account.user_id).exists():
+                    errors["email"] = "Another account already uses this email."
+                elif email != account.user.email:
+                    account.user.email = email
+                    user_fields.append("email")
+
+        if "status" in data:
+            value = str(data.get("status") or "")
+            if value not in AccountStatus.values:
+                errors["status"] = f"Status must be one of {', '.join(AccountStatus.values)}."
+            elif value != account.account_status:
+                account.account_status = value
+                account_fields.append("account_status")
+
+        for key, field in (("firstName", "first_name"), ("middleName", "middle_name"), ("lastName", "last_name")):
+            if key in data:
+                value = str(data.get(key) or "").strip()
+                if any(ch.isdigit() for ch in value):
+                    errors[key] = "Names cannot contain numbers."
+                elif field != "middle_name" and not value:
+                    errors[key] = "Required."
+                else:
+                    profile_changes[field] = value
+
+        if "graduationYear" in data:
+            try:
+                year = int(data.get("graduationYear"))
+            except (TypeError, ValueError):
+                errors["graduationYear"] = "Enter a year."
+            else:
+                if not 1990 <= year <= timezone.now().year:
+                    errors["graduationYear"] = f"Year must be between 1990 and {timezone.now().year}."
+                else:
+                    profile_changes["graduation_year"] = year
+
+        employment_status = None
+        if "employmentStatus" in data:
+            employment_status = str(data.get("employmentStatus") or "")
+            if employment_status not in _DEBUG_EMPLOYMENT_STATUSES:
+                errors["employmentStatus"] = "Unknown employment status."
+
+        if errors:
+            return Response({"detail": "Some values were not accepted.", "field_errors": errors},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                if user_fields:
+                    account.user.save(update_fields=user_fields)
+                if account_fields:
+                    account.save(update_fields=[*account_fields, "updated_at"])
+                if profile_changes:
+                    AlumniProfile.objects.update_or_create(alumni=account, defaults=profile_changes)
+                if employment_status is not None:
+                    EmploymentProfile.objects.update_or_create(
+                        alumni=account, defaults={"employment_status": employment_status},
+                    )
+        except (DatabaseError, OperationalError) as exc:
+            return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        from django.core.cache import cache
+        from tracer import employability
+        for source in (*employability.SOURCES, None):
+            cache.delete(employability.frame_cache_key(source))
+        return Response({"updated": True, "id": str(account.id)}, status=status.HTTP_200_OK)
+
+
+class DebugAnalyticsSettingsView(APIView):
+    """GET/PUT the analytics source (real or simulated graduates) and whether
+    simulated accounts appear in Verified Graduates, with counts and each
+    source's active model so the debug page can show what a switch changes."""
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @staticmethod
+    def _payload() -> dict:
+        from tracer import employability
+
+        active_accounts = AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
+        models = {}
+        for source in employability.SOURCES:
+            active = employability.load_active_model(source)
+            models[source] = (
+                {"version": active["version"], "trainedAt": active["meta"].get("trained_at"),
+                 "auc": (active["meta"].get("metrics") or {}).get("cv_auc_mean")}
+                if active else None
+            )
+        return {
+            **employability.debug_settings(),
+            "counts": {
+                "real": employability.filter_source(active_accounts, employability.SOURCE_REAL).count(),
+                "simulated": employability.filter_source(active_accounts, employability.SOURCE_SIMULATED).count(),
+            },
+            "models": models,
+            "commands": {
+                "seed": "python manage.py seed_simulated_graduates --seed 20260918",
+                "train": "python manage.py train_employability_model --source simulated-accounts --activate",
+            },
+        }
+
+    def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        return Response(self._payload(), status=status.HTTP_200_OK)
+
+    def put(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        from django.core.cache import cache
+        from tracer import employability
+
+        data = request.data if isinstance(request.data, dict) else {}
+        changes = {k: data[k] for k in ("source", "show_samples_in_verified") if k in data}
+        try:
+            employability.update_debug_settings(**changes)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except OSError as exc:
+            return Response({"detail": f"Could not save the setting: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        for source in (*employability.SOURCES, None):
+            cache.delete(employability.frame_cache_key(source))
+        return Response(self._payload(), status=status.HTTP_200_OK)
+
+
+class DebugSimulatedAccountsDeleteView(APIView):
+    """Delete every seeded simulated graduate (and their users) in one go."""
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        from django.core.cache import cache
+        from tracer import employability
+
+        try:
+            with transaction.atomic():
+                user_ids = list(
+                    AlumniAccount.objects.filter(employability.sample_q()).values_list("user_id", flat=True)
+                )
+                User.objects.filter(id__in=user_ids).delete()
+        except (DatabaseError, OperationalError) as exc:
+            return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        for source in (*employability.SOURCES, None):
+            cache.delete(employability.frame_cache_key(source))
+        return Response({"deleted": len(user_ids)}, status=status.HTTP_200_OK)
+
 
 class DebugAccountDeleteView(APIView):
     """Delete a single account by role + id. Cascades through FK on User."""

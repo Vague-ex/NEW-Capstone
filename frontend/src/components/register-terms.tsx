@@ -171,10 +171,8 @@ export default function RegisterTerms({ onComplete, onBack }: Props) {
             Geomap consent (optional)
           </span>
           <br />
-          I allow my location to be plotted on the University&apos;s graduate distribution map, which only
-          authorized BSIS administrators can see. If I am employed, this is my workplace. Otherwise it is the
-          exact home location I pinned during registration, or where I registered if I did not pin one.
-          Declining does not affect your registration - your responses are still counted in all aggregated reports.
+          Show my workplace (or my home pin if I&apos;m not employed) on the admin-only graduate map. Optional:
+          declining doesn&apos;t affect your registration.
         </span>
       </label>
 

@@ -88,7 +88,7 @@ export function AdminNewDashboard() {
 
       const [pendingResult, verifiedResult, alignmentResult] = await Promise.allSettled([
           fetchPendingAlumni(),
-          fetchVerifiedAlumni(),
+          fetchVerifiedAlumni('analytics'),
           // Curriculum alignment comes from the batch-summary report rather
           // than being recomputed here. One definition lives in
           // tracer/alignment.py; recomputing client-side would let the

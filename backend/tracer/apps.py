@@ -38,8 +38,9 @@ class TracerConfig(AppConfig):
 
         def _warm():
             try:
-                from tracer.employability import load_active_model
-                load_active_model()
+                from tracer.employability import SOURCES, load_active_model
+                for source in SOURCES:
+                    load_active_model(source)
             except Exception:  # noqa: BLE001
                 logging.getLogger(__name__).warning(
                     "ML artifact warm-load skipped", exc_info=True

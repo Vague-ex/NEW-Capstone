@@ -25,8 +25,10 @@ What makes the simulated data "realistic"
       ~33% response rate).
     - Answers are messy: blanks, self-report noise in skill counts, recall error
       in the time-to-hire bucket, a few mis-reported employment statuses.
-    - Form skip logic is reproduced: "Seeking" respondents still fill in their
-      First Job, only employed respondents fill in Current Job.
+    - Form skip logic is reproduced: anyone who has worked since graduating
+      fills in First Job (Seeking and Not seeking included, as of the 2026-09
+      form), only employed respondents fill in Current Job. Results recorded in
+      the methodology doc section 12 predate that change.
 
 Nothing here reads or writes ml/models, so the live dashboard is unaffected.
 
@@ -301,8 +303,10 @@ def run_survey(rng: np.random.Generator, pop: pd.DataFrame, census: bool = False
         else:
             s = "not_seeking"
         status.append(s)
-        # Form skip logic: Seeking still fills First Job; Never Employed / Not Seeking skip it.
-        has_first.append(ever and s in ("employed", "seeking"))
+        # Form skip logic (2026-09 form): anyone who has worked since graduating
+        # fills First Job, including Seeking and Not seeking graduates, who are
+        # asked "have you had a job since graduating?". Never Employed skips it.
+        has_first.append(ever and s in ("employed", "seeking", "not_seeking"))
         has_current.append(ever and s == "employed")
     obs["status"] = status
     obs["employment_status"] = employed_obs

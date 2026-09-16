@@ -66,7 +66,7 @@ export function AdminMap() {
       setLoadingData(true);
       setDataError('');
       try {
-        const records = await fetchVerifiedAlumni();
+        const records = await fetchVerifiedAlumni('analytics');
         if (!active) return;
         const normalized = records.map((record) => {
           const item = (record ?? {}) as Record<string, unknown>;

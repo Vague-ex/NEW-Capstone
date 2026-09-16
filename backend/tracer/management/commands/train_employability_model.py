@@ -2,10 +2,15 @@
 Train the "employed within 12 months" model, run the acceptance gate, and save
 the result as a new version under ml/models/employability/.
 
-    python manage.py train_employability_model                      # graduate records
+    python manage.py train_employability_model                      # real graduate records
     python manage.py train_employability_model --activate           # activate if it passes
+    python manage.py train_employability_model --source simulated-accounts --activate
+                                                                    # seeded graduates (seed_simulated_graduates)
     python manage.py train_employability_model --source simulated \
-        --scenario harsh --signal moderate --respondents 1500       # demonstration data
+        --scenario harsh --signal moderate --respondents 1500       # in-memory demonstration data
+
+Real and seeded graduates each have their own active model (active.json and
+active-simulated.json), matching the analytics source chosen on /admin/debug/a.
 
 Every run is saved, including runs that fail the gate, so a rejection is
 documented. Only a passing run can be activated, and the previous active
@@ -22,7 +27,7 @@ class Command(BaseCommand):
     help = "Train the employability model, run the acceptance gate, and save a new version."
 
     def add_arguments(self, parser):
-        parser.add_argument("--source", choices=["database", "simulated"], default="database")
+        parser.add_argument("--source", choices=["database", "simulated-accounts", "simulated"], default="database")
         parser.add_argument("--scenario", choices=["harsh", "pids"], default="harsh",
                             help="Simulated source only: labor market.")
         parser.add_argument("--signal", choices=["weak", "moderate", "strong"], default="moderate",
@@ -48,6 +53,11 @@ class Command(BaseCommand):
                 "sample_accounts_excluded": 0 if opts["include_samples"] else samples,
                 "future_graduation_excluded": future,
             }
+        elif opts["source"] == "simulated-accounts":
+            frame = employability.build_graduate_frame(source=employability.SOURCE_SIMULATED)
+            future = int(frame["future_graduation"].astype(bool).sum())
+            frame = employability.reportable(frame)
+            details = {"seeded_graduates": int(len(frame)), "future_graduation_excluded": future}
         else:
             frame, details = employability.simulated_frame(
                 scenario=opts["scenario"], signal=opts["signal"],
@@ -75,7 +85,12 @@ class Command(BaseCommand):
         if meta["passed"]:
             self.stdout.write(self.style.SUCCESS("Passed every acceptance check."))
             if opts["activate"]:
-                employability.activate_version(version)
+                # Anything trained on simulated graduates can only ever become the
+                # simulated source's model, never the real one.
+                target = (
+                    employability.SOURCE_REAL if opts["source"] == "database" else employability.SOURCE_SIMULATED
+                )
+                employability.activate_version(version, target)
                 self.stdout.write(self.style.SUCCESS(f"Activated {version}."))
             else:
                 self.stdout.write(f"Not activated. Run again with --activate, or activate {version} later.")

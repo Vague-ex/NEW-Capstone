@@ -29,7 +29,6 @@ const NAV_CONFIG: Record<PortalRole, NavItem[]> = {
   admin: [
     { label: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
     { label: 'Pending Verification', path: '/admin/unverified', icon: ClipboardCheck },
-    { label: 'Profile Review', path: '/admin/profile-review', icon: UserCheck },
     { label: 'Verified Graduates', path: '/admin/verified', icon: CheckCircle2 },
     { label: 'Batch Upload', path: '/admin/batch-upload', icon: Upload },
     { label: 'Geomapping', path: '/admin/map', icon: Map },
@@ -256,14 +255,10 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               <span className="flex-1 text-left text-sm">{item.label}</span>
               {isActive && <ChevronRight className="size-3 text-white/60 shrink-0" />}
               {/* Per-item notification badges */}
-              {item.path === '/admin/unverified' && pendingAlumniCount > 0 && !isActive && (
-                <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
-                  {pendingAlumniCount}
-                </span>
-              )}
-              {item.path === '/admin/profile-review' && profileReviewCount > 0 && !isActive && (
-                <span className="flex size-4 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
-                  {profileReviewCount}
+              {/* Pending Verification covers both tabs: not on masterlist + masterlist matches. */}
+              {item.path === '/admin/unverified' && pendingAlumniCount + profileReviewCount > 0 && !isActive && (
+                <span className="flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
+                  {pendingAlumniCount + profileReviewCount}
                 </span>
               )}
             </button>
@@ -373,7 +368,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                         )}
                         {profileReviewCount > 0 && (
                           <button
-                            onClick={() => { navigate('/admin/profile-review'); setNotifOpen(false); }}
+                            onClick={() => { navigate('/admin/unverified?tab=review'); setNotifOpen(false); }}
                             className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left"
                           >
                             <span className="flex size-8 items-center justify-center rounded-full bg-emerald-100 shrink-0">

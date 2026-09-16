@@ -28,6 +28,15 @@ LOGGER = logging.getLogger(__name__)
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_TIMEOUT_SECONDS = 30
 
+# Seeded simulated graduates (seed_simulated_graduates) use reserved .test
+# domains, and old sample accounts used sample.masterlist.local. Neither can
+# receive mail, so nothing is sent to them.
+UNDELIVERABLE_SUFFIXES = (".test", ".local")
+
+
+def is_undeliverable(address: str) -> bool:
+    return (address or "").strip().lower().endswith(UNDELIVERABLE_SUFFIXES)
+
 
 def send_branded_email(
     *,
@@ -44,6 +53,10 @@ def send_branded_email(
     Raises on transport error so the caller can mark the row as
     needing a retry and log the cause.
     """
+    if is_undeliverable(to_email):
+        LOGGER.info("Skipped %r email to seeded/undeliverable address %s", subject, to_email)
+        return
+
     ctx = dict(context)
     ctx.setdefault("logo_url", getattr(settings, "EMAIL_LOGO_URL", ""))
 
