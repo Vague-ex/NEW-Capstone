@@ -134,7 +134,8 @@ export function AdminAnalyticsPredictions() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchAnalyticsPredictions(selectedBatch === 'all' ? undefined : selectedBatch, 1)
+    // No horizon: the backend projects through next calendar year.
+    fetchAnalyticsPredictions(selectedBatch === 'all' ? undefined : selectedBatch)
       .then((res) => {
         if (!cancelled) setData(res);
       })
@@ -166,7 +167,8 @@ export function AdminAnalyticsPredictions() {
   const futureGraduation = data?.data_issues?.future_graduation ?? 0;
   const simulatedSource = data?.data_source === 'simulated';
   const modelFromSimulation = activeModel?.source === 'simulated' || activeModel?.source === 'simulated-accounts';
-  const nextRange = outlook?.available ? outlook.years[0] : undefined;
+  const nextRanges = useMemo(() => (outlook?.available ? outlook.years : []), [outlook]);
+  const nextRange = nextRanges[0];
 
   const trendSeries = useMemo<TrendRow[]>(() => {
     const label = trendView === 'employment' ? 'employed' : 'found work within 12 months';
@@ -189,19 +191,23 @@ export function AdminAnalyticsPredictions() {
             : `Only ${r.n} graduates answered, too few to show.`,
       };
     });
-    if (trendView === 'employment' && nextRange) {
-      const centre = point(nextRange.centre) ?? 0;
-      rows.push({
-        year: String(nextRange.batch),
-        observed: null,
-        observedError: null,
-        next: centre,
-        nextError: [centre - (point(nextRange.low) ?? 0), (point(nextRange.high) ?? 0) - centre],
-        detail: `If this batch does about as well as recent batches, expect ${pct(nextRange.low, 0)} to ${pct(nextRange.high, 0)} employed. This is a range, not a prediction.`,
+    if (trendView === 'employment') {
+      nextRanges.forEach((range, i) => {
+        const centre = point(range.centre) ?? 0;
+        rows.push({
+          year: String(range.batch),
+          observed: null,
+          observedError: null,
+          next: centre,
+          nextError: [centre - (point(range.low) ?? 0), (point(range.high) ?? 0) - centre],
+          detail: `If this batch does about as well as recent batches, expect ${pct(range.low, 0)} to ${pct(range.high, 0)} employed.${
+            i > 0 ? ' The range is wider because it is further ahead.' : ''
+          } This is a range, not a prediction.`,
+        });
       });
     }
     return rows;
-  }, [answeredBatches, nextRange, trendView]);
+  }, [answeredBatches, nextRanges, trendView]);
 
   const timeBands = useMemo(
     () => (overall?.time_to_first_job.bands ?? []).map((b) => ({ band: b.label, graduates: b.count })),
@@ -260,10 +266,13 @@ export function AdminAnalyticsPredictions() {
       color: 'text-green-600',
     },
     {
-      label: nextRange ? `Likely Range for Batch ${nextRange.batch}` : 'Likely Range for Next Batch',
+      label: nextRange ? `Likely Range for Batch ${nextRange.batch}` : 'Likely Range for Next Batches',
       value: nextRange ? `${pct(nextRange.low, 0)}–${pct(nextRange.high, 0)}` : '—',
       sub: nextRange
-        ? 'Employment if the batch does about as well as recent ones. Not a prediction.'
+        ? [
+            ...nextRanges.slice(1).map((r) => `Batch ${r.batch}: ${pct(r.low, 0)}–${pct(r.high, 0)}`),
+            'Employment if batches do about as well as recent ones. Not a prediction.',
+          ].join(' · ')
         : outlook?.reason ?? 'Not enough batches yet',
       icon: Target,
       bg: 'bg-amber-50',
@@ -278,8 +287,8 @@ export function AdminAnalyticsPredictions() {
           <Brain className="size-5" /> Employability Trend Analysis
         </h2>
         <p className="text-white/75 text-xs mt-1">
-          What graduates reported for each batch and how sure those numbers are, a likely range for the next
-          batch, and the answers at graduation linked with finding work within a year.
+          What graduates reported for each batch and how sure those numbers are, a likely range for the coming
+          batches, and the answers at graduation linked with finding work within a year.
         </p>
       </div>
 
@@ -439,7 +448,7 @@ export function AdminAnalyticsPredictions() {
 
           <p className="text-gray-500 text-xs mb-4 leading-relaxed">
             {trendView === 'employment'
-              ? 'Each dot is the share of a batch that is employed, among graduates working or looking for work. The line through it is the likely range. The orange mark is the likely range for the next batch if it does about as well as recent batches.'
+              ? 'Each dot is the share of a batch that is employed, among graduates working or looking for work. The line through it is the likely range. The orange marks are the likely ranges for the coming batches if they do about as well as recent batches; each year further ahead is wider.'
               : 'Each dot is the share of a batch that found a first job within 12 months of graduating. The line through it is the likely range.'}{' '}
             Hover a dot for details.
           </p>
@@ -472,7 +481,7 @@ export function AdminAnalyticsPredictions() {
                   <Line
                     type="linear"
                     dataKey="next"
-                    name="Likely range for the next batch"
+                    name="Likely range for coming batches"
                     stroke="#f59e0b"
                     strokeWidth={0}
                     dot={{ r: 5, fill: '#f59e0b' }}

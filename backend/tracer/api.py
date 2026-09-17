@@ -1940,7 +1940,7 @@ class SurveyDataRetrievalView(APIView):
 
 class AdminAnalyticsPredictionsView(APIView):
     """
-    GET /api/admin/analytics/employability-predictions/?batch=YYYY&horizon=1|2
+    GET /api/admin/analytics/employability-predictions/?batch=YYYY&horizon=1-4
 
     Observed indicators per batch (sample sizes, Wilson 95% intervals, small
     groups suppressed), the expected employment range for the next batches,
@@ -1966,10 +1966,13 @@ class AdminAnalyticsPredictionsView(APIView):
                 batch = int(batch_param)
             except ValueError:
                 return Response({"error": "batch must be integer"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            horizon = max(1, min(2, int(request.query_params.get("horizon", 1))))
-        except (TypeError, ValueError):
-            horizon = 1
+        # No horizon: the outlook runs through next calendar year (see employment_outlook).
+        horizon = None
+        if request.query_params.get("horizon"):
+            try:
+                horizon = max(1, min(employability.OUTLOOK_MAX_YEARS, int(request.query_params["horizon"])))
+            except (TypeError, ValueError):
+                horizon = None
 
         # Cached briefly so switching the batch filter or horizon does not
         # rebuild the frame. Indicators still reflect account changes within

@@ -947,15 +947,17 @@ def _employability_summary(batches: list[dict], overall: dict, outlook: dict, mo
         )
 
     if outlook["available"] and outlook["years"]:
-        year = outlook["years"][0]
         basis = (
             "how far past batch rates moved from one batch to the next"
             if outlook["basis"] == "backtest"
             else "a default range of plus or minus 20 points until more batches are available"
         )
+        ranges = "; ".join(
+            f"batch {year['batch']}: {year['low'] * 100:.0f}-{year['high'] * 100:.0f}%" for year in outlook["years"]
+        )
         parts.append(
-            f"For batch {year['batch']} the expected employment range is {year['low'] * 100:.0f}-"
-            f"{year['high'] * 100:.0f}%, based on {basis}. It is a range, not a forecast."
+            f"The expected employment range is {ranges}, based on {basis}. Each year further ahead is wider. "
+            f"It is a range, not a forecast."
         )
 
     if model["status"] == "active":
@@ -987,11 +989,13 @@ class PredictiveTrendReportView(APIView):
         source = filters["data_source"]
         # One batch ahead, like the Analytics tab: a second batch was only a
         # wider copy of the first, not new information.
-        try:
-            forecast_years = int(request.query_params.get("forecast_years", 1))
-        except (TypeError, ValueError):
-            forecast_years = 1
-        forecast_years = max(1, min(forecast_years, 3))
+        # Absent: through next calendar year, the same as the analytics page.
+        forecast_years = None
+        if request.query_params.get("forecast_years"):
+            try:
+                forecast_years = max(1, min(int(request.query_params["forecast_years"]), employability.OUTLOOK_MAX_YEARS))
+            except (TypeError, ValueError):
+                forecast_years = None
 
         try:
             frame = employability.build_graduate_frame(source=source)

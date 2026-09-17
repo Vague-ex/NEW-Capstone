@@ -44,6 +44,10 @@ MIN_MINORITY = 40
 OUTLOOK_WINDOW = 3
 OUTLOOK_DEFAULT_HALF_WIDTH = 0.20
 OUTLOOK_MIN_HALF_WIDTH = 0.10
+# By default the range runs through next calendar year, at least two and at
+# most four batches past the latest one with a reportable rate.
+OUTLOOK_MIN_YEARS = 2
+OUTLOOK_MAX_YEARS = 4
 # Year-only graduation dates are treated as mid-year.
 DEFAULT_GRADUATION_MONTH = 6
 
@@ -465,7 +469,9 @@ def group_indicators(frame, graduates: int | None = None, active=None) -> dict:
     }
 
 
-def employment_outlook(per_batch: list[dict], horizon: int = 1) -> dict:
+def employment_outlook(
+    per_batch: list[dict], horizon: int | None = None, current_year: int | None = None,
+) -> dict:
     """Expected range for the next batches' employment rate.
 
     Not a forecast from features. The centre is the mean of the last
@@ -474,6 +480,11 @@ def employment_outlook(per_batch: list[dict], horizon: int = 1) -> dict:
     before it (80% interval, 1.2816 times the root-mean-square error). With
     fewer than three backtest errors it falls back to +/-20 points, the
     uncertainty the realistic-data stress test found for six batches.
+
+    `horizon` fixes the number of years. Left as None, the range covers every
+    batch from the one after the latest reported batch through next calendar
+    year (OUTLOOK_MIN_YEARS to OUTLOOK_MAX_YEARS of them), so a dashboard whose
+    newest data is two years old still looks past the current year.
     """
     points = [
         (entry["batch"], entry["employment_rate"]["rate"])
@@ -505,6 +516,12 @@ def employment_outlook(per_batch: list[dict], horizon: int = 1) -> dict:
     # of any kind: a few records with a mistyped future graduation year would
     # otherwise push the expected range years ahead.
     latest = points[-1][0]
+    if horizon is None:
+        if current_year is None:
+            from django.utils import timezone
+
+            current_year = timezone.now().year
+        horizon = min(OUTLOOK_MAX_YEARS, max(OUTLOOK_MIN_YEARS, current_year + 1 - latest))
     years = []
     for step in range(1, horizon + 1):
         width = half * math.sqrt(step)
@@ -549,7 +566,7 @@ def model_summary(active, source: str = SOURCE_REAL) -> dict:
 
 
 def analytics_payload(
-    frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int = 1,
+    frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int | None = None,
     source: str = SOURCE_REAL,
 ) -> dict:
     future_graduation = (

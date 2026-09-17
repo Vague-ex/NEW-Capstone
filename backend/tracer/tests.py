@@ -1236,7 +1236,29 @@ class EmployabilityDataGuardTests(SimpleTestCase):
 			{"batch": 2024, "employment_rate": {"rate": 0.8}},
 			{"batch": 2027, "employment_rate": {"rate": None}},
 		]
-		self.assertEqual(employment_outlook(batches)["years"][0]["batch"], 2025)
+		self.assertEqual(employment_outlook(batches, current_year=2026)["years"][0]["batch"], 2025)
+
+	def test_expected_range_reaches_next_calendar_year(self):
+		from tracer.employability import employment_outlook
+
+		def batches(*years):
+			return [{"batch": y, "employment_rate": {"rate": 0.6 + 0.01 * i}} for i, y in enumerate(years)]
+
+		def years(outlook):
+			return [y["batch"] for y in outlook["years"]]
+
+		# Data through 2025 in 2026: the next two batches.
+		self.assertEqual(years(employment_outlook(batches(2023, 2024, 2025), current_year=2026)), [2026, 2027])
+		# Data only through 2024: still reaches 2027 rather than stopping at 2026.
+		self.assertEqual(years(employment_outlook(batches(2022, 2023, 2024), current_year=2026)), [2025, 2026, 2027])
+		# Very old data is capped, and always at least two years are shown.
+		self.assertEqual(len(employment_outlook(batches(2015, 2016), current_year=2026)["years"]), 4)
+		self.assertEqual(years(employment_outlook(batches(2025, 2026), current_year=2026)), [2027, 2028])
+		# An explicit horizon still wins, and each further year is wider.
+		fixed = employment_outlook(batches(2023, 2024, 2025), horizon=1, current_year=2026)
+		self.assertEqual(years(fixed), [2026])
+		two = employment_outlook(batches(2023, 2024, 2025), current_year=2026)["years"]
+		self.assertGreater(two[1]["high"] - two[1]["low"], two[0]["high"] - two[0]["low"])
 
 	def test_skill_names_are_merged_and_typed_from_the_form_lists(self):
 		from tracer.employability import _CANONICAL_SKILLS, rate_difference, skill_key
