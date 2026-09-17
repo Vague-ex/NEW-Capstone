@@ -46,6 +46,41 @@ function rateCell(r: RateEstimate): string {
   return `${pct(r.rate)} (${pct(r.ci_low, 0)}–${pct(r.ci_high, 0)})`;
 }
 
+/** "18 (20%)" — whole-number count first, share in brackets. */
+function countPct(k: number, n: number): string {
+  return `${k} (${Math.round((k / n) * 100)}%)`;
+}
+
+/** Plain-language summary of one batch's first vs current job alignment. */
+function alignmentSentence(b: BatchIndicators): string {
+  const first = b.bsis_aligned_first_job;
+  const current = b.bsis_aligned_current_job;
+  const firstShown = first.n > 0 && first.k != null;
+  const currentShown = current.n > 0 && current.k != null;
+  // Some respondents never had a job, so the question's base can be smaller than the batch.
+  const base = (r: RateEstimate) => (r.n === b.respondents ? '' : ` of the ${r.n} who answered`);
+  const lead = `Of Batch ${b.batch}'s ${b.respondents} respondents,`;
+
+  if (!firstShown && !currentShown) {
+    return `${lead} too few answered the job alignment questions to show.`;
+  }
+  if (firstShown && !currentShown) {
+    return `${lead} ${countPct(first.k!, first.n)}${base(first)} had a first job aligned with IS.`;
+  }
+  if (!firstShown && currentShown) {
+    return `${lead} ${countPct(current.k!, current.n)}${base(current)} have a current job aligned with IS.`;
+  }
+  const firstShare = first.k! / first.n;
+  const currentShare = current.k! / current.n;
+  const move =
+    Math.round(currentShare * 100) === Math.round(firstShare * 100)
+      ? 'holding at'
+      : currentShare > firstShare
+        ? 'up to'
+        : 'down to';
+  return `${lead} ${countPct(first.k!, first.n)}${base(first)} had a first job aligned with IS, ${move} ${countPct(current.k!, current.n)}${base(current)} for their current job.`;
+}
+
 function factorReading(f: ModelFactor): string {
   if (!f.clear) return 'No clear link';
   return f.odds_ratio >= 1
@@ -174,6 +209,10 @@ export function AdminAnalyticsPredictions() {
         year: String(b.batch),
         firstJob: point(b.bsis_aligned_first_job.rate),
         currentJob: point(b.bsis_aligned_current_job.rate),
+        firstJobK: b.bsis_aligned_first_job.k,
+        firstJobN: b.bsis_aligned_first_job.n,
+        currentJobK: b.bsis_aligned_current_job.k,
+        currentJobN: b.bsis_aligned_current_job.n,
       })),
     [answeredBatches],
   );
@@ -681,8 +720,8 @@ export function AdminAnalyticsPredictions() {
             <Cpu className="size-4 text-[#166534]" /> Jobs Related to BSIS
           </h3>
           <p className="text-gray-500 text-xs mt-1">
-            Share of graduates who said their first or current job is related to BSIS. Batches with fewer than 5
-            answers are left blank.
+            How many graduates in each batch said their first and current job is aligned with IS. Batches with fewer
+            than 5 answers are left blank.
           </p>
         </div>
         {bsisSeries.length === 0 ? (
@@ -690,17 +729,72 @@ export function AdminAnalyticsPredictions() {
             {loading ? 'Loading...' : 'No data'}
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={bsisSeries}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
-              <Tooltip formatter={(v: number) => `${v}%`} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="firstJob" name="First Job" fill="#166534" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="currentJob" name="Current Job" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={bsisSeries}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
+                <Tooltip
+                  formatter={(v: number, _name, item) => {
+                    const row = item.payload as (typeof bsisSeries)[number];
+                    const isFirst = item.dataKey === 'firstJob';
+                    const k = isFirst ? row.firstJobK : row.currentJobK;
+                    const n = isFirst ? row.firstJobN : row.currentJobN;
+                    return k == null ? `${v}%` : `${k} of ${n} (${Math.round(v)}%)`;
+                  }}
+                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="firstJob" name="First Job" fill="#166534" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="currentJob" name="Current Job" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {answeredBatches.map((b) => (
+                <div key={b.batch} className="rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-gray-800 text-sm" style={{ fontWeight: 700 }}>
+                      Batch {b.batch}
+                    </span>
+                    <span className="text-gray-400 text-[11px]">{b.respondents} respondents</span>
+                  </div>
+                  <p className="text-gray-600 text-xs mt-1 leading-relaxed">{alignmentSentence(b)}</p>
+                  <div className="mt-2.5 space-y-2">
+                    {(
+                      [
+                        ['First job', b.bsis_aligned_first_job, 'bg-[#166534]'],
+                        ['Current job', b.bsis_aligned_current_job, 'bg-[#f59e0b]'],
+                      ] as const
+                    ).map(([label, r, fill]) => (
+                      <div key={label}>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-gray-500" style={{ fontWeight: 600 }}>
+                            {label}
+                          </span>
+                          {r.n === 0 ? (
+                            <span className="text-gray-400">No answers</span>
+                          ) : r.k == null ? (
+                            <span className="text-gray-400">Only {r.n} answered, hidden</span>
+                          ) : (
+                            <span className="text-gray-600">
+                              <span style={{ fontWeight: 600 }}>{countPct(r.k, r.n)}</span> aligned ·{' '}
+                              {countPct(r.n - r.k, r.n)} not
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                          {r.k != null && r.n > 0 && (
+                            <div className={`h-full ${fill}`} style={{ width: `${(r.k / r.n) * 100}%` }} />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
