@@ -871,6 +871,26 @@ export interface SkillSummary {
     skills: SkillRow[];
 }
 
+export interface SkillsByBatchCell {
+    batch: number;
+    /** Null when the batch's column is hidden (fewer than min_group answered). */
+    count: number | null;
+    share: number | null;
+}
+
+export interface SkillsByBatchRow {
+    skill: string;
+    graduates: number;
+    cells: SkillsByBatchCell[];
+}
+
+export interface SkillsByBatch {
+    min_group: number;
+    batches: { batch: number; respondents: number; suppressed: boolean }[];
+    technical: SkillsByBatchRow[];
+    soft: SkillsByBatchRow[];
+}
+
 export interface AnalyticsPredictionsResponse {
     batch: number | null;
     /** Summary for the selected batch, or for all batches. */
@@ -880,6 +900,8 @@ export interface AnalyticsPredictionsResponse {
     outlook: EmploymentOutlook;
     model: EmployabilityModelSummary;
     skills: SkillSummary;
+    /** Share of each batch listing the most common skills (heatmap). */
+    skills_by_batch?: SkillsByBatch;
     /** Records left out of every figure, e.g. graduation dates in the future. */
     data_issues: { future_graduation: number };
     /** Real graduates or the seeded simulated ones (set on /admin/debug/a). */

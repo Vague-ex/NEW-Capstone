@@ -719,6 +719,68 @@ def skill_summary(frame, top_n: int = 10) -> dict:
     }
 
 
+def skills_by_batch(frame, top_n: int = 8) -> dict:
+    """Share of each batch's graduates who listed each of the most common skills.
+
+    Built for a batch-by-skill heatmap shown beside each batch's employment
+    rate. It describes what each batch reports; batches also differ in job
+    market and years since graduating, so a pattern is a trend, not proof.
+
+    - A skill appears only if at least MIN_GROUP graduates listed it overall.
+    - A batch column is hidden (shares None) when fewer than MIN_GROUP of its
+      graduates filled in the skills checklist.
+    """
+    batch_of = {
+        str(row.alumni_id): int(row.batch)
+        for row in frame.itertuples()
+        if not _is_missing(row.batch)
+    }
+    names: dict[str, tuple[str, str]] = {}
+    holders: dict[str, dict[int, set[str]]] = {}
+    listers: dict[int, set[str]] = {}
+    for alumni, listed in graduate_skills(batch_of).items():
+        batch = batch_of.get(alumni)
+        if batch is None or not listed:
+            continue
+        listers.setdefault(batch, set()).add(alumni)
+        for name, list_kind in listed:
+            key = skill_key(name)
+            names.setdefault(key, _CANONICAL_SKILLS.get(key, (name, list_kind)))
+            holders.setdefault(key, {}).setdefault(batch, set()).add(alumni)
+
+    batches = sorted(listers)
+    totals = {key: sum(len(people) for people in per.values()) for key, per in holders.items()}
+    columns = [
+        {"batch": b, "respondents": len(listers[b]), "suppressed": len(listers[b]) < MIN_GROUP}
+        for b in batches
+    ]
+
+    def rows_for(kind: str) -> list[dict]:
+        # Technical and soft skills are ranked separately: the soft-skill list is
+        # shorter, so its entries would otherwise crowd every technical skill out.
+        common = [key for key in holders if names[key][1] == kind and totals[key] >= MIN_GROUP]
+        common.sort(key=lambda key: (-totals[key], names[key][0]))
+        rows = []
+        for key in common[:top_n]:
+            cells = []
+            for column in columns:
+                count = len(holders[key].get(column["batch"], ()))
+                cells.append({
+                    "batch": column["batch"],
+                    "count": None if column["suppressed"] else count,
+                    "share": None if column["suppressed"] else count / column["respondents"],
+                })
+            rows.append({"skill": names[key][0], "graduates": totals[key], "cells": cells})
+        return rows
+
+    return {
+        "min_group": MIN_GROUP,
+        "batches": columns,
+        "technical": rows_for("technical"),
+        "soft": rows_for("soft"),
+    }
+
+
 # ── Model: training, acceptance gate, versions ────────────────────────────────
 
 def model_root() -> Path:

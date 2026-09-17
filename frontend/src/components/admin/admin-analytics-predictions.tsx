@@ -14,6 +14,7 @@ import {
   ModelFactor,
   RateEstimate,
   SkillRow,
+  SkillsByBatch,
 } from '../../app/api-client';
 
 function pct(v: number | null | undefined, digits = 1): string {
@@ -126,6 +127,7 @@ export function AdminAnalyticsPredictions() {
   const [error, setError] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<number | 'all'>('all');
   const [trendView, setTrendView] = useState<TrendView>('employment');
+  const [skillKind, setSkillKind] = useState<'technical' | 'soft'>('technical');
   const [rawNumbersOpen, setRawNumbersOpen] = useState(false);
 
   useEffect(() => {
@@ -158,6 +160,9 @@ export function AdminAnalyticsPredictions() {
   const model = data?.model;
   const activeModel = model?.status === 'active' ? model : null;
   const skills = data?.skills;
+  const skillsByBatch: SkillsByBatch | undefined = data?.skills_by_batch;
+  const heatmapRows = skillsByBatch ? skillsByBatch[skillKind] : [];
+  const rateByBatch = new Map(perBatch.map((b) => [b.batch, b.employment_rate]));
   const futureGraduation = data?.data_issues?.future_graduation ?? 0;
   const simulatedSource = data?.data_source === 'simulated';
   const modelFromSimulation = activeModel?.source === 'simulated' || activeModel?.source === 'simulated-accounts';
@@ -611,6 +616,131 @@ export function AdminAnalyticsPredictions() {
               ))}
             </ul>
           </details>
+        )}
+      </div>
+
+      {/* ── Skills by Batch ─────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+              <Users className="size-4 text-[#166534]" /> Skills by Batch
+            </h3>
+            <p className="text-gray-500 text-xs mt-1 leading-relaxed max-w-2xl">
+              What share of each batch listed each skill, beside the batch&apos;s employment rate. Darker cells mean more
+              of that batch listed the skill. Read it as a trend: batches also differ in job market and years since
+              graduating, and graduates list the skills they have now, including ones learned at work.
+            </p>
+          </div>
+          <div className="inline-flex shrink-0 rounded-lg border border-gray-200 p-0.5">
+            {(['technical', 'soft'] as const).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => setSkillKind(kind)}
+                className={`px-3 py-1.5 rounded-md text-xs transition ${skillKind === kind ? 'bg-[#166534] text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                style={{ fontWeight: 600 }}
+              >
+                {kind === 'technical' ? 'Technical' : 'Soft'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {!skillsByBatch || skillsByBatch.batches.length === 0 || heatmapRows.length === 0 ? (
+          <div className="h-[140px] flex items-center justify-center text-gray-400 text-sm text-center px-6">
+            {loading
+              ? 'Loading...'
+              : `No ${skillKind} skill has been listed by at least ${skillsByBatch?.min_group ?? 5} graduates yet.`}
+          </div>
+        ) : (
+          <div className="overflow-x-auto mt-4">
+            <table className="w-full text-xs border-separate" style={{ borderSpacing: '3px' }}>
+              <thead>
+                <tr>
+                  <th className="text-left text-gray-400 pb-1 pr-3 whitespace-nowrap" style={{ fontWeight: 600 }}>
+                    Skill
+                  </th>
+                  {skillsByBatch.batches.map((c) => {
+                    const picked = selectedBatch === c.batch;
+                    return (
+                      <th
+                        key={c.batch}
+                        className={`pb-1 px-1 whitespace-nowrap rounded-t-md ${picked ? 'text-[#166534] bg-[#166534]/10' : 'text-gray-500'}`}
+                        style={{ fontWeight: picked ? 700 : 600 }}
+                      >
+                        {c.batch}
+                        <span className="block text-[10px] text-gray-400" style={{ fontWeight: 400 }}>
+                          {c.respondents} {c.respondents === 1 ? 'grad' : 'grads'}
+                        </span>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {heatmapRows.map((row) => (
+                  <tr key={row.skill}>
+                    <td className="pr-3 py-1 text-gray-800 whitespace-nowrap" style={{ fontWeight: 600 }}>
+                      {row.skill}
+                    </td>
+                    {row.cells.map((cell) => {
+                      const picked = selectedBatch === cell.batch;
+                      if (cell.share == null) {
+                        return (
+                          <td
+                            key={cell.batch}
+                            title={`Fewer than ${skillsByBatch.min_group} graduates in this batch listed skills`}
+                            className={`text-center py-2 rounded-md text-gray-300 bg-gray-50 ${picked ? 'ring-2 ring-[#166534]' : ''}`}
+                          >
+                            —
+                          </td>
+                        );
+                      }
+                      const strong = cell.share >= 0.45;
+                      return (
+                        <td
+                          key={cell.batch}
+                          title={`${cell.count} of ${skillsByBatch.batches.find((b) => b.batch === cell.batch)?.respondents ?? 0} graduates in ${cell.batch} listed ${row.skill}`}
+                          className={`text-center py-2 rounded-md ${picked ? 'ring-2 ring-[#166534]' : ''}`}
+                          style={{
+                            backgroundColor: `rgba(22, 101, 52, ${(0.06 + cell.share * 0.85).toFixed(2)})`,
+                            color: strong ? '#ffffff' : '#14532d',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {pct(cell.share, 0)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                <tr>
+                  <td className="pr-3 pt-3 text-gray-800 whitespace-nowrap border-t border-gray-100" style={{ fontWeight: 700 }}>
+                    Employment rate
+                  </td>
+                  {skillsByBatch.batches.map((c) => {
+                    const picked = selectedBatch === c.batch;
+                    const rate = rateByBatch.get(c.batch);
+                    return (
+                      <td
+                        key={c.batch}
+                        className={`text-center pt-3 border-t border-gray-100 whitespace-nowrap ${picked ? 'text-[#166534]' : 'text-gray-700'}`}
+                        style={{ fontWeight: 700 }}
+                      >
+                        {rateValue(rate)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+            <p className="text-[11px] text-gray-400 mt-3">
+              Hover a cell for counts. A batch where fewer than {skillsByBatch.min_group} graduates listed skills is shown
+              as &quot;—&quot;.{selectedBatch !== 'all' && ` Batch ${selectedBatch} is outlined.`} For whether a skill goes
+              with being employed, see the with vs without comparison in the next table.
+            </p>
+          </div>
         )}
       </div>
 

@@ -1392,3 +1392,27 @@ class SimulatedSourceTests(TestCase):
 		for i in range(4):
 			self._graduate(f"extra{i}@gmail.test", sample=True)
 		self.assertEqual(queries(), before)
+
+	def test_skills_by_batch_hides_small_batches_and_splits_kinds(self):
+		from tracer import employability as E
+		from tracer.models import AlumniSkill, Skill, SkillCategory
+
+		technical, _ = SkillCategory.objects.get_or_create(name="Technical")
+		soft, _ = SkillCategory.objects.get_or_create(name="Soft")
+		react = Skill.objects.create(name="Heatmap Test Framework", category=technical)
+		leadership = Skill.objects.create(name="Heatmap Test Soft Skill", category=soft)
+		accounts = [self.simulated] + [self._graduate(f"batchmate{i}@gmail.test", sample=True) for i in range(5)]
+		for i, account in enumerate(accounts):
+			if i < 4:
+				AlumniSkill.objects.create(alumni=account, skill=react, proficiency_level="intermediate")
+			AlumniSkill.objects.create(alumni=account, skill=leadership, proficiency_level="intermediate")
+
+		result = E.skills_by_batch(E.build_graduate_frame(source=E.SOURCE_SIMULATED))
+		self.assertEqual(result["batches"], [{"batch": 2022, "respondents": 6, "suppressed": False}])
+		self.assertEqual([r["skill"] for r in result["technical"]], [])  # React: 4 graduates, below 5
+		self.assertEqual(result["soft"][0]["cells"][0], {"batch": 2022, "count": 6, "share": 1.0})
+
+		# The one real graduate's batch has fewer than 5 skill lists, so it is hidden.
+		AlumniSkill.objects.create(alumni=self.real, skill=leadership, proficiency_level="intermediate")
+		real = E.skills_by_batch(E.build_graduate_frame(source=E.SOURCE_REAL))
+		self.assertTrue(real["batches"][0]["suppressed"])
