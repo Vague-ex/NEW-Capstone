@@ -658,7 +658,8 @@ export default function RegisterAlumniEmployment({
         // Check everything at once so every missing box turns red together.
         if (
           !form.time_to_hire_raw || !form.first_job_sector || !form.first_job_status
-          || !form.first_job_title || !form.first_job_applications_raw || !form.first_job_source_display
+          || !form.first_job_title || !form.first_job_company.trim()
+          || !form.first_job_applications_raw || !form.first_job_source_display
         ) {
           return fail('Please answer the questions marked with a red asterisk.');
         }
@@ -670,7 +671,10 @@ export default function RegisterAlumniEmployment({
           }
         }
         break;
-      case 4: { // Current Job (all optional, but a given title must be listed or marked "not listed")
+      case 4: { // Current Job (company required; a given title must be listed or marked "not listed")
+        if (!form.current_job_company.trim()) {
+          return fail('Please answer the questions marked with a red asterisk.');
+        }
         const titleProblem = jobTitleProblem(form.current_job_title, refJobTitles);
         if (titleProblem) {
           setStepError(titleProblem);
@@ -1044,13 +1048,13 @@ export default function RegisterAlumniEmployment({
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Company / Organization Name</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Company / Organization Name<Required /></label>
             <input
               type="text"
               value={form.first_job_company}
               onChange={(e) => setForm({ ...form, first_job_company: e.target.value })}
               placeholder="e.g., Tech Company Inc."
-              className={fieldCls(false)}
+              className={fieldCls(missing(!form.first_job_company.trim()))}
             />
           </div>
 
@@ -1164,13 +1168,13 @@ export default function RegisterAlumniEmployment({
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Company / Organization Name</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Company / Organization Name<Required /></label>
             <input
               type="text"
               value={form.current_job_company}
               onChange={(e) => setForm({ ...form, current_job_company: e.target.value })}
               placeholder="e.g., Tech Company Inc."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(!form.current_job_company.trim()))}
             />
           </div>
 

@@ -745,6 +745,14 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
       setSaveError(titleProblem);
       return;
     }
+    if (firstJobShown && !form.firstJobCompany.trim()) {
+      setSaveError('Please enter the company / organization name of your first job.');
+      return;
+    }
+    if (isCurrentlyEmployed && !form.currentJobCompany.trim()) {
+      setSaveError('Please enter the company / organization name of your current job.');
+      return;
+    }
     const oldCompany = initialWorkRef.current.company.trim().toLowerCase();
     const newCompany = form.currentJobCompany.trim().toLowerCase();
     const oldTitle = initialWorkRef.current.title.trim().toLowerCase();
@@ -929,8 +937,8 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               </div>
 
               <div>
-                <FieldLabel>Company / Organization of FIRST JOB</FieldLabel>
-                <input type="text" placeholder="Company or organization name"
+                <FieldLabel required>Company / Organization of FIRST JOB</FieldLabel>
+                <input type="text" placeholder="Company or organization name" required
                   value={form.firstJobCompany} onChange={e => setF('firstJobCompany', e.target.value)}
                   className={inputCls} />
               </div>
@@ -1062,10 +1070,10 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               </div>
 
               <div>
-                <FieldLabel>3. Name of Company / Organization</FieldLabel>
+                <FieldLabel required>3. Name of Company / Organization</FieldLabel>
                 <div className="relative">
                   <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                  <input type="text" placeholder="Company or organization name"
+                  <input type="text" placeholder="Company or organization name" required
                     value={form.currentJobCompany} onChange={e => setF('currentJobCompany', e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white" />
                 </div>
