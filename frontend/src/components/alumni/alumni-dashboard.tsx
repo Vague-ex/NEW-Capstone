@@ -61,14 +61,22 @@ export function AlumniDashboard() {
   // clears server-side and the prompt does not come back on the next login.
   // Graduates without a job never get the flag.
   const [inviteDismissed, setInviteDismissed] = useState(false);
-  const showEmployerInvite = Boolean(
+  // Latched once shown: minting the link clears needsEmployerInvite on the
+  // server, so the background status sync would otherwise flip the flag and
+  // close the modal a moment after it opened. Only the graduate closes it.
+  const [inviteLatched, setInviteLatched] = useState(false);
+  const inviteEligible = Boolean(
     alumni?.needsEmployerInvite
     && alumni?.verificationStatus === 'verified'
-    && !alumni?.requiresRetracking
-    && !inviteDismissed,
+    && !alumni?.requiresRetracking,
   );
+  useEffect(() => {
+    if (inviteEligible && !inviteDismissed) setInviteLatched(true);
+  }, [inviteEligible, inviteDismissed]);
+  const showEmployerInvite = (inviteEligible || inviteLatched) && !inviteDismissed;
   const closeEmployerInvite = () => {
     setInviteDismissed(true);
+    setInviteLatched(false);
     setAlumni((current: Record<string, unknown>) => {
       const next = { ...current, needsEmployerInvite: false };
       sessionStorage.setItem('alumni_user', JSON.stringify(next));
