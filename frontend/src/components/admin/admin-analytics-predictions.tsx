@@ -348,18 +348,6 @@ export function AdminAnalyticsPredictions() {
         </div>
       )} */}
 
-      {simulatedSource && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
-          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-xs text-amber-900 leading-relaxed">
-            <p style={{ fontWeight: 700 }}>Showing simulated graduates</p>
-            <p className="mt-0.5">
-              Every figure on this page comes from generated demonstration graduates, not real CHMSU graduates.
-            </p>
-          </div>
-        </div>
-      )}
-
       {modelFromSimulation && !simulatedSource && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-2.5 items-start">
           <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
