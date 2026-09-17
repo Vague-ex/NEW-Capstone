@@ -1221,6 +1221,37 @@ class RegistrationSweepTests(TestCase):
 		self.assertIsNone(account.profile.home_latitude)
 		self.assertIsNone(account.profile.home_longitude)
 
+	def _work_survey(self, **pin):
+		return json.dumps({
+			"employment_status": "employed_full_time",
+			"academic_honors": 1,
+			"time_to_hire_months": 3,
+			"first_job_sector": "private",
+			"region": "Region VI",
+			"province_work": "Negros Occidental",
+			"city_municipality": "Bacolod City",
+			"country": "Philippines",
+			**pin,
+		})
+
+	def test_workplace_pin_is_stored(self):
+		_, account = self._register(
+			self._payload(survey_data=self._work_survey(latitude=10.6765, longitude=122.9509)), self.engine,
+		)
+		address = account.work_addresses.get(is_current=True)
+		self.assertAlmostEqual(address.latitude, 10.6765)
+		self.assertAlmostEqual(address.longitude, 122.9509)
+
+	def test_bad_workplace_pin_is_refused_before_anything_is_saved(self):
+		payload = self._payload(survey_data=self._work_survey(latitude=123, longitude="junk"))
+		with patch("users.api.upload_image_bytes"), patch("users.api.get_engine", return_value=self.engine):
+			response = self.client.post("/api/auth/alumni/register/", payload, format="multipart")
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.data["step"], "employment")
+		self.assertIn("latitude", response.data["field_errors"])
+		self.assertIn("longitude", response.data["field_errors"])
+		self.assertFalse(AlumniAccount.objects.filter(user__email=self.EMAIL).exists())
+
 	def test_geomap_prefers_the_home_pin_over_the_face_scan_gps(self):
 		_, account = self._register(
 			self._payload(

@@ -1,5 +1,5 @@
 /**
- * A small map showing the graduate's pinned home location, with a draggable pin.
+ * A small map showing a pinned location (home or workplace), with a draggable pin.
  *
  * GPS indoors is often off by tens of metres, so the pin can be corrected by
  * dragging it or tapping the map. On phones the map does NOT pan on a one-finger
@@ -42,11 +42,16 @@ export default function HomeLocationMap({
   lat,
   lng,
   onMove,
+  zoom = 17,
+  label = 'Map of your pinned home location. Drag the pin or tap the map to move it.',
 }: {
   lat: number;
   lng: number;
   /** Called when the graduate drags the pin or taps the map. */
   onMove: (lat: number, lng: number) => void;
+  /** Street level for an exact fix; pass a wider zoom for a rough, city-level pin. */
+  zoom?: number;
+  label?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -86,7 +91,7 @@ export default function HomeLocationMap({
 
       const map = L.map(containerRef.current, {
         center: [lat, lng],
-        zoom: 17,
+        zoom,
         scrollWheelZoom: false,
         dragging: !L.Browser.mobile,
       });
@@ -131,9 +136,10 @@ export default function HomeLocationMap({
     const current = marker.getLatLng();
     if (Math.abs(current.lat - lat) > 1e-7 || Math.abs(current.lng - lng) > 1e-7) {
       marker.setLatLng([lat, lng]);
-      map.setView([lat, lng], Math.max(map.getZoom(), 16));
+      // A rough pin zooms out to show the city; a precise one zooms in.
+      map.setView([lat, lng], zoom >= 16 ? Math.max(map.getZoom(), zoom - 1) : zoom);
     }
-  }, [lat, lng]);
+  }, [lat, lng, zoom]);
 
   return (
     <div
@@ -142,7 +148,7 @@ export default function HomeLocationMap({
       // the map over the sticky registration header while scrolling.
       className="isolate h-44 sm:h-56 w-full overflow-hidden rounded-lg border border-emerald-100 bg-gray-100"
       role="application"
-      aria-label="Map of your pinned home location. Drag the pin or tap the map to move it."
+      aria-label={label}
     />
   );
 }

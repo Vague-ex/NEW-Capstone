@@ -12,14 +12,17 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { EMPLOYMENT_DRAFT_KEY, saveDraft, loadDraft } from './registration-draft';
 import { JobTitleInput } from './shared/job-title-input';
 import { jobTitleProblem } from '../app/job-titles';
+import { describeGpsFailure, geocoderCityName, locateDevice } from '../app/geolocation';
+import HomeLocationMap from './home-location-map';
 import {
   Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
-  AlertCircle, CheckCircle2, Code, Users, Loader, X,
+  AlertCircle, CheckCircle2, Code, Users, Loader, X, LocateFixed,
 } from 'lucide-react';
 import {
   useReferenceData,
   provincesApi,
   citiesApi,
+  locationApi,
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
@@ -481,6 +484,133 @@ export default function RegisterAlumniEmployment({
   const phRegionsWork = apiRegions;
   const phProvincesWork = apiProvinces;
   const phCitiesWork = apiCities;
+
+  // ── Workplace pin ─────────────────────────────────────────────────────────
+  // GPS only describes the workplace when the graduate is standing in it, so
+  // "Use my current location" is offered only after they say they are at work
+  // right now. Otherwise the pin starts at the chosen city and they drag it.
+  const [atWorkplace, setAtWorkplace] = useState<boolean | null>(null);
+  const [locatingWork, setLocatingWork] = useState(false);
+  const [workNote, setWorkNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+  const [workPinExact, setWorkPinExact] = useState(false);
+  // City the current pin was placed in by GPS or by hand. A city-level pin is
+  // only re-placed when the city changes away from it.
+  const exactPinCityRef = useRef<string | null>(null);
+  const lastWorkCityRef = useRef<string | null>(null);
+
+  const fillWorkAddressFromPoint = async (lat: number, lng: number, via: 'gps' | 'pin') => {
+    const subject = via === 'gps' ? 'your location' : 'the pin';
+    try {
+      const found = await locationApi.lookup(lat, lng);
+      if (found.abroad) {
+        if (isPhilippinesWork) {
+          setWorkNote({ tone: 'warn', text: 'That point is outside the Philippines. If you work abroad, go back and choose Abroad under Work Location.' });
+          return;
+        }
+        exactPinCityRef.current = found.locality || null;
+        setForm((f) => ({ ...f, city_municipality: found.locality || f.city_municipality }));
+        setWorkNote({ tone: 'ok', text: `Pinned in ${found.country || 'another country'}. Please check your city and country below.` });
+        return;
+      }
+      if (!isPhilippinesWork) {
+        setWorkNote({ tone: 'warn', text: 'That point is in the Philippines. If you work here, go back and choose Philippines under Work Location.' });
+        return;
+      }
+      if (!found.region && !found.city) {
+        setWorkNote({ tone: 'warn', text: "We pinned your workplace but couldn't match an address. Please choose it below." });
+        return;
+      }
+      exactPinCityRef.current = found.city?.name ?? null;
+      // The cascading selects load their options from these names.
+      setForm((f) => ({
+        ...f,
+        region: found.region?.name ?? f.region,
+        province_work: found.province?.name ?? '',
+        city_municipality: found.city?.name ?? '',
+        barangay: '',
+      }));
+      setWorkNote(found.city
+        ? { tone: 'ok', text: `Work address filled in from ${subject}. Please check it and adjust anything that is off.` }
+        : { tone: 'warn', text: 'We filled in what we could. Please choose your city below.' });
+    } catch (err) {
+      setWorkNote({
+        tone: 'warn',
+        text: err instanceof Error && err.message ? err.message : "We pinned your workplace but couldn't look up the address. Please fill it in below.",
+      });
+    }
+  };
+
+  const fillWorkFromMyLocation = async () => {
+    setWorkNote(null);
+    setLocatingWork(true);
+    try {
+      const { fix, failure } = await locateDevice();
+      if (!fix) {
+        setWorkNote({ tone: 'error', text: describeGpsFailure(failure) });
+        return;
+      }
+      setForm((f) => ({ ...f, latitude: fix.lat, longitude: fix.lng }));
+      setWorkPinExact(true);
+      await fillWorkAddressFromPoint(fix.lat, fix.lng, 'gps');
+    } finally {
+      setLocatingWork(false);
+    }
+  };
+
+  const moveWorkPin = (lat: number, lng: number) => {
+    setForm((f) => ({ ...f, latitude: lat, longitude: lng }));
+    setWorkPinExact(true);
+    void fillWorkAddressFromPoint(lat, lng, 'pin');
+  };
+
+  const removeWorkPin = () => {
+    setForm((f) => ({ ...f, latitude: null, longitude: null }));
+    setWorkPinExact(false);
+    // Treat the removal as a decision for this city, so the city pin is not
+    // put straight back. Choosing another city pins that one.
+    exactPinCityRef.current = form.city_municipality.trim() || null;
+    setWorkNote(null);
+  };
+
+  // Start the pin at the chosen city so the graduate only has to drag it.
+  // A pin restored from the draft is kept; a new city re-places a city-level pin.
+  useEffect(() => {
+    const city = form.city_municipality.trim();
+    if (step !== 5 || !city) return;
+    const previous = lastWorkCityRef.current;
+    lastWorkCityRef.current = city;
+    if (exactPinCityRef.current === city) return;
+    const cityChanged = previous !== null && previous !== city;
+    if (form.latitude != null && !cityChanged) return;
+
+    const parts = isPhilippinesWork
+      ? [geocoderCityName(city), form.province_work, 'Philippines']
+      : [city, form.country];
+    const query = parts.filter(Boolean).join(', ');
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+        { signal: controller.signal, headers: { 'Accept-Language': 'en' } },
+      )
+        .then((r) => r.json())
+        .then((results: Array<{ lat: string; lon: string }>) => {
+          if (!Array.isArray(results) || results.length === 0) return;
+          const lat = Number(results[0].lat);
+          const lng = Number(results[0].lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          exactPinCityRef.current = null;
+          setWorkPinExact(false);
+          setForm((f) => ({ ...f, latitude: lat, longitude: lng }));
+        })
+        .catch(() => { /* aborted or offline: the pin is optional */ });
+    }, 500); // debounce fast cascade changes; Nominatim allows 1 request per second
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, form.city_municipality, form.province_work, form.country, isPhilippinesWork]);
 
   // Dynamic skills from reference API (falls back to hardcoded)
   const technicalSkills: string[] = (() => {
@@ -1096,6 +1226,69 @@ export default function RegisterAlumniEmployment({
         <div className="gt-stagger space-y-6">
           <SectionHeader icon={MapPin} title="Work Address" subtitle="Help us map employment locations" />
 
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:p-4 space-y-3">
+            <div>
+              <p className="text-sm text-gray-900" style={{ fontWeight: 600 }}>Are you at your workplace right now?</p>
+              <p className="text-[11px] text-emerald-900/80 leading-snug mt-0.5">
+                Your current location can only pin your workplace if you are there.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
+              {([[true, "Yes, I'm at work"], [false, 'No']] as const).map(([value, text]) => (
+                <button
+                  key={text}
+                  type="button"
+                  onClick={() => { setAtWorkplace(value); setWorkNote(null); }}
+                  aria-pressed={atWorkplace === value}
+                  className={`gt-press min-h-11 rounded-lg border px-3 py-2 text-sm transition ${
+                    atWorkplace === value
+                      ? 'border-[#166534] bg-[#166534] text-white'
+                      : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                  style={{ fontWeight: 600 }}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+
+            {atWorkplace === true && (
+              <div className="gt-fade flex flex-col sm:flex-row sm:items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => void fillWorkFromMyLocation()}
+                  disabled={locatingWork}
+                  className="gt-press inline-flex shrink-0 min-h-11 items-center justify-center gap-2 rounded-lg bg-[#166534] hover:bg-[#14532d] disabled:opacity-60 text-white px-3.5 py-2.5 text-sm transition"
+                  style={{ fontWeight: 600 }}
+                >
+                  {locatingWork
+                    ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : <LocateFixed className="size-4" />}
+                  {locatingWork ? 'Finding your location…' : workPinExact ? 'Update my location' : 'Use my current location'}
+                </button>
+                <p className="text-[11px] text-emerald-900/80 leading-snug">
+                  Fills in your work address and pins your workplace. Your browser will ask for permission.
+                </p>
+              </div>
+            )}
+            {atWorkplace === false && (
+              <p className="gt-fade text-xs text-gray-600 leading-snug">
+                Choose your work address below. The map will start at your city; drag the pin onto your workplace if you know where it is.
+              </p>
+            )}
+
+            {workNote && (
+              <p
+                className={`text-xs leading-snug ${
+                  workNote.tone === 'ok' ? 'text-emerald-800' : workNote.tone === 'warn' ? 'text-amber-700' : 'text-red-600'
+                }`}
+                role="status"
+              >
+                {workNote.text}
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">Street Address (optional)</label>
             <input
@@ -1254,6 +1447,36 @@ export default function RegisterAlumniEmployment({
               )}
             </div>
           </div>
+
+          {form.latitude != null && form.longitude != null && (
+            <div className="gt-fade space-y-1.5">
+              <label className="block text-sm font-semibold text-gray-900">Workplace Pin (optional)</label>
+              <HomeLocationMap
+                lat={form.latitude}
+                lng={form.longitude}
+                zoom={workPinExact ? 17 : 13}
+                label="Map of your workplace. Drag the pin or tap the map to move it."
+                onMove={moveWorkPin}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-gray-500">
+                <span>
+                  {workPinExact
+                    ? 'Drag the pin or tap the map if it is off.'
+                    : `Pinned at ${form.city_municipality || 'your city'}. Drag the pin or tap the map to mark your workplace.`}
+                </span>
+                <button type="button" onClick={removeWorkPin} className="underline hover:text-gray-700">
+                  Remove pin
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 leading-snug">
+                Address lookup by{' '}
+                <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">
+                  © OpenStreetMap contributors
+                </a>
+                . Your workplace only appears on the admin geomap if you allow it on the consent step.
+              </p>
+            </div>
+          )}
 
           <NavButtons onBack={prevStep} onNext={nextStep} />
         </div>

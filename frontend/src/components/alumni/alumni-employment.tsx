@@ -16,7 +16,7 @@ import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
   MapPin, AlertTriangle, BookOpen, LocateFixed,
 } from 'lucide-react';
-import { describeGpsFailure, locateDevice } from '../../app/geolocation';
+import { describeGpsFailure, geocoderCityName, locateDevice } from '../../app/geolocation';
 import { JobTitleInput } from '../shared/job-title-input';
 import { jobTitleProblem } from '../../app/job-titles';
 
@@ -461,7 +461,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     exactPinCityRef.current = null;
 
     const isLocal = form.currentJobLocation !== 'Abroad / Remote Foreign Employer';
-    const parts: string[] = [form.city_municipality];
+    const parts: string[] = [isLocal ? geocoderCityName(form.city_municipality) : form.city_municipality];
     if (isLocal) {
       const province = provincesForRegion.find(p => p.id === form.currentJobProvinceId)?.name;
       if (province) parts.push(province);
@@ -515,6 +515,9 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   // workplace is, so the barangay is left for the graduate to type if they want.
   const [locating, setLocating] = useState(false);
   const [locateNote, setLocateNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+  // GPS only describes the workplace when the graduate is standing in it, so
+  // the button appears only after they confirm they are at work right now.
+  const [atWorkplace, setAtWorkplace] = useState<boolean | null>(null);
 
   /** Look up the address at a point and fill the work-address fields. */
   const fillWorkAddressFromPoint = async (lat: number, lng: number, via: 'gps' | 'pin') => {
@@ -1135,24 +1138,55 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                   : ' Type your foreign-country workplace details.'}
               </p>
 
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:p-3.5 space-y-2">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => void fillWorkFromMyLocation()}
-                    disabled={locating}
-                    className="gt-press inline-flex shrink-0 min-h-11 items-center justify-center gap-2 rounded-lg bg-[#166534] hover:bg-[#14532d] disabled:opacity-60 text-white px-3.5 py-2.5 text-sm transition"
-                    style={{ fontWeight: 600 }}
-                  >
-                    {locating
-                      ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      : <LocateFixed className="size-4" />}
-                    {locating ? 'Finding your location…' : 'Use my current location'}
-                  </button>
-                  <p className="text-[11px] text-emerald-900/80 leading-snug">
-                    Use this while you are at your workplace. It fills in the region, province and city and pins the map. Your browser will ask for permission.
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:p-3.5 space-y-3">
+                <div>
+                  <p className="text-sm text-gray-900" style={{ fontWeight: 600 }}>Are you at your workplace right now?</p>
+                  <p className="text-[11px] text-emerald-900/80 leading-snug mt-0.5">
+                    Your current location can only pin your workplace if you are there.
                   </p>
                 </div>
+                <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
+                  {([[true, "Yes, I'm at work"], [false, 'No']] as const).map(([value, text]) => (
+                    <button
+                      key={text}
+                      type="button"
+                      onClick={() => { setAtWorkplace(value); setLocateNote(null); }}
+                      aria-pressed={atWorkplace === value}
+                      className={`gt-press min-h-11 rounded-lg border px-3 py-2 text-sm transition ${
+                        atWorkplace === value
+                          ? 'border-[#166534] bg-[#166534] text-white'
+                          : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                      style={{ fontWeight: 600 }}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+                {atWorkplace === true && (
+                  <div className="gt-fade flex flex-col sm:flex-row sm:items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => void fillWorkFromMyLocation()}
+                      disabled={locating}
+                      className="gt-press inline-flex shrink-0 min-h-11 items-center justify-center gap-2 rounded-lg bg-[#166534] hover:bg-[#14532d] disabled:opacity-60 text-white px-3.5 py-2.5 text-sm transition"
+                      style={{ fontWeight: 600 }}
+                    >
+                      {locating
+                        ? <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        : <LocateFixed className="size-4" />}
+                      {locating ? 'Finding your location…' : 'Use my current location'}
+                    </button>
+                    <p className="text-[11px] text-emerald-900/80 leading-snug">
+                      Fills in the region, province and city and pins the map. Your browser will ask for permission.
+                    </p>
+                  </div>
+                )}
+                {atWorkplace === false && (
+                  <p className="gt-fade text-xs text-gray-600 leading-snug">
+                    Choose your work address below, then drag the pin or tap the map to mark your workplace.
+                  </p>
+                )}
                 {locateNote && (
                   <p
                     className={`text-xs leading-snug ${

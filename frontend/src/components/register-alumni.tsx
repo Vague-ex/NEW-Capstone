@@ -449,7 +449,9 @@ export function RegisterAlumni() {
           </div>
         </div>
         <div className="flex-1 flex flex-col items-center px-4 py-8">
-          <div className="w-full max-w-lg">
+          {/* Wider than the form steps: the terms are reading text, and at the
+              form width they became a long, narrow strip on desktop. */}
+          <div className="w-full max-w-lg lg:max-w-3xl">
             <ProgressIndicator stage="employment" />
             <RegisterTerms
               onComplete={handleConsentComplete}

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
 import { fetchVerifiedAlumni } from '../../app/api-client';
+import { geocoderCityName } from '../../app/geolocation';
 import { MapPin, Filter, Users, CheckCircle2, AlertTriangle, Globe, Home, Search } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -101,7 +102,7 @@ export function AdminMap() {
             for (const a of toGeocode) {
               if (!active) break;
               const sd = (a as Record<string, unknown>).surveyData as Record<string, unknown> | undefined;
-              const query = [a.workCity, sd?.region_address as string, 'Philippines']
+              const query = [geocoderCityName(a.workCity), sd?.region_address as string, 'Philippines']
                 .filter(Boolean).join(', ');
               if (!query.trim()) continue;
               try {

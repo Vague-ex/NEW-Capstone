@@ -86,6 +86,19 @@ export async function locateDevice(
     });
 }
 
+/**
+ * A PSGC city name in the form OpenStreetMap's geocoder recognises.
+ *
+ * PSGC lists chartered cities as "City of Bacolod". Nominatim does not know that
+ * form and matches something unrelated (it returned a university in Sagay), so a
+ * city-level pin landed in the wrong town. "Bacolod City" resolves correctly.
+ */
+export function geocoderCityName(name: string | null | undefined): string {
+    const trimmed = (name ?? '').trim();
+    const match = /^city of\s+(.+)$/i.exec(trimmed);
+    return match ? `${match[1]} City` : trimmed;
+}
+
 export function describeGpsFailure(failure: GpsFailure | null): string {
     switch (failure) {
         case 'denied':
