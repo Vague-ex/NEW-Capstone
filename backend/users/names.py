@@ -13,6 +13,7 @@ registrar exports:
 """
 
 import re
+import unicodedata
 
 # Generational and honorific suffixes, matched case-insensitively and with any
 # trailing period ignored.
@@ -75,3 +76,49 @@ def derive_last_name(full_name: str) -> str:
         start -= 1
 
     return " ".join(tokens[start:index + 1])
+
+
+def normalize_name(value: str) -> str:
+    """
+    Comparable form of a name: accents stripped, case folded, punctuation
+    dropped and whitespace collapsed. "Peña-Dela Cruz, Jr." and
+    "pena dela  cruz jr" compare equal, so a graduate is not left unmatched
+    over how the registrar or the graduate typed the same name.
+    """
+    decomposed = unicodedata.normalize("NFKD", value or "")
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(re.sub(r"[^\w\s]|_|\d", " ", stripped.casefold()).split())
+
+
+def names_match(full_name: str, last_name: str, family_name: str, first_name: str) -> bool:
+    """
+    Whether a masterlist row (full_name / stored last_name) is the graduate who
+    typed family_name + first_name.
+
+    The surname must equal the stored last_name, or the surname re-derived from
+    full_name (older rows were saved with a badly derived last_name). Every word
+    of the typed first name must match a word of the masterlist full name,
+    where either may be a shortened form of the other ("Ma." / "Maria",
+    "Juan" / "Juanito"). The exact surname and batch year keep that loose
+    first-name rule from matching the wrong graduate.
+    """
+    family = normalize_name(family_name)
+    first_tokens = normalize_name(first_name).split()
+    if not family or not first_tokens:
+        return False
+    surnames = {normalize_name(last_name), normalize_name(derive_last_name(full_name))}
+    if family not in surnames:
+        return False
+    full_tokens = normalize_name(full_name).split()
+    return all(_given_name_matches(token, full_tokens) for token in first_tokens)
+
+
+def _given_name_matches(token: str, candidates: list[str]) -> bool:
+    for candidate in candidates:
+        if token == candidate:
+            return True
+        # A one-letter initial ("M") is too weak to count as a shortened name.
+        shorter, longer = sorted((token, candidate), key=len)
+        if len(shorter) >= 2 and longer.startswith(shorter):
+            return True
+    return False

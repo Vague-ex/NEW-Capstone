@@ -29,7 +29,7 @@ from .auth import (
     require_admin as _require_admin,
     require_alumni as _require_alumni,
 )
-from .names import derive_last_name
+from .names import derive_last_name, names_match
 from .retracking import (
     RETRACKING_THRESHOLD_DAYS, employment_snapshot, graduate_first_name, last_retraced_at as _last_retraced_at,
     log_retracking_event, mark_retraced, needs_retracking, retracking_status, send_retracking_email,
@@ -269,14 +269,60 @@ def _find_master_record(
     if not family_name or not first_name:
         return None
 
-    qs = GraduateMasterRecord.objects.filter(
-        last_name__iexact=family_name,
-        full_name__icontains=first_name,
-        is_active=True,
-    )
+    # Compared in Python rather than with iexact/icontains: accents, stray
+    # punctuation or a badly derived stored last_name would otherwise leave a
+    # graduate who IS on the masterlist unmatched. A batch is a few hundred
+    # rows, so scanning it is cheap.
+    qs = GraduateMasterRecord.objects.filter(is_active=True)
     if graduation_year:
         qs = qs.filter(batch_year=graduation_year)
-    return qs.first()
+    for record in qs.order_by("created_at").only("id", "full_name", "last_name", "batch_year"):
+        if names_match(record.full_name, record.last_name, family_name, first_name):
+            return record
+    return None
+
+
+def _refresh_master_match(account: AlumniAccount, *, relink: bool = False) -> bool:
+    """Re-run the masterlist lookup for an existing account.
+
+    Registration only matches once, so an account stays "unmatched" when its
+    masterlist row is uploaded later or its name/batch is corrected afterwards.
+    Only unmatched accounts are touched unless relink is set (a name or batch
+    edit), in which case a stale link is also replaced or cleared. A pending
+    graduate who now matches is activated and emailed, the same as a matched
+    registration, and waits in Profile Review for the admin's check. Clearing
+    a link never deactivates an account. Returns True when the link changed.
+    """
+    if account.master_record_id and not relink:
+        return False
+    profile = AlumniProfile.objects.filter(alumni=account).only(
+        "first_name", "last_name", "graduation_year",
+    ).first()
+    if not profile:
+        return False
+    record = _find_master_record(profile.last_name, profile.first_name, profile.graduation_year)
+    if (record.id if record else None) == account.master_record_id:
+        return False
+    account.master_record = record
+    account.match_status = (
+        AlumniAccount.MatchStatus.MATCHED if record else AlumniAccount.MatchStatus.UNMATCHED
+    )
+    account.matched_at = timezone.now() if record else None
+    update_fields = ["master_record", "match_status", "matched_at", "updated_at"]
+    activated = bool(record) and account.account_status == AccountStatus.PENDING
+    if activated:
+        account.account_status = AccountStatus.ACTIVE
+        update_fields.append("account_status")
+    account.save(update_fields=update_fields)
+    if activated:
+        _send_approval_email(
+            to_email=account.user.email if account.user else "",
+            recipient_name=" ".join(
+                part.strip() for part in (profile.first_name, profile.last_name) if part and part.strip()
+            ),
+            is_employer=False,
+        )
+    return True
 
 def _normalize_storage_key(raw_value: str) -> str:
     cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw_value.strip())
@@ -2079,11 +2125,6 @@ class AlumniRegisterView(APIView):
             graduation_year=graduation_year,
         )
 
-        if master_record and family_name.lower() != master_record.last_name.lower():
-            return Response(
-                {"detail": "Family name does not match the graduate master record."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         storage_key_basis = email.split("@")[0]
         if master_record:
             storage_key_basis = master_record.full_name
@@ -2951,6 +2992,12 @@ class PendingAlumniListView(APIView):
         if _auth_error:
             return _auth_error
         try:
+            # Catch up graduates whose masterlist row arrived after they
+            # registered. A match activates them, moving them to Profile Review.
+            for account in AlumniAccount.objects.select_related("user").filter(
+                account_status=AccountStatus.PENDING, master_record__isnull=True,
+            ):
+                _refresh_master_match(account)
             pending_accounts = _alumni_dashboard_queryset(
                 AlumniAccount.objects.filter(account_status=AccountStatus.PENDING)
             ).order_by("-created_at")
@@ -3574,9 +3621,15 @@ class MasterlistBulkCreateView(APIView):
                     created.append({"id": str(obj.id), "name": obj.full_name, "batch_year": obj.batch_year})
                 else:
                     duplicates += 1
+            # Link graduates who registered before these rows existed.
+            rematched = 0
+            if created:
+                for account in AlumniAccount.objects.select_related("user").filter(master_record__isnull=True):
+                    rematched += _refresh_master_match(account)
         return Response(
             {
                 "created": len(created),
+                "rematched": rematched,
                 "duplicates": duplicates,
                 "entries": created,
             },
@@ -3764,6 +3817,8 @@ class DebugAlumniUpdateView(APIView):
                     account.save(update_fields=[*account_fields, "updated_at"])
                 if profile_changes:
                     AlumniProfile.objects.update_or_create(alumni=account, defaults=profile_changes)
+                    if {"first_name", "last_name", "graduation_year"} & profile_changes.keys():
+                        _refresh_master_match(account, relink=True)
                 if employment_status is not None:
                     EmploymentProfile.objects.update_or_create(
                         alumni=account, defaults={"employment_status": employment_status},
