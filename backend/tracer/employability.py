@@ -669,6 +669,12 @@ _CANONICAL_SKILLS = {
 }
 
 
+def canonical_skill(name: str, kind: str) -> tuple[str, str]:
+    """(name, "technical" | "soft") to show for a listed skill: the form list's
+    spelling and type when the name matches one, otherwise as stored."""
+    return _CANONICAL_SKILLS.get(skill_key(name), (name, kind))
+
+
 def rate_difference(k1: int, n1: int, k2: int, n2: int) -> tuple[float, float, float]:
     """Difference of two proportions with a Newcombe 95% interval (from the two
     Wilson intervals), which stays sensible when a group is all 1s or all 0s."""

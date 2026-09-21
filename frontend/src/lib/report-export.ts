@@ -20,6 +20,10 @@ type Cell = string | number | null | undefined;
 
 const SUBTITLE = 'Predictive Employability Trend';
 
+// The green of the ring in CHMSULogo.png (#047940). White on it is 5.5:1, so
+// table headers stay readable; the old green-600 was brighter and paler.
+const CHMSU_GREEN: [number, number, number] = [4, 121, 64];
+
 function formatTimestamp(iso: string): string {
   try {
     return new Date(iso).toLocaleString();
@@ -165,16 +169,16 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
 
   const headerImg = await loadHeaderImage();
   if (headerImg && headerImg.width && headerImg.height) {
-    const targetWidth = pageWidth - margin * 2;
     const ratio = headerImg.height / headerImg.width;
-    const targetHeight = Math.min(80, targetWidth * ratio);
-    doc.addImage(headerImg, 'PNG', margin, cursorY, targetWidth, targetHeight);
-    cursorY += targetHeight + 14;
+    const targetHeight = Math.min(80, (pageWidth - margin * 2) * ratio);
+    // Width follows the capped height, so a tall image is never squashed.
+    doc.addImage(headerImg, 'PNG', margin, cursorY, targetHeight / ratio, targetHeight);
+    cursorY += targetHeight + 24;
   }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
-  doc.setTextColor(21, 128, 61); // #15803d (green-700)
+  doc.setTextColor(...CHMSU_GREEN);
   doc.text(payload.title, margin, cursorY);
   cursorY += 22;
 
@@ -198,7 +202,7 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.setTextColor(21, 128, 61);
+    doc.setTextColor(...CHMSU_GREEN);
     doc.text(section.title, margin, cursorY);
     cursorY += 6;
 
@@ -206,22 +210,21 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
       startY: cursorY + 4,
       head: [section.columns],
       body: section.rows.map((r) => r.map((c) => (c == null ? '' : String(c)))),
-      theme: 'striped',
-      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontSize: 9 }, // #16a34a (green-600)
-      bodyStyles: { fontSize: 8.5, textColor: 40 },
-      alternateRowStyles: { fillColor: [240, 253, 244] }, // #f0fdf4 (green-50)
-      margin: { left: margin, right: margin },
-      didDrawPage: () => {
-        const pageNum = doc.getCurrentPageInfo().pageNumber;
-        const totalPages = doc.getNumberOfPages();
-        doc.setFontSize(8);
-        doc.setTextColor(150);
-        doc.text(
-          `Page ${pageNum} of ${totalPages}  ·  ${SUBTITLE}`,
-          margin,
-          doc.internal.pageSize.getHeight() - 18,
-        );
+      // Thin grey rules and grey banding instead of pale green, which washed
+      // out on paper and made long tables hard to follow across a row.
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 5, lineColor: [209, 213, 219], lineWidth: 0.5, overflow: 'linebreak' },
+      headStyles: { fillColor: CHMSU_GREEN, textColor: 255, fontStyle: 'bold', lineColor: CHMSU_GREEN },
+      bodyStyles: { textColor: [31, 41, 55] },
+      alternateRowStyles: { fillColor: [243, 244, 246] },
+      // Counts and percentages line up on the right. The first column is the
+      // row label (a batch year, "Total", a skill), so it stays on the left.
+      didParseCell: (data: { section: string; column: { index: number }; cell: { raw: unknown; styles: { halign: string } } }) => {
+        if (data.section === 'body' && data.column.index > 0 && /^[-+]?[\d,.]+%?$/.test(String(data.cell.raw ?? '').trim())) {
+          data.cell.styles.halign = 'right';
+        }
       },
+      margin: { left: margin, right: margin },
     });
 
     // jspdf-autotable mutates lastAutoTable on the doc instance.
@@ -231,6 +234,17 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
     if (section.title === 'Cross-Batch Timeline' && section.rows.length > 0) {
       cursorY = drawTimelineChart(doc, section, margin, cursorY, pageWidth);
     }
+  }
+
+  // Footers go on last, once the page count is final. Drawn per table they
+  // read "Page 1 of 1" on a longer report and skipped the chart's pages.
+  const totalPages = doc.getNumberOfPages();
+  for (let page = 1; page <= totalPages; page++) {
+    doc.setPage(page);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(`Page ${page} of ${totalPages}  ·  ${SUBTITLE}`, margin, doc.internal.pageSize.getHeight() - 18);
   }
 
   doc.save(safeFilename(payload.title, 'pdf'));
@@ -324,12 +338,12 @@ function drawTimelineChart(
       points.push({ x, y });
     });
 
-    doc.setDrawColor(22, 163, 74);
+    doc.setDrawColor(...CHMSU_GREEN);
     doc.setLineWidth(1.2);
     for (let i = 0; i < points.length - 1; i++) {
       doc.line(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
     }
-    doc.setFillColor(22, 163, 74);
+    doc.setFillColor(...CHMSU_GREEN);
     for (const p of points) {
       doc.circle(p.x, p.y, 1.6, 'F');
     }

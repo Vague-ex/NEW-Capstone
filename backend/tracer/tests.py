@@ -1509,3 +1509,33 @@ class CurrentYearGraduatesToggleTests(TestCase):
 		changed = client.patch(url, {"survey_data": {"graduationDate": f"{self.year}-02"}}, format="json")
 		self.assertEqual(changed.status_code, 400)
 		self.assertIn("graduationDate", changed.data["field_errors"])
+
+
+class SkillsInventoryReportTests(TestCase):
+	"""Spelling variants of one skill are one row, counted once per graduate."""
+
+	def test_spelling_variants_are_one_skill(self):
+		from .models import AlumniSkill, Skill, SkillCategory
+
+		admin = User.objects.create_user(email="skills-admin@example.com", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True)
+		# Migrations already seed some of these, so reuse them.
+		technical = SkillCategory.objects.get_or_create(name="Technical")[0]
+		skill = lambda name: Skill.objects.get_or_create(name=name, defaults={"category": technical})[0]
+		python, lower = skill("Python"), skill("python")
+		support, support_old = skill("Technical Support / Troubleshooting"), skill("Technical Support/Troubleshooting")
+		for i, skills in enumerate(([python, lower, support], [lower, support_old])):
+			user = User.objects.create_user(email=f"skills-grad{i}@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+			account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+			AlumniProfile.objects.create(alumni=account, first_name="Ana", last_name=["Cruz", "Reyes"][i], graduation_year=2023)
+			for skill in skills:
+				AlumniSkill.objects.create(alumni=account, skill=skill)
+
+		# The source filter uses a JSON lookup SQLite lacks; the counting is what is tested.
+		with _patch("tracer.reports_api._alumni_qs", return_value=AlumniAccount.objects.select_related("profile")):
+			response = APIClient().get(
+				"/api/admin/reports/skills-inventory/?batch_start=2023&batch_end=2023",
+				HTTP_AUTHORIZATION=f"Bearer {generate_admin_access_token(admin.id)}",
+			)
+		self.assertEqual(response.status_code, 200)
+		rows = {row[0]: row[1] for row in response.json()["sections"][0]["rows"]}
+		self.assertEqual(rows, {"Python": 2, "Technical Support/Troubleshooting": 2})

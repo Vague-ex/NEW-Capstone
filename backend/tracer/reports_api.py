@@ -608,21 +608,34 @@ class SkillsInventoryReportView(APIView):
         # AlumniSkill is what registration and My Skills write; the old
         # CompetencyProfile lists are only a fallback for older records.
         listed = employability.graduate_skills(acc.id for acc in accounts)
+        labels: dict[str, str] = {}
         for acc in accounts:
             year = _grad_year(acc)
             n_overall += 1
             if year is not None:
                 n_per_batch[year] += 1
-            for name, kind in listed.get(str(acc.id), []):
+            counted: set[str] = set()
+            for name, listed_kind in listed.get(str(acc.id), []):
+                # "Python" and "python", or "Technical Support / Troubleshooting"
+                # and "Technical Support/Troubleshooting", are one skill counted
+                # once per graduate, named and typed as on the Analytics tab.
+                key = employability.skill_key(name)
+                label, kind = employability.canonical_skill(name, listed_kind)
+                # Prefer "Python" over a typed-in "python" as the row name.
+                if key not in labels or labels[key].islower():
+                    labels[key] = label
+                if key in counted:
+                    continue
+                counted.add(key)
                 overall, per_batch = (soft_overall, per_batch_soft) if kind == "soft" else (tech_overall, per_batch_tech)
-                overall[name] += 1
+                overall[key] += 1
                 if year is not None:
-                    per_batch[year][name] += 1
+                    per_batch[year][key] += 1
 
         def _top_rows(counter: Counter, total: int, top_n: int = 12):
             out = []
-            for name, freq in counter.most_common(top_n):
-                out.append([name, freq, _pct(freq, total)])
+            for key, freq in counter.most_common(top_n):
+                out.append([labels[key], freq, _pct(freq, total)])
             return out
 
         sections = [
