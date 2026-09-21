@@ -1045,11 +1045,11 @@ export function AdminVerified() {
   const [backendVerified, setBackendVerified] = useState<AlumniRecord[]>([]);
   const [loadingVerified, setLoadingVerified] = useState(true);
   const [fetchError, setFetchError] = useState('');
-  const [search, setSearch] = useState('');
+  // The dashboard links here with ?retracing=needs, the debug page with ?q=<name>.
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get('q') ?? '');
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
-  // The dashboard links here with ?retracing=needs.
-  const [searchParams] = useSearchParams();
   const [filterRetrace, setFilterRetrace] = useState(searchParams.get('retracing') === 'needs' ? 'needs' : 'all');
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
   // Which tab the details window opens on ("History" button opens it straight there).

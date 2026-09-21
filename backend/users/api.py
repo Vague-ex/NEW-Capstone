@@ -3062,14 +3062,15 @@ class VerifiedAlumniListView(APIView):
         #   the Verified Graduates list shows real graduates, plus the seeded
         #   ones only while "show simulated accounts" is on.
         settings = employability.debug_settings()
+        active = AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
         if request.query_params.get("purpose") == "analytics":
-            source = settings["source"]
-        else:
-            source = None if settings["show_samples_in_verified"] else employability.SOURCE_REAL
+            active = employability.filter_source(active, settings["source"])
+        elif not settings["show_samples_in_verified"]:
+            # Demo graduates (/admin/debug/a) stay listed: they exist to show
+            # this page's badges and history.
+            active = active.filter(~employability.sample_q() | employability.demo_q())
         try:
-            verified_accounts = _alumni_dashboard_queryset(
-                employability.filter_source(AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE), source)
-            ).order_by("-updated_at")
+            verified_accounts = _alumni_dashboard_queryset(active).order_by("-updated_at")
             results = [_admin_alumni_payload(account) for account in verified_accounts]
         except (OperationalError, DatabaseError):
             return _temporary_admin_data_unavailable_response("Verified alumni")
@@ -3516,8 +3517,15 @@ class MasterlistListView(APIView):
             return _auth_error
         from collections import Counter
         qs = GraduateMasterRecord.objects.all().order_by("batch_year", "full_name")
+        # Whether each listed graduate has an account in the system: the
+        # registration match (or a later re-match) links the account here.
+        linked = dict(
+            AlumniAccount.objects.filter(master_record__isnull=False)
+            .values_list("master_record_id", "account_status")
+        )
         entries = [
-            {"id": str(r.id), "name": r.full_name, "graduationYear": r.batch_year}
+            {"id": str(r.id), "name": r.full_name, "graduationYear": r.batch_year,
+             "accountStatus": linked.get(r.id)}
             for r in qs
         ]
         per_batch = Counter(e["graduationYear"] for e in entries if e["graduationYear"] is not None)
@@ -3651,6 +3659,9 @@ class MasterlistBulkCreateView(APIView):
 # corresponding endpoints/UI. Treat it as if it does not exist for spec
 # purposes — it's a maintenance hatch, not a feature.
 # ─────────────────────────────────────────────────────────────────────────────
+
+from .demo_accounts import delete_demo_accounts, demo_accounts_payload, is_demo_account, reset_demo_accounts
+
 
 class DebugAccountListView(APIView):
     """List all accounts across roles for debug purposes."""
@@ -3909,7 +3920,9 @@ class DebugSimulatedAccountsDeleteView(APIView):
         try:
             with transaction.atomic():
                 user_ids = list(
-                    AlumniAccount.objects.filter(employability.sample_q()).values_list("user_id", flat=True)
+                    AlumniAccount.objects.filter(employability.sample_q())
+                    .exclude(employability.demo_q())
+                    .values_list("user_id", flat=True)
                 )
                 User.objects.filter(id__in=user_ids).delete()
         except (DatabaseError, OperationalError) as exc:
@@ -3917,6 +3930,67 @@ class DebugSimulatedAccountsDeleteView(APIView):
         for source in (*employability.SOURCES, None):
             cache.delete(employability.frame_cache_key(source))
         return Response({"deleted": len(user_ids)}, status=status.HTTP_200_OK)
+
+
+class DebugDemoAccountsView(APIView):
+    """The demo graduates on /admin/debug/a, one per UI state (see
+    users/demo_accounts.py). GET lists them, POST recreates all of them in
+    their starting state, DELETE removes them."""
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        return Response({"accounts": demo_accounts_payload()}, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            reset_demo_accounts(getattr(admin_user, "email", ""))
+        except (DatabaseError, OperationalError) as exc:
+            return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({"accounts": demo_accounts_payload()}, status=status.HTTP_200_OK)
+
+    def delete(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            deleted = delete_demo_accounts()
+        except (DatabaseError, OperationalError) as exc:
+            return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({"deleted": deleted, "accounts": demo_accounts_payload()}, status=status.HTTP_200_OK)
+
+
+class DebugDemoOpenView(APIView):
+    """Give the admin's browser a graduate session for one demo graduate, to
+    show the graduate side of a state. Demo accounts have no password or face,
+    so this is their only way in; real graduates are refused."""
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, account_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        account = _alumni_dashboard_queryset(AlumniAccount.objects.filter(id=account_id)).first()
+        if not account or not is_demo_account(account):
+            return Response({"detail": "Only demo graduates can be opened."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "alumni": _session_payload_from_alumni(account),
+                "accessToken": _generate_alumni_access_token(account.user_id),
+                "tokenType": "Bearer",
+                "expiresIn": _ALUMNI_TOKEN_TTL_SECONDS,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DebugAccountDeleteView(APIView):

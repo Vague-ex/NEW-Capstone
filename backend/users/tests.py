@@ -566,6 +566,68 @@ class DebugFaceHarnessTests(TestCase):
 		self.assertFalse(AlumniAccount.objects.filter(user__email__endswith="@debug.local").exists())
 
 
+@patch("tracer.employability.debug_settings", return_value={"source": "real", "show_samples_in_verified": False})
+class DemoAccountsTests(TestCase):
+	"""/admin/debug/a demo graduates: each lands in the state its card promises,
+	stays out of both analytics sources, and only they can be opened."""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(email="demo-admin@example.com", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True)
+		self.auth = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		response = self.client.post("/api/admin/debug/demo-accounts/", {}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 200)
+		self.rows = {row["key"]: row for row in response.data["accounts"]}
+
+	def account(self, key):
+		return AlumniAccount.objects.select_related("user", "profile").get(id=self.rows[key]["id"])
+
+	def test_each_scenario_is_in_its_state(self, _settings):
+		from tracer import employability
+
+		self.assertTrue(all(row["id"] for row in self.rows.values()))
+		self.assertTrue(self.rows["awaiting"]["verifyTokenId"])
+		self.assertEqual(self.account("pending").account_status, AccountStatus.PENDING)
+		self.assertIsNone(self.account("review").profile_reviewed_at)
+		self.assertTrue(api._needs_employer_invite(self.account("invite")))
+		self.assertFalse(api._needs_employer_invite(self.account("awaiting")))
+		self.assertTrue(api._needs_retracking(self.account("retracking")))
+		self.assertFalse(api._needs_retracking(self.account("history")))
+
+		history = self.client.get(f"/api/admin/alumni/{self.rows['history']['id']}/retracking-history/", **self.auth).data
+		self.assertEqual(history["summary"], {"confirmations": 2, "lateConfirmations": 1, "reminders": 2, "employerDecisions": 2})
+		denied = self.client.get(f"/api/admin/alumni/{self.rows['denied']['id']}/retracking-history/", **self.auth).data
+		self.assertTrue(any(e["kind"] == "employer_denied" and e["flagged"] for e in denied["events"]))
+
+		demo = AlumniAccount.objects.filter(employability.demo_q())
+		self.assertEqual(employability.filter_source(demo, "real").count(), 0)
+		self.assertEqual(employability.filter_source(demo, "simulated").count(), 0)
+		listed = {r["id"] for r in self.client.get("/api/admin/alumni/verified/", **self.auth).data["results"]}
+		self.assertEqual(listed, {row["id"] for key, row in self.rows.items() if key != "pending"})
+
+	def test_open_gives_a_graduate_session_for_demo_accounts_only(self, _settings):
+		response = self.client.post(f"/api/admin/debug/demo-accounts/{self.rows['retracking']['id']}/open/", {}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 200)
+		self.assertTrue(response.data["alumni"]["requiresRetracking"])
+		me = self.client.get(
+			f"/api/auth/alumni/account/{self.rows['retracking']['id']}/",
+			HTTP_AUTHORIZATION=f"Bearer {response.data['accessToken']}",
+		)
+		self.assertEqual(me.status_code, 200)
+
+		real = AlumniAccount.objects.create(user=User.objects.create_user(email="real.grad@example.com", password="x"))
+		response = self.client.post(f"/api/admin/debug/demo-accounts/{real.id}/open/", {}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 404)
+
+	def test_reset_and_delete_leave_nothing_behind(self, _settings):
+		self.client.post("/api/admin/debug/demo-accounts/", {}, format="json", **self.auth)
+		self.assertEqual(AlumniAccount.objects.filter(user__email__startswith="demo.").count(), 7)
+		response = self.client.delete("/api/admin/debug/demo-accounts/", **self.auth)
+		self.assertEqual(response.data["deleted"], 7)
+		self.assertFalse(AlumniAccount.objects.filter(user__email__startswith="demo.").exists())
+		self.assertFalse(VerificationDecision.objects.exists())
+
+
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 

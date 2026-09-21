@@ -40,6 +40,20 @@ Juan dela Cruz,2024
 Maria Reyes,2024
 Pedro Santos,2025`;
 
+/** Whether this masterlist graduate has an account in the system. */
+function RegistrationBadge({ status }: { status: MasterlistEntry['accountStatus'] }) {
+  const look = status === 'active'
+    ? { text: 'Registered', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
+    : status
+      ? { text: `Registered · ${status}`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+      : { text: 'Not registered', cls: 'bg-gray-50 text-gray-500 border-gray-200' };
+  return (
+    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${look.cls}`} style={{ fontWeight: 600 }}>
+      {look.text}
+    </span>
+  );
+}
+
 export function AdminBatchUpload() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'csv' | 'manual'>('csv');
@@ -66,6 +80,7 @@ export function AdminBatchUpload() {
   const [masterEntries, setMasterEntries] = useState<MasterlistEntry[]>([]);
   const [showMasterList, setShowMasterList] = useState(false);
   const [masterSearch, setMasterSearch] = useState('');
+  const [masterFilter, setMasterFilter] = useState<'all' | 'registered' | 'unregistered'>('all');
   const refreshMasterlist = useCallback(() => {
     fetchMasterlist()
       .then((d) => {
@@ -79,9 +94,11 @@ export function AdminBatchUpload() {
   }, []);
   useEffect(() => { refreshMasterlist(); }, [refreshMasterlist]);
 
+  const registeredCount = masterEntries.filter(m => m.accountStatus).length;
   const filteredMaster = masterEntries.filter(m =>
-    !masterSearch.trim() || m.name.toLowerCase().includes(masterSearch.trim().toLowerCase())
-    || String(m.graduationYear ?? '').includes(masterSearch.trim()));
+    (masterFilter === 'all' || (masterFilter === 'registered') === Boolean(m.accountStatus))
+    && (!masterSearch.trim() || m.name.toLowerCase().includes(masterSearch.trim().toLowerCase())
+      || String(m.graduationYear ?? '').includes(masterSearch.trim())));
 
   const totalMaster = masterTotal ?? MASTER_LIST.length;
   // Tiles follow the batches actually on file (e.g. 2019), not only 2020 onward,
@@ -338,6 +355,14 @@ export function AdminBatchUpload() {
             })}
           </div>
 
+          {masterTotal !== null && (
+            <p className="mt-3 text-xs text-gray-500">
+              <span className="text-emerald-700" style={{ fontWeight: 700 }}>{registeredCount}</span> registered in the system
+              {' · '}
+              <span className="text-gray-700" style={{ fontWeight: 700 }}>{masterEntries.length - registeredCount}</span> not yet registered
+            </p>
+          )}
+
           {/* View master list */}
           <div className="mt-4 border-t border-gray-100 pt-3">
             <button
@@ -349,21 +374,34 @@ export function AdminBatchUpload() {
             </button>
             {showMasterList && (
               <div className="mt-3">
-                <input
-                  type="text"
-                  value={masterSearch}
-                  onChange={e => setMasterSearch(e.target.value)}
-                  placeholder="Search name or year…"
-                  className="w-full mb-2 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#166534]"
-                />
+                <div className="mb-2 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="text"
+                    value={masterSearch}
+                    onChange={e => setMasterSearch(e.target.value)}
+                    placeholder="Search name or year…"
+                    className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[#166534]"
+                  />
+                  <select
+                    value={masterFilter}
+                    onChange={e => setMasterFilter(e.target.value as typeof masterFilter)}
+                    aria-label="Filter by registration"
+                    className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#166534]"
+                  >
+                    <option value="all">Everyone</option>
+                    <option value="registered">Registered</option>
+                    <option value="unregistered">Not registered</option>
+                  </select>
+                </div>
                 <div className="max-h-72 xl:max-h-[28rem] overflow-y-auto rounded-xl border border-gray-100 divide-y divide-gray-50">
                   {filteredMaster.length === 0 ? (
                     <p className="px-3 py-4 text-center text-gray-400 text-xs">No matching records.</p>
                   ) : (
                     filteredMaster.map(m => (
-                      <div key={m.id} className="flex items-center justify-between px-3 py-2">
-                        <span className="text-gray-700 text-sm truncate">{m.name}</span>
-                        <span className="text-gray-400 text-xs shrink-0 ml-2">Batch {m.graduationYear ?? '—'}</span>
+                      <div key={m.id} className="flex items-center gap-2 px-3 py-2">
+                        <span className="min-w-0 flex-1 text-gray-700 text-sm truncate">{m.name}</span>
+                        <RegistrationBadge status={m.accountStatus} />
+                        <span className="text-gray-400 text-xs shrink-0">Batch {m.graduationYear ?? '—'}</span>
                       </div>
                     ))
                   )}

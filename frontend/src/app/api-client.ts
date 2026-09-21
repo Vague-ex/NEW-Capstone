@@ -700,7 +700,13 @@ export async function deleteAdmin(id: string): Promise<void> {
     await throwIfNotOk(response);
 }
 
-export interface MasterlistEntry { id: string; name: string; graduationYear: number | null; }
+export interface MasterlistEntry {
+    id: string;
+    name: string;
+    graduationYear: number | null;
+    /** Status of the graduate account linked to this row, or null when nobody has registered as them. */
+    accountStatus: 'active' | 'pending' | 'rejected' | 'suspended' | null;
+}
 export interface MasterlistData {
     total: number;
     perBatch: { year: number; count: number }[];
@@ -1069,6 +1075,42 @@ export async function updateDebugAlumni(id: string, changes: DebugAlumniUpdate):
 
 export async function deleteDebugSimulatedAccounts(): Promise<{ deleted: number }> {
     const response = await fetch(`${API_BASE_URL}/api/admin/debug/simulated-accounts/delete/`, {
+        method: 'POST',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+// ── Demo graduates (backs the Demo accounts section of /admin/debug/a) ──────
+
+export interface DemoAccount {
+    key: string;
+    title: string;
+    /** What the graduate side shows, and what the admin side shows. */
+    graduate: string;
+    admin: string;
+    adminPath: string;
+    email: string;
+    /** null until the demo accounts are created. */
+    id: string | null;
+    /** The unanswered employer link, when this graduate has one. */
+    verifyTokenId: string | null;
+}
+
+/** GET lists the demo graduates, POST recreates them all, DELETE removes them. */
+export async function demoAccountsRequest(method: 'GET' | 'POST' | 'DELETE' = 'GET'): Promise<DemoAccount[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/demo-accounts/`, {
+        method,
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return (await response.json()).accounts;
+}
+
+/** A graduate session for one demo graduate (they have no password or face). */
+export async function openDemoAccount(id: string): Promise<{ alumni: AlumniSession; accessToken: string }> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/demo-accounts/${id}/open/`, {
         method: 'POST',
         headers: withAdminAuthHeaders(),
     });

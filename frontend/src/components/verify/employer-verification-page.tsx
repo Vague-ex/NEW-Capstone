@@ -19,7 +19,7 @@
  * it, so the page must never present it as optional.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import {
   ApiClientError,
@@ -83,6 +83,69 @@ function Section({ id, step, title, subtitle, children }: {
   );
 }
 
+/**
+ * Shown before the form: whose record this is and what the answers are used
+ * for. The employer may not know the University, so this is said up front
+ * rather than only in the fine print of the feedback form.
+ */
+function PurposeNotice({ graduateName, onAccept }: { graduateName: string; onAccept: () => void }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    buttonRef.current?.focus({ preventScroll: true });
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="purpose-title"
+        className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white text-gray-900 shadow-2xl sm:max-w-lg sm:rounded-2xl"
+      >
+        <div className="flex-1 overflow-y-auto px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-[#166534]/10 mb-3">
+            <ShieldCheck className="size-5 text-[#166534]" />
+          </div>
+          <h2 id="purpose-title" className="text-gray-900 text-lg" style={{ fontWeight: 700 }}>Before you begin</h2>
+          <p className="text-gray-700 text-sm mt-2 leading-relaxed">
+            This form is about your employee <span style={{ fontWeight: 700 }}>{graduateName}</span>, a BSIS graduate
+            of Carlos Hilado Memorial State University. The graduate sent you this link.
+          </p>
+          <p className="text-gray-900 text-sm mt-4" style={{ fontWeight: 700 }}>Your answers are used only to:</p>
+          <ul className="mt-1.5 space-y-1.5 text-sm text-gray-700 list-disc pl-5">
+            <li>confirm this graduate&apos;s employment record in the BSIS Graduate Tracer, and</li>
+            <li>produce anonymous, batch-level reports that help the BSIS program improve its curriculum.</li>
+          </ul>
+          <p className="text-gray-900 text-sm mt-4" style={{ fontWeight: 700 }}>Your answers are never:</p>
+          <ul className="mt-1.5 space-y-1.5 text-sm text-gray-700 list-disc pl-5">
+            <li>shown to the graduate,</li>
+            <li>shared with other employers or the public, or</li>
+            <li>used for any decision about the graduate&apos;s job.</li>
+          </ul>
+          <p className="text-gray-600 text-xs mt-4 leading-relaxed">
+            Handled under RA 10173, the Data Privacy Act of 2012. If you do not know this graduate, answer
+            &quot;No&quot; to the first question.
+          </p>
+        </div>
+        <div className="shrink-0 border-t border-gray-200 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={onAccept}
+            className="min-h-12 w-full rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
+            style={{ fontWeight: 600 }}
+          >
+            I understand, continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function EmployerVerificationPage() {
   const { tokenId = '' } = useParams();
   const { data: referenceData } = useReferenceData();
@@ -102,6 +165,7 @@ export function EmployerVerificationPage() {
   const [verifierEmail, setVerifierEmail] = useState('');
   const [verifierPosition, setVerifierPosition] = useState('');
 
+  const [noticeAccepted, setNoticeAccepted] = useState(false);
   const [evaluation, setEvaluation] = useState<EmployerEvaluationPayload | null>(null);
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -278,7 +342,7 @@ export function EmployerVerificationPage() {
                   }`}
                   style={{ fontWeight: 600 }}
                 >
-                  <CheckCircle2 className="size-5" /> Yes, they work here
+                  <CheckCircle2 className="size-5" /> Yes
                 </button>
                 <button
                   type="button"
@@ -289,13 +353,13 @@ export function EmployerVerificationPage() {
                   }`}
                   style={{ fontWeight: 600 }}
                 >
-                  <XCircle className="size-5" /> No, they do not
+                  <XCircle className="size-5" /> No
                 </button>
               </div>
             </Section>
 
             {worksHere === true && (
-              <Section id="section-job" step={2} title="Job details" subtitle="As they appear in your records.">
+              <Section id="section-job" step={2} title="Job details" subtitle="As shown in your records.">
                 <div className="space-y-4">
                   <Field label="Organisation name" required htmlFor="v-org">
                     <input id="v-org" value={employerName} onChange={(e) => setEmployerName(e.target.value)}
@@ -424,6 +488,10 @@ export function EmployerVerificationPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {stage === 'form' && !noticeAccepted && (
+        <PurposeNotice graduateName={graduateName} onAccept={() => setNoticeAccepted(true)} />
       )}
 
       <EvaluationFormModal

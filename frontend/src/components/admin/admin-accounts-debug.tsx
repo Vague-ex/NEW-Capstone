@@ -6,7 +6,8 @@
 //   - switch the analytics (dashboard, reports, geomap, model) between real
 //     graduates and the seeded simulated graduates,
 //   - choose whether simulated graduates appear in Verified Graduates,
-//   - edit or delete individual graduate accounts.
+//   - edit or delete individual graduate accounts,
+//   - create demo graduates, one per UI state, and open their graduate view.
 //
 // Reachable by URL only (no sidebar entry) — see routes.tsx.
 //
@@ -15,10 +16,17 @@
 //   grep -RnE 'DEBUG-ONLY:CurrenChanDebug' backend/ frontend/
 // ─────────────────────────────────────────────────────────────────────────────
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Database, FlaskConical, Pencil, RefreshCw, Search, Trash2, X } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import {
+  AlertCircle, Building2, Database, Eye, FlaskConical, Pencil, RefreshCw, Search, Shield, Trash2, X,
+} from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
 import {
+  ALUMNI_ACCESS_TOKEN_KEY,
   ApiClientError,
+  demoAccountsRequest,
+  openDemoAccount,
+  type DemoAccount,
   deleteDebugAccount,
   deleteDebugSimulatedAccounts,
   fetchDebugAccounts,
@@ -244,6 +252,8 @@ export function AdminAccountsDebug() {
           </section>
         </div>
 
+        <DemoAccountsSection />
+
         {/* ── Accounts ────────────────────────────────────────────────────── */}
         <section className="rounded-2xl border border-gray-100 bg-white shadow-sm">
           <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
@@ -337,6 +347,136 @@ export function AdminAccountsDebug() {
         />
       )}
     </PortalLayout>
+  );
+}
+
+/**
+ * One demo graduate per state the system can be in, so a panel can be shown
+ * every notification, button and history row from both sides. Seeded and
+ * described by the backend (users/demo_accounts.py).
+ */
+function DemoAccountsSection() {
+  const navigate = useNavigate();
+  const [accounts, setAccounts] = useState<DemoAccount[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    demoAccountsRequest().then(setAccounts).catch(err => setError(errorText(err, 'Could not load the demo accounts.')));
+  }, []);
+
+  const run = async (method: 'POST' | 'DELETE') => {
+    if (method === 'DELETE' && !window.confirm('Delete all demo graduates?')) return;
+    setBusy(true);
+    setError('');
+    try {
+      setAccounts(await demoAccountsRequest(method));
+    } catch (err) {
+      setError(errorText(err, 'Could not update the demo accounts.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The graduate session sits next to the admin one in sessionStorage, so
+  // /admin/debug/a still works afterwards (or just press Back).
+  const openGraduate = async (id: string) => {
+    setError('');
+    try {
+      const { alumni, accessToken } = await openDemoAccount(id);
+      sessionStorage.setItem('alumni_user', JSON.stringify(alumni));
+      sessionStorage.setItem(ALUMNI_ACCESS_TOKEN_KEY, accessToken);
+      navigate(alumni.verificationStatus === 'verified' ? '/alumni/dashboard' : '/alumni/pending');
+    } catch (err) {
+      setError(errorText(err, 'Could not open this graduate.'));
+    }
+  };
+
+  const created = accounts.some(a => a.id);
+  const linkCls = 'inline-flex min-h-10 items-center gap-1.5 rounded-lg border px-3 text-xs';
+
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Demo accounts</h3>
+          <p className="text-gray-500 text-xs mt-1 max-w-3xl">
+            One graduate per state, to show every notification, button and history row from both sides.
+            They never count in analytics. Reset puts them all back to their starting state (use it after a demo
+            opens the employer pop-up or answers the employer link).
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => void run('POST')}
+            disabled={busy}
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#166534] px-4 text-sm text-white hover:bg-[#14532d] disabled:opacity-60 sm:flex-none"
+            style={{ fontWeight: 600 }}
+          >
+            <RefreshCw className={`size-4 ${busy ? 'animate-spin' : ''}`} /> {created ? 'Reset demo accounts' : 'Create demo accounts'}
+          </button>
+          {created && (
+            <button
+              type="button"
+              onClick={() => void run('DELETE')}
+              disabled={busy}
+              aria-label="Delete demo accounts"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-red-200 px-3 text-sm text-red-700 hover:bg-red-50 disabled:opacity-60"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <AlertCircle className="size-4 shrink-0 mt-0.5" /> {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+        {accounts.map(a => (
+          <article key={a.key} className="flex flex-col rounded-xl border border-gray-200 p-4">
+            <p className="text-sm text-gray-900" style={{ fontWeight: 700 }}>{a.title}</p>
+            <p className="truncate text-[11px] text-gray-500">{a.email}</p>
+            <dl className="mt-3 flex-1 space-y-2 text-xs">
+              <div>
+                <dt className="text-gray-500" style={{ fontWeight: 600 }}>Graduate sees</dt>
+                <dd className="text-gray-700">{a.graduate}</dd>
+              </div>
+              <div>
+                <dt className="text-gray-500" style={{ fontWeight: 600 }}>Admin sees</dt>
+                <dd className="text-gray-700">{a.admin}</dd>
+              </div>
+            </dl>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => a.id && void openGraduate(a.id)}
+                disabled={!a.id}
+                className={`${linkCls} border-[#166534]/30 text-[#166534] hover:bg-[#166534]/5 disabled:opacity-40`}
+                style={{ fontWeight: 600 }}
+              >
+                <Eye className="size-3.5" /> Graduate view
+              </button>
+              <Link to={a.adminPath} className={`${linkCls} border-gray-200 text-gray-700 hover:bg-gray-50`}>
+                <Shield className="size-3.5" /> Admin view
+              </Link>
+              {a.verifyTokenId && (
+                <Link to={`/verify/${a.verifyTokenId}`} className={`${linkCls} border-gray-200 text-gray-700 hover:bg-gray-50`}>
+                  <Building2 className="size-3.5" /> Employer link
+                </Link>
+              )}
+            </div>
+          </article>
+        ))}
+        {accounts.length === 0 && !error && (
+          <p className="text-sm text-gray-400">Loading…</p>
+        )}
+      </div>
+    </section>
   );
 }
 

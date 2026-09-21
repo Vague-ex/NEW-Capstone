@@ -380,7 +380,7 @@ class Command(BaseCommand):
     def _clear(self) -> int:
         from users.models import AlumniAccount, User
 
-        samples = AlumniAccount.objects.filter(employability.sample_q())
+        samples = AlumniAccount.objects.filter(employability.sample_q()).exclude(employability.demo_q())
         user_ids = list(samples.values_list("user_id", flat=True))
         with transaction.atomic():
             User.objects.filter(id__in=user_ids).delete()

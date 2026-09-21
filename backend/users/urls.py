@@ -30,6 +30,8 @@ from .api import (
     DebugAccountDeleteView,
     DebugAlumniUpdateView,
     DebugAnalyticsSettingsView,
+    DebugDemoAccountsView,
+    DebugDemoOpenView,
     DebugSimulatedAccountsDeleteView,
     DebugFaceAccountView,
     DebugFaceEnginesView,
@@ -133,6 +135,12 @@ urlpatterns = [
         "admin/debug/simulated-accounts/delete/",
         DebugSimulatedAccountsDeleteView.as_view(),
         name="debug-simulated-accounts-delete",
+    ),
+    path("admin/debug/demo-accounts/", DebugDemoAccountsView.as_view(), name="debug-demo-accounts"),
+    path(
+        "admin/debug/demo-accounts/<uuid:account_id>/open/",
+        DebugDemoOpenView.as_view(),
+        name="debug-demo-open",
     ),
     # Face / liveness harness — backs /admin/debug/face.
     path(

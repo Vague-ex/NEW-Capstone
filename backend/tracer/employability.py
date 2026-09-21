@@ -206,12 +206,31 @@ def sample_q(prefix: str = ""):
     )
 
 
+# region DEBUG-ONLY:CurrenChanDebug
+# Demo graduates (/admin/debug/a, users/demo_accounts.py): one account per UI
+# state, for walking a panel through the system. They use the sample email
+# domain, so sample_q already keeps them out of real analytics.
+DEMO_EMAIL_PREFIX = "demo."
+
+
+def demo_q(prefix: str = ""):
+    """Q matching the demo graduates, same prefix rule as sample_q."""
+    from django.db.models import Q
+
+    return Q(**{
+        f"{prefix}user__email__istartswith": DEMO_EMAIL_PREFIX,
+        f"{prefix}user__email__iendswith": "@" + SAMPLE_EMAIL_DOMAIN,
+    })
+# endregion DEBUG-ONLY:CurrenChanDebug
+
+
 def filter_source(queryset, source: str | None, prefix: str = ""):
-    """Keep only real graduates, only seeded ones, or (source None) everyone."""
+    """Keep only real graduates, only seeded ones, or (source None) everyone.
+    Demo graduates are in neither source: they are UI states, not data."""
     if source == SOURCE_REAL:
         return queryset.exclude(sample_q(prefix))
     if source == SOURCE_SIMULATED:
-        return queryset.filter(sample_q(prefix))
+        return queryset.filter(sample_q(prefix)).exclude(demo_q(prefix))
     return queryset
 
 
