@@ -15,7 +15,7 @@ import { jobTitleProblem } from '../app/job-titles';
 import { describeGpsFailure, geocoderCityName, locateDevice } from '../app/geolocation';
 import HomeLocationMap from './home-location-map';
 import {
-  Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft,
+  Briefcase, MapPin, Award, BookOpen, ChevronRight, ChevronLeft, ChevronDown,
   AlertCircle, CheckCircle2, Code, Users, Loader, X, LocateFixed,
 } from 'lucide-react';
 import {
@@ -23,6 +23,8 @@ import {
   provincesApi,
   citiesApi,
   locationApi,
+  FALLBACK_BSIS_CORE_SKILLS,
+  type SkillItem,
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
@@ -94,21 +96,7 @@ const EMPLOYMENT_STEP_CONFIG = [
   { n: 6 as EmploymentStep, label: 'Skills & Competency' },
 ];
 
-const TECHNICAL_SKILLS = [
-  'Programming/Software Development',
-  'Web Development',
-  'Mobile App Development',
-  'Database Management',
-  'Network Administration',
-  'Cloud Computing',
-  'Data Analytics/Business Intelligence',
-  'System Analysis and Design',
-  'Technical Support/Troubleshooting',
-  'Project Management',
-  'UI/UX Design',
-  'Cybersecurity/Information Security',
-];
-
+// Offline fallback only; the soft picker normally lists the "Soft" category.
 const SOFT_SKILLS = [
   'Oral Communication',
   'Written Communication',
@@ -121,6 +109,47 @@ const SOFT_SKILLS = [
   'Ability to Work Under Pressure',
   'Time Management',
 ];
+
+type SkillGroup = { label: string; skills: string[] };
+
+// Case- and spacing-insensitive, so "SQL" and "sql", or "Technical Support /
+// Troubleshooting" and "Technical Support/Troubleshooting", appear once.
+const skillKey = (name: string) => name.toLowerCase().replace(/\s+/g, '');
+
+/**
+ * The skills catalog grouped by category for one picker: the "Soft" category,
+ * or every other category (the backend counts anything not "Soft" as
+ * technical). CHED's BSIS core list comes first so its spelling wins over
+ * duplicates; skills saved by past registrations ("Technical") go last as Other.
+ */
+function groupSkills(skills: SkillItem[], soft: boolean): SkillGroup[] {
+  const softKeys = new Set(
+    [...SOFT_SKILLS, ...skills.filter((s) => s.category_name === 'Soft').map((s) => s.name)].map(skillKey),
+  );
+  const labelOf = (category: string | null) =>
+    !category || category === 'Technical'
+      ? 'Other'
+      // "Data & AI" and "Data and AI" were seeded separately; show one group.
+      : category.replace(/ and /g, ' & ');
+  const rank = (label: string) => (label === 'BSIS Core Competencies' ? 0 : label === 'Other' ? 2 : 1);
+
+  const rows = skills
+    .filter((s) => s.is_active && (s.category_name === 'Soft') === soft)
+    .map((s) => ({ name: s.name, label: soft ? 'Soft Skills' : labelOf(s.category_name) }))
+    .sort((a, b) => rank(a.label) - rank(b.label) || a.label.localeCompare(b.label) || a.name.localeCompare(b.name));
+
+  const groups = new Map<string, string[]>();
+  const seen = new Set<string>();
+  for (const { name, label } of rows) {
+    const key = skillKey(name);
+    // Soft skills are offered only in the soft picker; My Skills drops them from technical.
+    if (seen.has(key) || (!soft && softKeys.has(key))) continue;
+    seen.add(key);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label)!.push(name);
+  }
+  return Array.from(groups, ([label, names]) => ({ label, skills: names }));
+}
 
 const PHILIPPINE_REGIONS = [
   'NCR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B',
@@ -232,37 +261,82 @@ function RadioOption<T>({ label, value, current, onSelect }: {
   );
 }
 
-// Dropdown-based multi-select: pick from the list, chosen skills show as
-// removable chips. The dropdown hides what's already picked and closes itself
-// once `max` is reached, so the cap is enforced by the UI rather than by
-// silently ignoring clicks (which is what the old checkbox grid did).
-function SkillPicker({ options, selected, max, onChange, placeholder }: {
-  options: string[];
+// Checkbox dropdown: a searchable checklist grouped by category that stays
+// open while several skills are ticked. It expands in place rather than
+// floating, so no scrolling container on a phone can clip it. Chosen skills
+// also show as removable chips underneath.
+function SkillPicker({ groups, selected, onChange, placeholder }: {
+  groups: SkillGroup[];
   selected: string[];
-  max: number;
   onChange: (next: string[]) => void;
   placeholder: string;
 }) {
-  const available = options.filter((s) => !selected.includes(s));
-  const atMax = selected.length >= max;
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // Close on a click outside or Escape, like a native dropdown.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  const visible = groups
+    .map((g) => ({ ...g, skills: g.skills.filter((s) => s.toLowerCase().includes(q)) }))
+    .filter((g) => g.skills.length > 0);
+  const toggle = (skill: string) =>
+    onChange(selected.includes(skill) ? selected.filter((s) => s !== skill) : [...selected, skill]);
 
   return (
     <div className="space-y-2">
-      <select
-        value=""
-        disabled={atMax || available.length === 0}
-        onChange={(e) => {
-          if (e.target.value) onChange([...selected, e.target.value]);
-        }}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100 disabled:text-gray-400"
-      >
-        <option value="">
-          {atMax ? `Maximum of ${max} reached` : available.length === 0 ? 'All options selected' : placeholder}
-        </option>
-        {available.map((skill) => (
-          <option key={skill} value={skill}>{skill}</option>
-        ))}
-      </select>
+      <div ref={boxRef}>
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+          className="w-full flex items-center justify-between gap-2 px-3 py-2 border border-gray-300 rounded-lg bg-white text-left text-gray-500">
+          {placeholder}
+          <ChevronDown className={`size-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+
+        {open && (
+          <div className="mt-1 border border-gray-200 rounded-lg bg-white shadow-lg">
+            <div className="p-2 border-b border-gray-100">
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search skills" aria-label="Search skills"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm text-gray-900" />
+            </div>
+            <div className="max-h-72 overflow-y-auto py-1">
+              {visible.length === 0 && (
+                <p className="px-3 py-4 text-center text-sm text-gray-500">{`No skills match "${query}".`}</p>
+              )}
+              {visible.map((g) => (
+                <div key={g.label} role="group" aria-label={g.label}>
+                  {groups.length > 1 && (
+                    <p className="px-3 pt-3 pb-1 text-xs uppercase tracking-wide text-gray-500" style={{ fontWeight: 600 }}>
+                      {g.label}
+                    </p>
+                  )}
+                  {g.skills.map((skill) => (
+                    <label key={skill} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-800 hover:bg-emerald-50 cursor-pointer">
+                      <input type="checkbox" checked={selected.includes(skill)} onChange={() => toggle(skill)}
+                        className="size-4 shrink-0 accent-[#166534]" />
+                      {skill}
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -612,23 +686,15 @@ export default function RegisterAlumniEmployment({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, form.city_municipality, form.province_work, form.country, isPhilippinesWork]);
 
-  // Dynamic skills from reference API (falls back to hardcoded)
-  const technicalSkills: string[] = (() => {
-    const apiSkills = (referenceData?.skills ?? []) as any[];
-    const filtered = apiSkills
-      .filter(s => typeof s?.category?.name === 'string' && s.category.name.toLowerCase().includes('technical'))
-      .map(s => String(s.name)).filter(Boolean);
-    return filtered.length > 0 ? filtered : TECHNICAL_SKILLS;
-  })();
-  const softSkills: string[] = (() => {
-    const apiSkills = (referenceData?.skills ?? []) as any[];
-    const filtered = apiSkills
-      .filter(s => typeof s?.category?.name === 'string' && s.category.name.toLowerCase().includes('soft'))
-      .map(s => String(s.name)).filter(Boolean);
-    return filtered.length > 0 ? filtered : SOFT_SKILLS;
-  })();
-  const maxTechnical = technicalSkills.length;
-  const maxSoft = softSkills.length;
+  // The whole skills catalog from the reference API. This used to read
+  // `category.name`, but the API sends `category` as an id (the label is
+  // `category_name`), so the form always fell back to a short fixed list.
+  const apiSkills = referenceData?.skills ?? [];
+  const technicalGroups = apiSkills.length > 0
+    ? groupSkills(apiSkills, false)
+    : groupSkills(FALLBACK_BSIS_CORE_SKILLS, false);
+  const softFromApi = groupSkills(apiSkills, true);
+  const softGroups = softFromApi.length > 0 ? softFromApi : [{ label: 'Soft Skills', skills: SOFT_SKILLS }];
 
   // Validation logic
   const validateStep = (): boolean => {
@@ -1494,13 +1560,12 @@ export default function RegisterAlumniEmployment({
           {/* Technical Skills */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Technical Skills ({form.technical_skills.length} of {maxTechnical} selected)
+              Technical Skills ({form.technical_skills.length} selected)
             </label>
             <SkillPicker
-              options={technicalSkills}
+              groups={technicalGroups}
               selected={form.technical_skills}
-              max={maxTechnical}
-              placeholder="Select a technical skill"
+              placeholder="Select technical skills"
               onChange={(next) => setForm({ ...form, technical_skills: next })}
             />
           </div>
@@ -1508,13 +1573,12 @@ export default function RegisterAlumniEmployment({
           {/* Soft Skills */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Soft Skills ({form.soft_skills.length} of {maxSoft} selected)
+              Soft Skills ({form.soft_skills.length} selected)
             </label>
             <SkillPicker
-              options={softSkills}
+              groups={softGroups}
               selected={form.soft_skills}
-              max={maxSoft}
-              placeholder="Select a soft skill"
+              placeholder="Select soft skills"
               onChange={(next) => setForm({ ...form, soft_skills: next })}
             />
           </div>
