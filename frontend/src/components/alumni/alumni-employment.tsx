@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI } from '../../data/app-data';
 import { fetchAlumniAccountStatus, updateAlumniEmployment } from '../../app/api-client';
 import { EmployerInviteModal } from './employer-invite-modal';
 import {
@@ -92,7 +91,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   const navigate = useNavigate();
   const { data: referenceData } = useReferenceData();
   const rawUser = sessionStorage.getItem('alumni_user');
-  const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+  const alumni = rawUser ? JSON.parse(rawUser) : {};
   const alumniId = String(alumni?.id ?? '');
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = !isVerified;
@@ -779,18 +778,6 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Employment record retracking required</p>
               <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
                 Your employment data is over 2 years old. Please review and update every section before continuing - your dashboard and other features remain locked until this form is submitted.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {retrackingMode && (
-          <div className="flex items-start gap-3 bg-red-50 border border-red-300 rounded-2xl p-4">
-            <AlertTriangle className="size-5 text-red-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Re-tracking required</p>
-              <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
-                Your employment record is over 2 years old. Please re-complete this form to continue using the Graduate Tracer System.
               </p>
             </div>
           </div>
@@ -1632,7 +1619,11 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
           changed (including first-time employed). */}
       <EmployerInviteModal
         open={shareLinkModalOpen}
-        onClose={() => setShareLinkModalOpen(false)}
+        onClose={() => {
+          setShareLinkModalOpen(false);
+          // A retracking save that changed company ends here, not on the dashboard.
+          if (retrackingMode && saved) navigate('/alumni/dashboard');
+        }}
         alumniId={alumniId}
       />
     </PortalLayout>

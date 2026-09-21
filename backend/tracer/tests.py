@@ -1335,9 +1335,13 @@ class SimulatedSourceTests(TestCase):
 		from tracer import employability as E
 
 		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
-			self.assertEqual(E.debug_settings(), {"source": "real", "show_samples_in_verified": False})
-			E.update_debug_settings(source="simulated", show_samples_in_verified=True)
+			self.assertEqual(
+				E.debug_settings(),
+				{"source": "real", "show_samples_in_verified": False, "allow_current_year_graduates": True},
+			)
+			E.update_debug_settings(source="simulated", show_samples_in_verified=True, allow_current_year_graduates=False)
 			self.assertEqual(E.analytics_source(), "simulated")
+			self.assertEqual(E.latest_graduation_year(), timezone.now().year - 1)
 			with self.assertRaises(ValueError):
 				E.update_debug_settings(source="everything")
 
@@ -1438,3 +1442,54 @@ class SimulatedSourceTests(TestCase):
 		AlumniSkill.objects.create(alumni=self.real, skill=leadership, proficiency_level="intermediate")
 		real = E.skills_by_batch(E.build_graduate_frame(source=E.SOURCE_REAL))
 		self.assertTrue(real["batches"][0]["suppressed"])
+
+
+class CurrentYearGraduatesToggleTests(TestCase):
+	"""/admin/debug/a "Allow current-year graduates": off, this year's batch can
+	no longer be entered and analytics skip the graduates already on file."""
+
+	def setUp(self):
+		from unittest.mock import patch
+
+		patcher = patch(
+			"tracer.employability.debug_settings",
+			return_value={"source": "real", "show_samples_in_verified": False, "allow_current_year_graduates": False},
+		)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		self.year = timezone.now().year
+		self.accounts = {}
+		for label, batch in (("current", self.year), ("last", self.year - 1), ("none", None)):
+			account = AlumniAccount.objects.create(
+				user=User.objects.create_user(email=f"{label}@example.com", password=None, role=User.Role.ALUMNI),
+				account_status=AccountStatus.ACTIVE,
+			)
+			AlumniProfile.objects.create(alumni=account, first_name="Ana", last_name="Cruz", graduation_year=batch)
+			self.accounts[label] = account
+
+	def test_analytics_skip_this_years_batch_but_keep_the_rest(self):
+		from tracer import employability as E
+
+		kept = set(E.filter_source(AlumniAccount.objects.all(), E.SOURCE_REAL).values_list("user__email", flat=True))
+		self.assertEqual(kept, {"last@example.com", "none@example.com"})
+		profiles = E.filter_source(AlumniProfile.objects.all(), E.SOURCE_REAL, prefix="alumni__")
+		self.assertEqual(profiles.filter(graduation_year=self.year).count(), 0)
+		self.assertEqual(AlumniAccount.objects.count(), 3)  # hidden, not deleted
+
+	def test_this_year_is_refused_only_as_a_new_date(self):
+		from tracer.validators import graduation_date_problem
+
+		self.assertIn(str(self.year - 1), graduation_date_problem(f"{self.year}-01"))
+		self.assertIsNone(graduation_date_problem(f"{self.year - 1}-06"))
+		self.assertEqual(APIClient().get("/api/reference/").data["latest_graduation_year"], self.year - 1)
+
+		account = self.accounts["current"]
+		AlumniProfile.objects.filter(alumni=account).update(graduation_date=f"{self.year}-01")
+		client = APIClient()
+		client.credentials(HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.user_id)}")
+		url = f"/api/auth/alumni/account/{account.id}/employment/"
+		unchanged = client.patch(url, {"survey_data": {"graduationDate": f"{self.year}-01"}}, format="json")
+		self.assertNotEqual(unchanged.status_code, 400, unchanged.data)
+		changed = client.patch(url, {"survey_data": {"graduationDate": f"{self.year}-02"}}, format="json")
+		self.assertEqual(changed.status_code, 400)
+		self.assertIn("graduationDate", changed.data["field_errors"])

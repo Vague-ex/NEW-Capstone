@@ -1653,6 +1653,8 @@ class ReferenceDataView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        from . import employability
+
         skills = list(
             Skill.objects.select_related("category").filter(is_active=True).order_by("category__name", "name")
         )
@@ -1675,6 +1677,8 @@ class ReferenceDataView(APIView):
             "industries": [_serialize_industry(i) for i in industries],
             "job_titles": [_serialize_job_title(j) for j in job_titles],
             "regions": [_serialize_region(r) for r in regions],
+            # Newest graduation year the forms accept (see /admin/debug/a).
+            "latest_graduation_year": employability.latest_graduation_year(),
         })
 
 # ── Comprehensive Survey Submission ────────────────────────────────────────────

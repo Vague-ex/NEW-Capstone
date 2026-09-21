@@ -226,17 +226,31 @@ def demo_q(prefix: str = ""):
 
 def filter_source(queryset, source: str | None, prefix: str = ""):
     """Keep only real graduates, only seeded ones, or (source None) everyone.
-    Demo graduates are in neither source: they are UI states, not data."""
+    Demo graduates are in neither source: they are UI states, not data. Both
+    sources also stop at latest_graduation_year(), so while current-year
+    graduates are switched off their accounts stay but analytics skip them."""
+    if source not in SOURCES:
+        return queryset
     if source == SOURCE_REAL:
-        return queryset.exclude(sample_q(prefix))
-    if source == SOURCE_SIMULATED:
-        return queryset.filter(sample_q(prefix)).exclude(demo_q(prefix))
-    return queryset
+        queryset = queryset.exclude(sample_q(prefix))
+    else:
+        queryset = queryset.filter(sample_q(prefix)).exclude(demo_q(prefix))
+    return queryset.exclude(**{f"{prefix}profile__graduation_year__gt": latest_graduation_year()})
+
+
+def latest_graduation_year() -> int:
+    """The newest batch the tracer takes in: this year, or last year while
+    "Allow current-year graduates" is off on /admin/debug/a (the study's scope
+    is the batches up to last year)."""
+    from django.utils import timezone
+
+    year = timezone.now().year
+    return year if debug_settings()["allow_current_year_graduates"] else year - 1
 
 
 # ── Admin debug settings (analytics source, sample visibility) ────────────────
 
-_SETTINGS_DEFAULTS = {"source": SOURCE_REAL, "show_samples_in_verified": False}
+_SETTINGS_DEFAULTS = {"source": SOURCE_REAL, "show_samples_in_verified": False, "allow_current_year_graduates": True}
 
 
 def _settings_path() -> Path:
@@ -254,6 +268,7 @@ def debug_settings() -> dict:
     if settings["source"] not in SOURCES:
         settings["source"] = SOURCE_REAL
     settings["show_samples_in_verified"] = bool(settings["show_samples_in_verified"])
+    settings["allow_current_year_graduates"] = bool(settings["allow_current_year_graduates"])
     return settings
 
 
@@ -263,8 +278,9 @@ def update_debug_settings(**changes) -> dict:
         if changes["source"] not in SOURCES:
             raise ValueError(f"source must be one of {', '.join(SOURCES)}")
         settings["source"] = changes["source"]
-    if "show_samples_in_verified" in changes:
-        settings["show_samples_in_verified"] = bool(changes["show_samples_in_verified"])
+    for key in ("show_samples_in_verified", "allow_current_year_graduates"):
+        if key in changes:
+            settings[key] = bool(changes[key])
     path = _settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
@@ -277,6 +293,13 @@ def analytics_source() -> str:
 
 def frame_cache_key(source: str | None) -> str:
     return f"{FRAME_CACHE_KEY}:{source or 'all'}"
+
+
+def clear_frame_caches() -> None:
+    """Drop every cached graduate frame so the next analytics load rebuilds it."""
+    from django.core.cache import cache
+
+    cache.delete_many([frame_cache_key(source) for source in (*SOURCES, None)])
 
 
 def _scholarship(text) -> int:
@@ -375,7 +398,6 @@ def masterlist_counts(source: str = SOURCE_REAL) -> dict[int, int]:
     census of it, so their own batch sizes stand in as its denominator.
     """
     from django.db.models import Count
-    from django.utils import timezone
     from users.models import AccountStatus, AlumniProfile, GraduateMasterRecord
 
     if source == SOURCE_SIMULATED:
@@ -390,7 +412,7 @@ def masterlist_counts(source: str = SOURCE_REAL) -> dict[int, int]:
         int(row["batch_year"]): int(row["n"])
         for row in (
             GraduateMasterRecord.objects
-            .filter(batch_year__lte=timezone.now().year)
+            .filter(batch_year__lte=latest_graduation_year())
             .values("batch_year")
             .annotate(n=Count("id"))
         )

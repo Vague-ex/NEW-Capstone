@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
 import {
     User, BookOpen, Phone, MapPin, Save, CheckCircle2, AlertTriangle, ShieldCheck,
@@ -64,7 +63,7 @@ function currentYearMonth(): string {
 
 export function AlumniPersonalEducation() {
     const rawUser = sessionStorage.getItem('alumni_user');
-    const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+    const alumni = rawUser ? JSON.parse(rawUser) : {};
     const alumniId = String(alumni?.id ?? '');
 
     const surveyData =

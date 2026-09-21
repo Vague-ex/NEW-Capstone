@@ -40,6 +40,7 @@ import {
 } from '../../app/api-client';
 
 const PAGE_SIZE = 25;
+const THIS_YEAR = new Date().getFullYear();
 
 const EMPLOYMENT_LABELS: Record<string, string> = {
   employed_full_time: 'Employed full-time',
@@ -103,7 +104,9 @@ export function AdminAccountsDebug() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const changeSettings = async (changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified'>>) => {
+  const changeSettings = async (
+    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified' | 'allow_current_year_graduates'>>,
+  ) => {
     setSaving(true);
     setError('');
     try {
@@ -233,6 +236,22 @@ export function AdminAccountsDebug() {
                 checked={Boolean(settings?.show_samples_in_verified)}
                 disabled={saving || loading}
                 onChange={next => void changeSettings({ show_samples_in_verified: next })}
+              />
+            </div>
+            <div className="border-t border-gray-100 pt-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Allow current-year graduates ({THIS_YEAR})</h3>
+                <p className="text-gray-500 text-xs mt-1">
+                  On: batch {THIS_YEAR} can register and counts in analytics. Off: registration stops at batch {THIS_YEAR - 1},
+                  and batch {THIS_YEAR} graduates already registered keep their accounts but are left out of the dashboard,
+                  reports, geomap and predictions.
+                </p>
+              </div>
+              <Toggle
+                label={`Allow current-year graduates (${THIS_YEAR})`}
+                checked={settings?.allow_current_year_graduates ?? true}
+                disabled={saving || loading}
+                onChange={next => void changeSettings({ allow_current_year_graduates: next })}
               />
             </div>
             <div className="border-t border-gray-100 pt-4 flex flex-col sm:flex-row sm:items-center gap-3">

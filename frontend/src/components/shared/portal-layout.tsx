@@ -8,7 +8,9 @@ import {
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
   Settings, UserCheck,
 } from 'lucide-react';
-import { ADMIN_ACCESS_TOKEN_KEY, fetchPendingAlumni, fetchProfileReviewAlumni } from '../../app/api-client';
+import {
+  ADMIN_ACCESS_TOKEN_KEY, ALUMNI_ACCESS_TOKEN_KEY, fetchPendingAlumni, fetchProfileReviewAlumni,
+} from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 
 type PortalRole = 'alumni' | 'admin';
@@ -44,6 +46,7 @@ const ROLE_CONFIG = {
     accent: 'bg-emerald-500',
     logoutPath: '/',
     sessionKey: 'alumni_user',
+    tokenKey: ALUMNI_ACCESS_TOKEN_KEY,
     username: 'BSIS Graduate',
     subtitle: 'Carlos Hilado Memorial State University · BSIS',
   },
@@ -53,6 +56,7 @@ const ROLE_CONFIG = {
     accent: 'bg-lime-500',
     logoutPath: '/',
     sessionKey: 'admin_authenticated',
+    tokenKey: ADMIN_ACCESS_TOKEN_KEY,
     username: 'BSIS Admin',
     subtitle: 'CHMSU BSIS · Admin',
   },
@@ -199,8 +203,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   }, [notifOpen]);
 
   const handleLogout = () => {
+    // Each role clears its own token. The graduate logout used to remove the
+    // admin token instead, so the graduate stayed signed in (the route guard
+    // accepts the token alone) and an admin in the same tab was signed out.
     sessionStorage.removeItem(config.sessionKey);
-    sessionStorage.removeItem(ADMIN_ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(config.tokenKey);
     navigate(config.logoutPath);
   };
 

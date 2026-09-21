@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
 import {
   Mail, Phone, Github, Globe, Save, CheckCircle2,
@@ -11,7 +10,7 @@ import {
 export function AlumniProfile() {
   const navigate = useNavigate();
   const rawUser = sessionStorage.getItem('alumni_user');
-  const alumni = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+  const alumni = rawUser ? JSON.parse(rawUser) : {};
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
 
   const surveyData =

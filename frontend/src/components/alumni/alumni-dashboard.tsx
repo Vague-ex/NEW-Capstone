@@ -4,18 +4,16 @@ import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
 import {
   Briefcase, Calendar, Clock, Star,
-  CheckCircle2, AlertTriangle, Camera, Award, ArrowRight,
+  CheckCircle2, AlertTriangle, Camera, ArrowRight,
   Hash, ShieldCheck, Lock, UserCircle,
 } from 'lucide-react';
-import { VALID_ALUMNI } from '../../data/app-data';
 import { fetchAlumniAccountStatus } from '../../app/api-client';
-import { AlumniEmployment } from './alumni-employment';
 import { EmployerInviteModal } from './employer-invite-modal';
 
 export function AlumniDashboard() {
   const navigate = useNavigate();
   const rawUser = sessionStorage.getItem('alumni_user');
-  const [alumni, setAlumni] = useState(() => rawUser ? JSON.parse(rawUser) : (VALID_ALUMNI[0] ?? {}));
+  const [alumni, setAlumni] = useState(() => rawUser ? JSON.parse(rawUser) : {});
   const alumniId = String(alumni?.id ?? '');
 
   useEffect(() => {
@@ -55,6 +53,15 @@ export function AlumniDashboard() {
     }
   }, [alumni?.verificationStatus, navigate]);
 
+  // Retracking locks the dashboard. The form has its own route so that the
+  // way back here after submitting mounts a fresh dashboard that reads the
+  // updated session. Rendering the form in place kept this component's stale
+  // requiresRetracking, so a graduate saw the form again after submitting it.
+  const requiresRetracking = Boolean(alumni?.requiresRetracking);
+  useEffect(() => {
+    if (requiresRetracking) navigate('/alumni/employment?retracking=1', { replace: true });
+  }, [requiresRetracking, navigate]);
+
   // First login with a job: the backend sets needsEmployerInvite while the
   // current employment record has a company but no verification link has
   // ever been created for it. Opening the modal mints that link, so the flag
@@ -84,30 +91,17 @@ export function AlumniDashboard() {
     });
   };
 
-  if (alumni?.requiresRetracking) {
-    return <AlumniEmployment retrackingMode />;
-  }
+  // After every hook: returning earlier changed the hook count between renders.
+  if (requiresRetracking) return null;
 
   const isVerified = (alumni.verificationStatus ?? 'pending') === 'verified';
   const isPending = (alumni.verificationStatus ?? 'pending') === 'pending';
-  const requiresRetracking = Boolean(alumni?.requiresRetracking);
-
-  useEffect(() => {
-    if (requiresRetracking) {
-      navigate('/alumni/employment?retracking=1', { replace: true });
-    }
-  }, [requiresRetracking, navigate]);
-
   const statusColorMap: Record<string, { bg: string; text: string; dot: string; label: string }> = {
     employed: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Employed' },
     'self-employed': { bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500', label: 'Self-Employed' },
     unemployed: { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unemployed' },
   };
   const statusColor = statusColorMap[alumni.employmentStatus ?? ''] ?? { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unknown' };
-
-  const batchPeers = VALID_ALUMNI.filter(a => a.graduationYear === alumni.graduationYear);
-  const batchEmployed = batchPeers.filter(a => a.employmentStatus !== 'unemployed').length;
-  const batchRate = batchPeers.length ? Math.round((batchEmployed / batchPeers.length) * 100) : 0;
 
   const daysSinceUpdate = Math.floor(
     (new Date().getTime() - new Date(alumni.dateUpdated || Date.now()).getTime()) / (1000 * 60 * 60 * 24)
@@ -203,7 +197,7 @@ export function AlumniDashboard() {
         )}
 
         {/* ── Stat Cards ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 [&>:last-child]:col-span-2 lg:[&>:last-child]:col-span-1">
           <StatCard
             label="Verification Status"
             value={isVerified ? 'Verified' : 'Pending'}
@@ -219,16 +213,6 @@ export function AlumniDashboard() {
             icon={Briefcase}
             iconBg={alumni.employmentStatus === 'employed' ? 'bg-emerald-50' : alumni.employmentStatus === 'self-employed' ? 'bg-teal-50' : 'bg-gray-50'}
             iconColor={alumni.employmentStatus === 'employed' ? 'text-emerald-600' : alumni.employmentStatus === 'self-employed' ? 'text-teal-600' : 'text-gray-500'}
-          />
-          <StatCard
-            label="Batch Employment Rate"
-            value={`${batchRate}%`}
-            sub={`${batchEmployed} of ${batchPeers.length} · Batch ${alumni.graduationYear}`}
-            icon={Award}
-            iconBg="bg-green-50"
-            iconColor="text-green-700"
-            trend={batchRate >= 80 ? '↑ Good' : '↓ Below avg'}
-            trendUp={batchRate >= 80}
           />
           <StatCard
             label="Last Updated"

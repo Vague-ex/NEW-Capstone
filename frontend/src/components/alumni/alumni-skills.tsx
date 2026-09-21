@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { VALID_ALUMNI } from '../../data/app-data';
 import { updateAlumniEmployment } from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
 import { Award, Plus, X, CheckCircle2, Save, Info } from 'lucide-react';
@@ -48,7 +47,7 @@ const toCanonical = (names: string[], list: string[]) =>
 
 export function AlumniSkills() {
   const rawUser = sessionStorage.getItem('alumni_user');
-  const graduate = rawUser ? JSON.parse(rawUser) : VALID_ALUMNI[0];
+  const graduate = rawUser ? JSON.parse(rawUser) : {};
   const alumniId = String(graduate?.id ?? '');
   const surveyData = graduate?.surveyData ?? {};
 

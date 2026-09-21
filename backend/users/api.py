@@ -45,7 +45,7 @@ from .throttling import (
     register_failed_attempt as throttle_register_fail,
     reset_attempts as throttle_reset,
 )
-from tracer.validators import validate_registration_payload
+from tracer.validators import graduation_date_problem, validate_registration_payload
 from tracer.models import (
     AlumniSkill, CompetencyProfile, EmploymentProfile, EmploymentRecord,
     Skill, SkillCategory, VerificationDecision, VerificationToken, WorkAddress,
@@ -2896,14 +2896,14 @@ class AlumniEmploymentUpdateView(APIView):
             value = incoming_survey_data.get(key)
             if isinstance(value, str) and (problem := rule(value)):
                 field_errors[key] = f"{label} {problem}."
-        # Same rule as registration: nobody can have graduated in the future.
+        # Same rule as registration, but only for a changed date: this page
+        # re-sends the saved one on every save, and a graduate already on file
+        # must still be able to edit the rest of their profile.
         graduation_value = incoming_survey_data.get("graduationDate", incoming_survey_data.get("graduation_date"))
-        if isinstance(graduation_value, str):
-            import re
-            match = re.match(r"^(\d{4})-(\d{2})", graduation_value.strip())
-            today = date.today()
-            if match and (int(match.group(1)), int(match.group(2))) > (today.year, today.month):
-                field_errors["graduationDate"] = "Date of graduation cannot be later than this month."
+        stored_graduation = getattr(getattr(alumni_account, "profile", None), "graduation_date", "") or ""
+        if isinstance(graduation_value, str) and graduation_value.strip() != stored_graduation:
+            if problem := graduation_date_problem(graduation_value):
+                field_errors["graduationDate"] = problem
         if field_errors:
             return Response(
                 {"detail": " ".join(field_errors.values()), "field_errors": field_errors},
@@ -3632,7 +3632,12 @@ class MasterlistBulkCreateView(APIView):
             # Link graduates who registered before these rows existed.
             rematched = 0
             if created:
-                for account in AlumniAccount.objects.select_related("user").filter(master_record__isnull=True):
+                # Seeded graduates are skipped: they are fictional, and with the
+                # ~500 simulated ones each upload spent ~1,000 pooler round
+                # trips re-matching them.
+                from tracer.employability import sample_q
+                unmatched = AlumniAccount.objects.select_related("user").filter(master_record__isnull=True)
+                for account in unmatched.exclude(sample_q()):
                     rematched += _refresh_master_match(account)
         return Response(
             {
@@ -3837,10 +3842,8 @@ class DebugAlumniUpdateView(APIView):
         except (DatabaseError, OperationalError) as exc:
             return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        from django.core.cache import cache
         from tracer import employability
-        for source in (*employability.SOURCES, None):
-            cache.delete(employability.frame_cache_key(source))
+        employability.clear_frame_caches()
         return Response({"updated": True, "id": str(account.id)}, status=status.HTTP_200_OK)
 
 
@@ -3888,19 +3891,19 @@ class DebugAnalyticsSettingsView(APIView):
         _admin_user, _auth_error = _require_admin(request)
         if _auth_error:
             return _auth_error
-        from django.core.cache import cache
         from tracer import employability
 
         data = request.data if isinstance(request.data, dict) else {}
-        changes = {k: data[k] for k in ("source", "show_samples_in_verified") if k in data}
+        changes = {
+            k: data[k] for k in ("source", "show_samples_in_verified", "allow_current_year_graduates") if k in data
+        }
         try:
             employability.update_debug_settings(**changes)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except OSError as exc:
             return Response({"detail": f"Could not save the setting: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        for source in (*employability.SOURCES, None):
-            cache.delete(employability.frame_cache_key(source))
+        employability.clear_frame_caches()
         return Response(self._payload(), status=status.HTTP_200_OK)
 
 
@@ -3914,7 +3917,6 @@ class DebugSimulatedAccountsDeleteView(APIView):
         _admin_user, _auth_error = _require_admin(request)
         if _auth_error:
             return _auth_error
-        from django.core.cache import cache
         from tracer import employability
 
         try:
@@ -3927,8 +3929,7 @@ class DebugSimulatedAccountsDeleteView(APIView):
                 User.objects.filter(id__in=user_ids).delete()
         except (DatabaseError, OperationalError) as exc:
             return Response({"detail": f"Database error: {exc}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        for source in (*employability.SOURCES, None):
-            cache.delete(employability.frame_cache_key(source))
+        employability.clear_frame_caches()
         return Response({"deleted": len(user_ids)}, status=status.HTTP_200_OK)
 
 

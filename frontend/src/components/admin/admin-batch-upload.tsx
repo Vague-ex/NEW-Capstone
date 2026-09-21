@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { MASTER_LIST } from '../../data/app-data';
 import { createMasterlistEntries, fetchMasterlist, type MasterlistEntry } from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
@@ -74,7 +73,7 @@ export function AdminBatchUpload() {
   ]);
 
   // Live master-list counts from the database (the page used to read a static
-  // array, which showed 0). Falls back to MASTER_LIST if the fetch fails.
+  // array, which showed 0).
   const [masterTotal, setMasterTotal] = useState<number | null>(null);
   const [masterPerBatch, setMasterPerBatch] = useState<Record<number, number>>({});
   const [masterEntries, setMasterEntries] = useState<MasterlistEntry[]>([]);
@@ -100,7 +99,7 @@ export function AdminBatchUpload() {
     && (!masterSearch.trim() || m.name.toLowerCase().includes(masterSearch.trim().toLowerCase())
       || String(m.graduationYear ?? '').includes(masterSearch.trim())));
 
-  const totalMaster = masterTotal ?? MASTER_LIST.length;
+  const totalMaster = masterTotal ?? 0;
   // Tiles follow the batches actually on file (e.g. 2019), not only 2020 onward,
   // so they add up to the total. Implausible years are left out.
   const tileYears = Array.from(new Set([
@@ -108,7 +107,7 @@ export function AdminBatchUpload() {
     ...Object.keys(masterPerBatch).map(Number).filter(y => y >= MIN_GRAD_YEAR && y <= MAX_GRAD_YEAR),
   ])).sort((a, b) => a - b);
   const batchCount = (yr: number) =>
-    masterTotal !== null ? (masterPerBatch[yr] ?? 0) : MASTER_LIST.filter(m => m.graduationYear === yr).length;
+    masterPerBatch[yr] ?? 0;
   const [manualSaved, setManualSaved] = useState(false);
   const [manualError, setManualError] = useState('');
 

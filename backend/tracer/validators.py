@@ -8,10 +8,31 @@ field constraints, and logical consistency requirements.
 Reference: planning/Data_Validation_Rules.md
 """
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Any
 from django.core.exceptions import ValidationError
+
+
+def graduation_date_problem(value) -> Optional[str]:
+    """Why a "YYYY-MM" graduation date is refused, or None. Shared by
+    registration and the graduate's edit page. Nobody graduates in the future,
+    and while "Allow current-year graduates" is off (/admin/debug/a) the newest
+    batch taken in is last year's."""
+    from tracer.employability import latest_graduation_year
+
+    match = re.match(r'^(\d{4})-(\d{2})', str(value or '').strip())
+    if not match:
+        return None
+    year, month = int(match.group(1)), int(match.group(2))
+    now = datetime.now()
+    if (year, month) > (now.year, now.month):
+        return 'Date of graduation cannot be later than this month.'
+    latest = latest_graduation_year()
+    if year > latest:
+        return f'The tracer covers graduates up to batch {latest} for now.'
+    return None
 
 
 def _parse_birth_date(value) -> Optional[Any]:
@@ -270,13 +291,12 @@ class SurveyDataValidator:
 
         # A graduation month later than this month is a typing mistake, and it
         # would show up in analytics as a batch that has not graduated yet.
-        import re
-        match = re.match(r'^(\d{4})-(\d{2})', str(data.get('graduation_date') or '').strip())
-        if match and (int(match.group(1)), int(match.group(2))) > (now.year, now.month):
+        problem = graduation_date_problem(data.get('graduation_date'))
+        if problem:
             self.errors.append({
                 'section': 'educational_background',
                 'field': 'graduation_date',
-                'error': 'Date of graduation cannot be later than this month',
+                'error': problem,
                 'blocking': True,
             })
 

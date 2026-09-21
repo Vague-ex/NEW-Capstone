@@ -35,6 +35,7 @@ import HomeLocationMap from './home-location-map';
 import { FloatingAlert } from './shared/floating-alert';
 import {
   useReferenceData,
+  latestGraduationMonth,
   provincesApi,
   citiesApi,
   barangaysApi,
@@ -935,6 +936,14 @@ export default function RegisterAlumniPersonal({
     if (step === 3) {
       if (!form.graduationDate.trim()) {
         setStepError('Graduation date is required.');
+        return false;
+      }
+      // The month picker's max is not enforced when the date is typed.
+      const latestYear = referenceData.latest_graduation_year;
+      if (form.graduationDate > latestGraduationMonth(latestYear)) {
+        setStepError(latestYear && latestYear < new Date().getFullYear()
+          ? `The tracer covers graduates up to batch ${latestYear} for now.`
+          : 'Graduation date cannot be later than this month.');
         return false;
       }
       if (form.furtherStudies === 'enrolled' || form.furtherStudies === 'completed') {
@@ -1878,7 +1887,7 @@ export default function RegisterAlumniPersonal({
                   </label>
                   <input
                     type="month"
-                    max={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`}
+                    max={latestGraduationMonth(referenceData.latest_graduation_year)}
                     value={form.graduationDate}
                     onChange={(e) => {
                       const v = e.target.value;  // "YYYY-MM" from <input type="month">

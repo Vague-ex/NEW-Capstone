@@ -1029,6 +1029,8 @@ export type AnalyticsSource = 'real' | 'simulated';
 export interface DebugAnalyticsSettings {
     source: AnalyticsSource;
     show_samples_in_verified: boolean;
+    /** Off: registration stops at last year's batch and analytics skip this year's graduates. */
+    allow_current_year_graduates: boolean;
     counts: { real: number; simulated: number };
     models: Record<AnalyticsSource, { version: string; trainedAt: string | null; auc: number | null } | null>;
     commands: { seed: string; train: string };
@@ -1053,7 +1055,7 @@ export async function fetchDebugAnalyticsSettings(): Promise<DebugAnalyticsSetti
 }
 
 export async function updateDebugAnalyticsSettings(
-    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified'>>,
+    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified' | 'allow_current_year_graduates'>>,
 ): Promise<DebugAnalyticsSettings> {
     const response = await fetch(`${API_BASE_URL}/api/admin/debug/analytics-settings/`, {
         method: 'PUT',

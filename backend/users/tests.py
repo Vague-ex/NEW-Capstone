@@ -566,7 +566,10 @@ class DebugFaceHarnessTests(TestCase):
 		self.assertFalse(AlumniAccount.objects.filter(user__email__endswith="@debug.local").exists())
 
 
-@patch("tracer.employability.debug_settings", return_value={"source": "real", "show_samples_in_verified": False})
+@patch(
+	"tracer.employability.debug_settings",
+	return_value={"source": "real", "show_samples_in_verified": False, "allow_current_year_graduates": True},
+)
 class DemoAccountsTests(TestCase):
 	"""/admin/debug/a demo graduates: each lands in the state its card promises,
 	stays out of both analytics sources, and only they can be opened."""

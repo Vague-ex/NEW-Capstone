@@ -332,7 +332,6 @@ class AlumniProfile(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_retracking_reminder_at = models.DateTimeField(null=True, blank=True)
     # When the graduate last confirmed their employment record (registration or a
     # submitted employment form). The two-year retracking clock runs from here;
     # personal-detail saves deliberately never touch it.

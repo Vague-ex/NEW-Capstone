@@ -100,6 +100,16 @@ export interface ReferenceData {
     industries: IndustryItem[];
     job_titles: JobTitleItem[];
     regions: RegionItem[];
+    /** Newest graduation year the forms accept: this year, or last year while
+     *  "Allow current-year graduates" is off on /admin/debug/a. */
+    latest_graduation_year?: number;
+}
+
+/** Latest graduation month a graduate may enter, as "YYYY-MM". */
+export function latestGraduationMonth(latestYear?: number): string {
+    const now = new Date();
+    if (latestYear && latestYear < now.getFullYear()) return `${latestYear}-12`;
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
 // ── Fallback static data (used when backend is not reachable) ──────────────────

@@ -64,13 +64,3 @@ export interface EmployerAccount {
 }
 
 // Placeholder datasets while real backend integration is in progress.
-export const MASTER_LIST: MasterEntry[] = [];
-export const VALID_ALUMNI: AlumniRecord[] = [];
-export const GRADUATION_YEARS: number[] = [];
-export const INDUSTRIES: string[] = [];
-export const UNEMPLOYMENT_REASONS: string[] = [];
-export const TOP_SKILLS: Array<{ skill: string; count: number; percentage: number }> = [];
-export const YEARLY_EMPLOYMENT_RATES: Array<{ year: number; rate: number }> = [];
-export const TIME_TO_HIRE_DATA: Array<{ range: string; count: number }> = [];
-export const INDUSTRY_TRENDS: Array<{ industry: string; value: number }> = [];
-export const EMPLOYER_ACCOUNTS: EmployerAccount[] = [];
