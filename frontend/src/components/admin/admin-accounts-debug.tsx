@@ -163,6 +163,11 @@ export function AdminAccountsDebug() {
   return (
     <PortalLayout role="admin" pageTitle="Debug: Graduate Accounts" pageSubtitle="Maintenance tools - not part of the system">
       <div className="space-y-5 pb-10">
+        <p className="text-sm text-gray-600">
+          Other debug pages:{' '}
+          <Link to="/admin/debug/register" className="text-[#166534] underline">registration tester</Link>{' · '}
+          <Link to="/admin/debug/face" className="text-[#166534] underline">face</Link>
+        </p>
         {error && (
           <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             <AlertCircle className="size-4 shrink-0 mt-0.5" /> {error}

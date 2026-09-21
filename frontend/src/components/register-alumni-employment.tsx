@@ -31,7 +31,7 @@ import {
 } from '../hooks/useReferenceData';
 
 // Types
-type EmploymentStep = 1 | 2 | 3 | 4 | 5 | 6;
+export type EmploymentStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface EmploymentFormData {
   // Step 1: Academic & Pre-Employment Profile
@@ -87,7 +87,7 @@ export interface EmploymentFormData {
 }
 
 // Constants
-const EMPLOYMENT_STEP_CONFIG = [
+export const EMPLOYMENT_STEP_CONFIG = [
   { n: 1 as EmploymentStep, label: 'Academic Profile' },
   { n: 2 as EmploymentStep, label: 'Employment Status' },
   { n: 3 as EmploymentStep, label: 'First Job' },
@@ -418,6 +418,8 @@ export interface RegisterAlumniEmploymentProps {
   initialForm?: EmploymentFormData | null;
   /** Server-reported problems, keyed by field name. */
   fieldErrors?: Record<string, string> | null;
+  /** Step to open on. Only the debug registration tester sets it. */
+  initialStep?: EmploymentStep;
 }
 
 export default function RegisterAlumniEmployment({
@@ -425,6 +427,7 @@ export default function RegisterAlumniEmployment({
   onBack,
   initialForm,
   fieldErrors,
+  initialStep = 1,
 }: RegisterAlumniEmploymentProps) {
   const { data: referenceData } = useReferenceData();
   const refJobTitleOptions = useMemo(
@@ -434,7 +437,7 @@ export default function RegisterAlumniEmployment({
     [referenceData],
   );
   const refJobTitles = useMemo(() => refJobTitleOptions.map((o) => o.name), [refJobTitleOptions]);
-  const [step, setStep] = useState<EmploymentStep>(1);
+  const [step, setStep] = useState<EmploymentStep>(initialStep);
   const [form, setForm] = useState<EmploymentFormData>(initialForm ?? INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
   // Set when Continue is pressed with required answers missing; outlines those

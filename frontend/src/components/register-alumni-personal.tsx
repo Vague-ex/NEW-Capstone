@@ -48,7 +48,7 @@ import {
 
 //  Types
 
-type PersonalStep = 1 | 2 | 3 | 4;
+export type PersonalStep = 1 | 2 | 3 | 4;
 
 export interface PersonalFormData {
   // Step 1: Account
@@ -186,7 +186,7 @@ const COUNTRY_CODES = [
   { code: '+254', flag: '🇰🇪', name: 'Kenya' },
 ];
 
-const PERSONAL_STEP_CONFIG = [
+export const PERSONAL_STEP_CONFIG = [
   { n: 1 as PersonalStep, label: 'Account' },
   { n: 2 as PersonalStep, label: 'Personal' },
   { n: 3 as PersonalStep, label: 'Education' },
@@ -415,6 +415,7 @@ export default function RegisterAlumniPersonal({
   initialForm,
   initialBiometric,
   fieldErrors,
+  initialStep = 1,
 }: {
   onComplete: (formData: PersonalFormData, biometricData?: BiometricData, matchStatus?: MasterlistMatchStatus) => void | Promise<void>;
   /** Seeded when the graduate is sent back to fix a rejected field, so nothing
@@ -425,12 +426,14 @@ export default function RegisterAlumniPersonal({
   initialBiometric?: BiometricData | null;
   /** Server-reported problems, keyed by field name. */
   fieldErrors?: Record<string, string> | null;
+  /** Step to open on. Only the debug registration tester sets it. */
+  initialStep?: PersonalStep;
 }) {
   const navigate = useNavigate();
 
   // Form state
   const [form, setForm] = useState<PersonalFormData>(initialForm ?? INITIAL_PERSONAL_FORM);
-  const [step, setStep] = useState<PersonalStep>(1);
+  const [step, setStep] = useState<PersonalStep>(initialStep);
   // True when this mount recovered a draft, so step 1 can explain why the
   // password box is empty when everything else is already filled in.
   const [draftRestored, setDraftRestored] = useState(false);

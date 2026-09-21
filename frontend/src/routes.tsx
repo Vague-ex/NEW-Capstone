@@ -28,6 +28,7 @@ import { AdminSettings } from './components/admin/admin-settings';
 // #region DEBUG-ONLY:CurrenChanDebug
 import { AdminFaceDebug } from './components/admin/admin-face-debug';
 import { AdminAccountsDebug } from './components/admin/admin-accounts-debug';
+import { AdminRegistrationDebug } from './components/admin/admin-registration-debug';
 // #endregion DEBUG-ONLY:CurrenChanDebug
 
 /**
@@ -91,6 +92,8 @@ export const routes: RouteObject[] = [
   adminRoute('/admin/debug/face', AdminFaceDebug),
   // "a" = accounts: graduate accounts, analytics source, simulated graduates.
   adminRoute('/admin/debug/a', AdminAccountsDebug),
+  // Any registration part at any step, without submitting.
+  adminRoute('/admin/debug/register', AdminRegistrationDebug),
   // #endregion DEBUG-ONLY:CurrenChanDebug
 
   // Legacy fallbacks

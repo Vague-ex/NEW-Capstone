@@ -6,10 +6,11 @@ import {
   BarChart2, Map, Upload,
   ChevronRight, Bell, Shield, Star, Briefcase,
   ClipboardCheck, CheckCircle2, Menu, UserCircle,
-  Settings, UserCheck,
+  Settings, UserCheck, RefreshCw,
 } from 'lucide-react';
 import {
   ADMIN_ACCESS_TOKEN_KEY, ALUMNI_ACCESS_TOKEN_KEY, fetchPendingAlumni, fetchProfileReviewAlumni,
+  fetchVerifiedAlumni,
 } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 
@@ -77,6 +78,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingAlumniCount, setPendingAlumniCount] = useState(0);
   const [profileReviewCount, setProfileReviewCount] = useState(0);
+  const [retracingCount, setRetracingCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifButtonRef = useRef<HTMLButtonElement>(null);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
@@ -145,19 +147,28 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     let active = true;
     const updateAdminNotificationCount = async () => {
       try {
-        const [pendingAlumni, profileReview] = await Promise.all([
+        const [pendingAlumni, profileReview, verified] = await Promise.all([
           fetchPendingAlumni(),
           // A failed review fetch must not blank the pending count too.
           fetchProfileReviewAlumni().catch(() => [] as unknown[]),
+          // The same list the alert links to (/admin/verified?retracing=needs),
+          // so demo graduates count here even though analytics leaves them out.
+          // ponytail: pulls the whole verified list for one count; add a count
+          // endpoint if that list grows to thousands.
+          fetchVerifiedAlumni().catch(() => [] as unknown[]),
         ]);
         if (!active) return;
 
         // Employer requests no longer exist — employers verify by one-time
         // link and never await approval. The bell counts graduates waiting on
-        // approval plus masterlist matches waiting on a profile check.
+        // approval, masterlist matches waiting on a profile check, and
+        // graduates overdue for retracing.
         const totalPending = pendingAlumni.length + profileReview.length;
         setPendingAlumniCount(pendingAlumni.length);
         setProfileReviewCount(profileReview.length);
+        setRetracingCount(
+          verified.filter((a) => (a as { requiresRetracking?: boolean }).requiresRetracking === true).length,
+        );
 
         const previousTotal = lastKnownAdminPendingRef.current;
         if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
@@ -212,7 +223,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   };
 
   const bellNotificationCount = role === 'admin'
-    ? pendingAlumniCount + profileReviewCount
+    ? pendingAlumniCount + profileReviewCount + retracingCount
     : notificationCount;
 
   const RoleIcon = role === 'admin' ? Shield : GraduationCap;
@@ -355,7 +366,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                     <div className="px-4 py-3 border-b border-gray-100">
                       <p className="text-gray-800 text-sm" style={{ fontWeight: 600 }}>Notifications</p>
                     </div>
-                    {pendingAlumniCount + profileReviewCount === 0 ? (
+                    {bellNotificationCount === 0 ? (
                       <div className="px-4 py-5 text-center text-gray-400 text-xs">No pending items</div>
                     ) : (
                       <div>
@@ -384,6 +395,22 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
                             <div>
                               <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>{profileReviewCount} Profiles to Review</p>
                               <p className="text-gray-400 text-xs">Masterlist matches already signed in</p>
+                            </div>
+                          </button>
+                        )}
+                        {retracingCount > 0 && (
+                          <button
+                            onClick={() => { navigate('/admin/verified?retracing=needs'); setNotifOpen(false); }}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition text-left"
+                          >
+                            <span className="flex size-8 items-center justify-center rounded-full bg-red-100 shrink-0">
+                              <RefreshCw className="size-4 text-red-600" />
+                            </span>
+                            <div>
+                              <p className="text-gray-800 text-xs" style={{ fontWeight: 600 }}>
+                                {retracingCount} Graduate{retracingCount !== 1 ? 's' : ''} Need{retracingCount === 1 ? 's' : ''} Retracing
+                              </p>
+                              <p className="text-gray-400 text-xs">Employment records over two years old</p>
                             </div>
                           </button>
                         )}
