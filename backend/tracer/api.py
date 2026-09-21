@@ -1232,6 +1232,14 @@ class VerificationTokenDecisionView(APIView):
                 {"detail": "verifier_email must be a valid email address."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Strict: this page is public and every answer feeds the reports, so no
+        # field may carry a link (an image URL pasted into the strengths box, say).
+        from tracer.text_quality import first_link_field
+        if field := first_link_field(request.data, skip={"verifier_email"}):
+            return Response(
+                {"detail": f"Links are not allowed. Remove the link from {field.replace('_', ' ')}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         raw_decision = str(request.data.get("decision") or "").strip().lower()
         valid_decisions = {

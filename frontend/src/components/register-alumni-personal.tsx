@@ -1620,10 +1620,11 @@ export default function RegisterAlumniPersonal({
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Facebook URL
+                    Facebook link <span className="text-gray-400 font-normal">(optional)</span>
                   </label>
                   <input
                     type="url"
+                    data-allow-link
                     placeholder="https://facebook.com/yourprofile"
                     value={form.facebook}
                     onChange={(e) => setF('facebook', e.target.value)}

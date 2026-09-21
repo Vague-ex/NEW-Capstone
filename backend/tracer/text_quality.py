@@ -85,6 +85,43 @@ def job_text_problem(value: str | None) -> str | None:
     return profanity_problem(text)
 
 
+# Links in any shape, so a free-text answer cannot smuggle an image or page into
+# the reports: a scheme ("https://"), "www.", a data URI, host/path without a
+# scheme ("imgur.com/x"), a bare common domain, or an image file name. ".net"
+# and ".io" are left out of the bare-domain list for "ASP.NET" and "Socket.IO".
+# Mirrored in frontend/src/app/input-guard.ts; keep the two in step.
+_LINK = re.compile(
+    r"[a-z][a-z0-9+.\-]*://"
+    r"|\bwww\."
+    r"|\bdata:[a-z]+/"
+    r"|\b[a-z0-9\-]+\.[a-z]{2,}/"
+    r"|\b[a-z0-9\-]+\.(com|org|ph|co|ly|me|gl|xyz|info)\b"
+    r"|\.(png|jpe?g|gif|webp|svg|bmp)\b",
+    re.IGNORECASE,
+)
+# An email address is not a link ("hr@acme.com"), so it is dropped before the check.
+_EMAIL = re.compile(r"[\w.+\-]+@[\w\-]+(\.[\w\-]+)+")
+
+
+def link_problem(value: str | None) -> str | None:
+    if not value:
+        return None
+    return "contains a link" if _LINK.search(_EMAIL.sub("", str(value))) else None
+
+
+def first_link_field(data, skip=frozenset()) -> str | None:
+    """Key of the first string in `data` (nested dicts and lists too) that contains a link."""
+    for key, value in data.items():
+        if key in skip:
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            if isinstance(item, dict) and first_link_field(item, skip):
+                return key
+            if isinstance(item, str) and link_problem(item):
+                return key
+    return None
+
+
 _PH_MOBILE = re.compile(r"^(09|\+639|639)\d{9}$")
 
 

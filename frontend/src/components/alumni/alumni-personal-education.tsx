@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { updateAlumniEmployment } from '../../app/api-client';
+import { isValidFacebookUrl } from '../register-alumni-personal';
 import {
     User, BookOpen, Phone, MapPin, Save, CheckCircle2, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
@@ -137,11 +138,17 @@ export function AlumniPersonalEducation() {
             setSaveError('Date of graduation cannot be later than this month.');
             return;
         }
+        if (form.facebook.trim() && !isValidFacebookUrl(form.facebook)) {
+            setSaveError('Facebook link must be a facebook.com, fb.com, or fb.me link.');
+            return;
+        }
 
         setIsSaving(true);
         const mergedSurveyData = {
             ...surveyData,
             ...form,
+            // The key the server stores; `facebook` alone never reached the profile.
+            facebook_url: form.facebook,
             profEligibilityOther: form.profEligibility.includes('Others') ? form.profEligibilityOther : '',
         };
 
@@ -257,8 +264,8 @@ export function AlumniPersonalEducation() {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Facebook</label>
-                                    <input type="text" value={form.facebook} onChange={(e) => setF('facebook', e.target.value)} className={inputCls} />
+                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Facebook link <span className="text-gray-400 font-normal">(optional)</span></label>
+                                    <input type="text" data-allow-link placeholder="https://facebook.com/yourprofile" value={form.facebook} onChange={(e) => setF('facebook', e.target.value)} className={inputCls} />
                                 </div>
                             </div>
 

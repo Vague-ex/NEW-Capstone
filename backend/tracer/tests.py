@@ -573,6 +573,22 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertEqual(response.status_code, 400)
 		self.assertEqual(VerificationDecision.objects.count(), 0)
 
+	def test_links_are_refused_in_employer_answers(self):
+		token_id = self._invite().data["token"]["id"]
+		response = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{
+				"decision": "deny",
+				"verifier_name": "Maria Reyes",
+				"verifier_email": "maria@acme.com",
+				"comment": "see i.imgur.com/abc.png",
+			},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("comment", response.data["detail"])
+		self.assertEqual(VerificationDecision.objects.count(), 0)
+
 	def test_verifier_identity_is_required(self):
 		issue_response = self._invite()
 		token_id = issue_response.data["token"]["id"]

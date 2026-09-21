@@ -45,6 +45,7 @@ from .throttling import (
     register_failed_attempt as throttle_register_fail,
     reset_attempts as throttle_reset,
 )
+from tracer.text_quality import first_link_field
 from tracer.validators import graduation_date_problem, validate_registration_payload
 from tracer.models import (
     AlumniSkill, CompetencyProfile, EmploymentProfile, EmploymentRecord,
@@ -1778,6 +1779,14 @@ def _sanitize_facebook_url(raw: object) -> str:
         return ""
     return candidate
 
+# The only fields allowed to hold a link: the Facebook profile, which
+# _sanitize_facebook_url checks against its own allow-list, and the login email.
+_LINK_ALLOWED_FIELDS = frozenset({"facebook", "facebook_url", "facebookUrl", "email"})
+
+def _link_error(field: str) -> str:
+    label = re.sub(r"([a-z])([A-Z])", r"\1 \2", field).replace("_", " ").lower()
+    return f"Links are not allowed. Remove the link from {label}."
+
 def _coordinate(value, limit: float):
     """A latitude/longitude from the request as a 6-dp Decimal, or None if absent or out of range."""
     number = _to_float(value)
@@ -2092,6 +2101,15 @@ class AlumniRegisterView(APIView):
         # flat dict straight to SurveyDataValidator raises AttributeError,
         # because 'employment_status' is both a section name and a field name.
         _survey_for_validation = _safe_json_loads(request.data.get("survey_data"))
+        link_field = first_link_field(request.data, skip=_LINK_ALLOWED_FIELDS | {"password", "confirm_password", "survey_data"})
+        link_step = "personal"
+        if not link_field and isinstance(_survey_for_validation, dict):
+            link_field, link_step = first_link_field(_survey_for_validation, skip=_LINK_ALLOWED_FIELDS), "employment"
+        if link_field:
+            return Response(
+                {"detail": _link_error(link_field), "field_errors": {link_field: _link_error(link_field)}, "step": link_step},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         _validation = validate_registration_payload(
             _survey_for_validation,
             {
@@ -2904,6 +2922,18 @@ class AlumniEmploymentUpdateView(APIView):
         if isinstance(graduation_value, str) and graduation_value.strip() != stored_graduation:
             if problem := graduation_date_problem(graduation_value):
                 field_errors["graduationDate"] = problem
+        # No links except Facebook, and only for changed values, for the same
+        # reason: an old answer on file must not lock the graduate out of saving.
+        changed = {k: v for k, v in incoming_survey_data.items() if v != existing_survey_data.get(k)}
+        if link_field := first_link_field(changed, skip=_LINK_ALLOWED_FIELDS):
+            field_errors[link_field] = _link_error(link_field)
+        for key in ("facebook", "facebook_url", "facebookUrl"):
+            value = changed.get(key)
+            if isinstance(value, str) and value.strip():
+                if clean_url := _sanitize_facebook_url(value):
+                    incoming_survey_data[key] = clean_url
+                else:
+                    field_errors[key] = "Facebook link must be a facebook.com, fb.com, or fb.me link."
         if field_errors:
             return Response(
                 {"detail": " ".join(field_errors.values()), "field_errors": field_errors},

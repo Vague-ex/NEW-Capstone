@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { updateAlumniEmployment } from '../../app/api-client';
+import { isValidFacebookUrl } from '../register-alumni-personal';
 import {
-  Mail, Phone, Github, Globe, Save, CheckCircle2,
+  Mail, Phone, Globe, Save, CheckCircle2,
   Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck, BookOpen,
 } from 'lucide-react';
 
@@ -27,8 +28,7 @@ export function AlumniProfile() {
   const [form, setForm] = useState({
     email: alumni.email ?? '',
     phone: initialPhone,
-    github: alumni.github ?? '',
-    otherSocial: alumni.otherSocial ?? '',
+    facebook: String(surveyData.facebook_url ?? surveyData.facebook ?? ''),
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -45,12 +45,17 @@ export function AlumniProfile() {
     setError('');
     if (!form.email.trim()) { setError('Email address is required.'); return; }
     if (!form.email.includes('@')) { setError('Please enter a valid email address.'); return; }
+    if (form.facebook.trim() && !isValidFacebookUrl(form.facebook)) {
+      setError('Facebook link must be a facebook.com, fb.com, or fb.me link.');
+      return;
+    }
     setIsSaving(true);
 
     const mergedSurveyData = {
       ...surveyData,
       mobile: form.phone,
-      facebook_url: form.otherSocial,
+      facebook: form.facebook,
+      facebook_url: form.facebook,
     };
 
     let serverAlumni: Record<string, unknown> = {};
@@ -204,48 +209,24 @@ export function AlumniProfile() {
             </div>
           </div>
 
-          {/* Social Media & Portfolio */}
+          {/* Facebook: the one box that may hold a link */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
-            <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
-              <Globe className="size-4 text-[#166534]" /> Social Media & Portfolio
+            <h3 className="text-gray-800 mb-5 flex items-center gap-2" style={{ fontWeight: 700 }}>
+              <Globe className="size-4 text-[#166534]" /> Social Media
             </h3>
-            <p className="text-gray-500 text-xs mb-5">All fields are optional. Share your professional presence.</p>
-
-            <div className="space-y-4">
-              {/* GitHub */}
-              <div>
-                <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                  GitHub Profile
-                </label>
-                <div className="relative">
-                  <Github className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-700" />
-                  <input
-                    type="url"
-                    placeholder="https://github.com/your-username"
-                    value={form.github}
-                    onChange={e => handleChange('github', e.target.value)}
-                    className={iconInputCls}
-                  />
-                </div>
-              </div>
-
-              {/* Other */}
-              <div>
-                <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                  Other Social / Portfolio
-                </label>
-                <div className="relative">
-                  <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                  <input
-                    type="url"
-                    placeholder="https://your-portfolio.com or social link"
-                    value={form.otherSocial}
-                    onChange={e => handleChange('otherSocial', e.target.value)}
-                    className={iconInputCls}
-                  />
-                </div>
-                <p className="text-gray-400 text-xs mt-1">Portfolio site, Behance, Facebook, Twitter/X, etc.</p>
-              </div>
+            <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
+              Facebook link <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <div className="relative">
+              <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+              <input
+                type="url"
+                data-allow-link
+                placeholder="https://facebook.com/yourprofile"
+                value={form.facebook}
+                onChange={e => handleChange('facebook', e.target.value)}
+                className={iconInputCls}
+              />
             </div>
           </div>
 

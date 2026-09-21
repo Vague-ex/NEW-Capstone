@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
 
 from tracer.text_quality import (
+    first_link_field,
+    link_problem,
     job_text_problem,
     person_name_problem,
     ph_mobile_problem,
@@ -51,3 +53,24 @@ class OtherFieldTests(SimpleTestCase):
         self.assertIsNone(year_month_problem("2001-06", min_age=18, max_age=70))
         self.assertEqual(year_month_problem("2001-13"), "is not in YYYY-MM format")
         self.assertEqual(year_month_problem("2099-01"), "is in the future")
+
+
+class LinkTests(SimpleTestCase):
+    def test_links_in_any_shape_are_caught(self):
+        for text in [
+            "https://i.imgur.com/abc.png", "see www.example.org", "imgur.com/abc", "bit.ly/x1",
+            "data:image/png;base64,AAAA", "//cdn.site.net/pic", "Amazon.com", "photo.JPG",
+        ]:
+            self.assertEqual(link_problem(text), "contains a link", text)
+
+    def test_ordinary_text_passes(self):
+        for text in [
+            "Ma. Cristina Dela Cruz", "ASP.NET and Node.js", "Socket.IO", "St. Scholastica's",
+            "e.g. Excel, i.e. reports", "Admin. Asst. / Clerk", "Email hr@acme.com for details", "3.5/5",
+        ]:
+            self.assertIsNone(link_problem(text), text)
+
+    def test_first_link_field_walks_nested_values_and_skips(self):
+        data = {"name": "Juan", "facebook_url": "https://facebook.com/j", "skills": ["Excel", "bit.ly/x"]}
+        self.assertEqual(first_link_field(data, skip={"facebook_url"}), "skills")
+        self.assertIsNone(first_link_field({"facebook_url": "https://facebook.com/j"}, skip={"facebook_url"}))
