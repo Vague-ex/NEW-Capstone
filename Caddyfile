@@ -78,5 +78,12 @@ api.{$SITE_DOMAIN} {
 		max_size 25MB
 	}
 
+	# Django's built-in admin and the temporary debug routes stay off the
+	# public internet. The admin portal on the main domain is unaffected.
+	# Django admin is still reachable through an SSH tunnel to 127.0.0.1:8000.
+	# Comment these two lines out (and restart Caddy) to use the debug pages.
+	@internal path /admin /admin/* /api/admin/debug/*
+	respond @internal 404
+
 	reverse_proxy backend:8000
 }

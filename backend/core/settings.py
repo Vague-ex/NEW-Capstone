@@ -346,3 +346,7 @@ LOGIN_THROTTLE_BACKOFF_SECONDS = [
 ]
 if not LOGIN_THROTTLE_BACKOFF_SECONDS:
     LOGIN_THROTTLE_BACKOFF_SECONDS = [15, 30, 60, 120, 300, 600]
+# Per-IP ceiling across all emails. Generous on purpose: campus Wi-Fi puts
+# every graduate behind one public IP. Raise it if a tracer drive trips it.
+LOGIN_IP_FAIL_LIMIT     = _env_int("LOGIN_IP_FAIL_LIMIT", 30)
+LOGIN_IP_WINDOW_SECONDS = _env_int("LOGIN_IP_WINDOW_SECONDS", 900)

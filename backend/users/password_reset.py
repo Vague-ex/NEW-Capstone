@@ -32,7 +32,8 @@ from .models import (
     PasswordResetCode, User,
 )
 from .throttling import (
-    is_locked_out, make_identifier, register_failed_attempt, reset_attempts,
+    client_ip as _client_ip, ip_is_locked_out, is_locked_out, make_identifier,
+    register_failed_attempt, register_ip_failure, reset_attempts,
 )
 
 
@@ -261,13 +262,6 @@ def _issue_code_and_send(
     return row, None
 
 
-def _client_ip(request) -> Optional[str]:
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR")
-
-
 # ---------- generic success payload (anti-enumeration) ----------
 
 def _generic_success(now=None) -> dict:
@@ -307,16 +301,22 @@ class ForgotPasswordRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        locked, secs_left = ip_is_locked_out(request)
+        if locked:
+            return Response(
+                {"detail": "Too many requests. Try again later.",
+                 "lockout_seconds": secs_left},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        # Every request counts toward the IP limit: each one either sends a
+        # real email or probes an address.
+        register_ip_failure(request)
+
+        # Unknown emails get the same response as real ones, so this form
+        # cannot be used to find out which emails have accounts.
         user, role = _resolve_user_and_role(email, role_hint)
         if not user or not role:
-            # Internal system: surface a clear "no account found" message
-            # rather than the silent anti-enumeration response. The system
-            # is gated by an institutional master list, so enumeration risk
-            # is already bounded.
-            return Response(
-                {"detail": "No account is registered with that email."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Response(_generic_success(), status=status.HTTP_200_OK)
 
         _row, err = _issue_code_and_send(
             user=user,
@@ -330,14 +330,8 @@ class ForgotPasswordRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        return Response(
-            {
-                **_generic_success(),
-                "role": role,
-                "message": f"A reset code was sent to {email}.",
-            },
-            status=status.HTTP_200_OK,
-        )
+        # No role in the body: the check-code step reads it from the code row.
+        return Response(_generic_success(), status=status.HTTP_200_OK)
 
 
 class ForgotPasswordResendView(APIView):
@@ -375,7 +369,7 @@ def _validate_code_or_response(*, email: str, role: Optional[str], code_in: str)
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
     if not row or row.is_expired:
-        register_failed_attempt(identifier, role)
+        register_failed_attempt(identifier, effective_role)
         return None, Response(
             {"detail": "Code is invalid or expired. Request a new one."},
             status=status.HTTP_400_BAD_REQUEST,
@@ -386,7 +380,7 @@ def _validate_code_or_response(*, email: str, role: Optional[str], code_in: str)
     if row.attempt_count > max_attempts:
         row.used_at = timezone.now()
         row.save(update_fields=["attempt_count", "used_at"])
-        register_failed_attempt(identifier, role)
+        register_failed_attempt(identifier, effective_role)
         return None, Response(
             {"detail": "Too many wrong attempts on this code. Request a new one."},
             status=status.HTTP_400_BAD_REQUEST,
@@ -394,7 +388,7 @@ def _validate_code_or_response(*, email: str, role: Optional[str], code_in: str)
     row.save(update_fields=["attempt_count"])
 
     if not constant_time_compare(_hash_code(code_clean), row.code_hash):
-        now_locked, lockout_secs = register_failed_attempt(identifier, role)
+        now_locked, lockout_secs = register_failed_attempt(identifier, effective_role)
         payload = {
             "detail": "The code does not match. Please double-check and try again.",
             "remaining_attempts": max(0, max_attempts - row.attempt_count),

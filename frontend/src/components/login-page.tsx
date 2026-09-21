@@ -9,7 +9,6 @@ import {
 import {
   ADMIN_ACCESS_TOKEN_KEY,
   ALUMNI_ACCESS_TOKEN_KEY,
-  API_BASE_URL,
   adminLogin,
   alumniLogin,
   ApiClientError,
@@ -415,19 +414,15 @@ export function LoginPage() {
           setIsLoading(false);
           return;
         }
-        if (/not recognized/i.test(msg)) {
-          setEmailError(msg);
-        } else {
-          setPasswordError(msg);
-        }
+        // The backend answers "Invalid email or password." for both cases on
+        // purpose, so there is no telling which field was wrong.
+        setPasswordError(msg);
         setIsLoading(false);
         return;
       }
 
       if (err instanceof TypeError || (err instanceof Error && /fetch|network/i.test(err.message))) {
-        setError(
-          `Cannot reach backend API (${API_BASE_URL}). Start Django server from backend: ${"..\\venv\\Scripts\\python.exe manage.py runserver 8000"}`,
-        );
+        setError("Cannot reach the server. Please try again in a moment.");
         setIsLoading(false);
         return;
       }

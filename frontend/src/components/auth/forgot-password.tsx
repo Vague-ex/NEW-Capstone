@@ -126,12 +126,7 @@ export default function ForgotPasswordModal({
             setInfo(res.message);
             setStep('code');
         } catch (err) {
-            const e = err as Error & { status?: number };
-            if (e.status === 404) {
-                setError('No account is registered with that email.');
-            } else {
-                setError(e.message || 'Could not send the code. Try again.');
-            }
+            setError((err as Error).message || 'Could not send the code. Try again.');
         } finally {
             setBusy(false);
         }

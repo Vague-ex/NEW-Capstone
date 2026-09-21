@@ -40,9 +40,11 @@ from .models import (
 )
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
 from .throttling import (
+    ip_is_locked_out as throttle_ip_is_locked_out,
     is_locked_out as throttle_is_locked_out,
     make_identifier as throttle_identifier,
     register_failed_attempt as throttle_register_fail,
+    register_ip_failure as throttle_ip_fail,
     reset_attempts as throttle_reset,
 )
 from tracer.text_quality import first_link_field
@@ -255,11 +257,16 @@ def _authenticate_by_email_specific(email: str, password: str) -> tuple[User | N
     """Like _authenticate_by_email but returns a specific error string on failure."""
     if not email or not password:
         return None, "Email and password are required."
+    # One message for every failure, so the login form cannot be used to
+    # find out which emails have accounts.
     user = User.objects.filter(email__iexact=email.strip()).first()
-    if not user or not user.is_active:
-        return None, "Email not recognized."
-    if not user.check_password(password):
-        return None, "Incorrect password."
+    if not user:
+        # Hash anyway, as Django's ModelBackend does, so a missing account
+        # does not answer measurably faster than a wrong password.
+        User().set_password(password)
+        return None, "Invalid email or password."
+    if not user.is_active or not user.check_password(password):
+        return None, "Invalid email or password."
     return user, None
 
 def _find_master_record(
@@ -1480,6 +1487,8 @@ class AdminLoginView(APIView):
 
         throttle_id = throttle_identifier("admin", email)
         locked, secs_left = throttle_is_locked_out(throttle_id)
+        if not locked:
+            locked, secs_left = throttle_ip_is_locked_out(request)
         if locked:
             return Response(
                 {"detail": "Too many failed attempts. Try again later.",
@@ -1494,6 +1503,7 @@ class AdminLoginView(APIView):
             # credentials — otherwise an outage looks like a wrong password.
             return _temporary_admin_data_unavailable_response("Authentication")
         if not user:
+            throttle_ip_fail(request)
             now_locked, lockout_secs = throttle_register_fail(throttle_id, "admin")
             payload = {"detail": auth_error}
             if now_locked:
@@ -2432,6 +2442,8 @@ class AlumniLoginView(APIView):
 
         throttle_id = throttle_identifier("graduate", email)
         locked, secs_left = throttle_is_locked_out(throttle_id)
+        if not locked:
+            locked, secs_left = throttle_ip_is_locked_out(request)
         if locked:
             return Response(
                 {"detail": "Too many failed attempts. Try again later.",
@@ -2446,6 +2458,7 @@ class AlumniLoginView(APIView):
             # credentials — otherwise an outage looks like a wrong password.
             return _temporary_admin_data_unavailable_response("Authentication")
         if not user:
+            throttle_ip_fail(request)
             now_locked, lockout_secs = throttle_register_fail(throttle_id, "graduate")
             payload = {"detail": auth_error}
             if now_locked:

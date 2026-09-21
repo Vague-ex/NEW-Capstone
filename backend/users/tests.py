@@ -8,7 +8,7 @@ from uuid import uuid4
 from django.core import signing
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from users import api
@@ -1503,3 +1503,60 @@ class RegistrationFeedbackFixTests(TestCase):
 		self.assertIsNone(profile.first_job_title)
 		self.assertIsNone(profile.first_job_company)
 		self.assertIsNone(profile.time_to_hire_months)
+
+
+@override_settings(LOGIN_IP_FAIL_LIMIT=3, LOGIN_IP_WINDOW_SECONDS=900)
+class AuthEnumerationAndIpThrottleTests(TestCase):
+	"""Security review: login and forgot-password must not reveal which
+	emails exist, and one IP must not get unlimited tries across emails."""
+
+	def setUp(self):
+		self.client = APIClient()
+		User.objects.create_user(
+			email="admin-enum@example.com",
+			password="AdminPass123!",
+			role=User.Role.ADMIN,
+			is_staff=True,
+		)
+
+	def _login(self, email, password="WrongPass123!"):
+		return self.client.post(
+			"/api/auth/admin/login/", {"email": email, "password": password}, format="json",
+		)
+
+	def test_unknown_email_and_wrong_password_look_the_same(self):
+		unknown = self._login("nobody@example.com")
+		wrong = self._login("admin-enum@example.com")
+		self.assertEqual(unknown.status_code, 401)
+		self.assertEqual(wrong.status_code, 401)
+		self.assertEqual(unknown.data["detail"], wrong.data["detail"])
+
+	def test_ip_is_locked_after_failures_across_different_emails(self):
+		for i in range(3):
+			self.assertEqual(self._login(f"spray{i}@example.com").status_code, 401)
+		# A fresh email from the same IP is refused, even with the right password.
+		locked = self._login("admin-enum@example.com", "AdminPass123!")
+		self.assertEqual(locked.status_code, 429)
+		# Another IP is unaffected.
+		other = self.client.post(
+			"/api/auth/admin/login/",
+			{"email": "admin-enum@example.com", "password": "AdminPass123!"},
+			format="json",
+			REMOTE_ADDR="10.0.0.99",
+		)
+		self.assertEqual(other.status_code, 200)
+
+	def test_forgot_password_unknown_email_gets_the_generic_success(self):
+		response = self.client.post(
+			"/api/auth/forgot-password/request/", {"email": "nobody@example.com"}, format="json",
+		)
+		self.assertEqual(response.status_code, 200)
+		self.assertNotIn("role", response.data)
+
+	def test_check_code_for_unknown_email_without_role_is_a_400_not_a_crash(self):
+		response = self.client.post(
+			"/api/auth/forgot-password/check-code/",
+			{"email": "nobody@example.com", "code": "123456789012"},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 400)
