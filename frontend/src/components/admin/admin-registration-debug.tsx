@@ -16,18 +16,18 @@ import { Link } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import RegisterAlumniPersonal, { PERSONAL_STEP_CONFIG, type PersonalStep } from '../register-alumni-personal';
 import RegisterAlumniEmployment, { EMPLOYMENT_STEP_CONFIG, type EmploymentStep } from '../register-alumni-employment';
-import RegisterTerms from '../register-terms';
+import PrivacyNoticeModal from '../auth/privacy-notice-modal';
 import { clearRegistrationDrafts } from '../registration-draft';
 
 type OpenPart =
   | { part: 'personal'; step: PersonalStep }
   | { part: 'employment'; step: EmploymentStep }
-  | { part: 'terms' };
+  | { part: 'consent' };
 
 const PARTS = [
-  { title: 'Part 1: Personal', steps: PERSONAL_STEP_CONFIG.map(({ n, label }) => ({ label, open: { part: 'personal', step: n } as OpenPart })) },
-  { title: 'Part 2: Employment survey', steps: EMPLOYMENT_STEP_CONFIG.map(({ n, label }) => ({ label, open: { part: 'employment', step: n } as OpenPart })) },
-  { title: 'Part 3: Terms and consent', steps: [{ label: 'Terms and consent', open: { part: 'terms' } as OpenPart }] },
+  { title: 'Part 1: Privacy notice and consent', steps: [{ label: 'Privacy notice and consent', open: { part: 'consent' } as OpenPart }] },
+  { title: 'Part 2: Personal', steps: PERSONAL_STEP_CONFIG.map(({ n, label }) => ({ label, open: { part: 'personal', step: n } as OpenPart })) },
+  { title: 'Part 3: Employment survey', steps: EMPLOYMENT_STEP_CONFIG.map(({ n, label }) => ({ label, open: { part: 'employment', step: n } as OpenPart })) },
 ];
 
 export function AdminRegistrationDebug() {
@@ -74,10 +74,8 @@ export function AdminRegistrationDebug() {
           </div>
         )}
 
-        {open.part === 'terms' && (
-          <div className="mx-auto w-full max-w-lg px-4 py-8 lg:max-w-3xl">
-            <RegisterTerms onComplete={async (consent) => finish(consent)} onBack={() => setOpen(null)} />
-          </div>
+        {open.part === 'consent' && (
+          <PrivacyNoticeModal open onClose={() => setOpen(null)} onContinue={() => finish({ privacyConsent: true })} />
         )}
       </div>
     );

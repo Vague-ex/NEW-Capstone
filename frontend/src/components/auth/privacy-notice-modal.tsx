@@ -1,18 +1,20 @@
 /**
  * Data Privacy Notice shown when a graduate taps "Create account".
  *
- * Informs before any data is collected (RA 10173, right to be informed). It asks
- * for nothing: actual consent is given at the registration Terms step
- * (register-terms.tsx), where the full terms and the separate, optional geomap
- * consent live. Keep the two in step when either changes.
+ * Informs before any data is collected (RA 10173, right to be informed) and
+ * takes the one consent registration needs: "Continue" stays disabled until the
+ * box is ticked. There is no later Terms step and no separate geomap consent;
+ * this notice lists the geomap as one of the purposes consented to.
  *
- * Shown only on the way into registration, not on every visit to the login
- * page, so returning graduates signing in are never interrupted.
+ * Shown on the way into registration (and by the registration page itself when
+ * it is opened directly), not on every visit to the login page, so returning
+ * graduates signing in are never interrupted. Render it only while open, so the
+ * box starts unticked every time.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  ShieldCheck, X, Target, ClipboardList, MapPin, Lock, Scale, ArrowRight,
+  ShieldCheck, X, Target, ClipboardList, MapPin, Lock, Scale, ArrowRight, BadgeCheck,
 } from 'lucide-react';
 
 interface Props {
@@ -44,6 +46,7 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 }
 
 export default function PrivacyNoticeModal({ open, onClose, onContinue }: Props) {
+  const [agreed, setAgreed] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Callers pass an inline onClose; reading it through a ref keeps the effect
@@ -70,7 +73,7 @@ export default function PrivacyNoticeModal({ open, onClose, onContinue }: Props)
       }
       if (e.key !== 'Tab' || !panelRef.current) return;
       // Keep keyboard focus inside the dialog.
-      const focusable = panelRef.current.querySelectorAll<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])');
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input, [href], [tabindex]:not([tabindex="-1"])');
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -160,9 +163,8 @@ export default function PrivacyNoticeModal({ open, onClose, onContinue }: Props)
 
           <Section icon={MapPin} title="Geomapping">
             <p>
-              With your separate consent, your workplace location (or your pinned home location if you are not
-              employed) is plotted on a graduate distribution map that only authorised BSIS administrators can see.
-              This is optional, and you will choose at the final step of registration.
+              Your workplace location (or your pinned home location if you are not employed) is plotted on a graduate
+              distribution map that only authorised BSIS administrators can see.
             </p>
           </Section>
 
@@ -171,7 +173,15 @@ export default function PrivacyNoticeModal({ open, onClose, onContinue }: Props)
               Your records are stored securely with restricted access. Individual records are seen only by
               authorised University personnel administering the tracer study, and published results are aggregated
               and anonymised. Your face data is never shared or published. When you ask an employer to confirm your
-              job, they see only your name, program and batch.
+              job, they see only your name, program and batch. Records are kept for as long as institutional
+              research, accreditation and reporting require.
+            </p>
+          </Section>
+
+          <Section icon={BadgeCheck} title="Accuracy">
+            <p>
+              You confirm that the information you provide is true and correct to the best of your knowledge.
+              Knowingly submitting false information may result in your record being invalidated.
             </p>
           </Section>
 
@@ -183,29 +193,50 @@ export default function PrivacyNoticeModal({ open, onClose, onContinue }: Props)
           </Section>
 
           <p className="rounded-xl border border-gray-100 bg-gray-50 px-3.5 py-3 text-xs leading-relaxed text-gray-500">
-            You will review the full Terms &amp; Data Privacy Consent, and give or decline your consent, before your
-            account is created. Continuing now does not submit any information.
+            Continuing does not submit anything yet. Your answers are sent only when you review and submit them at
+            the end of registration.
           </p>
         </div>
 
-        {/* Footer */}
-        <div className="flex flex-col-reverse gap-2 border-t border-gray-100 px-5 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-6">
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-11 rounded-xl border border-gray-200 px-4 text-sm text-gray-600 transition hover:bg-gray-50 sm:min-h-0 sm:py-2.5"
-            style={{ fontWeight: 600 }}
+        {/* Footer: the consent stays in view however far the notice is scrolled. */}
+        <div className="space-y-3 border-t border-gray-100 px-5 py-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] sm:px-6">
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+              agreed ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
+            }`}
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onContinue}
-            className="gt-press flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#166534] px-5 text-sm text-white transition hover:bg-[#14532d] sm:min-h-0 sm:py-2.5"
-            style={{ fontWeight: 600 }}
-          >
-            I understand, continue <ArrowRight className="size-4" />
-          </button>
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="mt-0.5 size-5 shrink-0 accent-emerald-600"
+            />
+            <span className="text-xs leading-relaxed text-gray-700 sm:text-[13px]">
+              <span style={{ fontWeight: 700 }}>I have read and accept the Terms &amp; Conditions.</span>
+              {' '}I consent to Carlos Hilado Memorial State University collecting and processing my personal data,
+              including my facial image and face-recognition data, for the purposes described above.
+              <span className="text-red-500"> *</span>
+            </span>
+          </label>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="min-h-11 rounded-xl border border-gray-200 px-4 text-sm text-gray-600 transition hover:bg-gray-50 sm:min-h-0 sm:py-2.5"
+              style={{ fontWeight: 600 }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onContinue}
+              disabled={!agreed}
+              className="gt-press flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#166534] px-5 text-sm text-white transition hover:bg-[#14532d] disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:py-2.5"
+              style={{ fontWeight: 600 }}
+            >
+              Agree &amp; continue <ArrowRight className="size-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -754,14 +754,18 @@ export function LoginPage() {
                   </button>
                 </p>
 
-                <PrivacyNoticeModal
-                  open={privacyOpen}
-                  onClose={() => setPrivacyOpen(false)}
-                  onContinue={() => {
-                    setPrivacyOpen(false);
-                    navigate("/register/alumni");
-                  }}
-                />
+                {privacyOpen && (
+                  <PrivacyNoticeModal
+                    open
+                    onClose={() => setPrivacyOpen(false)}
+                    onContinue={() => {
+                      setPrivacyOpen(false);
+                      // The consent travels with the navigation; registration
+                      // asks again only when opened without it.
+                      navigate("/register/alumni", { state: { privacyConsent: true } });
+                    }}
+                  />
+                )}
               </div>
             )}
 

@@ -162,7 +162,7 @@ const PHILIPPINE_REGIONS = [
 // Labels match the Employment Details page (alumni-employment.tsx) word for
 // word. The options come from the CHED tracer and must not be removed or
 // reworded in meaning, so the confusing ones get a hint instead.
-const EMPLOYMENT_STATUS_OPTIONS = [
+export const EMPLOYMENT_STATUS_OPTIONS = [
   { label: 'Yes, full-time', value: 'employed_full_time' },
   { label: 'Yes, part-time', value: 'employed_part_time' },
   { label: 'Yes, self-employed/freelance', value: 'self_employed' },
@@ -1604,7 +1604,7 @@ export default function RegisterAlumniEmployment({
           <NavButtons
             onBack={prevStep}
             onNext={handleSubmit}
-            nextLabel={isSubmitting ? 'Submitting...' : 'Complete'}
+            nextLabel={isSubmitting ? 'Submitting...' : 'Review & Submit'}
             nextDisabled={isSubmitting}
             isSubmit={true}
           />
