@@ -325,6 +325,7 @@ def build_graduate_frame(as_of=None, source: str | None = None):
     keeps both, with the is_sample column telling them apart.
     """
     import pandas as pd
+    from django.db.models import BooleanField, ExpressionWrapper
     from django.utils import timezone
     from users.models import AccountStatus, AlumniProfile
 
@@ -333,6 +334,10 @@ def build_graduate_frame(as_of=None, source: str | None = None):
         AlumniProfile.objects
         .filter(alumni__account_status=AccountStatus.ACTIVE, graduation_year__isnull=False)
         .select_related("alumni", "alumni__user")
+        # The face template (40-80 KB per real graduate) was loaded only to
+        # read is_sample; the query answers that with sample_q instead.
+        .defer("alumni__biometric_template")
+        .annotate(_is_sample=ExpressionWrapper(sample_q("alumni__"), output_field=BooleanField()))
         .prefetch_related("alumni__employment_profiles"),
         source,
         prefix="alumni__",
@@ -385,7 +390,7 @@ def build_graduate_frame(as_of=None, source: str | None = None):
             "bsis_current": (
                 None if not emp or emp.current_job_related_to_bsis is None else int(emp.current_job_related_to_bsis)
             ),
-            "is_sample": is_sample_account(account),
+            "is_sample": profile._is_sample,
             "future_graduation": is_future_graduation(profile.graduation_date, profile.graduation_year, now),
         })
     return pd.DataFrame(rows, columns=FRAME_COLUMNS)

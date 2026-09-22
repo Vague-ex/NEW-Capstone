@@ -13,7 +13,8 @@ from django.core.signing import BadSignature, SignatureExpired
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from django.db import DatabaseError, OperationalError, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import JSONField, Prefetch, Q
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -651,6 +652,28 @@ _SECTOR_LABELS = {
     "entrepreneurial": "Entrepreneurial / Freelance / Self-Employed",
 }
 
+# biometric_template minus the face descriptors. Registration and login save
+# the template as a JSON string inside the jsonb column, so it is parsed first;
+# anything unparseable reads as {} instead of failing the whole list.
+_LIST_TEMPLATE = RawSQL(
+    """(SELECT CASE WHEN jsonb_typeof(t) = 'object'
+                    THEN t - 'face_descriptor_samples' - 'face_descriptor' - 'engines'
+                    ELSE '{}'::jsonb END
+        FROM (SELECT CASE WHEN jsonb_typeof(b) = 'string' AND pg_input_is_valid(b #>> '{}', 'jsonb')
+                          THEN (b #>> '{}')::jsonb ELSE b END AS t
+              FROM (SELECT "users_alumni_accounts"."biometric_template" AS b) AS raw) AS parsed)""",
+    [],
+    output_field=JSONField(),
+)
+
+
+def _template_of(account) -> dict:
+    """The account's biometric_template: the trimmed copy on list querysets,
+    otherwise the full column."""
+    trimmed = getattr(account, "_list_template", None)
+    return _safe_json_loads(trimmed if trimmed is not None else account.biometric_template)
+
+
 def _alumni_dashboard_queryset(qs):
     """Apply the prefetches needed by ``_admin_alumni_payload`` /
     ``_session_payload_from_alumni`` so the normalized-table reads collapse
@@ -660,6 +683,11 @@ def _alumni_dashboard_queryset(qs):
     from tracer.models import AlumniSkill, CompetencyProfile, EmploymentProfile, WorkAddress
     from .models import FaceScan
 
+    # The face descriptors are ~95% of biometric_template (40-80 KB per
+    # graduate) and no list page uses them, yet every load of these lists used
+    # to download them for every graduate: Supabase counts that as egress. The
+    # column is deferred and a copy without them is read via _template_of().
+    qs = qs.defer("biometric_template").annotate(_list_template=_LIST_TEMPLATE)
     return qs.select_related("user", "master_record", "profile").prefetch_related(
         Prefetch(
             "skills",
@@ -1125,7 +1153,7 @@ def _extract_login_gps(request) -> tuple[float | None, float | None, float | Non
     return lat, lng, accuracy
 
 def _session_payload_from_alumni(account: AlumniAccount) -> dict:
-    template = _safe_json_loads(account.biometric_template)
+    template = _template_of(account)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
     survey_data_blob = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
     if not isinstance(survey_data_blob, dict):
@@ -1201,7 +1229,7 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
     }
 
 def _admin_alumni_payload(account: AlumniAccount) -> dict:
-    template = _safe_json_loads(account.biometric_template)
+    template = _template_of(account)
     profile = template.get("profile", {}) if isinstance(template, dict) else {}
     survey_data_blob = profile.get("survey_data", {}) if isinstance(profile, dict) else {}
     if not isinstance(survey_data_blob, dict):

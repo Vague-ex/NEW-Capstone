@@ -634,6 +634,38 @@ class DemoAccountsTests(TestCase):
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 
+class ListTemplateTrimTests(TestCase):
+	"""List pages read biometric_template without the face descriptors, which
+	cost Supabase egress on every load: trimmed in SQL whether the template is
+	a dict or the JSON string registration saves, and unparseable text reads
+	as {} rather than failing the list."""
+
+	def test_lists_never_load_face_descriptors(self):
+		front = "https://example.com/front.jpg"
+		templates = {
+			"string@example.com": json.dumps({
+				"face_descriptor_samples": [[0.1] * 512] * 5, "face_descriptor": [0.1] * 512,
+				"registration_face_scans": {"face_front": front},
+			}),
+			"dict@example.com": {"face_descriptor": [0.2] * 128, "capture_meta": {"gps": {"lat": 10.5}}},
+			"broken@example.com": "{not json",
+		}
+		for email, template in templates.items():
+			AlumniAccount.objects.create(
+				user=User.objects.create_user(email=email, password=None, role=User.Role.ALUMNI),
+				account_status=AccountStatus.ACTIVE, biometric_template=template,
+			)
+		rows = {a.user.email: a for a in api._alumni_dashboard_queryset(AlumniAccount.objects.all())}
+
+		self.assertEqual(api._template_of(rows["string@example.com"]), {"registration_face_scans": {"face_front": front}})
+		self.assertEqual(api._template_of(rows["dict@example.com"]), {"capture_meta": {"gps": {"lat": 10.5}}})
+		self.assertEqual(api._template_of(rows["broken@example.com"]), {})
+		self.assertEqual(api._admin_alumni_payload(rows["string@example.com"])["registrationFaceScans"]["front"], front)
+		api._session_payload_from_alumni(rows["string@example.com"])
+		for account in rows.values():  # the payloads never fell back to loading the full column
+			self.assertIn("biometric_template", account.get_deferred_fields())
+
+
 class FaceReEnrolmentTests(TestCase):
 	"""
 	An account whose template is unusable must be able to recover by capturing a
