@@ -1529,6 +1529,7 @@ export default function RegisterAlumniEmployment({
                 lng={form.longitude}
                 zoom={workPinExact ? 17 : 13}
                 label="Map of your workplace. Drag the pin or tap the map to move it."
+                title="Workplace location"
                 onMove={moveWorkPin}
               />
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-gray-500">

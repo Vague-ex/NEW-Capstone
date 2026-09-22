@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { fetchAlumniAccountStatus, updateAlumniEmployment } from '../../app/api-client';
 import { EmployerInviteModal } from './employer-invite-modal';
+import { MapFrame, type ExpandableMap } from '../home-location-map';
 import {
   useReferenceData,
   provincesApi,
@@ -1417,12 +1418,13 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                 {/* ── Right column: interactive map pin ───────────── */}
                 <div className="flex flex-col">
                   <FieldLabel>Exact Workplace Location (Pin)</FieldLabel>
-                  <div
-                    ref={workMapContainerRef}
-                    // isolate: Leaflet's panes use z-index 400+, which would otherwise
-                    // draw over the mobile sidebar (z-50) and the sticky save bar (z-30).
-                    className="isolate flex-1 min-h-[280px] lg:min-h-[360px]"
-                    style={{ borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}
+                  <MapFrame
+                    containerRef={workMapContainerRef}
+                    getMap={() => workLeafletMapRef.current as ExpandableMap | null}
+                    label="Map of your workplace. Drag the pin or tap the map to move it."
+                    title="Workplace location"
+                    frameClassName="flex flex-1 flex-col"
+                    className="min-h-[280px] flex-1 rounded-xl border border-gray-200 lg:min-h-[360px]"
                   />
                   <p className="text-gray-500 text-xs mt-2">
                     Selecting a city auto-pans the map. Drag the pin or tap anywhere to fine-tune.

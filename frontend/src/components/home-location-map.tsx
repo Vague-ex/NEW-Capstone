@@ -10,9 +10,120 @@
  * Leaflet is loaded on demand, the same way the admin geomap and the graduate
  * portal's workplace map load it.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { Maximize2 } from 'lucide-react';
 
 type LatLng = { lat: number; lng: number };
+
+type Toggle = { enable(): void; disable(): void; enabled(): boolean };
+/** The Leaflet map members MapFrame needs. */
+export type ExpandableMap = { invalidateSize(): void; dragging: Toggle; scrollWheelZoom: Toggle };
+
+/**
+ * A Leaflet container with an Enlarge button that opens it full screen, on PC
+ * and phone alike. CSS rather than the Fullscreen API: iPhones and the app's
+ * WebView do not support element fullscreen. While enlarged, one-finger
+ * panning and wheel zoom are on (there is no page behind to scroll).
+ *
+ * The container's own class never changes: Leaflet adds classes to it, and a
+ * React className update would wipe them. The box around it takes the size.
+ */
+export function MapFrame({
+  containerRef,
+  getMap,
+  label,
+  title,
+  className,
+  frameClassName = '',
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  getMap: () => ExpandableMap | null;
+  label: string;
+  /** Heading shown above the enlarged map. */
+  title: string;
+  /** Size and border of the map while inline. */
+  className: string;
+  /** Layout classes for the whole frame while inline. */
+  frameClassName?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const getMapRef = useRef(getMap);
+  useEffect(() => {
+    getMapRef.current = getMap;
+  }, [getMap]);
+  const inline = useRef<{ drag: boolean; wheel: boolean } | null>(null);
+
+  useEffect(() => {
+    const map = getMapRef.current();
+    if (!map || (!expanded && !inline.current)) return;
+    if (expanded) {
+      inline.current = { drag: map.dragging.enabled(), wheel: map.scrollWheelZoom.enabled() };
+      map.dragging.enable();
+      map.scrollWheelZoom.enable();
+    } else if (inline.current) {
+      if (!inline.current.drag) map.dragging.disable();
+      if (!inline.current.wheel) map.scrollWheelZoom.disable();
+    }
+    // The box just changed size (already committed, so layout is current);
+    // Leaflet only notices window resizes by itself.
+    map.invalidateSize();
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
+  return (
+    <div
+      className={expanded
+        ? 'fixed inset-0 z-[1000] flex flex-col gap-2 bg-white px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-6'
+        : `relative ${frameClassName}`}
+      role={expanded ? 'dialog' : undefined}
+      aria-modal={expanded || undefined}
+      aria-label={expanded ? title : undefined}
+    >
+      {expanded && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900">{title}</p>
+            <p className="text-xs text-gray-500">Drag the pin or tap the map to move it.</p>
+          </div>
+          <button
+            type="button"
+            autoFocus
+            onClick={() => setExpanded(false)}
+            className="min-h-11 shrink-0 rounded-xl bg-[#166534] px-5 text-sm font-semibold text-white hover:bg-[#14532d]"
+          >
+            Done
+          </button>
+        </div>
+      )}
+      <div className={`relative overflow-hidden ${expanded ? 'min-h-0 flex-1 rounded-lg border border-gray-200' : className}`}>
+        <div
+          ref={containerRef}
+          // isolate: Leaflet's panes use z-index 400+, which would otherwise
+          // draw the map over sticky headers and sidebars while scrolling.
+          className="isolate absolute inset-0 bg-gray-100"
+          role="application"
+          aria-label={label}
+        />
+      </div>
+      {!expanded && (
+        // No z-index: coming after the map in the DOM already puts it on top,
+        // and a z-index would lift it over sticky headers too.
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-label="Enlarge map"
+          className="absolute right-2 top-2 flex min-h-10 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-xs font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+        >
+          <Maximize2 className="size-4" aria-hidden />
+          <span>Enlarge</span>
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** Only the Leaflet members this component uses. */
 interface LeafletMarker {
@@ -21,11 +132,10 @@ interface LeafletMarker {
   setLatLng(latlng: [number, number] | LatLng): LeafletMarker;
   on(event: 'dragend', handler: () => void): LeafletMarker;
 }
-interface LeafletMap {
+interface LeafletMap extends ExpandableMap {
   on(event: 'click', handler: (e: { latlng: LatLng }) => void): LeafletMap;
   setView(center: [number, number], zoom: number): LeafletMap;
   getZoom(): number;
-  invalidateSize(): void;
   remove(): void;
 }
 interface LeafletModule {
@@ -44,6 +154,7 @@ export default function HomeLocationMap({
   onMove,
   zoom = 17,
   label = 'Map of your pinned home location. Drag the pin or tap the map to move it.',
+  title = 'Home location',
 }: {
   lat: number;
   lng: number;
@@ -52,6 +163,8 @@ export default function HomeLocationMap({
   /** Street level for an exact fix; pass a wider zoom for a rough, city-level pin. */
   zoom?: number;
   label?: string;
+  /** Heading of the enlarged map. */
+  title?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -142,13 +255,12 @@ export default function HomeLocationMap({
   }, [lat, lng, zoom]);
 
   return (
-    <div
-      ref={containerRef}
-      // isolate: Leaflet's panes use z-index 400+, which would otherwise draw
-      // the map over the sticky registration header while scrolling.
-      className="isolate h-44 sm:h-56 w-full overflow-hidden rounded-lg border border-emerald-100 bg-gray-100"
-      role="application"
-      aria-label={label}
+    <MapFrame
+      containerRef={containerRef}
+      getMap={() => mapRef.current}
+      label={label}
+      title={title}
+      className="h-48 w-full rounded-lg border border-emerald-100 sm:h-64 lg:h-80"
     />
   );
 }
