@@ -5,7 +5,7 @@ import { StatCard } from '../shared/stat-card';
 import type { AlumniRecord } from '../../data/app-data';
 import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport } from '../../app/api-client';
 import {
-  Users, Briefcase, Camera, TrendingUp, Map as MapIcon,
+  Users, Briefcase, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
   ClipboardCheck, Upload, RefreshCw,
 } from 'lucide-react';
@@ -74,6 +74,10 @@ export function AdminNewDashboard() {
   const navigate = useNavigate();
   const [pendingAlumni, setPendingAlumni] = useState<AlumniRecord[]>([]);
   const [verifiedAlumni, setVerifiedAlumni] = useState<AlumniRecord[]>([]);
+  // The Verified Graduates list (not the analytics source): retracing is follow-up
+  // work on every listed graduate, demo accounts included, and it is the list the
+  // Needs Retracing link opens.
+  const [listedAlumni, setListedAlumni] = useState<AlumniRecord[]>([]);
   const [alignment, setAlignment] = useState<AlignmentSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
@@ -86,7 +90,7 @@ export function AdminNewDashboard() {
         setLoading(true);
       }
 
-      const [pendingResult, verifiedResult, alignmentResult] = await Promise.allSettled([
+      const [pendingResult, verifiedResult, alignmentResult, listedResult] = await Promise.allSettled([
           fetchPendingAlumni(),
           fetchVerifiedAlumni('analytics'),
           // Curriculum alignment comes from the batch-summary report rather
@@ -98,6 +102,7 @@ export function AdminNewDashboard() {
             batchEnd: new Date().getFullYear(),
             includeUnverified: false,
           }),
+          fetchVerifiedAlumni(),
         ]);
 
       if (!active) return;
@@ -112,6 +117,8 @@ export function AdminNewDashboard() {
           : 'Pending graduate data could not be refreshed.';
         errorMessages.push(message);
       }
+
+      if (listedResult.status === 'fulfilled') setListedAlumni(listedResult.value as AlumniRecord[]);
 
       if (verifiedResult.status === 'fulfilled') {
         setVerifiedAlumni(verifiedResult.value as AlumniRecord[]);
@@ -161,11 +168,10 @@ export function AdminNewDashboard() {
   const verifiedCount = verifiedAlumni.length;
   const employed = verifiedAlumni.filter(a => a.employmentStatus === 'employed').length;
   const selfEmp = verifiedAlumni.filter(a => a.employmentStatus === 'self-employed').length;
-  const bioCaptured = verifiedAlumni.filter(a => Boolean(a.biometricCaptured)).length;
   const empRate = verifiedCount > 0 ? Math.round(((employed + selfEmp) / verifiedCount) * 100) : 0;
   const notificationCount = pendingAlumni.length;
   // Verified graduates whose employment record is over two years old.
-  const retraceCount = verifiedAlumni.filter(a => a.requiresRetracking === true).length;
+  const retraceCount = listedAlumni.filter(a => a.requiresRetracking === true).length;
 
   const batchYears = useMemo(() => {
     const years = Array.from(
@@ -369,9 +375,9 @@ export function AdminNewDashboard() {
             sub={`${employed + selfEmp} of ${verifiedCount} verified graduates`}
             icon={Briefcase} iconBg="bg-emerald-50" iconColor="text-emerald-600"
             trend={verifiedCount > 0 ? 'Live from verified records' : undefined} trendUp />
-          <StatCard label="Face Recognition Captured" value={bioCaptured}
-            sub={`${verifiedCount > 0 ? Math.round((bioCaptured / verifiedCount) * 100) : 0}% of verified graduates`}
-            icon={Camera} iconBg="bg-blue-50" iconColor="text-blue-600" />
+          <StatCard label="Retracing Needed" value={retraceCount}
+            sub="Not updated in over 2 years"
+            icon={RefreshCw} iconBg="bg-red-50" iconColor="text-red-600" />
           <StatCard label="Pending Verification" value={pendingAlumni.length}
             sub="Excluded from analytics until approved"
             icon={Clock} iconBg="bg-amber-50" iconColor="text-amber-600"
