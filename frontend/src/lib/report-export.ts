@@ -6,7 +6,7 @@
  *
  *   - exportCsv  → multi-section CSV (sections separated by blank rows)
  *   - exportXlsx → workbook with one sheet per section + a "Filters" sheet
- *   - exportPdf  → A4 portrait, optional `/report-header.png` band, then a
+ *   - exportPdf  → A4 portrait, the capstone letterhead on every page, then a
  *                   `jspdf-autotable` per section
  *
  * Keeping export logic in the browser means the backend stays dependency-free
@@ -14,17 +14,67 @@
  * the user hits "Generate".
  */
 
+import type { jsPDF } from 'jspdf';
 import type { ReportPayload } from '../app/api-client';
 
 type Cell = string | number | null | undefined;
 
-const SUBTITLE = 'Predictive Employability Trend';
+export const SUBTITLE = 'Predictive Employability Trend';
+
+// ── Letterhead ─────────────────────────────────────────────────────────────
+// The CHMSU College of Computer Studies letterhead from the capstone manuscript
+// (the header of Graduate_Tracer_System_formatted.docx), measured in points.
+// x is from the page's left margin; the green band runs edge to edge. The PDF
+// and the preview in admin-reports.tsx both draw from these numbers.
+export const PDF_PAGE = { width: 595.28, margin: 40 }; // A4
+export const LETTERHEAD = {
+  logo: { x: 13.9, y: 9.1, size: 57.4, src: '/CHMSULogo.png' },
+  // Initials at 18 pt in orange, the rest of each word at 12 pt in dark green.
+  title: { x: 74.1, baseline: 33.5, capSize: 18, restSize: 12, words: ['CARLOS', 'HILADO', 'MEMORIAL', 'STATE', 'UNIVERSITY'] },
+  bar: { dx: -2.9, y: 33.8, height: 4.6 }, // under the name, starting 2.9 pt left of it
+  college: { x: 75.5, baseline: 48.3, size: 11, text: 'College of Computer Studies' },
+  band: { y: 68.2, height: 6.9 },
+  bottom: 75.1,
+  colors: { cap: '#FF9300', rest: '#003800', bar: '#044F7C', college: '#767171', band: '#009051' },
+};
+// Page content starts below the letterhead on every page.
+const CONTENT_TOP = LETTERHEAD.bottom + 30;
+
+function drawLetterhead(doc: jsPDF, logo: HTMLImageElement | Uint8Array | null, margin: number) {
+  const L = LETTERHEAD;
+  if (logo) {
+    // One alias, so the seal is embedded once however many pages there are.
+    doc.addImage(logo, 'PNG', margin + L.logo.x, L.logo.y, L.logo.size, L.logo.size, 'chmsu-seal');
+  }
+  doc.setFont('helvetica', 'bold');
+  const titleX = margin + L.title.x;
+  let x = titleX;
+  L.title.words.forEach((word, i) => {
+    const parts: [string, number, string][] = [
+      [word[0], L.title.capSize, L.colors.cap],
+      [word.slice(1) + (i < L.title.words.length - 1 ? '  ' : ''), L.title.restSize, L.colors.rest],
+    ];
+    for (const [text, size, color] of parts) {
+      doc.setFontSize(size);
+      doc.setTextColor(color);
+      doc.text(text, x, L.title.baseline);
+      x += doc.getTextWidth(text);
+    }
+  });
+  doc.setFillColor(L.colors.bar);
+  doc.rect(titleX + L.bar.dx, L.bar.y, x - titleX - L.bar.dx, L.bar.height, 'F');
+  doc.setFontSize(L.college.size);
+  doc.setTextColor(L.colors.college);
+  doc.text(L.college.text, margin + L.college.x, L.college.baseline);
+  doc.setFillColor(L.colors.band);
+  doc.rect(0, L.band.y, doc.internal.pageSize.getWidth(), L.band.height, 'F');
+}
 
 // The green of the ring in CHMSULogo.png (#047940). White on it is 5.5:1, so
 // table headers stay readable; the old green-600 was brighter and paler.
 const CHMSU_GREEN: [number, number, number] = [4, 121, 64];
 
-function formatTimestamp(iso: string): string {
+export function formatTimestamp(iso: string): string {
   try {
     return new Date(iso).toLocaleString();
   } catch {
@@ -32,7 +82,7 @@ function formatTimestamp(iso: string): string {
   }
 }
 
-function formatFilters(filters: ReportPayload['filters']): string {
+export function formatFilters(filters: ReportPayload['filters']): string {
   const parts: string[] = [];
   parts.push(`Batches ${filters.batch_start}–${filters.batch_end}`);
   parts.push(filters.include_unverified ? 'Includes unverified' : 'Verified only');
@@ -135,46 +185,35 @@ export async function exportXlsx(payload: ReportPayload): Promise<void> {
 
 // ── PDF ────────────────────────────────────────────────────────────────────
 
-async function loadHeaderImage(): Promise<HTMLImageElement | null> {
-  // The user can drop a header image at frontend/public/report-header.png at
-  // any time to brand the PDFs. We probe with HEAD first so the failure case
-  // is silent (no console 404 spam, no broken-image substitution).
-  try {
-    const head = await fetch('/report-header.png', { method: 'HEAD' });
-    if (!head.ok) return null;
-  } catch {
-    return null;
-  }
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  // A missing seal should not stop the report: it prints without the image.
   return new Promise((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = '/report-header.png';
+    img.src = src;
   });
 }
 
 export async function exportPdf(payload: ReportPayload): Promise<void> {
-  const [{ default: jsPDF }, autoTableModule] = await Promise.all([
+  const doc = await buildPdf(payload, await loadImage(LETTERHEAD.logo.src));
+  doc.save(safeFilename(payload.title, 'pdf'));
+}
+
+/** The report as a jsPDF document (split from exportPdf so it can be built outside a browser). */
+export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | Uint8Array | null): Promise<jsPDF> {
+  // The named export exists in both jsPDF builds; `default` differs between them.
+  const [{ jsPDF: JsPDF }, autoTableModule] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
   ]);
   const autoTable = (autoTableModule as unknown as { default: (doc: unknown, opts: unknown) => unknown }).default;
 
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const doc = new JsPDF({ unit: 'pt', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 40;
+  const margin = PDF_PAGE.margin;
 
-  let cursorY = margin;
-
-  const headerImg = await loadHeaderImage();
-  if (headerImg && headerImg.width && headerImg.height) {
-    const ratio = headerImg.height / headerImg.width;
-    const targetHeight = Math.min(80, (pageWidth - margin * 2) * ratio);
-    // Width follows the capped height, so a tall image is never squashed.
-    doc.addImage(headerImg, 'PNG', margin, cursorY, targetHeight / ratio, targetHeight);
-    cursorY += targetHeight + 24;
-  }
+  let cursorY = CONTENT_TOP;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
@@ -198,7 +237,7 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
   for (const section of payload.sections) {
     if (cursorY > 740) {
       doc.addPage();
-      cursorY = margin;
+      cursorY = CONTENT_TOP;
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -224,7 +263,8 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
           data.cell.styles.halign = 'right';
         }
       },
-      margin: { left: margin, right: margin },
+      // A table that runs onto a new page resumes below that page's letterhead.
+      margin: { top: CONTENT_TOP - 12, left: margin, right: margin },
     });
 
     // jspdf-autotable mutates lastAutoTable on the doc instance.
@@ -232,22 +272,23 @@ export async function exportPdf(payload: ReportPayload): Promise<void> {
     cursorY = (last?.finalY ?? cursorY) + 22;
 
     if (section.title === 'Cross-Batch Timeline' && section.rows.length > 0) {
-      cursorY = drawTimelineChart(doc, section, margin, cursorY, pageWidth);
+      cursorY = drawTimelineChart(doc, section, margin, cursorY, pageWidth, CONTENT_TOP);
     }
   }
 
-  // Footers go on last, once the page count is final. Drawn per table they
-  // read "Page 1 of 1" on a longer report and skipped the chart's pages.
+  // Letterhead and footers go on last, once the page count is final, so every
+  // page gets them, including pages added by long tables and the chart.
   const totalPages = doc.getNumberOfPages();
   for (let page = 1; page <= totalPages; page++) {
     doc.setPage(page);
+    drawLetterhead(doc, logo, margin);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150);
     doc.text(`Page ${page} of ${totalPages}  ·  ${SUBTITLE}`, margin, doc.internal.pageSize.getHeight() - 18);
   }
 
-  doc.save(safeFilename(payload.title, 'pdf'));
+  return doc;
 }
 
 // ── Cross-Batch Timeline chart (jsPDF primitives, no new deps) ──────────────
@@ -282,6 +323,7 @@ function drawTimelineChart(
   margin: number,
   startY: number,
   pageWidth: number,
+  pageTop: number,
 ): number {
   const yearLabels = section.columns
     .slice(1)
@@ -297,7 +339,7 @@ function drawTimelineChart(
   for (const row of section.rows) {
     if (cursorY + chartH + 30 > doc.internal.pageSize.getHeight() - margin) {
       doc.addPage();
-      cursorY = margin;
+      cursorY = pageTop;
     }
 
     const label = String(row[0] ?? '');

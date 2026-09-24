@@ -4,7 +4,9 @@ import {
   Users, Briefcase, Wrench, ShieldCheck, TrendingUp, GraduationCap,
 } from 'lucide-react';
 import { fetchReport, ReportFilters, type ReportPayload } from '../../app/api-client';
-import { exportCsv, exportPdf, exportXlsx } from '../../lib/report-export';
+import {
+  exportCsv, exportPdf, exportXlsx, formatFilters, formatTimestamp, LETTERHEAD, PDF_PAGE, SUBTITLE,
+} from '../../lib/report-export';
 
 type ExportFormat = 'pdf' | 'xlsx' | 'csv';
 
@@ -340,9 +342,8 @@ export function AdminReports() {
       </div>
 
       <p className="text-xs text-gray-400 text-center">
-        Reports preview against the current database state. Drop a branded header at{' '}
-        <code className="px-1 py-0.5 bg-gray-100 rounded">/public/report-header.png</code> to
-        appear at the top of every PDF.
+        Reports preview against the current database state. PDFs carry the College of Computer
+        Studies letterhead on every page, as in the preview.
       </p>
 
       {preview && (
@@ -358,7 +359,53 @@ export function AdminReports() {
   );
 }
 
-// ── Preview modal (light-green theme) ────────────────────────────────────────
+// ── Preview modal: the report as a page, laid out like the PDF ──────────────
+
+// Letterhead sizes are container-query units of the page width (PDF points
+// scaled to 100cqw), so it keeps the PDF's proportions on any screen width.
+const pt = (n: number) => `${((n * 100) / PDF_PAGE.width).toFixed(3)}cqw`;
+// Arial's baseline sits 0.847 em below the top of a line box when line-height is 1.
+const ARIAL_BASELINE = 0.847;
+const NUMERIC = /^[-+]?[\d,.]+%?$/;
+
+function ReportLetterhead() {
+  const L = LETTERHEAD;
+  const m = PDF_PAGE.margin;
+  const titleTop = L.title.baseline - ARIAL_BASELINE * L.title.capSize;
+  return (
+    <div
+      role="img"
+      aria-label="Carlos Hilado Memorial State University, College of Computer Studies"
+      className="relative select-none"
+      style={{ height: pt(L.bottom), fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 700 }}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- sized in cqw, which next/image cannot take */}
+      <img src={L.logo.src} alt="" className="absolute"
+        style={{ left: pt(m + L.logo.x), top: pt(L.logo.y), width: pt(L.logo.size), height: pt(L.logo.size) }} />
+      <div className="absolute whitespace-pre"
+        style={{ left: pt(m + L.title.x), top: pt(titleTop), fontSize: pt(L.title.capSize), lineHeight: 1 }}>
+        {L.title.words.map((word, i) => (
+          <span key={word}>
+            <span style={{ color: L.colors.cap }}>{word[0]}</span>
+            <span style={{ fontSize: pt(L.title.restSize), color: L.colors.rest }}>
+              {word.slice(1)}{i < L.title.words.length - 1 ? '  ' : ''}
+            </span>
+          </span>
+        ))}
+        {/* The bar spans the name however wide the browser's font sets it. */}
+        <span className="absolute"
+          style={{ left: pt(L.bar.dx), right: 0, top: pt(L.bar.y - titleTop), height: pt(L.bar.height), background: L.colors.bar }} />
+      </div>
+      <p className="absolute"
+        style={{
+          left: pt(m + L.college.x), top: pt(L.college.baseline - ARIAL_BASELINE * L.college.size),
+          fontSize: pt(L.college.size), lineHeight: 1, color: L.colors.college,
+        }}>
+        {L.college.text}
+      </p>
+      <div className="absolute inset-x-0" style={{ top: pt(L.band.y), height: pt(L.band.height), background: L.colors.band }} />
+    </div>
+  );
+}
 
 function PreviewModal({
   report,
@@ -376,70 +423,70 @@ function PreviewModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-5xl xl:max-w-6xl max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-[#16a34a] to-[#22c55e] text-white px-4 sm:px-6 py-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-emerald-100 text-xs uppercase tracking-wide" style={{ fontWeight: 600 }}>
-              Report Preview
-            </p>
-            <h2 className="text-lg" style={{ fontWeight: 700 }}>{payload.title}</h2>
-            <p className="text-emerald-100 text-xs mt-0.5">
-              Batches {payload.filters.batch_start}–{payload.filters.batch_end}
-              {' · '}
-              {payload.filters.include_unverified ? 'Includes unverified' : 'Verified only'}
-              {' · '}
-              Generated {new Date(payload.generated_at).toLocaleString()}
-            </p>
-          </div>
-          <button onClick={onClose} className="-mr-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-white/80 hover:text-white hover:bg-white/10" aria-label="Close">
+        {/* Top bar */}
+        <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 border-b border-gray-200">
+          <p className="min-w-0 truncate text-sm text-gray-700">
+            <span style={{ fontWeight: 700 }}>Report Preview</span>
+            <span className="text-gray-400">{' · '}{payload.title}</span>
+          </p>
+          <button onClick={onClose} className="-mr-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100" aria-label="Close">
             <X className="size-5" />
           </button>
         </div>
 
-        {/* Sections */}
-        <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-5 space-y-6 bg-emerald-50/40">
-          {payload.sections.length === 0 && (
-            <div className="rounded-xl border border-dashed border-emerald-200 bg-white p-6 text-center">
-              <p className="text-sm text-gray-500">This report returned no sections for the current filters.</p>
-            </div>
-          )}
-          {payload.sections.map((section, idx) => (
-            <div key={idx} className="bg-white rounded-xl border border-emerald-100 shadow-sm overflow-hidden">
-              <div className="px-4 py-2.5 bg-emerald-50 border-b border-emerald-100">
-                <h3 className="text-sm text-[#15803d]" style={{ fontWeight: 700 }}>
-                  {section.title}
-                </h3>
-              </div>
-              <div className="overflow-x-auto">
-                {section.rows.length === 0 ? (
-                  <p className="p-4 text-xs text-gray-400 italic">No rows.</p>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-[#16a34a] text-white">
-                        {section.columns.map((col, i) => (
-                          <th key={i} className="px-3 py-2 text-left" style={{ fontWeight: 600 }}>
-                            {col == null ? '' : String(col)}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {section.rows.map((row, rIdx) => (
-                        <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/50'}>
-                          {row.map((cell, cIdx) => (
-                            <td key={cIdx} className="px-3 py-2 text-gray-700 border-b border-emerald-50">
-                              {cell == null ? '' : String(cell)}
-                            </td>
+        {/* The report as it will print */}
+        <div className="flex-1 overflow-y-auto bg-gray-100 px-2 sm:px-6 py-3 sm:py-6">
+          <article className="mx-auto w-full max-w-[794px] bg-white shadow-md" style={{ containerType: 'inline-size' }}>
+            <ReportLetterhead />
+            <div className="px-[6.72cqw] pt-6 pb-10 space-y-6">
+              <header>
+                <h2 className="text-[#047940] text-xl sm:text-2xl" style={{ fontWeight: 700 }}>{payload.title}</h2>
+                <p className="text-sm text-gray-600 mt-1">{SUBTITLE}</p>
+                <p className="text-xs text-gray-400 mt-2">Generated: {formatTimestamp(payload.generated_at)}</p>
+                <p className="text-xs text-gray-400">Filters: {formatFilters(payload.filters)}</p>
+              </header>
+              {payload.sections.length === 0 && (
+                <p className="text-sm text-gray-500">This report returned no sections for the current filters.</p>
+              )}
+              {payload.sections.map((section, idx) => (
+                <section key={idx}>
+                  <h3 className="text-sm text-[#047940] mb-2" style={{ fontWeight: 700 }}>{section.title}</h3>
+                  {section.rows.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic">No rows.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            {section.columns.map((col, i) => (
+                              <th key={i} className="px-2 py-1.5 text-left bg-[#047940] text-white border border-[#047940]" style={{ fontWeight: 700 }}>
+                                {col == null ? '' : String(col)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {section.rows.map((row, rIdx) => (
+                            <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-gray-100'}>
+                              {row.map((cell, cIdx) => {
+                                const text = cell == null ? '' : String(cell);
+                                return (
+                                  <td key={cIdx}
+                                    className={`px-2 py-1.5 text-gray-800 border border-gray-300 ${cIdx > 0 && NUMERIC.test(text.trim()) ? 'text-right' : ''}`}>
+                                    {text}
+                                  </td>
+                                );
+                              })}
+                            </tr>
                           ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+              ))}
             </div>
-          ))}
+          </article>
         </div>
 
         {/* Footer: generate buttons */}
