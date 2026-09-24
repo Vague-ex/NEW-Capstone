@@ -273,7 +273,10 @@ function SkillPicker({ groups, selected, onChange, placeholder }: {
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const PILL_LIMIT = 10;
+  const pills = showAll ? selected : selected.slice(0, PILL_LIMIT);
 
   // Close on a click outside or Escape, like a native dropdown.
   useEffect(() => {
@@ -340,7 +343,7 @@ function SkillPicker({ groups, selected, onChange, placeholder }: {
 
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {selected.map((skill) => (
+          {pills.map((skill) => (
             <span key={skill}
               className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
               {skill}
@@ -351,6 +354,12 @@ function SkillPicker({ groups, selected, onChange, placeholder }: {
               </button>
             </span>
           ))}
+          {selected.length > PILL_LIMIT && (
+            <button type="button" onClick={() => setShowAll((s) => !s)}
+              className="px-3 py-1 rounded-full text-sm text-[#166534] underline hover:text-[#14532d]">
+              {showAll ? 'Show less' : `…show ${selected.length - PILL_LIMIT} more`}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1564,7 +1573,8 @@ export default function RegisterAlumniEmployment({
           {/* Technical Skills */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Technical Skills ({form.technical_skills.length} selected)
+              Technical Skills ({form.technical_skills.length} selected of{' '}
+              {technicalGroups.reduce((n, g) => n + g.skills.length, 0)} in total)
             </label>
             <SkillPicker
               groups={technicalGroups}
@@ -1577,7 +1587,8 @@ export default function RegisterAlumniEmployment({
           {/* Soft Skills */}
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Soft Skills ({form.soft_skills.length} selected)
+              Soft Skills ({form.soft_skills.length} selected of{' '}
+              {softGroups.reduce((n, g) => n + g.skills.length, 0)} in total)
             </label>
             <SkillPicker
               groups={softGroups}
