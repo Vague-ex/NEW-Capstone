@@ -542,9 +542,9 @@ def employment_outlook(
     uncertainty the realistic-data stress test found for six batches.
 
     `horizon` fixes the number of years. Left as None, the range covers every
-    batch from the one after the latest reported batch through next calendar
-    year (OUTLOOK_MIN_YEARS to OUTLOOK_MAX_YEARS of them), so a dashboard whose
-    newest data is two years old still looks past the current year.
+    batch from the current year (or the one after the latest reported batch,
+    if later) through next calendar year, at least OUTLOOK_MIN_YEARS of them.
+    Batches that have already graduated are never shown as predictions.
     """
     points = [
         (entry["batch"], entry["employment_rate"]["rate"])
@@ -576,17 +576,20 @@ def employment_outlook(
     # of any kind: a few records with a mistyped future graduation year would
     # otherwise push the expected range years ahead.
     latest = points[-1][0]
-    if horizon is None:
-        if current_year is None:
-            from django.utils import timezone
+    if current_year is None:
+        from django.utils import timezone
 
-            current_year = timezone.now().year
-        horizon = min(OUTLOOK_MAX_YEARS, max(OUTLOOK_MIN_YEARS, current_year + 1 - latest))
+        current_year = timezone.now().year
+    # Never predict a batch that has already graduated: start at the current
+    # year even when the newest reported batch is older.
+    first = max(latest + 1, current_year)
+    if horizon is None:
+        horizon = min(OUTLOOK_MAX_YEARS, max(OUTLOOK_MIN_YEARS, current_year + 2 - first))
     years = []
-    for step in range(1, horizon + 1):
-        width = half * math.sqrt(step)
+    for batch in range(first, first + horizon):
+        width = half * math.sqrt(batch - latest)  # wider the further from the last real rate
         years.append({
-            "batch": latest + step,
+            "batch": batch,
             "centre": centre,
             "low": max(0.0, centre - width),
             "high": min(1.0, centre + width),

@@ -1108,7 +1108,7 @@ class EmployabilityIndicatorTests(SimpleTestCase):
 			return {"batch": year, "employment_rate": {"rate": rate}}
 
 		self.assertFalse(employment_outlook([batch(2023, 0.6)])["available"])
-		short = employment_outlook([batch(2023, 0.6), batch(2024, 0.7)])
+		short = employment_outlook([batch(2023, 0.6), batch(2024, 0.7)], current_year=2025)
 		self.assertEqual(short["basis"], "default")
 		self.assertAlmostEqual(short["years"][0]["high"] - short["years"][0]["low"], 0.4)
 
@@ -1253,7 +1253,7 @@ class EmployabilityDataGuardTests(SimpleTestCase):
 			{"batch": 2024, "employment_rate": {"rate": 0.8}},
 			{"batch": 2027, "employment_rate": {"rate": None}},
 		]
-		self.assertEqual(employment_outlook(batches, current_year=2026)["years"][0]["batch"], 2025)
+		self.assertEqual(employment_outlook(batches, current_year=2026)["years"][0]["batch"], 2026)
 
 	def test_expected_range_reaches_next_calendar_year(self):
 		from tracer.employability import employment_outlook
@@ -1266,10 +1266,10 @@ class EmployabilityDataGuardTests(SimpleTestCase):
 
 		# Data through 2025 in 2026: the next two batches.
 		self.assertEqual(years(employment_outlook(batches(2023, 2024, 2025), current_year=2026)), [2026, 2027])
-		# Data only through 2024: still reaches 2027 rather than stopping at 2026.
-		self.assertEqual(years(employment_outlook(batches(2022, 2023, 2024), current_year=2026)), [2025, 2026, 2027])
-		# Very old data is capped, and always at least two years are shown.
-		self.assertEqual(len(employment_outlook(batches(2015, 2016), current_year=2026)["years"]), 4)
+		# Data only through 2024: starts at the current year, never at a graduated batch.
+		self.assertEqual(years(employment_outlook(batches(2022, 2023, 2024), current_year=2026)), [2026, 2027])
+		# Very old data still shows the current and next year, and always at least two years.
+		self.assertEqual(years(employment_outlook(batches(2015, 2016), current_year=2026)), [2026, 2027])
 		self.assertEqual(years(employment_outlook(batches(2025, 2026), current_year=2026)), [2027, 2028])
 		# An explicit horizon still wins, and each further year is wider.
 		fixed = employment_outlook(batches(2023, 2024, 2025), horizon=1, current_year=2026)
