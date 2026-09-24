@@ -1226,7 +1226,58 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "skills": skills,
         "requiresRetracking": _needs_retracking(account),
         "needsEmployerInvite": _needs_employer_invite(account),
+        "geomapConsent": bool(getattr(_profile_or_none(account), "geomap_consent", False)),
+        "homeAddress": _home_address_payload(account),
+        "employerVerification": _employer_verification_payload(account),
     }
+
+
+def _profile_or_none(account):
+    try:
+        return account.profile
+    except Exception:
+        return None
+
+
+def _home_address_payload(account) -> dict:
+    """The graduate's home address as the Personal & Education page edits it."""
+    profile = _profile_or_none(account)
+    if profile is None:
+        return {}
+    return {
+        "region": profile.home_region or "",
+        "province": profile.province or "",
+        "city": profile.city or "",
+        "barangay": profile.home_barangay or "",
+        "latitude": _to_float(profile.home_latitude),
+        "longitude": _to_float(profile.home_longitude),
+    }
+
+
+def _employer_verification_payload(account) -> dict | None:
+    """Where the employer check of the current job stands, for the graduate.
+
+    status: verified / denied when the employer answered, pending while a
+    link is out, none when no link has been sent for the current job.
+    """
+    from tracer.models import EmploymentRecord, VerificationToken
+
+    record = EmploymentRecord.objects.filter(alumni=account, is_current=True).first()
+    if record is None:
+        return None
+    if record.verification_status in (
+        EmploymentRecord.VerificationStatus.VERIFIED, EmploymentRecord.VerificationStatus.DENIED,
+    ):
+        return {"status": record.verification_status, "invitedEmail": "", "sentAt": None}
+    token = (
+        VerificationToken.objects
+        .filter(employment_record=record, status=VerificationToken.Status.PENDING, expires_at__gt=timezone.now())
+        .order_by("-created_at")
+        .first()
+    )
+    if token is None:
+        return {"status": "none", "invitedEmail": "", "sentAt": None}
+    return {"status": "pending", "invitedEmail": token.invited_email or "", "sentAt": token.created_at.isoformat()}
 
 def _admin_alumni_payload(account: AlumniAccount) -> dict:
     template = _template_of(account)
@@ -1435,6 +1486,7 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "jobAlignment": job_alignment,
         "workLocation": survey_data.get("currentJobLocation") or "",
         "workCity": addr_row.city_municipality if addr_row is not None else "",
+        "workRegion": (addr_row.region or "") if addr_row is not None else "",
         "unemploymentReason": survey_data.get("unemploymentReason") or "",
         "dateUpdated": timezone.localtime(account.updated_at).date().isoformat() if account.updated_at else timezone.localdate().isoformat(),
         **_admin_retracking_fields(account),
@@ -2102,11 +2154,18 @@ class AlumniRegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if User.objects.filter(email=email).exists():
-            return Response(
-                {"detail": "This email is already registered."},
-                status=status.HTTP_409_CONFLICT,
-            )
+        # A rejected registration does not lock its address: registering again
+        # replaces it (inside the transaction below, once this one is valid).
+        existing_user = User.objects.filter(email=email).first()
+        rejected_user = None
+        if existing_user:
+            existing_account = AlumniAccount.objects.filter(user=existing_user).first()
+            if existing_account is None or existing_account.account_status != AccountStatus.REJECTED:
+                return Response(
+                    {"detail": "This email is already registered."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            rejected_user = existing_user
 
         # Registration stores ONE frontal photo. The blink and head-turn stages
         # prove liveness but deliberately save no image: face-api's recogniser
@@ -2324,6 +2383,8 @@ class AlumniRegisterView(APIView):
                 liveness_signals = None
 
         with transaction.atomic():
+            if rejected_user is not None:
+                rejected_user.delete()
             # 1. Create User
             user = User.objects.create_user(
                 email=email,
@@ -2511,6 +2572,19 @@ class AlumniLoginView(APIView):
         if alumni_account.account_status in {AccountStatus.REJECTED, AccountStatus.SUSPENDED}:
             return Response(
                 {"detail": f"Account access blocked ({alumni_account.account_status}). Contact the administrator."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # Not on the masterlist: held until an admin approves it. The approval
+        # email tells the graduate when they can sign in.
+        if alumni_account.account_status == AccountStatus.PENDING:
+            return Response(
+                {
+                    "detail": (
+                        "Your account is awaiting verification by the BSIS administrator. "
+                        "You will receive an email once it is approved."
+                    ),
+                    "accountStatus": AccountStatus.PENDING,
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -3171,20 +3245,19 @@ class AlumniRequestApproveView(APIView):
             )
 
         # Approving a pending account and confirming an already-active one
-        # (Profile Review) both land here. Only the first needs the approval
-        # email: a matched graduate has been able to sign in since registering.
+        # (Profile Review) both land here, and both tell the graduate by email
+        # that their record has been verified.
         was_active = alumni_account.account_status == AccountStatus.ACTIVE
         alumni_account.account_status = AccountStatus.ACTIVE
         alumni_account.profile_reviewed_at = alumni_account.profile_reviewed_at or timezone.now()
         alumni_account.save(update_fields=["account_status", "profile_reviewed_at", "updated_at"])
 
         payload = _admin_alumni_payload(alumni_account)
-        if not was_active:
-            _send_approval_email(
-                to_email=alumni_account.user.email if alumni_account.user else "",
-                recipient_name=payload.get("name") or "",
-                is_employer=False,
-            )
+        _send_approval_email(
+            to_email=alumni_account.user.email if alumni_account.user else "",
+            recipient_name=payload.get("name") or "",
+            is_employer=False,
+        )
 
         return Response(
             {
@@ -3518,10 +3591,17 @@ class AlumniRequestRejectView(APIView):
             )
 
         reason = (request.data.get("reason") or "").strip()
-        # Build the payload + capture the email BEFORE deleting the row.
-        payload = _admin_alumni_payload(alumni_account)
         user = alumni_account.user
         to_email = user.email if user else ""
+
+        # Kept as a rejected record with its reason, so the decision can be
+        # audited. The email address is not locked: registering again with it
+        # replaces the rejected account (see AlumniRegisterView).
+        alumni_account.account_status = AccountStatus.REJECTED
+        alumni_account.rejection_reason = reason
+        alumni_account.profile_reviewed_at = timezone.now()
+        alumni_account.save(update_fields=["account_status", "rejection_reason", "profile_reviewed_at", "updated_at"])
+        payload = _admin_alumni_payload(alumni_account)
 
         _send_rejection_email(
             to_email=to_email,
@@ -3530,26 +3610,9 @@ class AlumniRequestRejectView(APIView):
             is_employer=False,
         )
 
-        # Hard delete so the email address is freed for a fresh registration —
-        # no soft-deleted "rejected" record lingers. Deleting the User cascades
-        # to the AlumniAccount and all related rows. Fall back to a soft reject
-        # if the delete is blocked so the admin action never hard-errors.
-        try:
-            if user:
-                user.delete()
-            else:
-                alumni_account.delete()
-            message = "Graduate request rejected and removed."
-        except Exception:
-            logger.exception("Hard delete failed for rejected alumni %s; soft-rejecting", alumni_id)
-            alumni_account.account_status = AccountStatus.REJECTED
-            alumni_account.rejection_reason = reason
-            alumni_account.save(update_fields=["account_status", "rejection_reason", "updated_at"])
-            message = "Graduate request rejected."
-
         return Response(
             {
-                "message": message,
+                "message": "Graduate request rejected.",
                 "alumni": payload,
             },
             status=status.HTTP_200_OK,

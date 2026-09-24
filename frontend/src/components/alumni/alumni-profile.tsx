@@ -5,7 +5,7 @@ import { updateAlumniEmployment } from '../../app/api-client';
 import { isValidFacebookUrl } from '../register-alumni-personal';
 import {
   Mail, Phone, Globe, Save, CheckCircle2,
-  Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck, BookOpen,
+  Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck, BookOpen, MapPin,
 } from 'lucide-react';
 
 export function AlumniProfile() {
@@ -30,6 +30,9 @@ export function AlumniProfile() {
     phone: initialPhone,
     facebook: String(surveyData.facebook_url ?? surveyData.facebook ?? ''),
   });
+  // Consent to appear on the admin geomap, separate from joining the study
+  // (RA 10173). Changing it only moves the graduate on or off the map.
+  const [geomapConsent, setGeomapConsent] = useState(alumni.geomapConsent === true);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -56,6 +59,8 @@ export function AlumniProfile() {
       mobile: form.phone,
       facebook: form.facebook,
       facebook_url: form.facebook,
+      geomap_consent: geomapConsent,
+      geomapConsent,
     };
 
     let serverAlumni: Record<string, unknown> = {};
@@ -79,6 +84,7 @@ export function AlumniProfile() {
       ...alumni,
       ...form,
       ...serverAlumni,
+      geomapConsent,
       surveyData: mergedSurveyData,
       dateUpdated: new Date().toISOString().split('T')[0],
     };
@@ -228,6 +234,27 @@ export function AlumniProfile() {
                 className={iconInputCls}
               />
             </div>
+          </div>
+
+          {/* Geomap consent */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+            <h3 className="text-gray-800 mb-3 flex items-center gap-2" style={{ fontWeight: 700 }}>
+              <MapPin className="size-4 text-[#166534]" /> Geomap
+            </h3>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={geomapConsent}
+                onChange={e => { setSaved(false); setGeomapConsent(e.target.checked); }}
+                className="mt-0.5 size-4 shrink-0 accent-[#166534]"
+              />
+              <span className="text-sm text-gray-700">
+                Show my work location on the BSIS graduate map
+                <span className="block text-gray-400 text-xs mt-0.5">
+                  Only the BSIS Program sees the map. Turning this off removes your pin; you are still counted in reports.
+                </span>
+              </span>
+            </label>
           </div>
 
           {/* Save Button */}

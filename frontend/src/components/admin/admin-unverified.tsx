@@ -245,7 +245,7 @@ const MODE_COPY = {
     tabLabel: 'Masterlist matches',
     pageSubtitle: 'Masterlist matches that can already sign in - confirm each one is the real graduate',
     bannerTitle: 'These graduates matched the BSIS masterlist, so their accounts are already active.',
-    bannerBody: 'Check the face scan and details. Confirm if this is the real graduate. If not, reject: the account is deleted and the graduate is emailed your reason.',
+    bannerBody: 'Check the face scan and details. Confirm if this is the real graduate. If not, reject: the account is marked rejected, your reason is kept on record, and the graduate is emailed it.',
     countSuffix: 'awaiting profile review',
     loading: 'Loading graduate profiles…',
     emptyTitle: 'All Reviewed!',

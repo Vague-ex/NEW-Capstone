@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import { updateAlumniEmployment } from '../../app/api-client';
 import { isValidFacebookUrl } from '../register-alumni-personal';
+import { HomeAddressFields, type HomeAddress } from './home-address-fields';
 import {
-    User, BookOpen, Phone, MapPin, Save, CheckCircle2, AlertTriangle, ShieldCheck,
+    User, BookOpen, Phone, Save, CheckCircle2, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 
 function RadioOption({ label, value, current, onSelect }: {
@@ -93,6 +94,16 @@ export function AlumniPersonalEducation() {
         profEligibilityOther: String(surveyData.profEligibilityOther ?? ''),
     });
 
+    const home = (alumni.homeAddress ?? {}) as Partial<HomeAddress> & { latitude?: number | null; longitude?: number | null };
+    const [address, setAddress] = useState<HomeAddress>({
+        region: String(home.region ?? ''),
+        province: String(home.province ?? surveyData.province ?? ''),
+        city: String(home.city ?? surveyData.city ?? ''),
+        barangay: String(home.barangay ?? ''),
+        lat: typeof home.latitude === 'number' ? home.latitude : null,
+        lng: typeof home.longitude === 'number' ? home.longitude : null,
+    });
+
     const [isSaving, setIsSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [saveError, setSaveError] = useState('');
@@ -147,6 +158,18 @@ export function AlumniPersonalEducation() {
         const mergedSurveyData = {
             ...surveyData,
             ...form,
+            // Home address: city/province as before, plus the region, barangay
+            // and pin under their own keys (region/barangay are the work address).
+            city: address.city,
+            province: address.province,
+            home_region: address.region,
+            homeRegion: address.region,
+            home_barangay: address.barangay,
+            homeBarangay: address.barangay,
+            home_latitude: address.lat,
+            homeLatitude: address.lat,
+            home_longitude: address.lng,
+            homeLongitude: address.lng,
             // The key the server stores; `facebook` alone never reached the profile.
             facebook_url: form.facebook,
             profEligibilityOther: form.profEligibility.includes('Others') ? form.profEligibilityOther : '',
@@ -271,19 +294,11 @@ export function AlumniPersonalEducation() {
 
                             <div>
                                 <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>Permanent Address</label>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="block text-gray-500 text-xs mb-1.5">City/Municipality</label>
-                                        <div className="relative">
-                                            <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-                                            <input type="text" value={form.city} onChange={(e) => setF('city', e.target.value)} className={`${inputCls} pl-10`} />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-gray-500 text-xs mb-1.5">State/Province</label>
-                                        <input type="text" value={form.province} onChange={(e) => setF('province', e.target.value)} className={inputCls} />
-                                    </div>
-                                </div>
+                                <HomeAddressFields
+                                    value={address}
+                                    inputCls={inputCls}
+                                    onChange={(next) => { setSaved(false); setSaveError(''); setAddress(next); }}
+                                />
                             </div>
                         </div>
                     </div>

@@ -581,6 +581,7 @@ class VerificationTokenFlowTests(TestCase):
 				"decision": "deny",
 				"verifier_name": "Maria Reyes",
 				"verifier_email": "maria@acme.com",
+				"verifier_position": "HR Manager",
 				"comment": "see i.imgur.com/abc.png",
 			},
 			format="json",
@@ -626,7 +627,7 @@ class VerificationTokenFlowTests(TestCase):
 
 		answered = self.client.post(
 			f"/api/verification/tokens/{first_id}/decision/",
-			{"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com"},
+			{"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com", "verifier_position": "HR Officer"},
 			format="json",
 		)
 		self.assertEqual(answered.status_code, 200)
@@ -638,7 +639,7 @@ class VerificationTokenFlowTests(TestCase):
 		)
 		second_answer = self.client.post(
 			f"/api/verification/tokens/{second_id}/decision/",
-			{"decision": "confirm", "verifier_name": "Supervisor", "verifier_email": "boss@acme.com"},
+			{"decision": "confirm", "verifier_name": "Supervisor", "verifier_email": "boss@acme.com", "verifier_position": "Team Lead"},
 			format="json",
 		)
 		self.assertEqual(second_answer.status_code, 200)
@@ -681,7 +682,7 @@ class VerificationTokenFlowTests(TestCase):
 			**self._alumni_auth(),
 		).data["token"]["id"]
 
-		payload = {"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com"}
+		payload = {"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com", "verifier_position": "HR Officer"}
 		self.assertEqual(
 			self.client.post(f"/api/verification/tokens/{token_id}/decision/", payload, format="json").status_code,
 			200,

@@ -62,7 +62,11 @@ export function AlumniSkills() {
     const technical = Array.isArray(surveyData.technical_skills)
       ? surveyData.technical_skills
       : (graduate.skills ?? surveyData.skills ?? []);
-    return toCanonical(technical, BSIS_CORE_SKILLS).filter((s: string) => !isListed(s, SOFT_SKILLS));
+    // Drop soft skills saved under technical by older versions, but never a
+    // BSIS program skill: "Teamwork/Collaboration" and "Problem-solving /
+    // Critical Thinking" are on both lists and were silently lost on reload.
+    return toCanonical(technical, BSIS_CORE_SKILLS)
+      .filter((s: string) => isListed(s, BSIS_CORE_SKILLS) || !isListed(s, SOFT_SKILLS));
   });
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);

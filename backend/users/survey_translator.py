@@ -341,6 +341,9 @@ def apply_survey_data_to_normalized_tables(
         ("first_name",         "firstName",         "first_name",         False),
         ("middle_name",        "middleName",        "middle_name",        False),
         ("last_name",          "lastName",          "last_name",          False),
+        # The Personal & Education page calls it familyName; listed after
+        # last_name so the page's edit wins over a stale key in the blob.
+        ("family_name",        "familyName",        "last_name",          False),
         ("gender",             "gender",            "gender",             False),
         ("civil_status",       "civilStatus",       "civil_status",       False),
         ("birth_date",         "birthDate",         "birth_date",         True),
@@ -351,6 +354,10 @@ def apply_survey_data_to_normalized_tables(
         ("highest_attainment", "highestAttainment", "highest_attainment", False),
         ("graduate_school",    "graduateSchool",    "graduate_school",    False),
         ("facebook_url",       "facebookUrl",       "facebook_url",       False),
+        # Home address from the Personal & Education page. Own keys, because
+        # `region` and `barangay` in the survey blob are the WORK address.
+        ("home_region",        "homeRegion",        "home_region",        False),
+        ("home_barangay",      "homeBarangay",      "home_barangay",      False),
     )
     for snake, camel, dst, is_date in string_mapping:
         val = _first(snake, camel)
@@ -381,6 +388,22 @@ def apply_survey_data_to_normalized_tables(
         profile_updates["has_portfolio"] = _to_bool(
             sd.get("has_portfolio", sd.get("hasPortfolio"))
         )
+    # Geomap consent can be changed from Edit Profile after registration.
+    if "geomap_consent" in sd or "geomapConsent" in sd:
+        profile_updates["geomap_consent"] = bool(_to_bool(sd.get("geomap_consent", sd.get("geomapConsent"))))
+    # The pin from "Use my current location"; an out-of-range value is dropped.
+    for dst, keys, limit in (
+        ("home_latitude", ("home_latitude", "homeLatitude"), 90),
+        ("home_longitude", ("home_longitude", "homeLongitude"), 180),
+    ):
+        if any(k in sd for k in keys):
+            raw = _first(*keys)
+            try:
+                value = None if raw is None else round(float(raw), 6)
+            except (TypeError, ValueError):
+                continue
+            if value is None or abs(value) <= limit:
+                profile_updates[dst] = value
 
     # An explicit (possibly empty) technical_skills list wins: `skills` is the
     # technical + soft union, so falling back to it would re-add soft skills as

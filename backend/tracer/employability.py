@@ -40,6 +40,9 @@ MIN_GROUP = 5
 # Acceptance gate: minimum data before a model can be trusted.
 MIN_RESPONDENTS = 150
 MIN_MINORITY = 40
+# The model must beat the no-model baseline by a margin, not by rounding: on
+# inputs with no signal the two Brier scores come out equal to three decimals.
+MIN_BRIER_SKILL = 0.01
 # Expected-range settings for the next batch (see employment_outlook()).
 OUTLOOK_WINDOW = 3
 OUTLOOK_DEFAULT_HALF_WIDTH = 0.20
@@ -224,18 +227,28 @@ def demo_q(prefix: str = ""):
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 
-def filter_source(queryset, source: str | None, prefix: str = ""):
+def filter_source(queryset, source: str | None, prefix: str = "", keep_future: bool = False):
     """Keep only real graduates, only seeded ones, or (source None) everyone.
     Demo graduates are in neither source: they are UI states, not data. Both
     sources also stop at latest_graduation_year(), so while current-year
-    graduates are switched off their accounts stay but analytics skip them."""
+    graduates are switched off their accounts stay but analytics skip them.
+
+    keep_future keeps graduation years after this calendar year. Those are
+    data-entry mistakes, not a batch: the graduate frame keeps them so
+    analytics can count them under data issues (reportable() drops them from
+    every figure)."""
     if source not in SOURCES:
         return queryset
     if source == SOURCE_REAL:
         queryset = queryset.exclude(sample_q(prefix))
     else:
         queryset = queryset.filter(sample_q(prefix)).exclude(demo_q(prefix))
-    return queryset.exclude(**{f"{prefix}profile__graduation_year__gt": latest_graduation_year()})
+    year = f"{prefix}profile__graduation_year"
+    if keep_future:
+        from django.utils import timezone
+
+        return queryset.exclude(**{f"{year}__gt": latest_graduation_year(), f"{year}__lte": timezone.now().year})
+    return queryset.exclude(**{f"{year}__gt": latest_graduation_year()})
 
 
 def latest_graduation_year() -> int:
@@ -341,6 +354,7 @@ def build_graduate_frame(as_of=None, source: str | None = None):
         .prefetch_related("alumni__employment_profiles"),
         source,
         prefix="alumni__",
+        keep_future=True,
     )
 
     rows: list[dict] = []
@@ -915,7 +929,7 @@ def evaluate_candidate(frame, features=None, repeats: int = 10, n_boot: int = 20
 
     metrics: dict = {"n": n, "n_positive": positives, "outcome_rate": (positives / n) if n else None}
     remaining = [
-        ("baseline", "Beats the no-model baseline", "Brier score lower than the baseline's"),
+        ("baseline", "Beats the no-model baseline", "Brier score at least 1% below the baseline's"),
         ("discrimination", "Separates the two outcomes", "Mean AUC at least 0.65, 5th percentile above 0.55"),
         ("temporal", "Holds up on the latest batches", "On batches it never saw: AUC within 0.10 of cross-validation, calibration slope 0.7 to 1.3"),
         ("calibration", "Predicted chances match reality", "Calibration slope between 0.7 and 1.3"),
@@ -948,10 +962,14 @@ def evaluate_candidate(frame, features=None, repeats: int = 10, n_boot: int = 20
     auc_p05 = float(np.percentile(aucs, 5)) if aucs else 0.5
     brier = float(np.mean(briers))
     baseline_brier = float(np.mean(baseline_briers))
-    metrics.update(cv_auc_mean=auc_mean, cv_auc_p05=auc_p05, brier=brier, baseline_brier=baseline_brier)
+    brier_skill = 1 - brier / baseline_brier if baseline_brier else 0.0
+    metrics.update(
+        cv_auc_mean=auc_mean, cv_auc_p05=auc_p05, brier=brier, baseline_brier=baseline_brier, brier_skill=brier_skill,
+    )
 
-    check("baseline", "Beats the no-model baseline", brier < baseline_brier,
-          f"Brier {brier:.3f} vs baseline {baseline_brier:.3f}", "Brier score lower than the baseline's")
+    check("baseline", "Beats the no-model baseline", brier_skill >= MIN_BRIER_SKILL,
+          f"Brier {brier:.3f} vs baseline {baseline_brier:.3f} ({brier_skill:+.1%})",
+          "Brier score at least 1% below the baseline's")
     check("discrimination", "Separates the two outcomes", auc_mean >= 0.65 and auc_p05 > 0.55,
           f"AUC {auc_mean:.2f} (5th percentile {auc_p05:.2f})",
           "Mean AUC at least 0.65, 5th percentile above 0.55")

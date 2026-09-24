@@ -131,10 +131,13 @@ function needsRetracing(a: AlumniRecord): boolean {
 
 function RetraceBadge({ a }: { a: AlumniRecord }) {
   if (!needsRetracing(a)) return null;
-  const since = typeof a.daysSinceRetrace === 'number' ? formatDuration(a.daysSinceRetrace) : null;
+  const overdue = (a as { retrackingOverdueDays?: number }).retrackingOverdueDays;
+  const since = typeof overdue === 'number' ? `${overdue} day${overdue === 1 ? '' : 's'} overdue` : null;
   return (
     <span
-      title={a.lastRetracedAt ? `Employment record last confirmed ${a.lastRetracedAt}` : undefined}
+      title={a.lastRetracedAt
+        ? `Employment record last confirmed ${a.lastRetracedAt}${typeof a.daysSinceRetrace === 'number' ? ` (${formatDuration(a.daysSinceRetrace)} ago)` : ''}`
+        : undefined}
       className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100 whitespace-nowrap"
       style={{ fontWeight: 600 }}
     >

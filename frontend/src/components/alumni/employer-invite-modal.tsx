@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Building2, CheckCircle2 } from 'lucide-react';
 import { createAlumniVerificationInvite, ApiClientError } from '../../app/api-client';
 
-// Share-your-verification-link modal. Mints a fresh one-time token every time
-// it opens, so it is shared by the Employment Details page (after a company
-// change) and the dashboard (first login with a job and no link yet).
+// Share-your-verification-link modal, used by the Employment Details page
+// (after a company change) and the dashboard (first login with a job and no
+// link yet). The graduate enters their employer's email and the one-time link
+// is sent there; "create a link to copy" is the fallback for sharing it some
+// other way.
 export function EmployerInviteModal({
   open,
   onClose,
@@ -22,6 +24,8 @@ export function EmployerInviteModal({
   // to share, since the token is what ties the response back to this graduate.
   const [link, setLink] = useState('');
   const [status, setStatus] = useState('');
+  const [employerEmail, setEmployerEmail] = useState('');
+  const [sending, setSending] = useState(false);
   // Short read-lock so the graduate can't accidentally tap Close before they
   // have registered what the modal is telling them.
   const [closeCountdown, setCloseCountdown] = useState(3);
@@ -42,46 +46,50 @@ export function EmployerInviteModal({
   }, [open]);
 
   // The token row holds an `alumni` foreign key, so the response comes back
-  // tied to this graduate automatically — the employer never has to identify
-  // them, and never needs an account.
-  // One mint per opening. The ref (not an effect cleanup flag) is what stops
-  // StrictMode's double effect run from minting two tokens, each of which
-  // counts against the backend's live-links cap.
-  const mintedRef = useRef(false);
+  // tied to this graduate automatically - the employer never has to identify
+  // them, and never needs an account. Each opening starts clean.
   useEffect(() => {
-    if (!open) {
-      mintedRef.current = false;
-      return;
-    }
-    if (mintedRef.current) return;
-    mintedRef.current = true;
-    setStatus('');
-    // Clear any link left over from a previous open — otherwise a fresh mint
-    // that fails silently would leave the stale URL visible as if it were new.
+    if (!open) return;
     setLink('');
-    if (!alumniId) {
-      setStatus('Your session has expired. Please sign in again.');
+    setStatus(alumniId ? '' : 'Your session has expired. Please sign in again.');
+    setEmployerEmail('');
+  }, [open, alumniId]);
+
+  const createLink = async (email: string) => {
+    if (!alumniId || sending) return;
+    const address = email.trim();
+    if (address && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+      setStatus("Enter your employer's email address, e.g. hr@company.com.");
       return;
     }
-    void (async () => {
-      try {
-        const res = await createAlumniVerificationInvite(alumniId);
-        const tokenId = res?.token?.id;
-        if (tokenId) {
-          const base = typeof window === 'undefined' ? '' : window.location.origin;
-          setLink(`${base}/verify/${tokenId}`);
-        } else {
-          setStatus('Could not create a verification link. Please try again.');
-        }
-      } catch (err) {
-        // Surface the backend's own message when there is one — the common
-        // failures ("save your current job first", the live-links cap, an
-        // expired session) all need a different fix by the graduate.
-        const detail = err instanceof ApiClientError ? err.message : '';
-        setStatus(detail || 'Could not create a verification link. Please try again.');
+    setSending(true);
+    setStatus('');
+    try {
+      const res = await createAlumniVerificationInvite(alumniId, address || undefined);
+      const tokenId = res?.token?.id;
+      if (!tokenId) {
+        setStatus('Could not create a verification link. Please try again.');
+        return;
       }
-    })();
-  }, [open, alumniId]);
+      const base = typeof window === 'undefined' ? '' : window.location.origin;
+      setLink(`${base}/verify/${tokenId}`);
+      setStatus(
+        res.emailSent
+          ? `Link sent to ${res.invitedEmail}. Your verification is pending until they answer.`
+          : address
+            ? 'The email could not be sent. Copy the link below and send it yourself.'
+            : 'Link created. Copy it and send it to your employer.',
+      );
+    } catch (err) {
+      // Surface the backend's own message when there is one - the common
+      // failures ("save your current job first", your own address, the
+      // live-links cap, an expired session) all need a different fix.
+      const detail = err instanceof ApiClientError ? err.message : '';
+      setStatus(detail || 'Could not create a verification link. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const handleCopy = async () => {
     try {
@@ -124,9 +132,48 @@ export function EmployerInviteModal({
             To verify your employment, your <span style={{ fontWeight: 600 }}>employer or HR supervisor</span> just opens the link below and answers a few questions.
             <span style={{ fontWeight: 600 }}> No account or sign-up is needed.</span> The link already identifies you, so they never have to look you up.
           </p>
-          <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-sm sm:text-xs font-mono break-all text-gray-700 leading-relaxed">
-            {link || (status ? '—' : 'Creating your link…')}
-          </div>
+          {!link && (
+            <form
+              className="space-y-2"
+              onSubmit={(e) => { e.preventDefault(); void createLink(employerEmail); }}
+            >
+              <label htmlFor="employer-invite-email" className="block text-gray-700 text-xs" style={{ fontWeight: 600 }}>
+                Employer or HR email
+              </label>
+              <input
+                id="employer-invite-email"
+                type="email"
+                inputMode="email"
+                autoComplete="off"
+                value={employerEmail}
+                onChange={(e) => setEmployerEmail(e.target.value)}
+                placeholder="hr@company.com"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 sm:py-2 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white"
+              />
+              <button
+                type="submit"
+                disabled={sending || !employerEmail.trim()}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 sm:py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ fontWeight: 600 }}
+              >
+                {sending ? 'Sending…' : 'Send verification link'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void createLink('')}
+                disabled={sending}
+                className="w-full text-xs text-[#166534] underline underline-offset-2 disabled:opacity-50"
+                style={{ fontWeight: 600 }}
+              >
+                Or create a link to copy and send yourself
+              </button>
+            </form>
+          )}
+          {link && (
+            <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 text-sm sm:text-xs font-mono break-all text-gray-700 leading-relaxed">
+              {link}
+            </div>
+          )}
           <p className="text-gray-500 text-xs">
             This link works once and expires in 7 days. You can create another for a different contact.
           </p>

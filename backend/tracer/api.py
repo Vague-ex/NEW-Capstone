@@ -1121,16 +1121,56 @@ class AlumniVerificationInviteView(APIView):
         except (OperationalError, DatabaseError):
             return _database_unavailable_response()
 
+        # The link goes to the address the graduate gave. A failed send still
+        # leaves a working link the graduate can copy, so it is not an error.
+        email_sent = False
+        if invited_email:
+            email_sent = _send_verification_invite_email(token, record, ttl_days)
+
         return Response(
             {
-                "message": "Verification invite created.",
+                "message": (
+                    f"Verification link sent to {invited_email}."
+                    if email_sent
+                    else "Verification invite created."
+                ),
                 "token": _serialize_verification_token(token),
                 "employmentRecord": _serialize_employment_record(record),
                 "companyName": record.employer_name_input,
                 "invitedEmail": token.invited_email,
+                "emailSent": email_sent,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+def _send_verification_invite_email(token, record, ttl_days: int) -> bool:
+    """Email the one-time link to the employer address on the token."""
+    from django.conf import settings
+    from users.email_send import send_branded_email
+
+    profile = getattr(token.alumni, "profile", None)
+    name = " ".join(
+        p.strip() for p in [getattr(profile, "first_name", ""), getattr(profile, "last_name", "")] if p and p.strip()
+    ) or "A BSIS graduate"
+    try:
+        send_branded_email(
+            to_email=token.invited_email,
+            subject=f"Please confirm {name}'s employment - CHMSU Graduate Tracer",
+            template_base="employer_verification_invite",
+            context={
+                "graduate_name": name,
+                "company_name": record.employer_name_input or "",
+                "expires_in_days": ttl_days,
+                "verify_url": f"{settings.GRADUATE_LOGIN_URL.rstrip('/')}/verify/{token.token_id}",
+            },
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Verification invite email to %s failed", token.invited_email)
+        return False
+    return True
 
 def _candidate_is_unemployed(emp_profile) -> bool:
     """True when the alumni's latest EmploymentProfile is NOT an employed status.
@@ -1220,9 +1260,9 @@ class VerificationTokenDecisionView(APIView):
         verifier_name = str(request.data.get("verifier_name") or "").strip()
         verifier_email = str(request.data.get("verifier_email") or "").strip().lower()
         verifier_position = str(request.data.get("verifier_position") or "").strip()
-        if not verifier_name or not verifier_email:
+        if not verifier_name or not verifier_email or not verifier_position:
             return Response(
-                {"detail": "verifier_name and verifier_email are required."},
+                {"detail": "verifier_name, verifier_email and verifier_position are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:

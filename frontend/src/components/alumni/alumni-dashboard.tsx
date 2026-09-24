@@ -5,7 +5,7 @@ import { StatCard } from '../shared/stat-card';
 import {
   Briefcase, Calendar, Clock, Star,
   CheckCircle2, AlertTriangle, Camera, ArrowRight,
-  Hash, ShieldCheck, Lock, UserCircle,
+  Hash, ShieldCheck, Lock, UserCircle, Building2,
 } from 'lucide-react';
 import { fetchAlumniAccountStatus } from '../../app/api-client';
 import { EmployerInviteModal } from './employer-invite-modal';
@@ -103,6 +103,23 @@ export function AlumniDashboard() {
   };
   const statusColor = statusColorMap[alumni.employmentStatus ?? ''] ?? { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unknown' };
 
+  // Where the employer's check of the current job stands (none = no link out).
+  const employerCheck = alumni.employerVerification as
+    | { status: 'pending' | 'verified' | 'denied' | 'none'; invitedEmail?: string; sentAt?: string | null }
+    | null
+    | undefined;
+  const employerCheckText = !employerCheck || employerCheck.status === 'none' ? null : {
+    pending: {
+      title: 'Employer verification pending',
+      detail: employerCheck.invitedEmail
+        ? `Link sent to ${employerCheck.invitedEmail}${employerCheck.sentAt ? ` on ${new Date(employerCheck.sentAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}. Waiting for your employer to answer.`
+        : 'A verification link is out. Waiting for your employer to answer.',
+      tone: 'bg-amber-50 border-amber-200 text-amber-800',
+    },
+    verified: { title: 'Employment confirmed by your employer', detail: 'Your current job has been verified.', tone: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+    denied: { title: 'Your employer could not confirm this job', detail: 'Check your employment details, then send a new link.', tone: 'bg-red-50 border-red-200 text-red-800' },
+  }[employerCheck.status];
+
   const daysSinceUpdate = Math.floor(
     (new Date().getTime() - new Date(alumni.dateUpdated || Date.now()).getTime()) / (1000 * 60 * 60 * 24)
   );
@@ -181,6 +198,17 @@ export function AlumniDashboard() {
                 Your account is being reviewed. The BSIS Admin will verify your identity and biometric submission.
                 Once approved, your Employment Details section will be unlocked.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Employer verification of the current job ── */}
+        {employerCheckText && (
+          <div className={`flex items-start gap-3 border rounded-xl p-4 ${employerCheckText.tone}`}>
+            <Building2 className="size-5 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm" style={{ fontWeight: 600 }}>{employerCheckText.title}</p>
+              <p className="text-xs mt-0.5 leading-relaxed">{employerCheckText.detail}</p>
             </div>
           </div>
         )}

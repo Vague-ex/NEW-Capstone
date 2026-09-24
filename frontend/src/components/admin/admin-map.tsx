@@ -38,6 +38,16 @@ function isAbroad(a: AlumniRecord): boolean {
   );
 }
 
+// Only a work address puts a graduate on the map: a workplace pin, or a work
+// city the map geocodes. A home pin or the face-scan GPS is not where they work.
+function hasWorkAddress(a: AlumniRecord): boolean {
+  return Boolean((a.workLat && a.workLng) || a.workCity);
+}
+
+function workRegion(a: AlumniRecord): string {
+  return String((a as Record<string, unknown>).workRegion ?? '');
+}
+
 function toNumberOrNull(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -52,6 +62,7 @@ export function AdminMap() {
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterLocation, setFilterLocation] = useState<'all' | 'local' | 'abroad'>('all');
+  const [filterRegion, setFilterRegion] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingData, setLoadingData] = useState(true);
   const [mapReady, setMapReady] = useState(false);
@@ -149,14 +160,22 @@ export function AdminMap() {
     [alumniRecords],
   );
 
+  const availableRegions = useMemo(
+    () => Array.from(new Set(alumniRecords.filter(a => a.geomapConsent === true && hasWorkAddress(a)).map(workRegion).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b)),
+    [alumniRecords],
+  );
+
   const filteredAlumni = alumniRecords.filter(a => {
     // Data Privacy Act: plotting a workplace is a separate opt-in from joining
     // the tracer study. No consent, no pin — including legacy records that
     // predate the consent gate.
     if (a.geomapConsent !== true) return false;
+    if (!hasWorkAddress(a)) return false;
     if (!a.lat || !a.lng) return false;
     if (filterYear !== 'all' && a.graduationYear !== parseInt(filterYear)) return false;
     if (filterStatus !== 'all' && a.employmentStatus !== filterStatus) return false;
+    if (filterRegion !== 'all' && workRegion(a) !== filterRegion) return false;
     if (filterLocation === 'local' && isAbroad(a)) return false;
     if (filterLocation === 'abroad' && !isAbroad(a)) return false;
     if (searchQuery.trim()) {
@@ -183,7 +202,7 @@ export function AdminMap() {
   }, [filteredAlumni, searchQuery]);
 
   // All employed/self-employed graduates with location
-  const withLocation = alumniRecords.filter(a => a.lat && a.lng && a.employmentStatus !== 'unemployed');
+  const withLocation = alumniRecords.filter(a => a.lat && a.lng && hasWorkAddress(a) && a.employmentStatus !== 'unemployed');
   const localCount = withLocation.filter(a => !isAbroad(a)).length;
   const abroadCount = withLocation.filter(a => isAbroad(a)).length;
   const effectiveError = mapError || dataError;
@@ -344,10 +363,10 @@ export function AdminMap() {
         markersRef.current.push(marker);
       });
     });
-  }, [mapReady, filteredAlumni.length, filterYear, filterStatus, filterLocation, searchQuery]);
+  }, [mapReady, filteredAlumni.length, filterYear, filterStatus, filterLocation, filterRegion, searchQuery]);
 
   const byCity = filteredAlumni.reduce((acc, a) => {
-    const city = a.workCity ?? 'Unknown';
+    const city = a.workCity || 'Unknown';
     acc[city] = (acc[city] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
@@ -442,6 +461,11 @@ export function AdminMap() {
             <option value="local">Local (Philippines)</option>
             <option value="abroad">International / Abroad</option>
           </select>
+          <select value={filterRegion} onChange={e => setFilterRegion(e.target.value)} aria-label="Filter by region"
+            className="flex-1 min-w-0 sm:flex-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 sm:py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10">
+            <option value="all">All Regions</option>
+            {availableRegions.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
           <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-x-3 gap-y-1.5 flex-wrap">
             {/* Legend */}
             {Object.entries(STATUS_LABELS).map(([k, v]) => (
@@ -469,6 +493,22 @@ export function AdminMap() {
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-10">
                 <span className="size-8 border-4 border-[#166534]/20 border-t-[#166534] rounded-full animate-spin mb-3" />
                 <p className="text-gray-500 text-sm">{loadingData ? 'Loading graduate location data…' : 'Loading map…'}</p>
+              </div>
+            )}
+            {!loadingData && mapReady && !effectiveError && filteredAlumni.length === 0 && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 pointer-events-none">
+                <div className="pointer-events-auto rounded-xl border border-gray-200 bg-white px-5 py-4 text-center shadow-sm">
+                  <MapPin className="mx-auto mb-2 size-6 text-gray-400" />
+                  <p className="text-gray-700 text-sm" style={{ fontWeight: 600 }}>No graduates match these filters.</p>
+                  <button
+                    type="button"
+                    onClick={() => { setFilterYear('all'); setFilterStatus('all'); setFilterLocation('all'); setFilterRegion('all'); setSearchQuery(''); }}
+                    className="mt-2 text-xs text-[#166534] underline underline-offset-2"
+                    style={{ fontWeight: 600 }}
+                  >
+                    Clear filters
+                  </button>
+                </div>
               </div>
             )}
             {effectiveError && (

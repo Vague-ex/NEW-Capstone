@@ -214,9 +214,9 @@ export function EmployerVerificationPage() {
     if (worksHere && !employerName.trim()) items.push({ sectionId: 'section-job', text: 'organisation name' });
     if (!verifierName.trim()) items.push({ sectionId: 'section-you', text: 'your name' });
     if (!EMAIL_RE.test(verifierEmail.trim())) items.push({ sectionId: 'section-you', text: 'a valid work email' });
-    if (worksHere && !evaluation) items.push({ sectionId: 'section-feedback', text: 'the feedback form' });
+    if (!verifierPosition.trim()) items.push({ sectionId: 'section-you', text: 'your position' });
     return items;
-  }, [worksHere, employerName, verifierName, verifierEmail, evaluation]);
+  }, [worksHere, employerName, verifierName, verifierEmail, verifierPosition]);
 
   const submit = useCallback(async () => {
     if (worksHere === null) return;
@@ -406,9 +406,11 @@ export function EmployerVerificationPage() {
                       className={`${inputCls} ${needs('a valid work email') ? 'border-red-400 ring-2 ring-red-100' : ''}`}
                       placeholder="you@company.com" />
                   </Field>
-                  <Field label="Your position" htmlFor="v-position">
+                  <Field label="Your position" required htmlFor="v-position">
                     <input id="v-position" value={verifierPosition} onChange={(e) => setVerifierPosition(e.target.value)}
-                      autoComplete="organization-title" className={inputCls} placeholder="e.g. HR Manager" />
+                      autoComplete="organization-title"
+                      className={`${inputCls} ${needs('your position') ? 'border-red-400 ring-2 ring-red-100' : ''}`}
+                      placeholder="e.g. HR Manager" />
                   </Field>
                   <Field label="Comment" htmlFor="v-comment">
                     <textarea id="v-comment" value={comment} onChange={(e) => setComment(e.target.value)} rows={3}
@@ -423,7 +425,7 @@ export function EmployerVerificationPage() {
                 id="section-feedback"
                 step={4}
                 title="Confidential feedback form"
-                subtitle="Required to confirm. 11 quick ratings and two short answers."
+                subtitle="Optional. 11 quick ratings and two short answers."
               >
                 {evaluation ? (
                   <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center">
@@ -445,18 +447,11 @@ export function EmployerVerificationPage() {
                     <button
                       type="button"
                       onClick={() => setShowEvaluation(true)}
-                      className={`min-h-12 w-full inline-flex items-center justify-center gap-2 rounded-xl border-2 px-4 text-sm transition ${
-                        needs('the feedback form')
-                          ? 'border-red-400 bg-red-50 text-red-800'
-                          : 'border-[#166534] bg-white text-[#166534] hover:bg-[#166534]/5'
-                      }`}
+                      className="min-h-12 w-full inline-flex items-center justify-center gap-2 rounded-xl border-2 border-[#166534] bg-white px-4 text-sm text-[#166534] transition hover:bg-[#166534]/5"
                       style={{ fontWeight: 700 }}
                     >
-                      <ClipboardList className="size-5" /> Start feedback form
+                      <ClipboardList className="size-5" /> Start feedback form (optional)
                     </button>
-                    {needs('the feedback form') && (
-                      <p className="text-red-700 text-xs mt-2">Please complete the feedback form before confirming.</p>
-                    )}
                   </>
                 )}
               </Section>

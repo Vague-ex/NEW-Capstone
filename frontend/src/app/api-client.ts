@@ -423,7 +423,7 @@ export async function updateAlumniEmployment(
 export async function createAlumniVerificationInvite(
     alumniId: string,
     employerEmail?: string,
-): Promise<{ message?: string; token?: { id?: string }; companyName?: string; invitedEmail?: string }> {
+): Promise<{ message?: string; token?: { id?: string }; companyName?: string; invitedEmail?: string; emailSent?: boolean }> {
     const response = await fetch(
         `${API_BASE_URL}/api/verification/alumni/${alumniId}/invite/`,
         {

@@ -1,0 +1,21 @@
+Carlos Hilado Memorial State University
+Graduate Tracer System
+
+Good day,
+
+{{ graduate_name }}, a BSIS graduate of Carlos Hilado Memorial State
+University, listed {{ company_name|default:"your organisation" }} as their employer and asked you
+to confirm it for the BSIS Graduate Tracer.
+
+The link below opens a short form. No account or sign-up is needed.
+It works once and expires in {{ expires_in_days }} days.
+
+Open the verification form: {{ verify_url }}
+
+If you do not know this graduate, open the form and answer "No".
+
+--
+CHMSU BSIS Program - Graduate Tracer System
+Carlos Hilado Memorial State University
+Talisay Campus, Negros Occidental
+This is an automated message. Please do not reply to this email.
