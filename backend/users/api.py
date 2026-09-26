@@ -3659,7 +3659,7 @@ class MasterlistListView(APIView):
         )
         entries = [
             {"id": str(r.id), "name": r.full_name, "graduationYear": r.batch_year,
-             "accountStatus": linked.get(r.id)}
+             "accountStatus": linked.get(r.id), "isActive": r.is_active}
             for r in qs
         ]
         per_batch = Counter(e["graduationYear"] for e in entries if e["graduationYear"] is not None)
@@ -3782,6 +3782,118 @@ class MasterlistBulkCreateView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class MasterlistEntryView(APIView):
+    """Admin: correct one masterlist row, retire it, or remove it outright.
+
+    PATCH takes name, graduationYear and/or isActive. A corrected name or year
+    changes who the row matches, so the matcher is re-run afterwards: a
+    graduate who was waiting for approval can be activated by a fixed typo.
+
+    DELETE only removes a row nothing is linked to. Deleting a linked row would
+    set that graduate's master_record to NULL (users/models.py), silently
+    turning them back into an unmatched registration, so those are refused and
+    the admin is told to retire the row with isActive=false instead.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, record_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            record = GraduateMasterRecord.objects.get(pk=record_id)
+        except GraduateMasterRecord.DoesNotExist:
+            return Response({"detail": "Masterlist entry was not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        fields: list[str] = []
+        if "name" in request.data:
+            name = " ".join(str(request.data.get("name") or "").split())
+            if not _looks_like_full_name(name):
+                return Response(
+                    {"detail": "Name must be a full name (first and last)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            record.full_name = name
+            record.last_name = derive_last_name(name)
+            fields += ["full_name", "last_name"]
+
+        year = request.data.get("graduationYear", request.data.get("graduation_year"))
+        if year is not None:
+            try:
+                year_int = int(year)
+            except (TypeError, ValueError):
+                return Response({"detail": f"Invalid graduation year {year!r}."}, status=status.HTTP_400_BAD_REQUEST)
+            max_year = _masterlist_max_year()
+            if not (MASTERLIST_MIN_YEAR <= year_int <= max_year):
+                return Response(
+                    {"detail": f"Graduation year must be between {MASTERLIST_MIN_YEAR} and {max_year}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            record.batch_year = year_int
+            fields.append("batch_year")
+
+        if "isActive" in request.data or "is_active" in request.data:
+            record.is_active = bool(request.data.get("isActive", request.data.get("is_active")))
+            fields.append("is_active")
+
+        if not fields:
+            return Response(
+                {"detail": "Send name, graduationYear or isActive."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        duplicate = GraduateMasterRecord.objects.filter(
+            full_name__iexact=record.full_name, batch_year=record.batch_year,
+        ).exclude(pk=record.pk).exists()
+        if duplicate:
+            return Response(
+                {"detail": "Another masterlist entry already has that name and batch."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        rematched = 0
+        with transaction.atomic():
+            record.save(update_fields=[*fields, "updated_at"])
+            if {"full_name", "batch_year"} & set(fields):
+                from tracer.employability import sample_q
+
+                unmatched = AlumniAccount.objects.select_related("user").filter(master_record__isnull=True)
+                for account in unmatched.exclude(sample_q()):
+                    rematched += _refresh_master_match(account)
+
+        return Response(
+            {
+                "entry": {
+                    "id": str(record.id),
+                    "name": record.full_name,
+                    "graduationYear": record.batch_year,
+                    "isActive": record.is_active,
+                },
+                "rematched": rematched,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, record_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            record = GraduateMasterRecord.objects.get(pk=record_id)
+        except GraduateMasterRecord.DoesNotExist:
+            return Response({"detail": "Masterlist entry was not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if AlumniAccount.objects.filter(master_record=record).exists():
+            return Response(
+                {"detail": "A graduate is registered against this entry. Retire it instead of deleting it."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        record.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 # region DEBUG-ONLY:CurrenChanDebug
 # ─────────────────────────────────────────────────────────────────────────────

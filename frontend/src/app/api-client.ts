@@ -706,6 +706,8 @@ export interface MasterlistEntry {
     graduationYear: number | null;
     /** Status of the graduate account linked to this row, or null when nobody has registered as them. */
     accountStatus: 'active' | 'pending' | 'rejected' | 'suspended' | null;
+    /** Retired rows stay listed but no longer match a registration. */
+    isActive: boolean;
 }
 export interface MasterlistData {
     total: number;
@@ -724,6 +726,29 @@ export async function fetchMasterlist(): Promise<MasterlistData> {
         perBatch: Array.isArray(data?.perBatch) ? data.perBatch : [],
         entries: Array.isArray(data?.entries) ? data.entries : [],
     };
+}
+
+/** Correct one row, or retire/restore it with isActive. */
+export async function updateMasterlistEntry(
+    id: string,
+    changes: { name?: string; graduationYear?: number; isActive?: boolean },
+): Promise<{ entry: Omit<MasterlistEntry, 'accountStatus'>; rematched: number }> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/${id}/`, {
+        method: 'PATCH',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(changes),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+/** Only rows nobody registered against; the backend refuses the rest (409). */
+export async function deleteMasterlistEntry(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/${id}/`, {
+        method: 'DELETE',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
 }
 
 export async function createMasterlistEntries(

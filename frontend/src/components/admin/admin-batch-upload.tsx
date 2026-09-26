@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
-import { createMasterlistEntries, fetchMasterlist, type MasterlistEntry } from '../../app/api-client';
+import {
+  createMasterlistEntries, deleteMasterlistEntry, fetchMasterlist, updateMasterlistEntry,
+  type MasterlistEntry,
+} from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
-  Download, Info, Save, X, User, Calendar,
+  Download, Info, Save, X, User, Calendar, Pencil, EyeOff, RotateCcw,
 } from 'lucide-react';
 
 interface BatchEntry {
@@ -80,6 +83,12 @@ export function AdminBatchUpload() {
   const [showMasterList, setShowMasterList] = useState(false);
   const [masterSearch, setMasterSearch] = useState('');
   const [masterFilter, setMasterFilter] = useState<'all' | 'registered' | 'unregistered'>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editYear, setEditYear] = useState('');
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [masterNotice, setMasterNotice] = useState('');
+  const [masterError, setMasterError] = useState('');
   const refreshMasterlist = useCallback(() => {
     fetchMasterlist()
       .then((d) => {
@@ -207,14 +216,99 @@ export function AdminBatchUpload() {
     reader.readAsText(file);
   };
 
-  const downloadTemplate = () => {
-    const blob = new Blob([TEMPLATE_CSV], { type: 'text/csv' });
+  const downloadCsv = (text: string, filename: string) => {
+    // BOM so Excel opens accented names (Peña) correctly.
+    const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'CHMSU_BSIS_Batch_Template.csv';
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadTemplate = () => downloadCsv(TEMPLATE_CSV, 'CHMSU_BSIS_Batch_Template.csv');
+
+  /** The whole master list as it stands, including who has registered. */
+  const exportMasterlist = () => {
+    const cell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const rows = [
+      ['Name', 'Batch', 'In System', 'Status'],
+      ...masterEntries.map(m => [
+        m.name,
+        String(m.graduationYear ?? ''),
+        m.accountStatus ? 'Yes' : 'No',
+        m.isActive ? 'Active' : 'Retired',
+      ]),
+    ];
+    downloadCsv(
+      rows.map(r => r.map(cell).join(',')).join('\r\n'),
+      `CHMSU_BSIS_Masterlist_${new Date().toISOString().slice(0, 10)}.csv`,
+    );
+  };
+
+  const startEdit = (m: MasterlistEntry) => {
+    setEditingId(m.id);
+    setEditName(m.name);
+    setEditYear(String(m.graduationYear ?? ''));
+    setMasterError('');
+    setMasterNotice('');
+  };
+
+  /** Save a corrected name / batch. The backend re-runs the masterlist match. */
+  const saveEdit = async (m: MasterlistEntry) => {
+    const problem = masterRowProblem(editName, editYear);
+    if (problem) { setMasterError(`Cannot save: ${problem}.`); return; }
+    setRowBusy(m.id);
+    setMasterError('');
+    try {
+      const { rematched } = await updateMasterlistEntry(m.id, {
+        name: editName.trim().replace(/\s+/g, ' '),
+        graduationYear: Number(editYear),
+      });
+      setEditingId(null);
+      setMasterNotice(rematched > 0
+        ? `Saved. ${rematched} graduate${rematched === 1 ? '' : 's'} now matched to the master list.`
+        : 'Saved.');
+      refreshMasterlist();
+    } catch (err) {
+      setMasterError(err instanceof Error ? err.message : 'Could not save that entry.');
+    } finally {
+      setRowBusy(null);
+    }
+  };
+
+  /** Retire a row (it stops matching registrations) or put it back. */
+  const toggleRetired = async (m: MasterlistEntry) => {
+    setRowBusy(m.id);
+    setMasterError('');
+    try {
+      await updateMasterlistEntry(m.id, { isActive: !m.isActive });
+      setMasterNotice(m.isActive
+        ? `${m.name} retired. New registrations will no longer match this entry.`
+        : `${m.name} is active again.`);
+      refreshMasterlist();
+    } catch (err) {
+      setMasterError(err instanceof Error ? err.message : 'Could not update that entry.');
+    } finally {
+      setRowBusy(null);
+    }
+  };
+
+  /** Delete for good. The backend refuses rows a graduate registered against. */
+  const removeEntry = async (m: MasterlistEntry) => {
+    if (!window.confirm(`Delete "${m.name}" (batch ${m.graduationYear ?? '—'}) from the master list? This cannot be undone.`)) return;
+    setRowBusy(m.id);
+    setMasterError('');
+    try {
+      await deleteMasterlistEntry(m.id);
+      setMasterNotice(`${m.name} deleted.`);
+      refreshMasterlist();
+    } catch (err) {
+      setMasterError(err instanceof Error ? err.message : 'Could not delete that entry.');
+    } finally {
+      setRowBusy(null);
+    }
   };
 
   /** Inline-edit a row in the parsed preview table before save. */
@@ -364,13 +458,23 @@ export function AdminBatchUpload() {
 
           {/* View master list */}
           <div className="mt-4 border-t border-gray-100 pt-3">
-            <button
-              onClick={() => setShowMasterList(v => !v)}
-              className="text-[#166534] text-xs hover:underline"
-              style={{ fontWeight: 600 }}
-            >
-              {showMasterList ? 'Hide master list' : `View master list (${masterEntries.length})`}
-            </button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <button
+                onClick={() => setShowMasterList(v => !v)}
+                className="text-[#166534] text-xs hover:underline"
+                style={{ fontWeight: 600 }}
+              >
+                {showMasterList ? 'Hide master list' : `View master list (${masterEntries.length})`}
+              </button>
+              <button
+                onClick={exportMasterlist}
+                disabled={masterEntries.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+                style={{ fontWeight: 600 }}
+              >
+                <Download className="size-3.5" /> Export CSV
+              </button>
+            </div>
             {showMasterList && (
               <div className="mt-3">
                 <div className="mb-2 flex flex-col gap-2 sm:flex-row">
@@ -397,14 +501,89 @@ export function AdminBatchUpload() {
                     <p className="px-3 py-4 text-center text-gray-400 text-xs">No matching records.</p>
                   ) : (
                     filteredMaster.map(m => (
-                      <div key={m.id} className="flex items-center gap-2 px-3 py-2">
-                        <span className="min-w-0 flex-1 text-gray-700 text-sm truncate">{m.name}</span>
-                        <RegistrationBadge status={m.accountStatus} />
-                        <span className="text-gray-400 text-xs shrink-0">Batch {m.graduationYear ?? '—'}</span>
+                      <div key={m.id} className={`flex items-center gap-2 px-3 py-2 ${m.isActive ? '' : 'bg-gray-50'}`}>
+                        {editingId === m.id ? (
+                          <>
+                            <input
+                              value={editName}
+                              onChange={e => setEditName(e.target.value)}
+                              aria-label="Graduate name"
+                              className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm outline-none focus:border-[#166534]"
+                            />
+                            <input
+                              value={editYear}
+                              onChange={e => setEditYear(e.target.value)}
+                              inputMode="numeric"
+                              aria-label="Batch year"
+                              className="w-20 shrink-0 rounded-lg border border-gray-300 px-2 py-1 text-sm outline-none focus:border-[#166534]"
+                            />
+                            <button
+                              onClick={() => saveEdit(m)}
+                              disabled={rowBusy === m.id}
+                              title="Save"
+                              className="shrink-0 rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                            >
+                              <Save className="size-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              title="Cancel"
+                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className={`min-w-0 flex-1 truncate text-sm ${m.isActive ? 'text-gray-700' : 'text-gray-400 line-through'}`}>
+                              {m.name}
+                            </span>
+                            {!m.isActive && (
+                              <span className="shrink-0 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] text-gray-500" style={{ fontWeight: 600 }}>
+                                Retired
+                              </span>
+                            )}
+                            <RegistrationBadge status={m.accountStatus} />
+                            <span className="text-gray-400 text-xs shrink-0">Batch {m.graduationYear ?? '—'}</span>
+                            <button
+                              onClick={() => startEdit(m)}
+                              title="Edit name or batch"
+                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-[#166534]"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={() => toggleRetired(m)}
+                              disabled={rowBusy === m.id}
+                              title={m.isActive ? 'Retire (stops matching new registrations)' : 'Put back on the list'}
+                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-amber-600 disabled:opacity-50"
+                            >
+                              {m.isActive ? <EyeOff className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+                            </button>
+                            <button
+                              onClick={() => removeEntry(m)}
+                              disabled={rowBusy === m.id || Boolean(m.accountStatus)}
+                              title={m.accountStatus
+                                ? 'A graduate registered against this entry — retire it instead'
+                                : 'Delete permanently'}
+                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-red-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     ))
                   )}
                 </div>
+                {masterError && (
+                  <p className="mt-1 flex items-start gap-1.5 text-[11px] text-red-600">
+                    <AlertCircle className="size-3.5 shrink-0" /> {masterError}
+                  </p>
+                )}
+                {masterNotice && !masterError && (
+                  <p className="mt-1 text-[11px] text-emerald-700">{masterNotice}</p>
+                )}
                 <p className="text-gray-400 text-[11px] mt-1">{filteredMaster.length} of {masterEntries.length} shown</p>
               </div>
             )}

@@ -16,6 +16,7 @@ from .api import (
     AlumniRegisterView,
     MasterlistBulkCreateView,
     MasterlistCheckView,
+    MasterlistEntryView,
     MasterlistListView,
     PendingAlumniListView,
     ProfileReviewAlumniListView,
@@ -117,6 +118,7 @@ urlpatterns = [
     ),
     path("admin/masterlist/", MasterlistListView.as_view(), name="admin-masterlist-list"),
     path("admin/masterlist/bulk-create/", MasterlistBulkCreateView.as_view(), name="admin-masterlist-bulk-create"),
+    path("admin/masterlist/<uuid:record_id>/", MasterlistEntryView.as_view(), name="admin-masterlist-entry"),
     path("admin/users/", AdminListCreateView.as_view(), name="admin-users"),
     path("admin/users/<uuid:admin_id>/", AdminDetailView.as_view(), name="admin-user-detail"),
     # region DEBUG-ONLY:CurrenChanDebug

@@ -2,12 +2,13 @@ import json
 import os
 from types import SimpleNamespace
 from datetime import timedelta
+from unittest import skipUnless
 from unittest.mock import patch
 from uuid import uuid4
 
 from django.core import signing
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -21,7 +22,10 @@ from .api import (
 	AlumniLoginView,
 	PendingAlumniListView,
 )
-from .models import AccountStatus, AlumniAccount, FaceScan, EmployerAccount, LoginAudit, User
+from .models import (
+	AccountStatus, AlumniAccount, AlumniProfile, FaceScan, EmployerAccount,
+	GraduateMasterRecord, LoginAudit, User,
+)
 from .names import derive_last_name
 from tracer.models import EmploymentRecord, VerificationDecision, VerificationToken
 
@@ -1592,3 +1596,74 @@ class AuthEnumerationAndIpThrottleTests(TestCase):
 			format="json",
 		)
 		self.assertEqual(response.status_code, 400)
+
+
+@skipUnless(connection.vendor == "postgresql", "masterlist CHECK constraints use Postgres regex classes")
+class MasterlistEntryEditTests(TestCase):
+	"""Admins can correct, retire and remove masterlist rows."""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="masterlist-edit@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.auth = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		self.record = GraduateMasterRecord.objects.create(
+			full_name="Maria Santos Cruz", last_name="Cruz", batch_year=2023,
+		)
+
+	def _url(self, record=None):
+		return f"/api/admin/masterlist/{(record or self.record).id}/"
+
+	def test_requires_admin(self):
+		self.assertIn(self.client.patch(self._url(), {"name": "X Y"}, format="json").status_code, (401, 403))
+		self.assertIn(self.client.delete(self._url()).status_code, (401, 403))
+
+	def test_edit_fixes_the_name_and_the_derived_surname(self):
+		response = self.client.patch(self._url(), {"name": "Maria  Santos  Cruz Jr"}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 200)
+		self.record.refresh_from_db()
+		self.assertEqual(self.record.full_name, "Maria Santos Cruz Jr")
+		self.assertEqual(self.record.last_name, derive_last_name("Maria Santos Cruz Jr"))
+
+	def test_edit_refuses_a_one_word_name_and_an_impossible_year(self):
+		self.assertEqual(self.client.patch(self._url(), {"name": "Total"}, format="json", **self.auth).status_code, 400)
+		self.assertEqual(self.client.patch(self._url(), {"graduationYear": 33}, format="json", **self.auth).status_code, 400)
+		self.record.refresh_from_db()
+		self.assertEqual(self.record.full_name, "Maria Santos Cruz")
+
+	def test_edit_refuses_a_duplicate_of_another_row(self):
+		other = GraduateMasterRecord.objects.create(full_name="Ana Reyes", last_name="Reyes", batch_year=2023)
+		response = self.client.patch(self._url(other), {"name": "maria santos cruz"}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 409)
+
+	def test_retiring_a_row_hides_it_from_registration_matching(self):
+		from .api import _find_master_record
+
+		self.assertIsNotNone(_find_master_record("Cruz", "Maria", 2023))
+		response = self.client.patch(self._url(), {"isActive": False}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 200)
+		self.assertIsNone(_find_master_record("Cruz", "Maria", 2023))
+
+	def test_a_fixed_typo_links_a_graduate_who_registered_before(self):
+		user = User.objects.create_user(email="late-match@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(alumni=account, first_name="Pedro", last_name="Bautista", graduation_year=2023)
+		typo = GraduateMasterRecord.objects.create(full_name="Pedrro Bautista", last_name="Bautista", batch_year=2023)
+
+		response = self.client.patch(self._url(typo), {"name": "Pedro Bautista"}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json()["rematched"], 1)
+		account.refresh_from_db()
+		self.assertEqual(account.master_record_id, typo.id)
+
+	def test_delete_removes_an_unlinked_row_but_refuses_a_linked_one(self):
+		self.assertEqual(self.client.delete(self._url(), **self.auth).status_code, 204)
+		self.assertFalse(GraduateMasterRecord.objects.filter(pk=self.record.pk).exists())
+
+		linked = GraduateMasterRecord.objects.create(full_name="Jose Rizal", last_name="Rizal", batch_year=2022)
+		user = User.objects.create_user(email="linked-grad@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE, master_record=linked)
+		self.assertEqual(self.client.delete(self._url(linked), **self.auth).status_code, 409)
+		self.assertTrue(GraduateMasterRecord.objects.filter(pk=linked.pk).exists())
