@@ -20,6 +20,7 @@ import {
   History, UserPlus, Mail, ShieldCheck, ShieldX, ArrowRight,
 } from 'lucide-react';
 import { ImageLightbox, type LightboxImage } from '../shared/image-lightbox';
+import { employmentStatusLabel } from './employment-status-label';
 
 type ModalTab = 'profile' | 'employment' | 'skills' | 'history';
 
@@ -890,11 +891,7 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab 
                   <Briefcase className="size-3.5" /> Q1–Q2 · EMPLOYMENT STATUS
                 </p>
                 <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-1">
-                  <Row label="Q1 - Status" value={
-                    a.employmentStatus === 'employed' ? 'Presently Employed'
-                      : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
-                        : sd.neverEmployed ? 'Never Been Employed' : 'Not Currently Employed'
-                  } />
+                  <Row label="Q1 - Status" value={employmentStatusLabel(sd.employment_status, a.employmentStatus)} />
                   <Row label="Q2 - Time to Hire" value={deriveTimeToHire(a)} />
                 </div>
               </div>

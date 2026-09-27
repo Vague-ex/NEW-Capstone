@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { RejectReasonModal, GRADUATE_REJECT_REASONS } from './reject-reason-modal';
+import { employmentStatusLabel } from './employment-status-label';
 
 type ModalTab = 'biometric' | 'employment' | 'skills';
 
@@ -64,7 +65,6 @@ type SurveyData = {
   scholarship?: string;
   highestAttainment?: string;
   profEligibility?: string[];
-  neverEmployed?: boolean;
 };
 
 function SectionRow({ label, value }: { label: string; value?: string | null }) {
@@ -216,7 +216,6 @@ function getSurveyData(a: AlumniRecord): SurveyData {
     scholarship: str('scholarship'),
     highestAttainment: str('highestAttainment', 'highest_attainment'),
     profEligibility: arr('profEligibility', 'prof_eligibility'),
-    neverEmployed: typeof source.never_employed === 'boolean' ? source.never_employed : undefined,
   };
 }
 
@@ -877,12 +876,7 @@ export function AdminUnverified() {
                       <div>
                         <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>Q1–Q2 · EMPLOYMENT STATUS</p>
                         <div className="bg-gray-50 rounded-xl border border-gray-100 divide-y divide-gray-100">
-                          <SectionRow label="Q1 - Current Status" value={
-                            a.employmentStatus === 'employed' ? 'Presently Employed'
-                              : a.employmentStatus === 'self-employed' ? 'Self-Employed / Freelancer'
-                                : sd.neverEmployed ? 'Never Been Employed'
-                                  : 'Not Currently Employed'
-                          } />
+                          <SectionRow label="Q1 - Current Status" value={employmentStatusLabel(sd.employmentStatus, a.employmentStatus)} />
                           <SectionRow label="Q2 - Time to Hire" value={deriveTimeToHire(a)} />
                         </div>
                       </div>
@@ -932,11 +926,11 @@ export function AdminUnverified() {
                           <SectionRow label="Job Source" value={sd.firstJobSource || '-'} />
                           <SectionRow label="Job Applications" value={sd.firstJobApplicationsCount ? `${sd.firstJobApplicationsCount} applications` : '-'} />
                         </div>
-                        {a.employmentStatus === 'unemployed' && (
+                        {a.employmentStatus === 'unemployed' && a.unemploymentReason && (
                           <div className="mt-3">
                             <p className="text-[#166534] text-xs mb-2" style={{ fontWeight: 700 }}>UNEMPLOYMENT REASON</p>
                             <div className="bg-gray-50 rounded-xl border border-gray-100 p-3">
-                              <p className="text-gray-700 text-xs">{a.unemploymentReason || 'No reason provided'}</p>
+                              <p className="text-gray-700 text-xs">{a.unemploymentReason}</p>
                             </div>
                           </div>
                         )}
