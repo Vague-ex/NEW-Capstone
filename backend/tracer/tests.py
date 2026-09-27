@@ -1,6 +1,8 @@
 from datetime import timedelta
+from unittest import skipUnless
 
 from django.core import signing
+from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -9,6 +11,7 @@ from users.auth import generate_admin_access_token, generate_alumni_access_token
 from users.models import AccountStatus, AlumniAccount, AlumniProfile, EmployerAccount, User
 
 from .alignment import resolve_alignment, verified_titles_by_alumni
+from .employability import TARGET
 from .validators import (
 	SurveyDataValidator, flat_to_sections, validate_registration_payload,
 )
@@ -1049,6 +1052,7 @@ def _graduate_rows(n, strength, seed=7):
 		"bsis_current": np.nan,
 		"is_sample": False,
 		"future_graduation": False,
+		"not_yet_graduated": False,
 	})
 	return frame[FRAME_COLUMNS]
 
@@ -1540,3 +1544,237 @@ class SkillsInventoryReportTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		rows = {row[0]: row[1] for row in response.json()["sections"][0]["rows"]}
 		self.assertEqual(rows, {"Python": 2, "Technical Support/Troubleshooting": 2})
+
+
+class GraduatingStudentRegistrationTests(SimpleTestCase):
+	"""The "have you graduated yet?" answer decides whether a future graduation
+	month is a typo or an expected date."""
+
+	def test_graduate_cannot_give_a_future_month(self):
+		from .validators import graduation_date_problem
+
+		future = (timezone.now() + timedelta(days=400)).strftime("%Y-%m")
+		self.assertIn("cannot be later", graduation_date_problem(future) or "")
+		# The default is "graduated", so a client that never sends the flag keeps
+		# the old behaviour exactly.
+		self.assertIn("cannot be later", graduation_date_problem(future, True) or "")
+
+	def test_graduating_student_may_give_a_future_month(self):
+		from .validators import graduation_date_problem
+
+		future = (timezone.now() + timedelta(days=200)).strftime("%Y-%m")
+		self.assertIsNone(graduation_date_problem(future, has_graduated=False))
+
+	def test_graduating_student_cannot_give_a_past_month(self):
+		from .validators import graduation_date_problem
+
+		past = (timezone.now() - timedelta(days=200)).strftime("%Y-%m")
+		problem = graduation_date_problem(past, has_graduated=False)
+		self.assertIn("already passed", problem or "")
+
+	def test_this_month_is_not_an_expected_graduation(self):
+		from .validators import graduation_date_problem
+
+		self.assertIn(
+			"already passed",
+			graduation_date_problem(timezone.now().strftime("%Y-%m"), has_graduated=False) or "",
+		)
+
+	def test_expected_graduation_cannot_be_a_decade_out(self):
+		from .validators import graduation_date_problem
+
+		far = f"{timezone.now().year + 20}-06"
+		self.assertIn("too far", graduation_date_problem(far, has_graduated=False) or "")
+
+	def test_registration_payload_accepts_a_graduating_student(self):
+		next_year = timezone.now().year + 1
+		result = validate_registration_payload(
+			{},
+			{
+				"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+				"birth_date": "2004-03", "mobile": "09171234567",
+				"city": "Talisay", "province": "Negros Occidental",
+				"graduation_date": f"{next_year}-06", "graduation_year": next_year,
+				"has_graduated": False,
+			},
+		)
+		self.assertTrue(result["is_valid"], result["errors"])
+
+	def test_registration_payload_still_rejects_a_graduate_typo(self):
+		"""The same future date without the flag stays a blocking error."""
+		next_year = timezone.now().year + 1
+		result = validate_registration_payload(
+			{},
+			{
+				"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+				"birth_date": "2004-03", "mobile": "09171234567",
+				"city": "Talisay", "province": "Negros Occidental",
+				"graduation_date": f"{next_year}-06", "graduation_year": next_year,
+			},
+		)
+		self.assertFalse(result["is_valid"])
+
+	def test_flat_to_sections_carries_the_false_flag(self):
+		"""pick() drops falsy values, so False needed its own path."""
+		sections = flat_to_sections({}, {"graduation_date": "2027-06", "graduation_year": 2027, "has_graduated": False})
+		self.assertIs(sections["educational_background"]["has_graduated"], False)
+
+
+class GraduatingStudentAnalyticsTests(TestCase):
+	"""A graduating student is registered but exempt from every figure until they
+	confirm their employment."""
+
+	def _graduate(self, email, *, has_graduated, graduation_date, status="employed_full_time"):
+		user = User.objects.create_user(email=email, password=None, role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=int(graduation_date[:4]), graduation_date=graduation_date,
+			has_graduated=has_graduated,
+		)
+		if status:
+			EmploymentProfile.objects.create(alumni=account, employment_status=status, time_to_hire_months=3)
+		return account
+
+	def test_existing_graduates_default_to_graduated(self):
+		account = self._graduate("grad@example.com", has_graduated=True, graduation_date="2022-06")
+		self.assertTrue(account.profile.has_graduated)
+
+	@skipUnless(connection.vendor == "postgresql", "build_graduate_frame's is_sample annotation uses a jsonb lookup")
+	def test_graduating_student_is_in_the_frame_but_not_reportable(self):
+		from tracer import employability as E
+
+		self._graduate("grad@example.com", has_graduated=True, graduation_date="2022-06")
+		expected = f"{timezone.now().year + 1}-06"
+		self._graduate("soon@example.com", has_graduated=False, graduation_date=expected, status=None)
+
+		frame = E.build_graduate_frame()
+		# Kept in the frame, so an admin can still count them as a known gap.
+		self.assertEqual(len(frame), 2)
+		self.assertEqual(sorted(frame["not_yet_graduated"].tolist()), [False, True])
+		# ...but excluded from anything analyzed.
+		self.assertEqual(len(E.reportable(frame)), 1)
+
+	@skipUnless(connection.vendor == "postgresql", "build_graduate_frame's is_sample annotation uses a jsonb lookup")
+	def test_exemption_does_not_lapse_when_the_expected_month_passes(self):
+		"""A delayed graduation must not slide them into the figures. This is why
+		the flag is stored rather than derived from graduation_date > today."""
+		from tracer import employability as E
+
+		past = (timezone.now() - timedelta(days=200)).strftime("%Y-%m")
+		self._graduate("late@example.com", has_graduated=False, graduation_date=past, status=None)
+
+		frame = E.build_graduate_frame()
+		self.assertFalse(bool(frame["future_graduation"].iloc[0]))  # month has passed
+		self.assertTrue(bool(frame["not_yet_graduated"].iloc[0]))   # still exempt
+		self.assertEqual(len(E.reportable(frame)), 0)
+
+	def test_exclude_not_yet_graduated_keeps_everyone_else(self):
+		from tracer import employability as E
+
+		graduate = self._graduate("grad@example.com", has_graduated=True, graduation_date="2022-06")
+		self._graduate("soon@example.com", has_graduated=False, graduation_date=f"{timezone.now().year + 1}-06", status=None)
+		kept = E.exclude_not_yet_graduated(AlumniAccount.objects.all())
+		self.assertEqual([a.id for a in kept], [graduate.id])
+
+
+class ReportableExemptionTests(SimpleTestCase):
+	"""reportable() and the indicators built on it, tested on the frame directly:
+	the DB-backed frame needs a jsonb lookup SQLite has not got, and the filtering
+	is what actually matters here."""
+
+	def _frame(self, rows):
+		import pandas as pd
+
+		defaults = {
+			"future_graduation": False, "not_yet_graduated": False, "is_sample": False,
+			"in_labor_force": 1, "employed_now": 1, "has_outcome": 1,
+			TARGET: 1, "bsis_first": 1, "bsis_current": 1,
+			"time_to_hire_months": 3.0,
+		}
+		return pd.DataFrame([{**defaults, **row} for row in rows])
+
+	def test_graduating_students_are_dropped(self):
+		from tracer import employability as E
+
+		frame = self._frame([
+			{"not_yet_graduated": False},
+			{"not_yet_graduated": True, "in_labor_force": None, "employed_now": None,
+			 "has_outcome": 0, TARGET: None},
+		])
+		self.assertEqual(len(E.reportable(frame)), 1)
+
+	def test_both_exemptions_apply_together(self):
+		"""The old future-date guard must keep working alongside the new one."""
+		from tracer import employability as E
+
+		frame = self._frame([
+			{},
+			{"future_graduation": True},
+			{"not_yet_graduated": True},
+			{"future_graduation": True, "not_yet_graduated": True},
+		])
+		self.assertEqual(len(E.reportable(frame)), 1)
+
+	def test_response_rate_counts_only_confirmed_graduates(self):
+		"""The trap this guards: respondents is len(frame), so an exempt row would
+		count as someone who answered and inflate the response rate."""
+		from tracer import employability as E
+
+		frame = self._frame([
+			{},
+			{"not_yet_graduated": True, "in_labor_force": None, "employed_now": None,
+			 "has_outcome": 0, TARGET: None},
+		])
+		indicators = E.group_indicators(E.reportable(frame), graduates=10)
+		self.assertEqual(indicators["respondents"], 1)
+		self.assertEqual(indicators["response_rate"], 0.1)
+		self.assertEqual(indicators["n_with_outcome"], 1)
+
+	def test_nulls_in_the_flag_are_treated_as_graduated(self):
+		"""Rows written before the column existed read as NaN, not False."""
+		import numpy as np
+
+		from tracer import employability as E
+
+		frame = self._frame([{"not_yet_graduated": np.nan}, {"not_yet_graduated": np.nan}])
+		self.assertEqual(len(E.reportable(frame)), 2)
+
+	def test_a_frame_without_the_column_is_unchanged(self):
+		"""Saved model frames and older round-trips have no such column."""
+		import pandas as pd
+
+		from tracer import employability as E
+
+		self.assertEqual(len(E.reportable(pd.DataFrame({"batch": [2022, 2023]}))), 2)
+
+
+class GraduatingStudentEditPageTests(TestCase):
+	"""The graduate's own Personal & Education page judges a changed graduation
+	date by the same rule the registration form used for them."""
+
+	def _account(self, email, *, has_graduated, graduation_date):
+		user = User.objects.create_user(email=email, password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=int(graduation_date[:4]), graduation_date=graduation_date,
+			has_graduated=has_graduated,
+		)
+		return AlumniAccount.objects.select_related("profile").get(pk=account.pk)
+
+	def _problem(self, account, new_date):
+		"""What the edit endpoint's date rule makes of a changed date."""
+		from .validators import graduation_date_problem
+
+		return graduation_date_problem(new_date, bool(account.profile.has_graduated))
+
+	def test_graduating_student_may_move_their_expected_date(self):
+		"""A delayed batch: they must not be locked out of saving the page."""
+		account = self._account("soon@example.com", has_graduated=False, graduation_date=f"{timezone.now().year + 1}-06")
+		self.assertIsNone(self._problem(account, f"{timezone.now().year + 1}-10"))
+
+	def test_graduate_still_cannot_move_their_date_into_the_future(self):
+		account = self._account("grad@example.com", has_graduated=True, graduation_date="2022-06")
+		future = (timezone.now() + timedelta(days=400)).strftime("%Y-%m")
+		self.assertIn("cannot be later", self._problem(account, future) or "")

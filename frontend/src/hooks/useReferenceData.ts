@@ -105,6 +105,15 @@ export interface ReferenceData {
     latest_graduation_year?: number;
 }
 
+/** Earliest month a graduating student may give as their expected graduation,
+ *  as "YYYY-MM": next month, since "this month or earlier" means they graduated. */
+export function nextMonth(): string {
+    const now = new Date();
+    // Day 1 avoids the month-end rollover bug (Jan 31 + 1 month = Mar 3).
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** Latest graduation month a graduate may enter, as "YYYY-MM". */
 export function latestGraduationMonth(latestYear?: number): string {
     const now = new Date();

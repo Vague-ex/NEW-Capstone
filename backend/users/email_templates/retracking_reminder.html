@@ -34,10 +34,10 @@
           <tr>
             <td style="padding:28px 32px 8px 32px;">
               <div style="font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:#166534;font-weight:700;">
-                Employment update reminder
+                {% if first_employment %}Congratulations, graduate{% else %}Employment update reminder{% endif %}
               </div>
               <h1 style="margin:6px 0 0;font-size:22px;line-height:1.3;color:#0F172A;">
-                It is time to refresh your employment record
+                {% if first_employment %}Tell us how your job search is going{% else %}It is time to refresh your employment record{% endif %}
               </h1>
             </td>
           </tr>
@@ -46,12 +46,20 @@
           <tr>
             <td style="padding:12px 32px 0 32px;font-size:15px;line-height:1.6;color:#0F172A;">
               <p style="margin:0 0 12px;">Hi {{ first_name|default:"there" }},</p>
+              {% if first_employment %}
+              <p style="margin:0 0 16px;">
+                You registered with the CHMSU Graduate Tracer System before graduating,
+                so we skipped the employment questions at the time. The month you gave us
+                has now arrived — please sign in and complete the short employment form.
+              </p>
+              {% else %}
               <p style="margin:0 0 16px;">
                 Your employment record on the CHMSU Graduate Tracer System
                 has not been updated in over <strong>two years</strong>. Please
                 sign in and re-complete the short employment form so we can
                 keep your record current.
               </p>
+              {% endif %}
               <p style="margin:0 0 16px;">
                 Updating takes only a few minutes and helps the BSIS Program
                 track post-graduation outcomes and plan future curricula.

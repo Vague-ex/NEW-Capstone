@@ -248,6 +248,15 @@ class AlumniProfile(models.Model):
     # Academic info
     graduation_date = models.CharField(max_length=10, blank=True)  # YYYY-MM (month + year). Legacy MM/DD rows tolerated.
     graduation_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    # False only for a graduating student who registered before graduating: their
+    # graduation_date is the EXPECTED month. They are exempt from every analytics
+    # figure until they confirm (see employability.reportable), and the retracking
+    # reminder chases them once that month has passed.
+    #
+    # Deliberately stored rather than derived from graduation_date > today: a
+    # delayed graduation would otherwise silently promote them into the figures
+    # as a respondent with no employment answer.
+    has_graduated = models.BooleanField(default=True)
     scholarship = models.CharField(max_length=120, blank=True)
     highest_attainment = models.CharField(max_length=20, choices=ATTAINMENT_CHOICES, blank=True)
     graduate_school = models.CharField(max_length=255, blank=True)

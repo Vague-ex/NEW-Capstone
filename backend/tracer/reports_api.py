@@ -133,7 +133,9 @@ def _parse_filters(request) -> dict[str, Any]:
 
 def _alumni_qs(filters: dict[str, Any]):
     """Build the prefetched AlumniAccount queryset filtered by the report filters."""
-    qs = employability.filter_source(AlumniAccount.objects.all(), filters["data_source"])
+    qs = employability.exclude_not_yet_graduated(
+        employability.filter_source(AlumniAccount.objects.all(), filters["data_source"])
+    )
     if not filters["include_unverified"]:
         qs = qs.filter(account_status=AccountStatus.ACTIVE)
     qs = qs.filter(

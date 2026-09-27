@@ -36,6 +36,7 @@ import { FloatingAlert } from './shared/floating-alert';
 import {
   useReferenceData,
   latestGraduationMonth,
+  nextMonth,
   provincesApi,
   citiesApi,
   barangaysApi,
@@ -938,16 +939,23 @@ export default function RegisterAlumniPersonal({
     }
     if (step === 3) {
       if (!form.graduationDate.trim()) {
-        setStepError('Graduation date is required.');
+        setStepError(form.hasGraduated ? 'Graduation date is required.' : 'Expected graduation date is required.');
         return false;
       }
-      // The month picker's max is not enforced when the date is typed.
-      const latestYear = referenceData.latest_graduation_year;
-      if (form.graduationDate > latestGraduationMonth(latestYear)) {
-        setStepError(latestYear && latestYear < new Date().getFullYear()
-          ? `The tracer covers graduates up to batch ${latestYear} for now.`
-          : 'Graduation date cannot be later than this month.');
-        return false;
+      // The month picker's min/max are not enforced when the date is typed.
+      if (!form.hasGraduated) {
+        if (form.graduationDate < nextMonth()) {
+          setStepError('That month has already passed. Choose "Yes, I have graduated" instead.');
+          return false;
+        }
+      } else {
+        const latestYear = referenceData.latest_graduation_year;
+        if (form.graduationDate > latestGraduationMonth(latestYear)) {
+          setStepError(latestYear && latestYear < new Date().getFullYear()
+            ? `The tracer covers graduates up to batch ${latestYear} for now.`
+            : 'Graduation date cannot be later than this month.');
+          return false;
+        }
       }
       if (form.furtherStudies === 'enrolled' || form.furtherStudies === 'completed') {
         if (!form.postgradProgram.trim()) {
@@ -1885,13 +1893,59 @@ export default function RegisterAlumniPersonal({
                   Every CHMSU Talisay BSIS graduate already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken.
                 </div>
 
+                {/* Asked before the date, because the answer decides whether the
+                    date is a past month or an expected one — and whether the
+                    employment section is asked at all. */}
+                <div>
+                  <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
+                    Have you already graduated from BSIS? *
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {([
+                      { value: true, label: 'Yes, I have graduated' },
+                      { value: false, label: 'Not yet — I am graduating soon' },
+                    ] as const).map((option) => (
+                      <button
+                        key={String(option.value)}
+                        type="button"
+                        onClick={() => {
+                          if (form.hasGraduated === option.value) return;
+                          setStepError('');
+                          setF('hasGraduated', option.value);
+                          // The old month is wrong for the other answer by
+                          // definition (past vs future), so clear it rather than
+                          // leaving a value the validator will reject.
+                          setF('graduationDate', '');
+                          setF('graduationYear', null);
+                        }}
+                        className={`text-left rounded-xl border px-3.5 py-2.5 text-sm transition ${
+                          form.hasGraduated === option.value
+                            ? 'border-[#166534] bg-green-50 text-[#166534]'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                        }`}
+                        style={{ fontWeight: form.hasGraduated === option.value ? 600 : 400 }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {!form.hasGraduated && (
+                    <p className="text-amber-700 text-xs mt-2 leading-relaxed">
+                      We'll register you now and skip the employment questions. Once your
+                      expected graduation month arrives, we'll email you to complete them.
+                    </p>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Date of Graduation (BSIS) * <span className="text-gray-400 font-normal">(month &amp; year)</span>
+                    {form.hasGraduated ? 'Date of Graduation (BSIS) *' : 'Expected Date of Graduation (BSIS) *'}{' '}
+                    <span className="text-gray-400 font-normal">(month &amp; year)</span>
                   </label>
                   <input
                     type="month"
-                    max={latestGraduationMonth(referenceData.latest_graduation_year)}
+                    max={form.hasGraduated ? latestGraduationMonth(referenceData.latest_graduation_year) : undefined}
+                    min={form.hasGraduated ? undefined : nextMonth()}
                     value={form.graduationDate}
                     onChange={(e) => {
                       const v = e.target.value;  // "YYYY-MM" from <input type="month">

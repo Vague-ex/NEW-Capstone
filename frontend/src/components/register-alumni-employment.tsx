@@ -429,6 +429,10 @@ export interface RegisterAlumniEmploymentProps {
   fieldErrors?: Record<string, string> | null;
   /** Step to open on. Only the debug registration tester sets it. */
   initialStep?: EmploymentStep;
+  /** False for a graduating student: they have no employment history to report
+   *  yet, so Employment Status through Work Address (steps 2-5) are skipped and
+   *  only Academic Profile and Skills & Competency are asked. */
+  hasGraduated?: boolean;
 }
 
 export default function RegisterAlumniEmployment({
@@ -437,6 +441,7 @@ export default function RegisterAlumniEmployment({
   initialForm,
   fieldErrors,
   initialStep = 1,
+  hasGraduated = true,
 }: RegisterAlumniEmploymentProps) {
   const { data: referenceData } = useReferenceData();
   const refJobTitleOptions = useMemo(
@@ -803,6 +808,12 @@ export default function RegisterAlumniEmployment({
   const nextStep = () => {
     if (!validateStep()) return;
 
+    // A graduating student answers Academic Profile, then jumps straight to
+    // Skills: every step between asks about a job they do not have yet.
+    if (step === 1 && !hasGraduated) {
+      goToStep(6);
+      return;
+    }
     if (step === 2 && !asksFirstJob) {
       goToStep(6);
       return;
@@ -818,6 +829,10 @@ export default function RegisterAlumniEmployment({
 
   const prevStep = () => {
     // Mirror the forward skips when navigating back from Skills (step 6).
+    if (step === 6 && !hasGraduated) {
+      goToStep(1);
+      return;
+    }
     if (step === 6 && !isEmployedNow) {
       goToStep(asksFirstJob ? 3 : 2);
       return;
@@ -883,18 +898,25 @@ export default function RegisterAlumniEmployment({
     return step === stepNum;
   };
 
+  // A graduating student only ever sees steps 1 and 6, so counting to 6 would
+  // jump "Step 1 of 6" straight to "Step 6 of 6". Graduates are unaffected.
+  const stepSequence: EmploymentStep[] = hasGraduated ? [1, 2, 3, 4, 5, 6] : [1, 6];
+  const stepPosition = Math.max(1, stepSequence.indexOf(step) + 1);
+  const stepCount = stepSequence.length;
+  const progressPct = (stepPosition / stepCount) * 100;
+
   return (
     <div className="w-full max-w-2xl mx-auto px-3 py-4 sm:p-6">
       {/* Progress Bar */}
       <div className="mb-5 sm:mb-8">
         <div className="flex justify-between text-sm text-gray-600 mb-2">
-          <span>Step {step} of 6</span>
-          <span>{(step / 6 * 100).toFixed(0)}%</span>
+          <span>Step {stepPosition} of {stepCount}</span>
+          <span>{progressPct.toFixed(0)}%</span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
             className="bg-emerald-500 h-2 rounded-full transition-all"
-            style={{ width: `${(step / 6) * 100}%` }}
+            style={{ width: `${progressPct}%` }}
           />
         </div>
       </div>

@@ -1667,3 +1667,199 @@ class MasterlistEntryEditTests(TestCase):
 		AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE, master_record=linked)
 		self.assertEqual(self.client.delete(self._url(linked), **self.auth).status_code, 409)
 		self.assertTrue(GraduateMasterRecord.objects.filter(pk=linked.pk).exists())
+
+
+class GraduatingStudentRetrackingTests(TestCase):
+	"""A graduating student's first employment answer is due when the month they
+	gave arrives -- not two years after they registered."""
+
+	def _graduating(self, email, graduation_date, *, has_graduated=False):
+		user = User.objects.create_user(email=email, password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=int(graduation_date[:4]), graduation_date=graduation_date,
+			has_graduated=has_graduated,
+			# Registration stamps this, which is exactly why the two-year clock
+			# had to be bypassed for this cohort.
+			last_retraced_at=timezone.now(),
+		)
+		return AlumniAccount.objects.select_related("user", "profile").get(pk=account.pk)
+
+	def test_not_due_before_the_expected_month(self):
+		from users.retracking import awaiting_first_employment, needs_retracking
+
+		account = self._graduating("soon@example.com", f"{timezone.now().year + 1}-06")
+		self.assertFalse(awaiting_first_employment(account))
+		self.assertFalse(needs_retracking(account))
+
+	def test_due_once_the_expected_month_arrives(self):
+		from users.retracking import awaiting_first_employment, needs_retracking
+
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		account = self._graduating("graduated@example.com", past)
+		self.assertTrue(awaiting_first_employment(account))
+		self.assertTrue(needs_retracking(account))
+
+	def test_status_reports_no_confirmation_yet(self):
+		from users.retracking import retracking_status
+
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		fields = retracking_status(self._graduating("due@example.com", past))
+		self.assertTrue(fields["requiresRetracking"])
+		self.assertTrue(fields["awaitingFirstEmployment"])
+		# Nothing has been confirmed, so there is no "last confirmed" date to show.
+		self.assertIsNone(fields["lastRetracedAt"])
+
+	def test_an_ordinary_graduate_is_untouched(self):
+		"""The two-year clock still governs everyone who has graduated."""
+		from users.retracking import awaiting_first_employment, needs_retracking, retracking_status
+
+		account = self._graduating("grad@example.com", "2022-06", has_graduated=True)
+		self.assertFalse(awaiting_first_employment(account))
+		self.assertFalse(needs_retracking(account))
+		self.assertFalse(retracking_status(account)["awaitingFirstEmployment"])
+
+	def test_a_stale_graduate_is_still_due_on_the_two_year_clock(self):
+		from users.retracking import needs_retracking
+
+		account = self._graduating("stale@example.com", "2018-06", has_graduated=True)
+		AlumniProfile.objects.filter(alumni=account).update(
+			last_retraced_at=timezone.now() - timedelta(days=800),
+		)
+		account.refresh_from_db()
+		self.assertTrue(needs_retracking(
+			AlumniAccount.objects.select_related("user", "profile").get(pk=account.pk)
+		))
+
+	def test_year_only_expected_graduation_waits_for_december(self):
+		"""Without a month, the batch year's December is the fallback -- so a
+		registration mid-year is not treated as already graduated."""
+		from users.retracking import awaiting_first_employment
+
+		account = self._graduating("yearonly@example.com", f"{timezone.now().year}-06")
+		AlumniProfile.objects.filter(alumni=account).update(graduation_date="")
+		account = AlumniAccount.objects.select_related("user", "profile").get(pk=account.pk)
+		# graduation_year is this year; December has not arrived in any month but
+		# December itself.
+		self.assertEqual(awaiting_first_employment(account), timezone.now().month == 12)
+
+	def test_missing_profile_is_not_due(self):
+		from users.retracking import awaiting_first_employment
+
+		user = User.objects.create_user(email="bare@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		self.assertFalse(awaiting_first_employment(account))
+
+	@skipUnless(connection.vendor == "postgresql", "the employment endpoint reads the template with a jsonb lookup")
+	def test_submitting_employment_confirms_graduation(self):
+		"""The retrace submission is the confirmation, so it clears the flag and
+		the graduate enters analytics from then on."""
+		from tracer import employability as E
+
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		account = self._graduating("confirm@example.com", past)
+		self.assertEqual(len(E.reportable(E.build_graduate_frame())), 0)
+
+		response = APIClient().post(
+			f"/api/alumni/{account.id}/employment/",
+			{
+				"employment_status": "employed_full_time",
+				"retrace_submission": "true",
+				"survey_data": json.dumps({"employment_status": "employed_full_time"}),
+			},
+			format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+		)
+		self.assertEqual(response.status_code, 200, response.data)
+		account.profile.refresh_from_db()
+		self.assertTrue(account.profile.has_graduated)
+		self.assertEqual(len(E.reportable(E.build_graduate_frame())), 1)
+
+	@skipUnless(connection.vendor == "postgresql", "the employment endpoint reads the template with a jsonb lookup")
+	def test_a_personal_page_save_does_not_confirm_graduation(self):
+		"""Personal & Education saves reach the same endpoint and must not flip
+		the flag -- only a submitted employment form does."""
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		account = self._graduating("personal@example.com", past)
+		response = APIClient().post(
+			f"/api/alumni/{account.id}/employment/",
+			{"survey_data": json.dumps({"first_name": "Ana"})},
+			format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+		)
+		self.assertEqual(response.status_code, 200, response.data)
+		account.profile.refresh_from_db()
+		self.assertFalse(account.profile.has_graduated)
+
+
+class GraduatingStudentReminderEmailTests(TestCase):
+	"""The reminder body must not tell a brand-new graduate their record is over
+	two years old."""
+
+	def _graduating(self, email, graduation_date, *, has_graduated=False, reminded_at=None):
+		user = User.objects.create_user(email=email, password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=int(graduation_date[:4]), graduation_date=graduation_date,
+			has_graduated=has_graduated, last_retraced_at=timezone.now(),
+			last_retracking_reminder_at=reminded_at,
+		)
+		return account
+
+	def test_first_employment_wording_replaces_the_two_year_wording(self):
+		from users.retracking import send_retracking_email
+
+		with patch("users.retracking.send_branded_email") as send:
+			send_retracking_email(to_email="ana@example.com", first_name="Ana", first_employment=True)
+		context = send.call_args.kwargs["context"]
+		self.assertTrue(context["first_employment"])
+		self.assertIn("employment", send.call_args.kwargs["subject"])
+
+	def test_ordinary_reminder_keeps_its_wording(self):
+		from users.retracking import send_retracking_email
+
+		with patch("users.retracking.send_branded_email") as send:
+			send_retracking_email(to_email="ana@example.com", first_name="Ana")
+		self.assertFalse(send.call_args.kwargs["context"]["first_employment"])
+		self.assertIn("update your employment record", send.call_args.kwargs["subject"])
+
+	def test_rendered_bodies_differ_and_avoid_the_wrong_claim(self):
+		"""Renders the real templates, so a broken {% if %} shows up here."""
+		from django.template.loader import render_to_string
+
+		first = render_to_string("retracking_reminder.txt", {"first_name": "Ana", "login_url": "u", "first_employment": True})
+		stale = render_to_string("retracking_reminder.txt", {"first_name": "Ana", "login_url": "u", "first_employment": False})
+		self.assertIn("before graduating", first)
+		self.assertNotIn("two years", first)
+		self.assertIn("two years", stale)
+		self.assertNotIn("before graduating", stale)
+
+	def test_command_sends_the_first_employment_variant(self):
+		"""End to end: the cron command picks the wording from the account."""
+		from django.core.management import call_command
+
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		self._graduating("due@example.com", past)
+		with patch("users.retracking.send_branded_email") as send:
+			call_command("send_retracking_reminders")
+		self.assertEqual(send.call_count, 1)
+		self.assertTrue(send.call_args.kwargs["context"]["first_employment"])
+
+	def test_command_skips_a_graduating_student_before_their_month(self):
+		from django.core.management import call_command
+
+		self._graduating("early@example.com", f"{timezone.now().year + 1}-06")
+		with patch("users.retracking.send_branded_email") as send:
+			call_command("send_retracking_reminders")
+		self.assertEqual(send.call_count, 0)
+
+	def test_command_respects_the_cooldown_for_this_cohort_too(self):
+		from django.core.management import call_command
+
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		self._graduating("recent@example.com", past, reminded_at=timezone.now() - timedelta(days=3))
+		with patch("users.retracking.send_branded_email") as send:
+			call_command("send_retracking_reminders")
+		self.assertEqual(send.call_count, 0)

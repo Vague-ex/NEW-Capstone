@@ -15,11 +15,20 @@ from typing import Dict, List, Optional, Tuple, Any
 from django.core.exceptions import ValidationError
 
 
-def graduation_date_problem(value) -> Optional[str]:
+_MAX_YEARS_TO_EXPECTED_GRADUATION = 6
+
+
+def graduation_date_problem(value, has_graduated: bool = True) -> Optional[str]:
     """Why a "YYYY-MM" graduation date is refused, or None. Shared by
     registration and the graduate's edit page. Nobody graduates in the future,
     and while "Allow current-year graduates" is off (/admin/debug/a) the newest
-    batch taken in is last year's."""
+    batch taken in is last year's.
+
+    has_graduated=False is a graduating student giving their EXPECTED month, so
+    both of those rules are inverted for them: the month must be in the future,
+    and the batch cutoff does not apply (they are exempt from analytics until
+    they confirm, so they cannot widen the study's scope).
+    """
     from tracer.employability import latest_graduation_year
 
     match = re.match(r'^(\d{4})-(\d{2})', str(value or '').strip())
@@ -27,6 +36,12 @@ def graduation_date_problem(value) -> Optional[str]:
         return None
     year, month = int(match.group(1)), int(match.group(2))
     now = datetime.now()
+    if not has_graduated:
+        if (year, month) <= (now.year, now.month):
+            return 'That month has already passed. Choose "Yes, I have graduated" instead.'
+        if year > now.year + _MAX_YEARS_TO_EXPECTED_GRADUATION:
+            return 'Expected date of graduation is too far in the future.'
+        return None
     if (year, month) > (now.year, now.month):
         return 'Date of graduation cannot be later than this month.'
     latest = latest_graduation_year()
@@ -265,11 +280,14 @@ class SurveyDataValidator:
 
         # Validate graduation year range. The upper bound is today's year, read
         # now rather than from the class attribute, so it moves with the calendar.
+        # A graduating student's expected year is allowed past it; the month-level
+        # check in graduation_date_problem() is what bounds them.
         now = datetime.now()
+        has_graduated = data.get('has_graduated', True)
         if data.get('graduation_year'):
             try:
                 year = int(data['graduation_year'])
-                if year > now.year:
+                if year > now.year and has_graduated:
                     self.errors.append({
                         'section': 'educational_background',
                         'field': 'graduation_year',
@@ -291,7 +309,7 @@ class SurveyDataValidator:
 
         # A graduation month later than this month is a typing mistake, and it
         # would show up in analytics as a batch that has not graduated yet.
-        problem = graduation_date_problem(data.get('graduation_date'))
+        problem = graduation_date_problem(data.get('graduation_date'), has_graduated)
         if problem:
             self.errors.append({
                 'section': 'educational_background',
@@ -723,6 +741,10 @@ def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
         sections['personal_information'] = personal_info
 
     education = pick(personal, 'graduation_date', 'graduation_year')
+    # False is a real answer here, so it goes in directly rather than through
+    # pick(), which drops falsy values.
+    if 'has_graduated' in personal:
+        education['has_graduated'] = bool(personal['has_graduated'])
     if education:
         sections['educational_background'] = education
 

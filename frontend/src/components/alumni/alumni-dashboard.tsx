@@ -101,7 +101,17 @@ export function AlumniDashboard() {
     'self-employed': { bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500', label: 'Self-Employed' },
     unemployed: { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unemployed' },
   };
-  const statusColor = statusColorMap[alumni.employmentStatus ?? ''] ?? { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unknown' };
+  // A graduating student has no employment answer yet, and the backend's status
+  // fallback reads a blank one as "unemployed". Showing that as their badge
+  // would be plainly wrong, so the flag overrides the label.
+  const isGraduating = (alumni as { hasGraduated?: boolean }).hasGraduated === false;
+  // Null while the account sits in the admin's Profile Review list. Undefined on
+  // a session stored before this field existed, which must not show the notice.
+  const reviewedAt = (alumni as { profileReviewedAt?: string | null }).profileReviewedAt;
+  const awaitingProfileReview = reviewedAt === null;
+  const statusColor = isGraduating
+    ? { bg: 'bg-sky-100', text: 'text-sky-700', dot: 'bg-sky-500', label: 'Graduating' }
+    : statusColorMap[alumni.employmentStatus ?? ''] ?? { bg: 'bg-gray-100', text: 'text-gray-700', dot: 'bg-gray-400', label: 'Unknown' };
 
   // Where the employer's check of the current job stands (none = no link out).
   const employerCheck = alumni.employerVerification as
@@ -197,6 +207,25 @@ export function AlumniDashboard() {
               <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
                 Your account is being reviewed. The BSIS Admin will verify your identity and biometric submission.
                 Once approved, your Employment Details section will be unlocked.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Profile review still open (masterlist-matched accounts) ──
+            A matched graduate is active immediately and gets the full dashboard,
+            so this says the review is happening WITHOUT implying they are locked
+            out or need to sign in again. Never shown next to the pending alert
+            above: that account is not active yet. */}
+        {isVerified && awaitingProfileReview && (
+          <div className="flex items-start gap-3 bg-sky-50 border border-sky-200 rounded-xl p-4">
+            <ShieldCheck className="size-5 text-sky-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sky-800 text-sm" style={{ fontWeight: 600 }}>Your account is active</p>
+              <p className="text-sky-700 text-xs mt-0.5 leading-relaxed">
+                We matched your name to the BSIS graduate list, so everything here is
+                already yours to use. The BSIS Admin is still doing a final check of your
+                details and face scan — you don't need to do anything or sign in again.
               </p>
             </div>
           </div>

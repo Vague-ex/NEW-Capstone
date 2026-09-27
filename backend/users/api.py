@@ -1119,7 +1119,8 @@ def _admin_retracking_fields(account: AlumniAccount) -> dict:
         fields = retracking_status(account)
     except Exception:  # pragma: no cover - defensive
         fields = {"requiresRetracking": False, "lastRetracedAt": None, "daysSinceRetrace": None,
-                  "retrackingDueAt": None, "retrackingOverdueDays": 0}
+                  "retrackingDueAt": None, "retrackingOverdueDays": 0,
+                  "awaitingFirstEmployment": False}
     reminded = getattr(getattr(account, "profile", None), "last_retracking_reminder_at", None)
     fields["lastRetrackingReminderAt"] = reminded.isoformat() if reminded else None
     return fields
@@ -1225,6 +1226,13 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "surveyData": survey_data,
         "skills": skills,
         "requiresRetracking": _needs_retracking(account),
+        # False only for a graduating student who has not confirmed graduation yet:
+        # the dashboard swaps the retracking wording for a first-employment prompt.
+        "hasGraduated": bool(getattr(_profile_or_none(account), "has_graduated", True)),
+        # Null while the account is waiting in the admin's Profile Review list. A
+        # masterlist-matched graduate is already ACTIVE and gets the full
+        # dashboard, so this only drives a non-blocking notice.
+        "profileReviewedAt": account.profile_reviewed_at.isoformat() if account.profile_reviewed_at else None,
         "needsEmployerInvite": _needs_employer_invite(account),
         "geomapConsent": bool(getattr(_profile_or_none(account), "geomap_consent", False)),
         "homeAddress": _home_address_payload(account),
@@ -1919,6 +1927,9 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         # Academic info (from form, not survey)
         "graduation_date": personal_data.get("graduation_date", ""),
         "graduation_year": personal_data.get("graduation_year"),
+        # Absent means "graduated" — every registrant before this field existed,
+        # and every client that predates the question.
+        "has_graduated": _as_bool(personal_data.get("has_graduated", True)),
         "scholarship": personal_data.get("scholarship", ""),
         "highest_attainment": personal_data.get("highest_attainment", ""),
         "graduate_school": personal_data.get("graduate_school", ""),
@@ -2124,6 +2135,10 @@ class AlumniRegisterView(APIView):
         family_name = (request.data.get("family_name") or "").strip()
         graduation_date = (request.data.get("graduation_date") or "").strip()
         employment_status = request.data.get("employment_status") or ""
+        # A graduating student registering before graduation. Their employment
+        # section is skipped by the form, and they stay out of analytics until
+        # they confirm (employability.reportable).
+        has_graduated = _as_bool(request.data.get("has_graduated", True))
 
         missing = []
         for field_name, value in {
@@ -2220,6 +2235,7 @@ class AlumniRegisterView(APIView):
                 "province": request.data.get("province"),
                 "graduation_date": graduation_date,
                 "graduation_year": graduation_year,
+                "has_graduated": has_graduated,
             },
         )
         if not _validation["is_valid"]:
@@ -3034,8 +3050,13 @@ class AlumniEmploymentUpdateView(APIView):
         # must still be able to edit the rest of their profile.
         graduation_value = incoming_survey_data.get("graduationDate", incoming_survey_data.get("graduation_date"))
         stored_graduation = getattr(getattr(alumni_account, "profile", None), "graduation_date", "") or ""
+        # A graduating student's date is an EXPECTED month, so it is judged by the
+        # same inverted rule the registration form used. Without this, moving an
+        # expected graduation (a delayed batch) would be refused as "later than
+        # this month" and lock them out of saving the page.
+        stored_has_graduated = bool(getattr(getattr(alumni_account, "profile", None), "has_graduated", True))
         if isinstance(graduation_value, str) and graduation_value.strip() != stored_graduation:
-            if problem := graduation_date_problem(graduation_value):
+            if problem := graduation_date_problem(graduation_value, stored_has_graduated):
                 field_errors["graduationDate"] = problem
         # No links except Facebook, and only for changed values, for the same
         # reason: an old answer on file must not lock the graduate out of saving.
@@ -3109,6 +3130,10 @@ class AlumniEmploymentUpdateView(APIView):
 
         if is_retrace:
             retraced_at = mark_retraced(alumni_account)
+            # Submitting the employment section IS the graduation confirmation for
+            # a graduating student: it is the answer the retracking reminder asked
+            # for. Until this runs they stay out of every analytics figure.
+            AlumniProfile.objects.filter(alumni=alumni_account, has_graduated=False).update(has_graduated=True)
             log_retracking_event(
                 alumni_account, "retraced", before=before_snapshot, previous_at=previous_retrace, when=retraced_at,
             )
@@ -3209,7 +3234,9 @@ class VerifiedAlumniListView(APIView):
         settings = employability.debug_settings()
         active = AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
         if request.query_params.get("purpose") == "analytics":
-            active = employability.filter_source(active, settings["source"])
+            active = employability.exclude_not_yet_graduated(
+                employability.filter_source(active, settings["source"])
+            )
         elif not settings["show_samples_in_verified"]:
             # Demo graduates (/admin/debug/a) stay listed: they exist to show
             # this page's badges and history.

@@ -16,6 +16,7 @@ from tracer.models import EmploymentProfile
 from users.models import AccountStatus, AlumniAccount
 from users.retracking import (
     REMINDER_COOLDOWN_DAYS,
+    awaiting_first_employment,
     graduate_first_name,
     log_retracking_event,
     needs_retracking,
@@ -95,6 +96,7 @@ class Command(BaseCommand):
                     first_name=first_name,
                     login_url=login_url,
                     from_email=from_email,
+                    first_employment=awaiting_first_employment(account, now),
                 )
             except Exception as exc:  # pragma: no cover - log only
                 self.stderr.write(f"Failed to email {email}: {exc}")

@@ -12,6 +12,7 @@ EmploymentProfile save.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 RETRACKING_THRESHOLD_DAYS = 730  # 2 years
 REMINDER_COOLDOWN_DAYS = 30
+
+_YEAR_MONTH = re.compile(r"^(\d{4})-(\d{2})")
 
 
 def last_retraced_at(account) -> datetime | None:
@@ -41,8 +44,39 @@ def last_retraced_at(account) -> datetime | None:
     return emp.updated_at if emp is not None else None
 
 
+def awaiting_first_employment(account, now: datetime | None = None) -> bool:
+    """A graduating student whose expected graduation month has passed.
+
+    They registered before graduating, so they have no employment answer and the
+    two-year clock is meaningless for them: what is due is their FIRST one, as
+    soon as the month they gave arrives.
+    """
+    profile = getattr(account, "profile", None)
+    if profile is None or profile.has_graduated:
+        return False
+    match = _YEAR_MONTH.match((profile.graduation_date or "").strip())
+    if match:
+        expected = (int(match.group(1)), int(match.group(2)))
+    elif profile.graduation_year:
+        expected = (int(profile.graduation_year), 12)
+    else:
+        return False
+    reference = now or timezone.now()
+    return expected <= (reference.year, reference.month)
+
+
 def retracking_status(account, now: datetime | None = None) -> dict:
     """Retracking fields in the camelCase shape the admin frontend reads."""
+    if awaiting_first_employment(account, now):
+        # Due now, with no "days since" to report: nothing has been confirmed yet.
+        return {
+            "requiresRetracking": True,
+            "lastRetracedAt": None,
+            "daysSinceRetrace": None,
+            "retrackingDueAt": None,
+            "retrackingOverdueDays": 0,
+            "awaitingFirstEmployment": True,
+        }
     last = last_retraced_at(account)
     if last is None:
         return {
@@ -51,6 +85,7 @@ def retracking_status(account, now: datetime | None = None) -> dict:
             "daysSinceRetrace": None,
             "retrackingDueAt": None,
             "retrackingOverdueDays": 0,
+            "awaitingFirstEmployment": False,
         }
     days = max(0, ((now or timezone.now()) - last).days)
     due = last + timedelta(days=RETRACKING_THRESHOLD_DAYS)
@@ -60,6 +95,7 @@ def retracking_status(account, now: datetime | None = None) -> dict:
         "daysSinceRetrace": days,
         "retrackingDueAt": timezone.localtime(due).date().isoformat(),
         "retrackingOverdueDays": max(0, days - RETRACKING_THRESHOLD_DAYS),
+        "awaitingFirstEmployment": False,
     }
 
 
@@ -136,15 +172,32 @@ def graduate_first_name(account) -> str:
     return email.split("@")[0]
 
 
-def send_retracking_email(*, to_email: str, first_name: str, login_url: str | None = None, from_email=None) -> None:
-    """Send the CHMSU-branded retracking reminder. Raises on transport error."""
+def send_retracking_email(
+    *,
+    to_email: str,
+    first_name: str,
+    login_url: str | None = None,
+    from_email=None,
+    first_employment: bool = False,
+) -> None:
+    """Send the CHMSU-branded retracking reminder. Raises on transport error.
+
+    first_employment swaps the wording for a graduating student being asked for
+    their FIRST employment answer: the standard body says their record is over
+    two years old, which is plainly wrong for someone who never gave one.
+    """
     send_branded_email(
         to_email=to_email,
-        subject="CHMSU Graduate Tracer: please update your employment record",
+        subject=(
+            "CHMSU Graduate Tracer: tell us about your employment"
+            if first_employment
+            else "CHMSU Graduate Tracer: please update your employment record"
+        ),
         template_base="retracking_reminder",
         context={
             "first_name": first_name,
             "login_url": login_url or settings.GRADUATE_LOGIN_URL,
+            "first_employment": first_employment,
         },
         from_email=from_email,
     )

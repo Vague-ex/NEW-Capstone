@@ -126,7 +126,7 @@ FRAME_COLUMNS = [
     *MODEL_FEATURES,
     "employment_status", "has_outcome", "employed_now", "in_labor_force",
     "time_to_hire_months", TARGET, "bsis_first", "bsis_current", "is_sample",
-    "future_graduation",
+    "future_graduation", "not_yet_graduated",
 ]
 
 _YEAR_MONTH = re.compile(r"^(\d{4})-(\d{2})$")
@@ -249,6 +249,19 @@ def filter_source(queryset, source: str | None, prefix: str = "", keep_future: b
 
         return queryset.exclude(**{f"{year}__gt": latest_graduation_year(), f"{year}__lte": timezone.now().year})
     return queryset.exclude(**{f"{year}__gt": latest_graduation_year()})
+
+
+def exclude_not_yet_graduated(queryset, prefix: str = ""):
+    """Drop graduating students who have not confirmed graduation yet.
+
+    The graduate frame deliberately keeps them (reportable() drops them there,
+    so they can still be counted as a known gap). Analytics paths that never
+    build a frame -- the geomap/dashboard account list and the report exports --
+    have no such stage, so they call this instead.
+
+    NULL is not excluded: rows written before has_graduated existed are graduates.
+    """
+    return queryset.exclude(**{f"{prefix}profile__has_graduated": False})
 
 
 def latest_graduation_year() -> int:
@@ -406,6 +419,11 @@ def build_graduate_frame(as_of=None, source: str | None = None):
             ),
             "is_sample": profile._is_sample,
             "future_graduation": is_future_graduation(profile.graduation_date, profile.graduation_year, now),
+            # A graduating student who registered before graduating. Unlike
+            # future_graduation this does not lapse when their expected month
+            # arrives: a delayed graduation must not slide them into the figures
+            # as a respondent who never answered the employment section.
+            "not_yet_graduated": not profile.has_graduated,
         })
     return pd.DataFrame(rows, columns=FRAME_COLUMNS)
 
@@ -440,10 +458,22 @@ def masterlist_counts(source: str = SOURCE_REAL) -> dict[int, int]:
 
 
 def reportable(frame):
-    """Rows that can be analyzed: records with a future graduation date are left out."""
-    if "future_graduation" not in frame.columns:
-        return frame
-    return frame[~frame["future_graduation"].fillna(False).astype(bool)]
+    """Rows that can be analyzed.
+
+    Left out: records with a future graduation date (data-entry mistakes, counted
+    under data issues) and graduating students who have not confirmed graduation
+    yet. Both would otherwise land in `respondents`, inflating the response rate
+    with people who have no employment answer to give.
+    """
+    keep = None
+    for column in ("future_graduation", "not_yet_graduated"):
+        if column not in frame.columns:
+            continue
+        # .eq(True) rather than fillna(False).astype(bool): same result for bools,
+        # 0/1 ints and NaN, without pandas' deprecated object-dtype downcast.
+        flagged = frame[column].eq(True)
+        keep = ~flagged if keep is None else keep & ~flagged
+    return frame if keep is None else frame[keep]
 
 
 # ── Descriptive indicators ────────────────────────────────────────────────────
