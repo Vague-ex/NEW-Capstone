@@ -2093,9 +2093,17 @@ export default function RegisterAlumniPersonal({
                 </>)}
 
                 <div>
-                  <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                    Professional Eligibility / Certifications
+                  <label className="block text-gray-700 text-xs mb-1" style={{ fontWeight: 600 }}>
+                    Professional Eligibility
                   </label>
+                  {/* "/ Certifications" was dropped from this label: it collided with the
+                      Industry Certifications question on the Skills step, and the CHED form
+                      labels this row simply "Eligibility". The options are CHED items and
+                      are left untouched. */}
+                  <p className="text-gray-500 text-xs mb-2">
+                    Government examinations you have passed. Industry certificates such as AWS
+                    or Cisco are asked later, under Skills.
+                  </p>
                   <div className="space-y-1.5">
                     {['Civil Service Exam', 'TESDA', 'Board Exam', 'Others'].map((opt) => (
                       <CheckOption
@@ -2109,7 +2117,7 @@ export default function RegisterAlumniPersonal({
                   {form.profEligibility.includes('Others') && (
                     <input
                       type="text"
-                      placeholder="Please specify certification"
+                      placeholder="Please specify the eligibility or licence"
                       value={form.profEligibilityOther}
                       onChange={(e) => setF('profEligibilityOther', e.target.value)}
                       className={`${inputCls} mt-2`}

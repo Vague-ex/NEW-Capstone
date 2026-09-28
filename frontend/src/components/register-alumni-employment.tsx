@@ -1631,11 +1631,19 @@ export default function RegisterAlumniEmployment({
             />
           </div>
 
-          {/* Professional Certifications */}
+          {/* Industry certifications. Deliberately NOT the same question as
+              Professional Eligibility on the Education step: that one records
+              government examinations (Civil Service, TESDA, board exam), this one
+              records vendor credentials. Both labels used to contain the word
+              "Certifications", which is what made them look duplicated. */}
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">
-              Professional Certifications (comma-separated, optional)
+            <label className="block text-sm font-semibold text-gray-900 mb-1">
+              Industry Certifications <span className="font-normal text-gray-500">(optional)</span>
             </label>
+            <p className="text-xs text-gray-500 mb-2">
+              Vendor or industry credentials, separated by commas. Not your TESDA, Civil
+              Service or board-exam eligibility &mdash; those were asked on the Education step.
+            </p>
             <input
               type="text"
               value={form.professional_certifications}
