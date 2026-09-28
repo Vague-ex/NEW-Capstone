@@ -1346,7 +1346,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 items-end gap-3">
                     <div>
                       <FieldLabel>{isLocal ? 'ZIP Code' : 'Postal Code'}</FieldLabel>
                       <input

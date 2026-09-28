@@ -1424,7 +1424,7 @@ export default function RegisterAlumniPersonal({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 items-end gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                       Password *
@@ -1556,7 +1556,7 @@ export default function RegisterAlumniPersonal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 items-end gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                       Birth Date * <span className="text-gray-400 font-normal">(month &amp; year)</span>
@@ -1743,7 +1743,7 @@ export default function RegisterAlumniPersonal({
                       </select>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                           Province *
@@ -1816,7 +1816,7 @@ export default function RegisterAlumniPersonal({
                         className={inputCls}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                           State / Region *
@@ -1842,7 +1842,7 @@ export default function RegisterAlumniPersonal({
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                           City *
@@ -2032,7 +2032,7 @@ export default function RegisterAlumniPersonal({
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                           Year Started *
