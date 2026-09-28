@@ -771,7 +771,16 @@ def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
 
     # employment_status is required by the validator and always collected, so
     # surface it even when blank rather than skipping the section entirely.
-    if 'employment_status' not in sections and 'employment_status' in survey:
+    #
+    # Except for a graduating student: the form never asks them the employment
+    # questions, so synthesising a blank section here made the validator refuse
+    # their registration with "Employment status is required" -- a question they
+    # were given no way to answer.
+    if (
+        personal.get('has_graduated', True)
+        and 'employment_status' not in sections
+        and 'employment_status' in survey
+    ):
         sections['employment_status'] = {'employment_status': survey.get('employment_status')}
 
     return sections

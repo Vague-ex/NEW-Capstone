@@ -636,15 +636,21 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab 
   const coreCount = skills.filter((s: string) => bsisCore.includes(s)).length;
   const additional = skills.filter((s: string) => !bsisCore.includes(s));
 
+  // A graduating student has given no employment answer, and a blank status reads
+  // as "unemployed" server-side. Labelling them Unemployed would be plainly wrong.
+  const isGraduating = (a as { hasGraduated?: boolean }).hasGraduated === false;
+
   const empStatusLabel =
-    a.employmentStatus === 'employed' ? 'Employed'
-      : a.employmentStatus === 'self-employed' ? 'Self-Employed'
-        : 'Unemployed';
+    isGraduating ? 'Graduating'
+      : a.employmentStatus === 'employed' ? 'Employed'
+        : a.employmentStatus === 'self-employed' ? 'Self-Employed'
+          : 'Unemployed';
 
   const empStatusColor =
-    a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700'
-      : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
-        : 'bg-gray-100 text-gray-600';
+    isGraduating ? 'bg-sky-100 text-sky-700'
+      : a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700'
+        : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
+          : 'bg-gray-100 text-gray-600';
 
   const tabs: { key: ModalTab; label: string; icon: React.ElementType }[] = [
     { key: 'profile', label: 'Profile & Education', icon: Camera },
@@ -1268,10 +1274,11 @@ export function AdminVerified() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 600 }}>{safeName(a)}</p>
-                          <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
+                          <span className={`shrink-0 text-[11px] px-2 py-0.5 rounded-full ${(a as { hasGraduated?: boolean }).hasGraduated === false ? 'bg-sky-100 text-sky-700' :
+                            a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
                             a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
                             }`} style={{ fontWeight: 600 }}>
-                            {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
+                            {(a as { hasGraduated?: boolean }).hasGraduated === false ? 'Graduating' : a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
                           </span>
                         </div>
                         <p className="text-gray-400 text-xs truncate">{a.email}</p>
@@ -1329,10 +1336,11 @@ export function AdminVerified() {
                           </td>
                           <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{a.graduationYear}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${(a as { hasGraduated?: boolean }).hasGraduated === false ? 'bg-sky-100 text-sky-700' :
+                              a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700' :
                               a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]' : 'bg-gray-100 text-gray-600'
                               }`} style={{ fontWeight: 600 }}>
-                              {a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
+                              {(a as { hasGraduated?: boolean }).hasGraduated === false ? 'Graduating' : a.employmentStatus === 'employed' ? 'Employed' : a.employmentStatus === 'self-employed' ? 'Self-Emp.' : 'Unemployed'}
                             </span>
                             {needsRetracing(a) && <div className="mt-1"><RetraceBadge a={a} /></div>}
                           </td>

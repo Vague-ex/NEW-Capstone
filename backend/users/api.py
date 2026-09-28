@@ -1488,6 +1488,10 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "masterRecordName": account.master_record.full_name if account.master_record else None,
         "masterRecordBatch": account.master_record.batch_year if account.master_record else None,
         "employmentStatus": employment_status,
+        # A graduating student has no employment answer yet, and employment_status
+        # falls back to "unemployed" when it is blank. The admin lists read this
+        # so they can label them Graduating instead of wrongly Unemployed.
+        "hasGraduated": bool(getattr(_profile_or_none(account), "has_graduated", True)),
         "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
         "company": survey_data.get("currentJobCompany") or "",
         "industry": survey_data.get("currentJobSector") or survey_data.get("firstJobSector") or "",

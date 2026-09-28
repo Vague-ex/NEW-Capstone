@@ -368,15 +368,22 @@ export function AdminUnverified() {
     setModalTab('biometric');
   };
 
+  // A graduating student never answered the employment questions; a blank status
+  // reads as "unemployed" server-side, which would be wrong to show as a label.
+  const isGraduating = (a: AlumniRecord) =>
+    (a as { hasGraduated?: boolean }).hasGraduated === false;
+
   const empStatusLabel = (a: AlumniRecord) =>
-    a.employmentStatus === 'employed' ? 'Employed'
-      : a.employmentStatus === 'self-employed' ? 'Self-Employed'
-        : 'Unemployed';
+    isGraduating(a) ? 'Graduating'
+      : a.employmentStatus === 'employed' ? 'Employed'
+        : a.employmentStatus === 'self-employed' ? 'Self-Employed'
+          : 'Unemployed';
 
   const empStatusColor = (a: AlumniRecord) =>
-    a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700'
-      : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
-        : 'bg-gray-100 text-gray-500';
+    isGraduating(a) ? 'bg-sky-100 text-sky-700'
+      : a.employmentStatus === 'employed' ? 'bg-emerald-50 text-emerald-700'
+        : a.employmentStatus === 'self-employed' ? 'bg-[#166534]/10 text-[#166534]'
+          : 'bg-gray-100 text-gray-500';
 
   return (
     <PortalLayout

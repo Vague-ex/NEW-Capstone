@@ -1614,6 +1614,65 @@ class GraduatingStudentRegistrationTests(SimpleTestCase):
 		)
 		self.assertFalse(result["is_valid"])
 
+	def _graduating_payload(self, survey):
+		next_year = timezone.now().year + 1
+		return validate_registration_payload(survey, {
+			"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+			"birth_date": "2004-03", "mobile": "09171234567",
+			"city": "Talisay", "province": "Negros Occidental",
+			"graduation_date": f"{next_year}-06", "graduation_year": next_year,
+			"has_graduated": False,
+		})
+
+	def test_graduating_student_is_not_asked_for_an_employment_status(self):
+		"""The form skips the employment questions for them, so the validator must
+		not refuse the registration for a blank employment_status. The survey here
+		is the shape the form actually posts: academic profile and skills answered,
+		employment blank."""
+		result = self._graduating_payload({
+			"academic_honors": 1,
+			"ojt_relevance": 3,
+			"prior_work_experience": False,
+			"has_portfolio": True,
+			"technical_skill_count": 4,
+			"soft_skill_count": 3,
+			"employment_status": "",
+			"first_job_sector": "",
+			"current_job_sector": "",
+		})
+		self.assertTrue(result["is_valid"], result["errors"])
+		self.assertNotIn("employment_status", result["field_errors"])
+
+	def test_a_graduate_is_still_refused_without_an_employment_status(self):
+		"""The same blank status from someone who HAS graduated stays a blocking
+		error -- this guard must not be weakened for everyone."""
+		next_year = timezone.now().year
+		result = validate_registration_payload(
+			{"academic_honors": 1, "technical_skill_count": 4, "employment_status": ""},
+			{
+				"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+				"birth_date": "2004-03", "mobile": "09171234567",
+				"city": "Talisay", "province": "Negros Occidental",
+				"graduation_date": "2022-06", "graduation_year": 2022,
+			},
+		)
+		self.assertFalse(result["is_valid"])
+		self.assertIn("employment_status", str(result["errors"]))
+
+	def test_flat_to_sections_omits_the_blank_employment_section(self):
+		sections = flat_to_sections(
+			{"employment_status": "", "academic_honors": 1},
+			{"graduation_date": "2028-06", "graduation_year": 2028, "has_graduated": False},
+		)
+		self.assertNotIn("employment_status", sections)
+
+	def test_flat_to_sections_keeps_it_for_a_graduate(self):
+		sections = flat_to_sections(
+			{"employment_status": "", "academic_honors": 1},
+			{"graduation_date": "2022-06", "graduation_year": 2022},
+		)
+		self.assertIn("employment_status", sections)
+
 	def test_flat_to_sections_carries_the_false_flag(self):
 		"""pick() drops falsy values, so False needed its own path."""
 		sections = flat_to_sections({}, {"graduation_date": "2027-06", "graduation_year": 2027, "has_graduated": False})
