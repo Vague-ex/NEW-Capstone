@@ -16,6 +16,28 @@ from django.core.exceptions import ValidationError
 
 
 _MAX_YEARS_TO_EXPECTED_GRADUATION = 6
+# A typo such as 0202 should be refused, not stored as a 1800-year-old graduate.
+_EARLIEST_BIRTH_YEAR = 1900
+
+
+def birth_date_problem(value) -> Optional[str]:
+    """Why a "YYYY-MM" birth date is refused, or None. Shared by registration and
+    the graduate's edit page.
+
+    Nobody is born in the future. The age-range check elsewhere is only a warning,
+    so without this a future birth month was stored and then read back as a
+    negative age.
+    """
+    match = re.match(r'^(\d{4})-(\d{2})', str(value or '').strip())
+    if not match:
+        return None
+    year, month = int(match.group(1)), int(match.group(2))
+    now = datetime.now()
+    if (year, month) > (now.year, now.month):
+        return 'Date of birth cannot be in the future.'
+    if year < _EARLIEST_BIRTH_YEAR:
+        return f'Date of birth cannot be earlier than {_EARLIEST_BIRTH_YEAR}.'
+    return None
 
 
 def graduation_date_problem(value, has_graduated: bool = True) -> Optional[str]:
@@ -236,6 +258,17 @@ class SurveyDataValidator:
         # "MM/DD". Neither parses with datetime.fromisoformat, so the previous
         # YYYY-MM-DD-only rule raised a hard error for *every* record — it would
         # have blocked all registration had it ever been enforced at intake.
+        # A future or impossible birth month is a typing mistake, not a warning:
+        # it is refused outright, the same as a future graduation date.
+        birth_problem = birth_date_problem(data.get('birth_date'))
+        if birth_problem:
+            self.errors.append({
+                'section': 'personal_information',
+                'field': 'birth_date',
+                'error': birth_problem,
+                'blocking': True,
+            })
+
         if data.get('birth_date'):
             parsed = _parse_birth_date(data['birth_date'])
             if parsed is None:

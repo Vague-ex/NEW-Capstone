@@ -37,9 +37,10 @@ export interface EmploymentFormData {
   // Step 1: Academic & Pre-Employment Profile
   academic_honors: number | null;
   /** Paid work besides the required OJT, before graduating. */
-  prior_work_experience: boolean;
+  // Nullable: a graduating student is never asked, and null must not become false.
+  prior_work_experience: boolean | null;
   ojt_relevance: number | null;
-  has_portfolio: boolean;
+  has_portfolio: boolean | null;
 
   // Step 2: Employment Status
   employment_status: string;
@@ -451,7 +452,10 @@ export default function RegisterAlumniEmployment({
     [referenceData],
   );
   const refJobTitles = useMemo(() => refJobTitleOptions.map((o) => o.name), [refJobTitleOptions]);
-  const [step, setStep] = useState<EmploymentStep>(initialStep);
+  // A graduating student only ever sees Skills & Competency, so the stage opens
+  // there rather than on Academic Profile. hasGraduated is fixed by the time this
+  // mounts (the personal form is finished), so the initial value is enough.
+  const [step, setStep] = useState<EmploymentStep>(hasGraduated ? initialStep : 6);
   const [form, setForm] = useState<EmploymentFormData>(initialForm ?? INITIAL_EMPLOYMENT_FORM);
   const [stepError, setStepError] = useState('');
   // Set when Continue is pressed with required answers missing; outlines those
@@ -808,12 +812,6 @@ export default function RegisterAlumniEmployment({
   const nextStep = () => {
     if (!validateStep()) return;
 
-    // A graduating student answers Academic Profile, then jumps straight to
-    // Skills: every step between asks about a job they do not have yet.
-    if (step === 1 && !hasGraduated) {
-      goToStep(6);
-      return;
-    }
     if (step === 2 && !asksFirstJob) {
       goToStep(6);
       return;
@@ -829,8 +827,10 @@ export default function RegisterAlumniEmployment({
 
   const prevStep = () => {
     // Mirror the forward skips when navigating back from Skills (step 6).
+    // A graduating student has no earlier step here, so Back returns them to the
+    // personal form rather than to a page of questions they were never asked.
     if (step === 6 && !hasGraduated) {
-      goToStep(1);
+      onBack();
       return;
     }
     if (step === 6 && !isEmployedNow) {
@@ -873,6 +873,17 @@ export default function RegisterAlumniEmployment({
       if (!UNEMPLOYED_STATUSES.includes(kept.employment_status)) {
         kept.has_worked_since_graduation = null;
       }
+      if (!hasGraduated) {
+        // Academic Profile is not asked before graduation: Latin honours are not
+        // awarded yet, and the OJT and portfolio questions are both framed around
+        // a job. Three of these are model features, so a guess here would be a
+        // guess in the model. The graduate answers them on the employment form
+        // once they confirm, which is before they enter analytics at all.
+        Object.assign(kept, {
+          academic_honors: null, prior_work_experience: null,
+          ojt_relevance: null, has_portfolio: null,
+        });
+      }
       if (isEmployedNow && isPhilippinesWork) {
         kept.country = 'Philippines';
       }
@@ -898,9 +909,9 @@ export default function RegisterAlumniEmployment({
     return step === stepNum;
   };
 
-  // A graduating student only ever sees steps 1 and 6, so counting to 6 would
-  // jump "Step 1 of 6" straight to "Step 6 of 6". Graduates are unaffected.
-  const stepSequence: EmploymentStep[] = hasGraduated ? [1, 2, 3, 4, 5, 6] : [1, 6];
+  // A graduating student only ever sees Skills, so counting to 6 would show a lone
+  // "Step 6 of 6". Graduates are unaffected.
+  const stepSequence: EmploymentStep[] = hasGraduated ? [1, 2, 3, 4, 5, 6] : [6];
   const stepPosition = Math.max(1, stepSequence.indexOf(step) + 1);
   const stepCount = stepSequence.length;
   const progressPct = (stepPosition / stepCount) * 100;

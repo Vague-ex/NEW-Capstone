@@ -49,7 +49,7 @@ from .throttling import (
     reset_attempts as throttle_reset,
 )
 from tracer.text_quality import first_link_field
-from tracer.validators import graduation_date_problem, validate_registration_payload
+from tracer.validators import birth_date_problem, graduation_date_problem, validate_registration_payload
 from tracer.models import (
     AlumniSkill, CompetencyProfile, EmploymentProfile, EmploymentRecord,
     Skill, SkillCategory, VerificationDecision, VerificationToken, WorkAddress,
@@ -3062,6 +3062,12 @@ class AlumniEmploymentUpdateView(APIView):
         if isinstance(graduation_value, str) and graduation_value.strip() != stored_graduation:
             if problem := graduation_date_problem(graduation_value, stored_has_graduated):
                 field_errors["graduationDate"] = problem
+        # Same rule, same changed-only condition, for the birth month.
+        birth_value = incoming_survey_data.get("birthDate", incoming_survey_data.get("birth_date"))
+        stored_birth = getattr(getattr(alumni_account, "profile", None), "birth_date", "") or ""
+        if isinstance(birth_value, str) and birth_value.strip() != stored_birth:
+            if problem := birth_date_problem(birth_value):
+                field_errors["birthDate"] = problem
         # No links except Facebook, and only for changed values, for the same
         # reason: an old answer on file must not lock the graduate out of saving.
         changed = {k: v for k, v in incoming_survey_data.items() if v != existing_survey_data.get(k)}

@@ -309,8 +309,12 @@ class AlumniProfile(models.Model):
         help_text="Academic honors for regression model"
     )
 
-    # Pre-Employment Experience (Questionnaire Section 3 continued)
-    prior_work_experience = models.BooleanField(default=False)
+    # Pre-Employment Experience (Questionnaire Section 3 continued).
+    # Nullable so "not asked yet" stays distinct from "answered no": a graduating
+    # student is not asked the academic profile before graduating, and this is a
+    # model feature -- recording a False they never gave would be a guess in the
+    # model. build_graduate_frame already reads None here as unknown.
+    prior_work_experience = models.BooleanField(default=False, null=True, blank=True)
     # OJT Relevance: 0=Not applicable, 1=Not related, 2=Somewhat related, 3=Yes, directly related
     ojt_relevance = models.IntegerField(
         choices=[(0, 'Not applicable'), (1, 'Not related'), (2, 'Somewhat related'), (3, 'Yes, directly related')],
@@ -318,7 +322,8 @@ class AlumniProfile(models.Model):
         blank=True,
         help_text="OJT relevance to BSIS degree"
     )
-    has_portfolio = models.BooleanField(default=False)
+    # Nullable for the same reason as prior_work_experience above.
+    has_portfolio = models.BooleanField(default=False, null=True, blank=True)
 
     # Skill Counts (Questionnaire Section 8) - denormalized for regression model
     technical_skill_count = models.IntegerField(

@@ -37,6 +37,7 @@ import {
   useReferenceData,
   latestGraduationMonth,
   nextMonth,
+  thisMonth,
   provincesApi,
   citiesApi,
   barangaysApi,
@@ -889,6 +890,11 @@ export default function RegisterAlumniPersonal({
         setStepError('Date of birth is required.');
         return false;
       }
+      // The month picker's max is not enforced when the date is typed.
+      if (form.birthDate > thisMonth()) {
+        setStepError('Date of birth cannot be in the future.');
+        return false;
+      }
       if (!form.mobile.trim()) {
         setStepError('Mobile number is required.');
         return false;
@@ -1563,6 +1569,7 @@ export default function RegisterAlumniPersonal({
                     </label>
                     <input
                       type="month"
+                      max={thisMonth()}
                       value={form.birthDate}
                       onChange={(e) => setF('birthDate', e.target.value)}
                       className={inputCls}
@@ -1890,7 +1897,9 @@ export default function RegisterAlumniPersonal({
 
               <div className="gt-stagger space-y-4">
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
-                  Every CHMSU Talisay BSIS graduate already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken.
+                  {form.hasGraduated
+                    ? "Every CHMSU Talisay BSIS graduate already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken."
+                    : "We only ask about your expected graduation date. The questions about further studies come later, once you hold your BSIS degree."}
                 </div>
 
                 {/* Asked before the date, because the answer decides whether the
@@ -1917,6 +1926,17 @@ export default function RegisterAlumniPersonal({
                           // leaving a value the validator will reject.
                           setF('graduationDate', '');
                           setF('graduationYear', null);
+                          if (!option.value) {
+                            // The further-studies block is hidden for them, so any
+                            // answer already given must be cleared rather than
+                            // submitted from a field they can no longer see.
+                            setF('furtherStudies', 'none');
+                            setF('postgradProgram', '');
+                            setF('postgradField', '');
+                            setF('postgradSchool', '');
+                            setF('postgradYearStarted', '');
+                            setF('postgradYearCompleted', '');
+                          }
                         }}
                         className={`text-left rounded-xl border px-3.5 py-2.5 text-sm transition ${
                           form.hasGraduated === option.value
@@ -1972,6 +1992,10 @@ export default function RegisterAlumniPersonal({
                   />
                 </div>
 
+
+                {/* Post-baccalaureate study is impossible for someone who has not
+                    finished their bachelor's yet, so a graduating student is not asked. */}
+                {form.hasGraduated && (<>
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                     Are you currently pursuing or have you completed further studies? *
@@ -2066,6 +2090,7 @@ export default function RegisterAlumniPersonal({
                     </div>
                   </div>
                 )}
+                </>)}
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>

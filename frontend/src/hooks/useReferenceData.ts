@@ -105,6 +105,12 @@ export interface ReferenceData {
     latest_graduation_year?: number;
 }
 
+/** The current month as "YYYY-MM": the latest a birth date may be. */
+export function thisMonth(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** Earliest month a graduating student may give as their expected graduation,
  *  as "YYYY-MM": next month, since "this month or earlier" means they graduated. */
 export function nextMonth(): string {

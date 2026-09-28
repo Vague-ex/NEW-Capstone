@@ -1863,3 +1863,47 @@ class GraduatingStudentReminderEmailTests(TestCase):
 		with patch("users.retracking.send_branded_email") as send:
 			call_command("send_retracking_reminders")
 		self.assertEqual(send.call_count, 0)
+
+
+class NullablePreEmploymentAnswersTests(TestCase):
+	"""The two pre-employment booleans must be able to say "not answered".
+
+	A graduating student is never asked them, and both are model features, so a
+	default False would put an answer they never gave into the model.
+	"""
+
+	def _profile(self, **kwargs):
+		user = User.objects.create_user(email="nullable@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		return AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=2028, graduation_date="2028-06", has_graduated=False,
+			**kwargs,
+		)
+
+	def test_both_booleans_accept_null(self):
+		profile = self._profile(prior_work_experience=None, has_portfolio=None)
+		profile.refresh_from_db()
+		self.assertIsNone(profile.prior_work_experience)
+		self.assertIsNone(profile.has_portfolio)
+
+	def test_extractor_passes_none_through_rather_than_defaulting_to_false(self):
+		"""survey_data.get(key, False) returns None when the key is present and
+		null -- which is what the form now sends for a graduating student."""
+		extracted = api._extract_alumni_profile_data(
+			{"prior_work_experience": None, "has_portfolio": None,
+			 "academic_honors": None, "ojt_relevance": None},
+			{"first_name": "Ana", "family_name": "Cruz", "has_graduated": "false"},
+		)
+		self.assertIsNone(extracted["prior_work_experience"])
+		self.assertIsNone(extracted["has_portfolio"])
+		self.assertIsNone(extracted["academic_honors"])
+		self.assertFalse(extracted["has_graduated"])
+
+	def test_an_absent_key_still_defaults_to_false_for_ordinary_graduates(self):
+		extracted = api._extract_alumni_profile_data(
+			{}, {"first_name": "Ana", "family_name": "Cruz"},
+		)
+		self.assertFalse(extracted["prior_work_experience"])
+		self.assertFalse(extracted["has_portfolio"])
+		self.assertTrue(extracted["has_graduated"])

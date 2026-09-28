@@ -1837,3 +1837,90 @@ class GraduatingStudentEditPageTests(TestCase):
 		account = self._account("grad@example.com", has_graduated=True, graduation_date="2022-06")
 		future = (timezone.now() + timedelta(days=400)).strftime("%Y-%m")
 		self.assertIn("cannot be later", self._problem(account, future) or "")
+
+
+class BirthDateNotInFutureTests(SimpleTestCase):
+	"""A birth month later than this month is refused outright. The age-range rule
+	is only a warning, so without this a future birth date was stored and read
+	back as a negative age."""
+
+	def _personal(self, birth_date):
+		return {
+			"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+			"birth_date": birth_date, "mobile": "09171234567",
+			"city": "Talisay", "province": "Negros Occidental",
+			"graduation_date": "2022-06", "graduation_year": 2022,
+		}
+
+	def test_future_birth_month_is_refused(self):
+		from .validators import birth_date_problem
+
+		future = (timezone.now() + timedelta(days=400)).strftime("%Y-%m")
+		self.assertIn("future", birth_date_problem(future) or "")
+
+	def test_this_month_is_allowed(self):
+		from .validators import birth_date_problem
+
+		self.assertIsNone(birth_date_problem(timezone.now().strftime("%Y-%m")))
+
+	def test_a_past_birth_month_is_allowed(self):
+		from .validators import birth_date_problem
+
+		self.assertIsNone(birth_date_problem("2000-06"))
+
+	def test_an_impossible_year_is_refused(self):
+		from .validators import birth_date_problem
+
+		self.assertIn("earlier than", birth_date_problem("0202-06") or "")
+
+	def test_registration_refuses_a_future_birth_date(self):
+		future = (timezone.now() + timedelta(days=400)).strftime("%Y-%m")
+		result = validate_registration_payload({}, self._personal(future))
+		self.assertFalse(result["is_valid"])
+		self.assertIn("birth_date", result["field_errors"])
+		# The graduate is sent back to the personal form, not the employment one.
+		self.assertEqual(result["step"], "personal")
+
+	def test_registration_accepts_a_real_birth_date(self):
+		result = validate_registration_payload({}, self._personal("2000-06"))
+		self.assertNotIn("birth_date", result["field_errors"])
+
+
+class GraduatingStudentAcademicProfileTests(SimpleTestCase):
+	"""A graduating student is not asked the academic profile: Latin honours are
+	not awarded yet, and three of those answers are model features."""
+
+	def test_missing_academic_profile_does_not_block_registration(self):
+		next_year = timezone.now().year + 1
+		result = validate_registration_payload(
+			{
+				"technical_skill_count": 4,
+				"soft_skill_count": 3,
+				"academic_honors": None,
+				"ojt_relevance": None,
+				"employment_status": "",
+			},
+			{
+				"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+				"birth_date": "2004-03", "mobile": "09171234567",
+				"city": "Talisay", "province": "Negros Occidental",
+				"graduation_date": f"{next_year}-06", "graduation_year": next_year,
+				"has_graduated": False,
+			},
+		)
+		self.assertTrue(result["is_valid"], result["errors"])
+
+	def test_a_graduate_is_still_held_to_academic_honors(self):
+		"""academic_honors is in BLOCKING_FIELDS, so an invalid value from someone
+		who HAS graduated must still be refused."""
+		result = validate_registration_payload(
+			{"academic_honors": 99, "employment_status": "employed_full_time"},
+			{
+				"first_name": "Ana", "last_name": "Cruz", "gender": "female",
+				"birth_date": "2000-06", "mobile": "09171234567",
+				"city": "Talisay", "province": "Negros Occidental",
+				"graduation_date": "2022-06", "graduation_year": 2022,
+			},
+		)
+		self.assertFalse(result["is_valid"])
+		self.assertIn("academic_honors", result["field_errors"])
