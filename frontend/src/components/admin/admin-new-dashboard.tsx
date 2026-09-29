@@ -127,7 +127,10 @@ function auditWhen(iso: string): string {
 function auditTarget(e: AuditEvent): string | null {
   if (!e.graduateId || e.accountRemoved) return null;
   if (e.kind === 'rejected') return null;
-  return `/admin/verified?q=${encodeURIComponent(e.graduate)}`;
+  // By id, not by name: the audit snapshot is "first last" while the verified
+  // list shows the full name with the middle name in between, so a name search
+  // missed. The id opens that graduate's profile directly.
+  return `/admin/verified?id=${encodeURIComponent(e.graduateId)}`;
 }
 
 /** One audit entry. Shared by the card and the modal so they cannot drift. */

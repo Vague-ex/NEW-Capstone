@@ -6,7 +6,7 @@ import {
 } from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
-  Download, Info, Save, X, User, Calendar, Pencil, EyeOff, RotateCcw,
+  Download, Info, Save, X, User, Calendar, Pencil, EyeOff, RotateCcw, MoreHorizontal,
 } from 'lucide-react';
 
 interface BatchEntry {
@@ -42,17 +42,91 @@ Juan dela Cruz,2024
 Maria Reyes,2024
 Pedro Santos,2025`;
 
-/** Whether this masterlist graduate has an account in the system. */
+/** Whether this masterlist graduate has an account in the system.
+ *
+ *  Nothing is drawn for the unregistered case on purpose: that is 523 of 525
+ *  rows, so badging it spent a chip on every line to state the norm and left the
+ *  name a few characters wide. The exception is what deserves the ink; the
+ *  filter above and the "not yet registered" count cover the rest. */
 function RegistrationBadge({ status }: { status: MasterlistEntry['accountStatus'] }) {
+  if (!status) return null;
   const look = status === 'active'
     ? { text: 'Registered', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
-    : status
-      ? { text: `Registered · ${status}`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
-      : { text: 'Not registered', cls: 'bg-gray-50 text-gray-500 border-gray-200' };
+    : { text: `Registered · ${status}`, cls: 'bg-amber-50 text-amber-700 border-amber-200' };
   return (
     <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${look.cls}`} style={{ fontWeight: 600 }}>
       {look.text}
     </span>
+  );
+}
+
+/** The per-row edit / retire / delete menu. Collapsed to one button so the
+ *  graduate's name owns the row; the actions are a tap away rather than three
+ *  permanent controls competing with it. */
+function RowActions({ entry, busy, onEdit, onToggleRetired, onRemove }: {
+  entry: MasterlistEntry;
+  busy: boolean;
+  onEdit: () => void;
+  onToggleRetired: () => void;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (ev: MouseEvent) => {
+      if (!wrapRef.current?.contains(ev.target as Node)) setOpen(false);
+    };
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  // A graduate has registered against this entry, so deleting it would orphan
+  // their account; retiring is the safe equivalent.
+  const locked = Boolean(entry.accountStatus);
+
+  const item = 'flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent';
+
+  return (
+    <div ref={wrapRef} className="relative shrink-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-label={`Actions for ${entry.name}`}
+        aria-expanded={open}
+        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+      >
+        <MoreHorizontal className="size-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+          <button onClick={() => { setOpen(false); onEdit(); }} className={`${item} text-gray-700`}>
+            <Pencil className="size-3.5" /> Edit name or batch
+          </button>
+          <button
+            onClick={() => { setOpen(false); onToggleRetired(); }}
+            disabled={busy}
+            className={`${item} text-gray-700`}
+          >
+            {entry.isActive ? <EyeOff className="size-3.5" /> : <RotateCcw className="size-3.5" />}
+            {entry.isActive ? 'Retire' : 'Put back'}
+          </button>
+          <button
+            onClick={() => { setOpen(false); onRemove(); }}
+            disabled={busy || locked}
+            title={locked ? 'A graduate registered against this entry — retire it instead' : undefined}
+            className={`${item} text-red-600`}
+          >
+            <Trash2 className="size-3.5" /> Delete
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -544,32 +618,18 @@ export function AdminBatchUpload() {
                               </span>
                             )}
                             <RegistrationBadge status={m.accountStatus} />
-                            <span className="text-gray-400 text-xs shrink-0">Batch {m.graduationYear ?? '—'}</span>
-                            <button
-                              onClick={() => startEdit(m)}
-                              title="Edit name or batch"
-                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-[#166534]"
-                            >
-                              <Pencil className="size-3.5" />
-                            </button>
-                            <button
-                              onClick={() => toggleRetired(m)}
-                              disabled={rowBusy === m.id}
-                              title={m.isActive ? 'Retire (stops matching new registrations)' : 'Put back on the list'}
-                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-amber-600 disabled:opacity-50"
-                            >
-                              {m.isActive ? <EyeOff className="size-3.5" /> : <RotateCcw className="size-3.5" />}
-                            </button>
-                            <button
-                              onClick={() => removeEntry(m)}
-                              disabled={rowBusy === m.id || Boolean(m.accountStatus)}
-                              title={m.accountStatus
-                                ? 'A graduate registered against this entry — retire it instead'
-                                : 'Delete permanently'}
-                              className="shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-red-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
+                            <span className="text-gray-400 text-xs shrink-0">{m.graduationYear ?? '—'}</span>
+                            {/* Edit, retire and delete behind one control. They are
+                                occasional operations on a list of 525 that is mostly
+                                scanned and searched, and three permanent buttons per
+                                row left almost no width for the name. */}
+                            <RowActions
+                              entry={m}
+                              busy={rowBusy === m.id}
+                              onEdit={() => startEdit(m)}
+                              onToggleRetired={() => toggleRetired(m)}
+                              onRemove={() => removeEntry(m)}
+                            />
                           </>
                         )}
                       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, Fragment } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
@@ -1058,6 +1058,12 @@ export function AdminVerified() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterRetrace, setFilterRetrace] = useState(searchParams.get('retracing') === 'needs' ? 'needs' : 'all');
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
+  // The dashboard's Audit card links here with ?id=<uuid>. Matching by name was
+  // wrong: the audit snapshot is "first last" while this list shows the full name
+  // with the middle name in between, so "Rustico Gumana" never matched
+  // "Rustico Apilados Gumana". The id is exact and opens the profile directly.
+  const openId = searchParams.get('id');
+  const openedRef = useRef<string | null>(null);
   // Which tab the details window opens on ("History" button opens it straight there).
   const [modalTab, setModalTab] = useState<ModalTab>('profile');
   const [sortField, setSortField] = useState('name');
@@ -1115,12 +1121,23 @@ export function AdminVerified() {
     }
   }, [availableBatches, filterYear]);
 
+  // Opened once per id, so closing the modal does not immediately reopen it.
+  useEffect(() => {
+    if (!openId || openedRef.current === openId) return;
+    const match = backendVerified.find((a) => String(a.id ?? '') === openId);
+    if (!match) return;
+    openedRef.current = openId;
+    setModalTab('profile');
+    setModalAlumni(match);
+  }, [openId, backendVerified]);
+
   const verifiedAlumni = useMemo(() => backendVerified.filter(a => {
-    const q = search.toLowerCase();
-    const matchQ = !q
-      || (a.name ?? '').toLowerCase().includes(q)
-      || (a.email ?? '').toLowerCase().includes(q)
-      || (a.company ?? '').toLowerCase().includes(q);
+    const q = search.toLowerCase().trim();
+    const haystack = `${a.name ?? ''} ${a.email ?? ''} ${a.company ?? ''}`.toLowerCase();
+    // Every word must appear somewhere, rather than the whole phrase appearing
+    // contiguously: "Rustico Gumana" should find "Rustico Apilados Gumana", and
+    // a substring match did not, because the middle name sits between them.
+    const matchQ = !q || q.split(/\s+/).every((word) => haystack.includes(word));
     const matchYear = filterYear === 'all' || a.graduationYear === parseInt(filterYear);
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
     const matchRetrace = filterRetrace === 'all'
