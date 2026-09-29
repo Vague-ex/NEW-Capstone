@@ -16,6 +16,7 @@ from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import JSONField, Prefetch, Q
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny
@@ -37,7 +38,7 @@ from .retracking import (
 )
 from .models import (
     AccountStatus, AdminCredential, AlumniAccount, AlumniProfile,
-    EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, User,
+    EmployerAccount, FaceScan, GraduateMasterRecord, LoginAudit, RetrackingEvent, User,
 )
 from .supabase_storage import SupabaseStorageError, upload_image_bytes
 from .throttling import (
@@ -3289,6 +3290,13 @@ class AlumniRequestApproveView(APIView):
         alumni_account.profile_reviewed_at = alumni_account.profile_reviewed_at or timezone.now()
         alumni_account.save(update_fields=["account_status", "profile_reviewed_at", "updated_at"])
 
+        # Who approved, and when. The admin was already identified above and then
+        # discarded, which is why "the decision can be audited" was not true.
+        log_retracking_event(
+            alumni_account, RetrackingEvent.Kind.APPROVED,
+            sent_by=getattr(_admin_user, "email", "") or "",
+        )
+
         payload = _admin_alumni_payload(alumni_account)
         _send_approval_email(
             to_email=alumni_account.user.email if alumni_account.user else "",
@@ -3638,6 +3646,13 @@ class AlumniRequestRejectView(APIView):
         alumni_account.rejection_reason = reason
         alumni_account.profile_reviewed_at = timezone.now()
         alumni_account.save(update_fields=["account_status", "rejection_reason", "profile_reviewed_at", "updated_at"])
+        log_retracking_event(
+            alumni_account, RetrackingEvent.Kind.REJECTED,
+            sent_by=getattr(_admin_user, "email", "") or "",
+            # Kept on the event as well as the account: the account is deleted if
+            # the graduate registers again, and the reason should outlive it.
+            note=reason,
+        )
         payload = _admin_alumni_payload(alumni_account)
 
         _send_rejection_email(
@@ -3655,6 +3670,162 @@ class AlumniRequestRejectView(APIView):
             status=status.HTTP_200_OK,
         )
 
+# region DEBUG-ONLY:CurrenChanDebug
+class DebugAuditEventView(APIView):
+    """Debug (/admin/debug/a): edit or delete audit events so the dashboard card
+    can be demonstrated without waiting for real approvals to happen.
+
+    Temporary debug surface, like the other /admin/debug/ routes. It writes to the
+    same table the real audit feed reads, so anything created here is
+    indistinguishable from a genuine event -- which is the point for a demo, and
+    the reason it must not survive into a graded build.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    #: Only the fields a demo needs to shape.
+    EDITABLE = ("kind", "graduate_name", "sent_by", "note")
+
+    def patch(self, request, event_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        event = RetrackingEvent.objects.filter(id=event_id).first()
+        if not event:
+            return Response({"detail": "Audit event was not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        valid_kinds = {k for k, _ in RetrackingEvent.Kind.choices}
+        updates = []
+        for field in self.EDITABLE:
+            if field not in request.data:
+                continue
+            value = (request.data.get(field) or "").strip()
+            if field == "kind" and value not in valid_kinds:
+                return Response(
+                    {"detail": f"kind must be one of {', '.join(sorted(valid_kinds))}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            setattr(event, field, value[:2000] if field == "note" else value[:255])
+            updates.append(field)
+
+        occurred = (request.data.get("occurred_at") or "").strip()
+        if occurred:
+            parsed = parse_datetime(occurred)
+            if parsed is None:
+                return Response({"detail": "occurred_at must be an ISO timestamp."},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed)
+            event.occurred_at = parsed
+            updates.append("occurred_at")
+
+        if updates:
+            event.save(update_fields=updates)
+        return Response({"message": "Audit event updated.", "updated": updates}, status=status.HTTP_200_OK)
+
+    def delete(self, request, event_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        deleted, _ = RetrackingEvent.objects.filter(id=event_id).delete()
+        if not deleted:
+            return Response({"detail": "Audit event was not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"message": "Audit event deleted."}, status=status.HTTP_200_OK)
+# endregion DEBUG-ONLY:CurrenChanDebug
+
+
+class AdminAuditFeedView(APIView):
+    """Admin: the newest audit events across every graduate, for the dashboard card.
+
+    The per-graduate History endpoint answers "what happened to this graduate";
+    this answers "what has happened at all", which is what D8 -> Admin on the
+    context diagram describes. Two sources are merged:
+
+      - RetrackingEvent: registration, employment confirmations, reminders and
+        the admin decisions (approved / rejected), whose `sent_by` names the
+        admin who decided.
+      - LoginAudit: graduate sign-ins.
+
+    Deliberately a capped recent feed, not a searchable report: it exists to
+    surface activity, and an unbounded query over a table that grows with every
+    sign-in is the kind of thing that costs Supabase egress.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    #: Hard ceiling regardless of what the client asks for.
+    MAX_LIMIT = 50
+
+    def get(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        raw_limit = request.query_params.get("limit")
+        limit = int(raw_limit) if raw_limit and raw_limit.isdigit() else 12
+        limit = max(1, min(limit, self.MAX_LIMIT))
+
+        def graduate_name(profile, account):
+            parts = [getattr(profile, "first_name", ""), getattr(profile, "last_name", "")]
+            name = " ".join(p.strip() for p in parts if p and p.strip())
+            if name:
+                return name
+            return (account.user.email if account and account.user_id else "") or "Graduate"
+
+        events = []
+        try:
+            for ev in (
+                RetrackingEvent.objects
+                .select_related("alumni", "alumni__user", "alumni__profile")
+                .order_by("-occurred_at")[:limit]
+            ):
+                account = ev.alumni
+                # account is None once the graduate's record was replaced (a
+                # rejected graduate registering again). The snapshot is what keeps
+                # the event meaningful, which is the whole point of SET_NULL.
+                events.append({
+                    "id": str(ev.id),
+                    "kind": ev.kind,
+                    "label": ev.get_kind_display(),
+                    "occurredAt": ev.occurred_at.isoformat(),
+                    "graduate": (
+                        graduate_name(getattr(account, "profile", None), account)
+                        if account else (ev.graduate_name or "Graduate")
+                    ),
+                    "graduateId": str(account.id) if account else None,
+                    # True once the account behind this event no longer exists.
+                    "accountRemoved": account is None,
+                    # "auto" for the scheduled reminder, otherwise the admin's email.
+                    "actor": ev.sent_by or "",
+                    # The rejection reason, for a rejected event.
+                    "note": ev.note or "",
+                })
+            for audit in (
+                LoginAudit.objects
+                .select_related("alumni", "alumni__user", "alumni__profile")
+                .order_by("-timestamp")[:limit]
+            ):
+                account = audit.alumni
+                events.append({
+                    "id": str(audit.id),
+                    "kind": "login_failed" if audit.status == "failed" else "login",
+                    "label": "Sign-in failed" if audit.status == "failed" else "Graduate signed in",
+                    "occurredAt": audit.timestamp.isoformat(),
+                    "graduate": graduate_name(getattr(account, "profile", None), account),
+                    "graduateId": str(account.id),
+                    "accountRemoved": False,
+                    "actor": "",
+                    "note": "",
+                })
+        except (OperationalError, DatabaseError):
+            return _temporary_admin_data_unavailable_response("Audit")
+
+        events.sort(key=lambda e: e["occurredAt"], reverse=True)
+        return Response({"count": len(events[:limit]), "results": events[:limit]},
+                        status=status.HTTP_200_OK)
+
 class MasterlistCheckView(APIView):
     """Public: real-time check whether a name + graduation year exists in the masterlist."""
     authentication_classes = []
@@ -3668,9 +3839,20 @@ class MasterlistCheckView(APIView):
             return Response({"matched": False})
         year = int(grad_year) if grad_year and str(grad_year).isdigit() else None
         record = _find_master_record(last_name, first_name, year)
+        # When no year was supplied the lookup is name-only, so it can find a
+        # graduate whose batch differs from what they are about to type. Return
+        # the batch so the form can hold them to it: matching at submission is
+        # exact on batch_year, and a mismatch silently turns a "Found in the
+        # graduate list" promise into a pending account.
+        by_name_only = record if year is None else _find_master_record(last_name, first_name, None)
         return Response({
             "matched": record is not None,
             "name": record.full_name if record else None,
+            "batchYear": record.batch_year if record else None,
+            # Name is on the list but under a different batch than the year asked for.
+            "batchMismatch": bool(record is None and by_name_only is not None),
+            "listedBatchYear": by_name_only.batch_year if (record is None and by_name_only) else None,
+            "listedName": by_name_only.full_name if (record is None and by_name_only) else None,
         })
 
 class MasterlistListView(APIView):

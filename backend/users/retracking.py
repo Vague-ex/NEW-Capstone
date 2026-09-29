@@ -131,9 +131,27 @@ def employment_snapshot(account) -> dict:
     }
 
 
-def log_retracking_event(account, kind, *, before=None, previous_at=None, sent_by="", when=None) -> None:
+def graduate_display_name(account) -> str:
+    """The graduate's name for an audit snapshot, falling back to the email local
+    part. Snapshotted onto the event so the row survives the account."""
+    profile = getattr(account, "profile", None)
+    parts = [(getattr(profile, "first_name", "") or "").strip(),
+             (getattr(profile, "last_name", "") or "").strip()]
+    name = " ".join(p for p in parts if p)
+    if name:
+        return name[:255]
+    email = account.user.email if getattr(account, "user_id", None) else ""
+    return (email.split("@")[0] if email else "Graduate")[:255]
+
+
+def log_retracking_event(account, kind, *, before=None, previous_at=None, sent_by="", when=None,
+                         note="") -> None:
     """Record one retracking history event. Never raises: the history must not
-    block a registration, a save or a reminder."""
+    block a registration, a save or a reminder.
+
+    The graduate's name is snapshotted so the row still identifies its subject
+    after the account is deleted (a rejected graduate registering again), and
+    `note` carries the rejection reason, which otherwise dies with the account."""
     from .models import RetrackingEvent
 
     try:
@@ -150,6 +168,8 @@ def log_retracking_event(account, kind, *, before=None, previous_at=None, sent_b
         with transaction.atomic():
             RetrackingEvent.objects.create(
                 alumni=account,
+                graduate_name=graduate_display_name(account),
+                note=(note or "")[:2000],
                 kind=kind,
                 occurred_at=when,
                 employment_status=after["employment_status"][:30],

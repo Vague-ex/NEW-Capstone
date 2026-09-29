@@ -625,9 +625,28 @@ class RetrackingEvent(models.Model):
         REGISTERED = "registered", "Registered"
         RETRACED = "retraced", "Employment record confirmed"
         REMINDER = "reminder", "Reminder sent"
+        # Admin decisions. sent_by carries the deciding admin's email, which is
+        # what makes "who approved this account" answerable -- the approve and
+        # reject views previously identified the admin and then discarded them.
+        APPROVED = "approved", "Account approved"
+        REJECTED = "rejected", "Account rejected"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    alumni = models.ForeignKey(AlumniAccount, on_delete=models.CASCADE, related_name="retracking_events")
+    # SET_NULL, not CASCADE: a rejected graduate may register again, which deletes
+    # the old account -- and with CASCADE that erased the record of who rejected
+    # them, at exactly the moment the next reviewer would want it. The event
+    # outlives the account, identified by the snapshot below.
+    alumni = models.ForeignKey(
+        AlumniAccount, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="retracking_events",
+    )
+    #: Who the event was about, kept so an orphaned row still means something.
+    #: Name only, never the email: the account is gone and the address is the
+    #: stronger identifier to retain about someone whose record was purged.
+    graduate_name = models.CharField(max_length=255, blank=True)
+    #: Free text for the event. Currently the admin's rejection reason, which
+    #: otherwise lives on the account and dies with it.
+    note = models.TextField(blank=True)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     occurred_at = models.DateTimeField(default=timezone.now)
     # Snapshot of the employment record right after the event.

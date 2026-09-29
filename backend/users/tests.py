@@ -1907,3 +1907,212 @@ class NullablePreEmploymentAnswersTests(TestCase):
 		self.assertFalse(extracted["prior_work_experience"])
 		self.assertFalse(extracted["has_portfolio"])
 		self.assertTrue(extracted["has_graduated"])
+
+
+class AdminDecisionAuditTests(TestCase):
+	"""Approve and reject must record WHO decided. Both views already identified
+	the admin and then discarded them, which is why the code's own claim that
+	"the decision can be audited" was not true."""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="chair@chmsu.edu.ph", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
+		)
+		self.auth = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		self.admin_email = admin.email
+
+	def _graduate(self, email="grad@example.com", status=AccountStatus.PENDING):
+		user = User.objects.create_user(email=email, password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=status)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=2022, graduation_date="2022-06",
+		)
+		return account
+
+	def _events(self, account, kind):
+		from users.models import RetrackingEvent
+
+		return list(RetrackingEvent.objects.filter(alumni=account, kind=kind))
+
+	def test_approving_records_the_deciding_admin(self):
+		account = self._graduate()
+		with patch("users.api._send_approval_email"):
+			response = self.client.post(f"/api/admin/alumni/requests/{account.id}/approve/", {}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 200, response.data)
+		events = self._events(account, "approved")
+		self.assertEqual(len(events), 1)
+		self.assertEqual(events[0].sent_by, self.admin_email)
+
+	def test_rejecting_records_the_deciding_admin(self):
+		account = self._graduate(email="reject@example.com")
+		with patch("users.api._send_rejection_email"):
+			response = self.client.post(
+				f"/api/admin/alumni/requests/{account.id}/reject/", {"reason": "Not on the list"},
+				format="json", **self.auth,
+			)
+		self.assertEqual(response.status_code, 200, response.data)
+		events = self._events(account, "rejected")
+		self.assertEqual(len(events), 1)
+		self.assertEqual(events[0].sent_by, self.admin_email)
+
+	def test_audit_feed_returns_the_decision_with_its_actor(self):
+		account = self._graduate(email="feed@example.com")
+		with patch("users.api._send_approval_email"):
+			self.client.post(f"/api/admin/alumni/requests/{account.id}/approve/", {}, format="json", **self.auth)
+		data = self.client.get("/api/admin/audit-feed/", **self.auth).json()
+		approved = [e for e in data["results"] if e["kind"] == "approved"]
+		self.assertEqual(len(approved), 1)
+		self.assertEqual(approved[0]["actor"], self.admin_email)
+		self.assertIn("Ana", approved[0]["graduate"])
+
+	def test_audit_feed_refuses_a_graduate(self):
+		account = self._graduate(email="nosy@example.com")
+		response = self.client.get(
+			"/api/admin/audit-feed/",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+		)
+		self.assertIn(response.status_code, (401, 403))
+
+	def test_audit_feed_is_capped(self):
+		"""The table grows with every sign-in, so the limit is enforced server-side."""
+		data = self.client.get("/api/admin/audit-feed/?limit=9999", **self.auth).json()
+		self.assertLessEqual(len(data["results"]), 50)
+
+
+class RejectedGraduateReRegistersTests(TestCase):
+	"""A rejected graduate is allowed to register again with the same email, and
+	the re-registration deletes the old User. That cascade reaches the audit
+	trail, so the record of the rejection is destroyed at exactly the moment it
+	matters most."""
+
+	def _rejected(self, email="rejected@example.com"):
+		user = User.objects.create_user(email=email, password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.REJECTED)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=2022, graduation_date="2022-06",
+		)
+		# Through the real helper, so the name/note snapshot is exercised rather
+		# than hand-written.
+		from users.retracking import log_retracking_event
+
+		account = AlumniAccount.objects.select_related("user", "profile").get(pk=account.pk)
+		log_retracking_event(account, "rejected", sent_by="chair@chmsu.edu.ph", note="Not on the graduate list")
+		return user, account
+
+	def test_the_email_is_not_locked_after_a_rejection(self):
+		"""The 409 only fires for a non-rejected account, so the graduate can retry."""
+		user, _ = self._rejected()
+		existing = User.objects.filter(email=user.email).first()
+		account = AlumniAccount.objects.filter(user=existing).first()
+		self.assertIsNotNone(account)
+		self.assertEqual(account.account_status, AccountStatus.REJECTED)
+
+	def test_the_rejection_audit_record_outlives_the_account(self):
+		"""The whole point of SET_NULL: replacing a rejected account must not erase
+		who rejected them, or the record is gone exactly when the next reviewer
+		would want it."""
+		from users.models import RetrackingEvent
+
+		user, account = self._rejected()
+		self.assertEqual(RetrackingEvent.objects.filter(kind="rejected").count(), 1)
+
+		# Exactly what AlumniRegisterView does when that email registers again.
+		user.delete()
+
+		self.assertEqual(AlumniAccount.objects.filter(id=account.id).count(), 0)
+		event = RetrackingEvent.objects.filter(kind="rejected").first()
+		self.assertIsNotNone(event, "the rejection record was destroyed with the account")
+		self.assertIsNone(event.alumni, "the event should be orphaned, not deleted")
+		# Name survives so the row still means something; the email deliberately does not.
+		self.assertEqual(event.graduate_name, "Ana Cruz")
+		self.assertEqual(event.sent_by, "chair@chmsu.edu.ph")
+		self.assertNotIn("@example.com", event.graduate_name)
+
+	def test_the_rejection_reason_survives_too(self):
+		from users.models import RetrackingEvent
+
+		user, _account = self._rejected(email="withreason@example.com")
+		user.delete()
+		event = RetrackingEvent.objects.filter(kind="rejected").first()
+		self.assertEqual(event.note, "Not on the graduate list")
+
+	def test_the_feed_still_renders_an_orphaned_event(self):
+		"""A null account must not break the dashboard card."""
+		admin = User.objects.create_user(
+			email="feedadmin@chmsu.edu.ph", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
+		)
+		user, _ = self._rejected(email="orphan@example.com")
+		user.delete()
+		data = APIClient().get(
+			"/api/admin/audit-feed/",
+			HTTP_AUTHORIZATION=f"Bearer {generate_admin_access_token(admin.id)}",
+		).json()
+		orphans = [e for e in data["results"] if e["kind"] == "rejected"]
+		self.assertEqual(len(orphans), 1)
+		self.assertEqual(orphans[0]["graduate"], "Ana Cruz")
+		self.assertTrue(orphans[0]["accountRemoved"])
+		self.assertIsNone(orphans[0]["graduateId"])
+
+
+class DebugAuditEventTests(TestCase):
+	"""The /admin/debug/a hatch that reshapes audit events for a demo."""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="debugadmin@chmsu.edu.ph", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
+		)
+		self.auth = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		user = User.objects.create_user(email="dbg@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=2022, graduation_date="2022-06",
+		)
+		from users.models import RetrackingEvent
+
+		self.event = RetrackingEvent.objects.create(
+			alumni=account, kind="registered", graduate_name="Ana Cruz",
+		)
+
+	def _url(self, event_id=None):
+		return f"/api/admin/debug/audit-events/{event_id or self.event.id}/"
+
+	def test_edit_reshapes_the_event(self):
+		response = self.client.patch(
+			self._url(),
+			{"kind": "rejected", "sent_by": "chair@chmsu.edu.ph", "note": "Duplicate record"},
+			format="json", **self.auth,
+		)
+		self.assertEqual(response.status_code, 200, response.data)
+		self.event.refresh_from_db()
+		self.assertEqual(self.event.kind, "rejected")
+		self.assertEqual(self.event.sent_by, "chair@chmsu.edu.ph")
+		self.assertEqual(self.event.note, "Duplicate record")
+
+	def test_an_invalid_kind_is_refused(self):
+		response = self.client.patch(self._url(), {"kind": "nonsense"}, format="json", **self.auth)
+		self.assertEqual(response.status_code, 400)
+		self.event.refresh_from_db()
+		self.assertEqual(self.event.kind, "registered")
+
+	def test_delete_removes_the_event(self):
+		from users.models import RetrackingEvent
+
+		response = self.client.delete(self._url(), **self.auth)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(RetrackingEvent.objects.filter(id=self.event.id).count(), 0)
+
+	def test_a_graduate_cannot_reshape_the_audit_trail(self):
+		"""The whole point of an audit log is that its subject cannot edit it."""
+		account = AlumniAccount.objects.filter(user__email="dbg@example.com").first()
+		response = self.client.patch(
+			self._url(), {"kind": "approved"}, format="json",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+		)
+		self.assertIn(response.status_code, (401, 403))
+		self.event.refresh_from_db()
+		self.assertEqual(self.event.kind, "registered")

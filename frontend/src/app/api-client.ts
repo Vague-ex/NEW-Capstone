@@ -523,6 +523,59 @@ export async function fetchVerifiedAlumni(purpose: 'list' | 'analytics' = 'list'
     return Array.isArray(data) ? data : (data.results ?? []);
 }
 
+/** One row of the admin audit feed. */
+export interface AuditEvent {
+    id: string;
+    /** registered | retraced | reminder | approved | rejected | login | login_failed */
+    kind: string;
+    label: string;
+    occurredAt: string;
+    graduate: string;
+    /** Null once the account behind the event was replaced. */
+    graduateId: string | null;
+    /** True when the account is gone and the row rests on its own snapshot. */
+    accountRemoved: boolean;
+    /** The rejection reason, for a rejected event. */
+    note: string;
+    /** The admin who decided, "auto" for the scheduled reminder, "" for a graduate action. */
+    actor: string;
+}
+
+/** Newest audit events across every graduate, for the dashboard card. Capped
+ *  server-side; this is a recent-activity feed, not a searchable report. */
+export async function fetchAuditFeed(limit = 12): Promise<AuditEvent[]> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/audit-feed/?limit=${limit}`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return Array.isArray(data.results) ? data.results : [];
+}
+
+// region DEBUG-ONLY:CurrenChanDebug
+/** Debug (/admin/debug/a): reshape an audit event so the dashboard card can be
+ *  demonstrated. Writes to the same table the real feed reads. */
+export async function debugUpdateAuditEvent(
+    eventId: string,
+    changes: Partial<Pick<AuditEvent, 'kind' | 'note'>> & { graduate_name?: string; sent_by?: string; occurred_at?: string },
+): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/audit-events/${eventId}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...withAdminAuthHeaders() },
+        body: JSON.stringify(changes),
+    });
+    await throwIfNotOk(response);
+}
+
+export async function debugDeleteAuditEvent(eventId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/audit-events/${eventId}/`, {
+        method: 'DELETE',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+}
+// endregion DEBUG-ONLY:CurrenChanDebug
+
 export async function reviewAlumniRequest(
     alumniId: string,
     action: 'approve' | 'reject',

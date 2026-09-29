@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
 import type { AlumniRecord } from '../../data/app-data';
-import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport } from '../../app/api-client';
+import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport, fetchAuditFeed } from '../../app/api-client';
+import type { AuditEvent } from '../../app/api-client';
 import {
   Users, Briefcase, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
-  ClipboardCheck, Upload, RefreshCw,
+  ClipboardCheck, Upload, RefreshCw, ShieldCheck,
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import type { ReportPayload } from '../../app/api-client';
@@ -70,8 +71,215 @@ function mapTimeToHireMonths(value: unknown): number | null {
   return null;
 }
 
+/** Entries shown on the card before "Show all". */
+const AUDIT_PREVIEW = 5;
+/** Entries per page inside the Show all modal. */
+const AUDIT_PAGE_SIZE = 15;
+
+/** Dot colour per audit event kind. */
+const AUDIT_DOT: Record<string, string> = {
+  approved: 'bg-emerald-500',
+  rejected: 'bg-red-500',
+  registered: 'bg-[#166534]',
+  retraced: 'bg-teal-500',
+  reminder: 'bg-amber-400',
+  login: 'bg-sky-400',
+  login_failed: 'bg-red-400',
+};
+
+/** "Admin x approved Juan Dela Cruz" / "Maria Santos signed in". The actor is the
+ *  deciding admin's email for a decision, and empty for a graduate's own action. */
+function auditSentence(e: AuditEvent): string {
+  const who = e.actor === 'auto' ? 'The system' : e.actor;
+  switch (e.kind) {
+    case 'approved': return `${who || 'An admin'} approved ${e.graduate}`;
+    case 'rejected': return `${who || 'An admin'} rejected ${e.graduate}`;
+    case 'reminder': return `${who || 'The system'} sent ${e.graduate} a retracking reminder`;
+    case 'retraced': return `${e.graduate} confirmed their employment record`;
+    case 'registered': return `${e.graduate} registered`;
+    case 'login': return `${e.graduate} signed in`;
+    case 'login_failed': return `${e.graduate} failed to sign in`;
+    default: return `${e.label} — ${e.graduate}`;
+  }
+}
+
+/** Relative time, falling back to a date once it stops being useful. */
+function auditWhen(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+  return new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** One audit entry. Shared by the card and the modal so they cannot drift. */
+/** Whether this entry can open the graduate in Verified Graduates.
+ *
+ *  Not for a rejection: either the account was replaced by a re-registration
+ *  (graduateId is null) or it is still REJECTED, and the Verified list only
+ *  holds active accounts -- so the link would land on an empty search either way.
+ */
+function auditTarget(e: AuditEvent): string | null {
+  if (!e.graduateId || e.accountRemoved) return null;
+  if (e.kind === 'rejected') return null;
+  return `/admin/verified?q=${encodeURIComponent(e.graduate)}`;
+}
+
+/** One audit entry. Shared by the card and the modal so they cannot drift. */
+function AuditRow({ e, detailed = false, onOpen }: {
+  e: AuditEvent;
+  detailed?: boolean;
+  onOpen?: (path: string) => void;
+}) {
+  const target = auditTarget(e);
+  const sentence = auditSentence(e);
+
+  return (
+    <li className="flex items-start gap-2.5 sm:gap-3 py-2.5">
+      <span className={`mt-1.5 size-2 rounded-full shrink-0 ${AUDIT_DOT[e.kind] ?? 'bg-gray-300'}`} />
+      <div className="min-w-0 flex-1">
+        {/* The whole sentence stays one line of text; only the name is a link,
+            so tapping it on a phone is a deliberate act rather than a stray hit
+            anywhere on the row. */}
+        <p className="text-gray-800 text-sm leading-snug break-words">
+          {target && onOpen ? (
+            <>
+              {sentence.split(e.graduate)[0]}
+              <button
+                onClick={() => onOpen(target)}
+                className="text-[#166534] hover:underline text-left"
+                style={{ fontWeight: 600 }}
+              >
+                {e.graduate}
+              </button>
+              {sentence.split(e.graduate).slice(1).join(e.graduate)}
+            </>
+          ) : sentence}
+        </p>
+        <p className="text-gray-400 text-xs mt-0.5 break-words">
+          {auditWhen(e.occurredAt)}
+          {detailed && (
+            <>
+              {' · '}
+              {new Date(e.occurredAt).toLocaleString('en-PH', {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+              })}
+              {/* Only a decision or a reminder has an actor; a graduate's own
+                  action has none, and the scheduled command records "auto". */}
+              {e.actor && e.actor !== 'auto' && <> · by {e.actor}</>}
+              {/* The account was replaced (a rejected graduate registering again),
+                  so this row is carried by its own snapshot. */}
+              {e.accountRemoved && <> · account replaced</>}
+            </>
+          )}
+        </p>
+        {detailed && e.note && (
+          <p className="text-gray-600 text-xs mt-1 italic leading-snug break-words">&ldquo;{e.note}&rdquo;</p>
+        )}
+        {/* The type chip sits under the text on a phone, where a right-hand chip
+            squeezed the sentence into a narrow column. */}
+        {detailed && (
+          <span className="sm:hidden inline-block mt-1.5 text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+            style={{ fontWeight: 600 }}>
+            {e.label}
+          </span>
+        )}
+      </div>
+      {detailed && (
+        <span className="hidden sm:inline-block shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+          style={{ fontWeight: 600 }}>
+          {e.label}
+        </span>
+      )}
+    </li>
+  );
+}
+
+/** Full feed with dates and the deciding admin. Capped server-side, so this is
+ *  the whole feed rather than a page of an unbounded list. */
+function AuditModal({ events, onClose, onOpen }: {
+  events: AuditEvent[];
+  onClose: () => void;
+  onOpen: (path: string) => void;
+}) {
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(events.length / AUDIT_PAGE_SIZE));
+  const shown = events.slice(page * AUDIT_PAGE_SIZE, (page + 1) * AUDIT_PAGE_SIZE);
+
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:px-4 sm:py-6"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="audit-title"
+        className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl"
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#166534] text-white">
+            <ShieldCheck className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="audit-title" className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.05rem' }}>Audit</h2>
+            <p className="mt-0.5 text-xs text-gray-500">
+              {events.length} {events.length === 1 ? 'entry' : 'entries'}, newest first
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="shrink-0 text-gray-400 hover:text-gray-600 text-sm px-2 py-1">
+            Close
+          </button>
+        </div>
+        <div className="overflow-y-auto px-5 py-2">
+          <ul className="divide-y divide-gray-50">
+            {shown.map((e) => <AuditRow key={e.id} e={e} detailed onOpen={onOpen} />)}
+          </ul>
+        </div>
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              style={{ fontWeight: 600 }}
+            >
+              Previous
+            </button>
+            <span className="text-gray-500 text-xs">Page {page + 1} of {pageCount}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={page >= pageCount - 1}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+              style={{ fontWeight: 600 }}
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AdminNewDashboard() {
   const navigate = useNavigate();
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [auditError, setAuditError] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [pendingAlumni, setPendingAlumni] = useState<AlumniRecord[]>([]);
   const [verifiedAlumni, setVerifiedAlumni] = useState<AlumniRecord[]>([]);
   // The Verified Graduates list (not the analytics source): retracing is follow-up
@@ -90,7 +298,7 @@ export function AdminNewDashboard() {
         setLoading(true);
       }
 
-      const [pendingResult, verifiedResult, alignmentResult, listedResult] = await Promise.allSettled([
+      const [pendingResult, verifiedResult, alignmentResult, listedResult, auditResult] = await Promise.allSettled([
           fetchPendingAlumni(),
           fetchVerifiedAlumni('analytics'),
           // Curriculum alignment comes from the batch-summary report rather
@@ -103,6 +311,10 @@ export function AdminNewDashboard() {
             includeUnverified: false,
           }),
           fetchVerifiedAlumni(),
+          // Audit stays in the same allSettled batch: a failed feed must not
+          // blank the rest of the dashboard, and it refreshes on the same tick.
+          // The endpoint's own ceiling; the modal pages through it 15 at a time.
+          fetchAuditFeed(50),
         ]);
 
       if (!active) return;
@@ -119,6 +331,15 @@ export function AdminNewDashboard() {
       }
 
       if (listedResult.status === 'fulfilled') setListedAlumni(listedResult.value as AlumniRecord[]);
+
+      // Its own error flag rather than the shared banner: an unavailable audit
+      // feed is a card-level problem, not a reason to alarm about the dashboard.
+      if (auditResult.status === 'fulfilled') {
+        setAuditEvents(auditResult.value);
+        setAuditError(false);
+      } else {
+        setAuditError(true);
+      }
 
       if (verifiedResult.status === 'fulfilled') {
         setVerifiedAlumni(verifiedResult.value as AlumniRecord[]);
@@ -567,13 +788,17 @@ export function AdminNewDashboard() {
           </div>
           {recentAlumni.length > 0 ? (
             <div className="divide-y divide-gray-50">
-              {recentAlumni.map(a => {
+              {recentAlumni.map((a, i) => {
                 const name = String(a.name ?? 'Unnamed Graduate');
                 const initials = name.split(' ').map((n) => n[0]).join('').slice(0, 2) || 'AL';
                 const verification = a.verificationStatus === 'verified' ? 'verified' : 'pending';
+                // The grid goes two-up at 2xl, where this card ran much taller than
+                // Top Skills beside it and left a gap. Below 2xl the cards stack
+                // full width, so the full list is worth showing there.
+                const hideWhenSideBySide = i >= 3 ? ' 2xl:hidden' : '';
 
                 return (
-                  <div key={String(a.id ?? a.email ?? name)} className="flex items-center gap-3 py-2.5 hover:bg-gray-50/60 rounded-xl px-2 transition">
+                  <div key={String(a.id ?? a.email ?? name)} className={`flex items-center gap-3 py-2.5 hover:bg-gray-50/60 rounded-xl px-2 transition${hideWhenSideBySide}`}>
                     <div className="flex size-8 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
                       style={{ fontWeight: 700 }}>
                       {initials}
@@ -618,9 +843,58 @@ export function AdminNewDashboard() {
           ) : (
             <div className="text-gray-400 text-sm text-center py-6">No skills data from verified graduates yet.</div>
           )}
+
         </div>
+        </div>
+
+        {/* Audit — its own full-width card, not nested in Top Skills. The context
+            diagram already routes "audit log entries" from D8 to the Admin; this is
+            where they surface. Five at a time, with the rest behind Show all: the
+            login table grows with every sign-in, so this stays a summary and the
+            per-graduate History view holds the full detail. */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex flex-wrap items-center justify-between mb-4 gap-x-3 gap-y-1">
+            <h3 className="text-gray-800 flex items-center gap-2 min-w-0" style={{ fontWeight: 700 }}>
+              <ShieldCheck className="size-4 text-[#166534] shrink-0" /> Audit
+            </h3>
+            {auditEvents.length > 0 && (
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-gray-400 text-xs">
+                  {auditEvents.length} {auditEvents.length === 1 ? 'entry' : 'entries'}
+                </span>
+                {auditEvents.length > AUDIT_PREVIEW && (
+                  <button
+                    onClick={() => setAuditOpen(true)}
+                    className="text-[#166534] text-xs hover:underline flex items-center gap-1"
+                    style={{ fontWeight: 500 }}
+                  >
+                    Show all <ArrowRight className="size-3" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {auditError ? (
+            <div className="text-gray-400 text-sm text-center py-6">Audit activity is unavailable right now.</div>
+          ) : auditEvents.length > 0 ? (
+            <ul className="divide-y divide-gray-50">
+              {auditEvents.slice(0, AUDIT_PREVIEW).map((e) => (
+                <AuditRow key={e.id} e={e} onOpen={navigate} />
+              ))}
+            </ul>
+          ) : (
+            <div className="text-gray-400 text-sm text-center py-6">No audit activity yet.</div>
+          )}
         </div>
       </div>
+
+      {auditOpen && (
+        <AuditModal
+          events={auditEvents}
+          onClose={() => setAuditOpen(false)}
+          onOpen={(path) => { setAuditOpen(false); navigate(path); }}
+        />
+      )}
     </PortalLayout>
   );
 }

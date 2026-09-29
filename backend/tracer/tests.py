@@ -1924,3 +1924,46 @@ class GraduatingStudentAcademicProfileTests(SimpleTestCase):
 		)
 		self.assertFalse(result["is_valid"])
 		self.assertIn("academic_honors", result["field_errors"])
+
+
+@skipUnless(connection.vendor == "postgresql",
+            "the master_full_name_is_a_name CHECK uses the POSIX class [[:alpha:]]")
+class MasterlistBatchMismatchTests(TestCase):
+	"""The live check is name-only until a year is typed, so it can promise a match
+	the exact-on-batch_year lookup at submission will not honour. The endpoint
+	reports the listed batch so the form can hold the graduate to it."""
+
+	def setUp(self):
+		from users.models import GraduateMasterRecord
+
+		GraduateMasterRecord.objects.create(
+			full_name="Trix Justin Aurelio Aguilar", last_name="Aguilar", batch_year=2021,
+		)
+		self.client = APIClient()
+
+	def _check(self, **params):
+		return self.client.get("/api/auth/alumni/masterlist-check/", params).json()
+
+	def test_name_only_check_reports_the_listed_batch(self):
+		data = self._check(first_name="Trix Justin", last_name="Aguilar")
+		self.assertTrue(data["matched"])
+		self.assertEqual(data["batchYear"], 2021)
+
+	def test_correct_year_matches(self):
+		data = self._check(first_name="Trix Justin", last_name="Aguilar", graduation_year=2021)
+		self.assertTrue(data["matched"])
+		self.assertEqual(data["batchYear"], 2021)
+
+	def test_wrong_year_is_reported_as_a_batch_mismatch_not_a_stranger(self):
+		"""The failure that sent a listed graduate to Pending with no explanation."""
+		data = self._check(first_name="Trix Justin", last_name="Aguilar", graduation_year=2026)
+		self.assertFalse(data["matched"])
+		self.assertTrue(data["batchMismatch"])
+		self.assertEqual(data["listedBatchYear"], 2021)
+		self.assertEqual(data["listedName"], "Trix Justin Aurelio Aguilar")
+
+	def test_a_genuine_stranger_is_not_a_batch_mismatch(self):
+		data = self._check(first_name="Someone", last_name="Else", graduation_year=2021)
+		self.assertFalse(data["matched"])
+		self.assertFalse(data["batchMismatch"])
+		self.assertIsNone(data["listedBatchYear"])

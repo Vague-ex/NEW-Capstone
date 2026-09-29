@@ -15,6 +15,7 @@ from .api import (
     AlumniLoginView,
     AlumniRegisterView,
     MasterlistBulkCreateView,
+    AdminAuditFeedView,
     MasterlistCheckView,
     MasterlistEntryView,
     MasterlistListView,
@@ -31,6 +32,7 @@ from .api import (
     DebugAccountDeleteView,
     DebugAlumniUpdateView,
     DebugAnalyticsSettingsView,
+    DebugAuditEventView,
     DebugDemoAccountsView,
     DebugDemoOpenView,
     DebugSimulatedAccountsDeleteView,
@@ -52,6 +54,7 @@ from .password_reset import (
 urlpatterns = [
     path("auth/admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path("auth/alumni/register/", AlumniRegisterView.as_view(), name="alumni-register"),
+    path("admin/audit-feed/", AdminAuditFeedView.as_view(), name="admin-audit-feed"),
     path("auth/alumni/masterlist-check/", MasterlistCheckView.as_view(), name="alumni-masterlist-check"),
     path("auth/alumni/login/", AlumniLoginView.as_view(), name="alumni-login"),
     # Reached from a 409 faceEnrolmentRequired on login. Spends the token that
@@ -133,6 +136,8 @@ urlpatterns = [
     # Graduate accounts + analytics source — backs /admin/debug/a.
     path("admin/debug/alumni/<uuid:account_id>/", DebugAlumniUpdateView.as_view(), name="debug-alumni-update"),
     path("admin/debug/analytics-settings/", DebugAnalyticsSettingsView.as_view(), name="debug-analytics-settings"),
+    # Editable audit events, so the dashboard card can be demonstrated.
+    path("admin/debug/audit-events/<uuid:event_id>/", DebugAuditEventView.as_view(), name="debug-audit-event"),
     path(
         "admin/debug/simulated-accounts/delete/",
         DebugSimulatedAccountsDeleteView.as_view(),

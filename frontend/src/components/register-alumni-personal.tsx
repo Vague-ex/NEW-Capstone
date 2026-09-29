@@ -412,6 +412,16 @@ function NavButtons({ onBack, onNext, nextLabel = 'Continue', nextDisabled = fal
 
 export type MasterlistMatchStatus = 'idle' | 'checking' | 'matched' | 'unmatched';
 
+
+/** Drop anything a person's name cannot contain. Mirrors the server rule in
+ *  tracer/text_quality.py:person_name_problem (letters, spaces, hyphen,
+ *  apostrophe, period), so the box cannot hold a value the server will refuse.
+ *  Letters stay Unicode-aware, so "Ma. Ninna O'Neil-Reyes" and accented or
+ *  non-Latin names are untouched. */
+function nameOnly(value: string): string {
+  return value.replace(/[^\p{L}\p{M} .'-]/gu, '');
+}
+
 export default function RegisterAlumniPersonal({
   onComplete,
   initialForm,
@@ -456,7 +466,9 @@ export default function RegisterAlumniPersonal({
     }
   }, [stepError, step]);
   const [showPass, setShowPass] = useState(false);
-  const [pwFocused, setPwFocused] = useState(false);
+  // Latches on first focus and never clears: the hint used to disappear the
+  // moment the eye toggle took focus away from an empty password box.
+  const [pwTouched, setPwTouched] = useState(false);
 
   // Biometric capture state
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -674,6 +686,11 @@ export default function RegisterAlumniPersonal({
 
   // Real-time masterlist check (fires in Step 2 when name fields have values)
   const [matchStatus, setMatchStatus] = useState<'idle' | 'checking' | 'matched' | 'unmatched'>('idle');
+  // The batch the graduate list holds this name under. Matching at submission is
+  // exact on batch year, so without this a graduate could be told "Found in BSIS
+  // graduate list" at this step and still land in Pending for typing a different
+  // year two steps later.
+  const [listedBatchYear, setListedBatchYear] = useState<number | null>(null);
   useEffect(() => {
     if (!form.firstName.trim() || !form.familyName.trim()) {
       setMatchStatus('idle');
@@ -692,8 +709,14 @@ export default function RegisterAlumniPersonal({
         const res = await fetch(`${API_BASE_URL}/api/auth/alumni/masterlist-check/?${params}`);
         const data = await res.json();
         setMatchStatus(data.matched ? 'matched' : 'unmatched');
+        setListedBatchYear(
+          typeof data.batchYear === 'number' ? data.batchYear
+            : typeof data.listedBatchYear === 'number' ? data.listedBatchYear
+              : null,
+        );
       } catch {
         setMatchStatus('idle');
+        setListedBatchYear(null);
       }
     }, 600);
     return () => clearTimeout(t);
@@ -962,6 +985,17 @@ export default function RegisterAlumniPersonal({
             : 'Graduation date cannot be later than this month.');
           return false;
         }
+      }
+      // The graduate list is authoritative for the batch, and matching at
+      // submission is exact on it. Catch the mismatch here, where it can be
+      // explained, instead of letting the account land in Pending unexplained.
+      if (form.hasGraduated && listedBatchYear && form.graduationYear
+          && form.graduationYear !== listedBatchYear) {
+        setStepError(
+          `The BSIS graduate list has you under Batch ${listedBatchYear}. `
+          + `Please pick a month in ${listedBatchYear}, or your account will need manual admin verification.`,
+        );
+        return false;
       }
       if (form.furtherStudies === 'enrolled' || form.furtherStudies === 'completed') {
         if (!form.postgradProgram.trim()) {
@@ -1404,7 +1438,7 @@ export default function RegisterAlumniPersonal({
                 {/* Live password-strength checklist - turns green as each
                     requirement is satisfied. Shown once the user focuses or
                     starts typing a password. */}
-                {(pwFocused || form.password.length > 0) && (
+                {(pwTouched || form.password.length > 0) && (
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
                     <p className="text-gray-600 text-[11px] mb-2" style={{ fontWeight: 600 }}>
                       Your password must include:
@@ -1441,13 +1475,15 @@ export default function RegisterAlumniPersonal({
                         placeholder="Min. 8 characters"
                         value={form.password}
                         onChange={(e) => setF('password', e.target.value)}
-                        onFocus={() => setPwFocused(true)}
-                        onBlur={() => setPwFocused(false)}
+                        onFocus={() => setPwTouched(true)}
                         className={`${inputCls} pr-10`}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPass((p) => !p)}
+                        // Keeps the caret in the password box: without this the
+                        // button takes focus on press and the field blurs.
+                        onMouseDown={(e) => e.preventDefault()}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                       >
                         {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -1501,7 +1537,7 @@ export default function RegisterAlumniPersonal({
                       type="text"
                       placeholder="Surname"
                       value={form.familyName}
-                      onChange={(e) => setF('familyName', e.target.value)}
+                      onChange={(e) => setF('familyName', nameOnly(e.target.value))}
                       className={inputCls}
                     />
                   </div>
@@ -1513,7 +1549,7 @@ export default function RegisterAlumniPersonal({
                       type="text"
                       placeholder="Given name"
                       value={form.firstName}
-                      onChange={(e) => setF('firstName', e.target.value)}
+                      onChange={(e) => setF('firstName', nameOnly(e.target.value))}
                       className={inputCls}
                     />
                   </div>
@@ -1525,7 +1561,7 @@ export default function RegisterAlumniPersonal({
                       type="text"
                       placeholder="Optional"
                       value={form.middleName}
-                      onChange={(e) => setF('middleName', e.target.value)}
+                      onChange={(e) => setF('middleName', nameOnly(e.target.value))}
                       className={inputCls}
                     />
                   </div>
@@ -1949,6 +1985,12 @@ export default function RegisterAlumniPersonal({
                       </button>
                     ))}
                   </div>
+                  {form.hasGraduated && listedBatchYear && (
+                    <p className="text-emerald-700 text-xs mt-2 leading-relaxed">
+                      The BSIS graduate list has you under <strong>Batch {listedBatchYear}</strong>.
+                      Pick the month you graduated in {listedBatchYear}.
+                    </p>
+                  )}
                   {!form.hasGraduated && (
                     <p className="text-amber-700 text-xs mt-2 leading-relaxed">
                       We'll register you now and skip the employment questions. Once your

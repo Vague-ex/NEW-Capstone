@@ -18,12 +18,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
-  AlertCircle, Building2, Database, Eye, FlaskConical, Pencil, RefreshCw, Search, Shield, Trash2, X,
+  AlertCircle, Building2, Database, Eye, FlaskConical, Pencil, RefreshCw, Search, Shield, ShieldCheck, Trash2, X,
 } from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
 import {
   ALUMNI_ACCESS_TOKEN_KEY,
   ApiClientError,
+  debugDeleteAuditEvent,
+  debugUpdateAuditEvent,
+  fetchAuditFeed,
+  type AuditEvent,
   demoAccountsRequest,
   openDemoAccount,
   type DemoAccount,
@@ -179,6 +183,8 @@ export function AdminAccountsDebug() {
             <button type="button" onClick={() => setNotice('')} aria-label="Dismiss" className="shrink-0"><X className="size-4" /></button>
           </div>
         )}
+
+        <AuditEventsPanel onNotice={setNotice} onError={setError} />
 
         {/* ── Data source ─────────────────────────────────────────────────── */}
         <div className="grid gap-5 lg:grid-cols-2">
@@ -605,4 +611,158 @@ function EditGraduateDialog({ row, onClose, onSaved }: {
     </div>
   );
 }
+/** Editable audit events, so the dashboard's Audit card can be demonstrated
+ *  without waiting for real approvals. Writes to the same table the live feed
+ *  reads, so anything shaped here shows up exactly like a genuine event. */
+function AuditEventsPanel({ onNotice, onError }: {
+  onNotice: (m: string) => void;
+  onError: (m: string) => void;
+}) {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ kind: 'approved', graduate_name: '', sent_by: '', note: '' });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setEvents(await fetchAuditFeed(50));
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not load audit events.');
+    } finally {
+      setLoading(false);
+    }
+  }, [onError]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // Sign-ins come from LoginAudit, which this hatch does not edit; only
+  // RetrackingEvent rows are reshapeable.
+  const editable = events.filter((e) => !e.kind.startsWith('login'));
+
+  const startEdit = (e: AuditEvent) => {
+    setEditing(e.id);
+    setDraft({ kind: e.kind, graduate_name: e.graduate, sent_by: e.actor, note: e.note });
+  };
+
+  const save = async (id: string) => {
+    setBusy(true);
+    try {
+      await debugUpdateAuditEvent(id, draft);
+      onNotice('Audit event updated.');
+      setEditing(null);
+      await load();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not update the event.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setBusy(true);
+    try {
+      await debugDeleteAuditEvent(id);
+      onNotice('Audit event deleted.');
+      await load();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not delete the event.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+            <ShieldCheck className="size-4 text-[#166534]" /> Audit events
+          </h3>
+          <p className="text-gray-500 text-xs mt-1">
+            Shapes the dashboard Audit card. Sign-in rows are not editable here.
+          </p>
+        </div>
+        <button type="button" onClick={() => void load()}
+          className="shrink-0 rounded-xl border border-gray-200 px-3 py-1.5 text-xs text-gray-700 flex items-center gap-1.5">
+          <RefreshCw className="size-3.5" /> Reload
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-gray-400 text-sm py-4 text-center">Loading...</p>
+      ) : editable.length === 0 ? (
+        <p className="text-gray-400 text-sm py-4 text-center">No editable audit events yet.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {editable.map((e) => (
+            <li key={e.id} className="py-3">
+              {editing === e.id ? (
+                <div className="space-y-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="text-xs text-gray-600">
+                      Kind
+                      <select value={draft.kind} onChange={(ev) => setDraft({ ...draft, kind: ev.target.value })}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm">
+                        {['registered', 'retraced', 'reminder', 'approved', 'rejected'].map((k) => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Graduate name
+                      <input value={draft.graduate_name} onChange={(ev) => setDraft({ ...draft, graduate_name: ev.target.value })}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Actor (admin email)
+                      <input value={draft.sent_by} onChange={(ev) => setDraft({ ...draft, sent_by: ev.target.value })}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Note (rejection reason)
+                      <input value={draft.note} onChange={(ev) => setDraft({ ...draft, note: ev.target.value })}
+                        className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setEditing(null)}
+                      className="flex-1 rounded-xl border border-gray-200 py-2 text-sm text-gray-700">Cancel</button>
+                    <button type="button" disabled={busy} onClick={() => void save(e.id)}
+                      className="flex-1 rounded-xl bg-[#166534] py-2 text-sm text-white disabled:opacity-60" style={{ fontWeight: 600 }}>
+                      {busy ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-gray-800 break-words">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 mr-2" style={{ fontWeight: 600 }}>
+                        {e.kind}
+                      </span>
+                      {e.graduate}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-0.5 break-words">
+                      {new Date(e.occurredAt).toLocaleString('en-PH')}
+                      {e.actor && <> &middot; by {e.actor}</>}
+                      {e.accountRemoved && <> &middot; account replaced</>}
+                    </p>
+                    {e.note && <p className="text-gray-600 text-xs mt-1 italic break-words">{e.note}</p>}
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button type="button" onClick={() => startEdit(e)} aria-label="Edit"
+                      className="rounded-lg border border-gray-200 p-1.5 text-gray-600"><Pencil className="size-3.5" /></button>
+                    <button type="button" disabled={busy} onClick={() => void remove(e.id)} aria-label="Delete"
+                      className="rounded-lg border border-gray-200 p-1.5 text-red-600 disabled:opacity-50"><Trash2 className="size-3.5" /></button>
+                  </div>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 // #endregion DEBUG-ONLY:CurrenChanDebug
