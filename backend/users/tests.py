@@ -2116,3 +2116,63 @@ class DebugAuditEventTests(TestCase):
 		self.assertIn(response.status_code, (401, 403))
 		self.event.refresh_from_db()
 		self.assertEqual(self.event.kind, "registered")
+
+
+class AuditFeedFilterTests(TestCase):
+	"""Filtering is server-side because the feed merges two sources under one cap:
+	once sign-ins outnumber decisions the decisions are not in the payload at all,
+	so filtering the returned page in the browser would report none."""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="filteradmin@chmsu.edu.ph", password="AdminPass123!", role=User.Role.ADMIN, is_staff=True,
+		)
+		self.auth = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+
+		from users.models import RetrackingEvent
+
+		user = User.objects.create_user(email="filt@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="Ana", last_name="Cruz",
+			graduation_year=2022, graduation_date="2022-06",
+		)
+		self.account = account
+		# One old decision, then enough newer sign-ins to bury it under the cap.
+		old = timezone.now() - timedelta(days=30)
+		RetrackingEvent.objects.create(
+			alumni=account, kind="approved", occurred_at=old,
+			graduate_name="Ana Cruz", sent_by="chair@chmsu.edu.ph",
+		)
+		for i in range(60):
+			LoginAudit.objects.create(alumni=account, timestamp=timezone.now() - timedelta(minutes=i), status="success")
+
+	def _feed(self, **params):
+		return self.client.get("/api/admin/audit-feed/", params, **self.auth).json()
+
+	def test_signin_volume_pushes_the_decision_out_of_the_default_feed(self):
+		"""The failure the filter exists for, pinned so it cannot be called a
+		client-side concern."""
+		data = self._feed(limit=50)
+		self.assertEqual([e for e in data["results"] if e["kind"] == "approved"], [])
+
+	def test_the_decisions_filter_finds_it_anyway(self):
+		data = self._feed(kind="decisions")
+		kinds = {e["kind"] for e in data["results"]}
+		self.assertEqual(kinds, {"approved"})
+		self.assertEqual(data["results"][0]["actor"], "chair@chmsu.edu.ph")
+
+	def test_totals_are_counted_from_the_table_not_the_page(self):
+		"""So a chip can say a decision exists even when the page has none."""
+		data = self._feed(limit=50)
+		self.assertEqual(data["totals"]["decisions"], 1)
+		self.assertEqual(data["totals"]["signins"], 60)
+
+	def test_signins_filter_excludes_decisions(self):
+		data = self._feed(kind="signins")
+		self.assertTrue(all(e["kind"].startswith("login") for e in data["results"]))
+
+	def test_an_unknown_kind_falls_back_to_all(self):
+		data = self._feed(kind="nonsense")
+		self.assertEqual(data["kind"], "all")

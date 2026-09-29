@@ -4,7 +4,7 @@ import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
 import type { AlumniRecord } from '../../data/app-data';
 import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport, fetchAuditFeed } from '../../app/api-client';
-import type { AuditEvent } from '../../app/api-client';
+import type { AuditEvent, AuditKind, AuditTotals } from '../../app/api-client';
 import {
   Users, Briefcase, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
@@ -203,12 +203,38 @@ function AuditRow({ e, detailed = false, onOpen }: {
 
 /** Full feed with dates and the deciding admin. Capped server-side, so this is
  *  the whole feed rather than a page of an unbounded list. */
-function AuditModal({ events, onClose, onOpen }: {
-  events: AuditEvent[];
+const AUDIT_FILTERS: { key: AuditKind; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'decisions', label: 'Decisions' },
+  { key: 'retracking', label: 'Retracking' },
+  { key: 'signins', label: 'Sign-ins' },
+];
+
+function AuditModal({ initialEvents, totals, onClose, onOpen }: {
+  initialEvents: AuditEvent[];
+  totals: AuditTotals;
   onClose: () => void;
   onOpen: (path: string) => void;
 }) {
+  const [kind, setKind] = useState<AuditKind>('all');
+  const [events, setEvents] = useState<AuditEvent[]>(initialEvents);
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
+
+  // Refetch per group rather than filtering what is already here: the feed is a
+  // merge of two sources capped server-side, so the decisions may simply not be
+  // in the loaded page.
+  useEffect(() => {
+    if (kind === 'all') { setEvents(initialEvents); setPage(0); return; }
+    let active = true;
+    setLoading(true);
+    void fetchAuditFeed(50, kind)
+      .then((feed) => { if (active) { setEvents(feed.results); setPage(0); } })
+      .catch(() => { if (active) setEvents([]); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [kind, initialEvents]);
+
   const pageCount = Math.max(1, Math.ceil(events.length / AUDIT_PAGE_SIZE));
   const shown = events.slice(page * AUDIT_PAGE_SIZE, (page + 1) * AUDIT_PAGE_SIZE);
 
@@ -237,17 +263,41 @@ function AuditModal({ events, onClose, onOpen }: {
           <div className="min-w-0 flex-1">
             <h2 id="audit-title" className="text-gray-900" style={{ fontWeight: 700, fontSize: '1.05rem' }}>Audit</h2>
             <p className="mt-0.5 text-xs text-gray-500">
-              {events.length} {events.length === 1 ? 'entry' : 'entries'}, newest first
+              {events.length} shown, newest first
             </p>
           </div>
           <button onClick={onClose} aria-label="Close" className="shrink-0 text-gray-400 hover:text-gray-600 text-sm px-2 py-1">
             Close
           </button>
         </div>
+        {/* Counts come from the table, so a chip still shows decisions exist even
+            when sign-in volume has pushed them out of the "All" page. */}
+        <div className="flex flex-wrap gap-1.5 border-b border-gray-100 px-5 py-3">
+          {AUDIT_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setKind(f.key)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition ${
+                kind === f.key
+                  ? 'border-[#166534] bg-green-50 text-[#166534]'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+              }`}
+              style={{ fontWeight: kind === f.key ? 600 : 500 }}
+            >
+              {f.label} <span className="text-gray-400">{totals[f.key]}</span>
+            </button>
+          ))}
+        </div>
         <div className="overflow-y-auto px-5 py-2">
-          <ul className="divide-y divide-gray-50">
-            {shown.map((e) => <AuditRow key={e.id} e={e} detailed onOpen={onOpen} />)}
-          </ul>
+          {loading ? (
+            <p className="text-gray-400 text-sm text-center py-6">Loading...</p>
+          ) : shown.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-6">Nothing of this kind yet.</p>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {shown.map((e) => <AuditRow key={e.id} e={e} detailed onOpen={onOpen} />)}
+            </ul>
+          )}
         </div>
         {pageCount > 1 && (
           <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
@@ -280,6 +330,9 @@ export function AdminNewDashboard() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [auditError, setAuditError] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
+  const [auditTotals, setAuditTotals] = useState<AuditTotals>(
+    { all: 0, decisions: 0, retracking: 0, signins: 0 },
+  );
   const [pendingAlumni, setPendingAlumni] = useState<AlumniRecord[]>([]);
   const [verifiedAlumni, setVerifiedAlumni] = useState<AlumniRecord[]>([]);
   // The Verified Graduates list (not the analytics source): retracing is follow-up
@@ -335,7 +388,8 @@ export function AdminNewDashboard() {
       // Its own error flag rather than the shared banner: an unavailable audit
       // feed is a card-level problem, not a reason to alarm about the dashboard.
       if (auditResult.status === 'fulfilled') {
-        setAuditEvents(auditResult.value);
+        setAuditEvents(auditResult.value.results);
+        setAuditTotals(auditResult.value.totals);
         setAuditError(false);
       } else {
         setAuditError(true);
@@ -890,7 +944,8 @@ export function AdminNewDashboard() {
 
       {auditOpen && (
         <AuditModal
-          events={auditEvents}
+          initialEvents={auditEvents}
+          totals={auditTotals}
           onClose={() => setAuditOpen(false)}
           onOpen={(path) => { setAuditOpen(false); navigate(path); }}
         />

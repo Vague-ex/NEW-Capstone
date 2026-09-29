@@ -541,15 +541,39 @@ export interface AuditEvent {
     actor: string;
 }
 
-/** Newest audit events across every graduate, for the dashboard card. Capped
- *  server-side; this is a recent-activity feed, not a searchable report. */
-export async function fetchAuditFeed(limit = 12): Promise<AuditEvent[]> {
-    const response = await fetch(`${API_BASE_URL}/api/admin/audit-feed/?limit=${limit}`, {
-        headers: withAdminAuthHeaders(),
-    });
+/** Which slice of the audit feed to ask for. */
+export type AuditKind = 'all' | 'decisions' | 'retracking' | 'signins';
+
+/** How many of each kind exist overall, independent of the page returned. A
+ *  decision can exist without appearing in the newest rows, so the chips count
+ *  from the table rather than from the results. */
+export interface AuditTotals {
+    all: number;
+    decisions: number;
+    retracking: number;
+    signins: number;
+}
+
+export interface AuditFeed {
+    results: AuditEvent[];
+    totals: AuditTotals;
+}
+
+/** Newest audit events across every graduate. Capped server-side; this is a
+ *  recent-activity feed, not a searchable report. Filtering is a server
+ *  parameter because the feed is a merge of two sources: filtering the returned
+ *  page in the browser would hide decisions that sign-in volume pushed out. */
+export async function fetchAuditFeed(limit = 12, kind: AuditKind = 'all'): Promise<AuditFeed> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/audit-feed/?limit=${limit}&kind=${kind}`,
+        { headers: withAdminAuthHeaders() },
+    );
     await throwIfNotOk(response);
     const data = await response.json();
-    return Array.isArray(data.results) ? data.results : [];
+    return {
+        results: Array.isArray(data.results) ? data.results : [],
+        totals: data.totals ?? { all: 0, decisions: 0, retracking: 0, signins: 0 },
+    };
 }
 
 // region DEBUG-ONLY:CurrenChanDebug

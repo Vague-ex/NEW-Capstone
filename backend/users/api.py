@@ -3758,6 +3758,15 @@ class AdminAuditFeedView(APIView):
     #: Hard ceiling regardless of what the client asks for.
     MAX_LIMIT = 50
 
+    #: Filter groups. "decisions" is the one an admin actually comes looking for,
+    #: and the one sign-in volume would otherwise bury.
+    GROUPS = {
+        "all": None,
+        "decisions": {"approved", "rejected"},
+        "retracking": {"registered", "retraced", "reminder"},
+        "signins": set(),
+    }
+
     def get(self, request):
         _admin_user, _auth_error = _require_admin(request)
         if _auth_error:
@@ -3766,6 +3775,16 @@ class AdminAuditFeedView(APIView):
         raw_limit = request.query_params.get("limit")
         limit = int(raw_limit) if raw_limit and raw_limit.isdigit() else 12
         limit = max(1, min(limit, self.MAX_LIMIT))
+
+        # Filtering is done here rather than in the browser on purpose. The feed
+        # is the newest `limit` rows MERGED across both sources, so once sign-ins
+        # outnumber decisions the decisions are not in the payload at all -- a
+        # client-side filter would then show "no approvals" for a system full of
+        # them. Each group is queried on its own instead.
+        group = (request.query_params.get("kind") or "all").strip().lower()
+        if group not in self.GROUPS:
+            group = "all"
+        wanted = self.GROUPS[group]
 
         def graduate_name(profile, account):
             parts = [getattr(profile, "first_name", ""), getattr(profile, "last_name", "")]
@@ -3776,11 +3795,13 @@ class AdminAuditFeedView(APIView):
 
         events = []
         try:
-            for ev in (
+            event_qs = RetrackingEvent.objects.none() if group == "signins" else (
                 RetrackingEvent.objects
                 .select_related("alumni", "alumni__user", "alumni__profile")
+                .filter(**({"kind__in": wanted} if wanted else {}))
                 .order_by("-occurred_at")[:limit]
-            ):
+            )
+            for ev in event_qs:
                 account = ev.alumni
                 # account is None once the graduate's record was replaced (a
                 # rejected graduate registering again). The snapshot is what keeps
@@ -3802,11 +3823,12 @@ class AdminAuditFeedView(APIView):
                     # The rejection reason, for a rejected event.
                     "note": ev.note or "",
                 })
-            for audit in (
+            login_qs = LoginAudit.objects.none() if group not in ("all", "signins") else (
                 LoginAudit.objects
                 .select_related("alumni", "alumni__user", "alumni__profile")
                 .order_by("-timestamp")[:limit]
-            ):
+            )
+            for audit in login_qs:
                 account = audit.alumni
                 events.append({
                     "id": str(audit.id),
@@ -3823,8 +3845,30 @@ class AdminAuditFeedView(APIView):
             return _temporary_admin_data_unavailable_response("Audit")
 
         events.sort(key=lambda e: e["occurredAt"], reverse=True)
-        return Response({"count": len(events[:limit]), "results": events[:limit]},
-                        status=status.HTTP_200_OK)
+
+        # Counted, not derived from the page: the whole point is that a decision
+        # can exist without appearing in the newest `limit` merged rows.
+        try:
+            signins = LoginAudit.objects.count()
+            decisions = RetrackingEvent.objects.filter(kind__in=self.GROUPS["decisions"]).count()
+            retracking = RetrackingEvent.objects.filter(kind__in=self.GROUPS["retracking"]).count()
+        except (OperationalError, DatabaseError):
+            signins = decisions = retracking = 0
+
+        return Response(
+            {
+                "count": len(events[:limit]),
+                "results": events[:limit],
+                "kind": group,
+                "totals": {
+                    "all": decisions + retracking + signins,
+                    "decisions": decisions,
+                    "retracking": retracking,
+                    "signins": signins,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class MasterlistCheckView(APIView):
     """Public: real-time check whether a name + graduation year exists in the masterlist."""

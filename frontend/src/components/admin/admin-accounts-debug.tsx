@@ -627,7 +627,7 @@ function AuditEventsPanel({ onNotice, onError }: {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setEvents(await fetchAuditFeed(50));
+      setEvents((await fetchAuditFeed(50)).results);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Could not load audit events.');
     } finally {
