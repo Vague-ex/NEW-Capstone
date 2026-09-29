@@ -102,7 +102,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   useEffect(() => {
     if (role !== 'admin') return;
 
-    const audio = new Audio('/notification.mp3');
+    const audio = new Audio('/royaltyfreenotif.mp3');
     audio.preload = 'auto';
     audio.load();
     notificationAudioRef.current = audio;
