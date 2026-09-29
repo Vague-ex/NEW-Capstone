@@ -50,9 +50,16 @@ Pedro Santos,2025`;
  *  filter above and the "not yet registered" count cover the rest. */
 function RegistrationBadge({ status }: { status: MasterlistEntry['accountStatus'] }) {
   if (!status) return null;
+  // Each state named for what it is. "rejected" used to render as
+  // "Registered · rejected", which reads as a contradiction: the person was
+  // turned down, not registered.
   const look = status === 'active'
     ? { text: 'Registered', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
-    : { text: `Registered · ${status}`, cls: 'bg-amber-50 text-amber-700 border-amber-200' };
+    : status === 'rejected'
+      ? { text: 'Rejected', cls: 'bg-red-50 text-red-600 border-red-200' }
+      : status === 'pending'
+        ? { text: 'Awaiting review', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+        : { text: String(status), cls: 'bg-amber-50 text-amber-700 border-amber-200' };
   return (
     <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${look.cls}`} style={{ fontWeight: 600 }}>
       {look.text}
@@ -119,7 +126,9 @@ function RowActions({ entry, busy, onEdit, onToggleRetired, onRemove }: {
           <button
             onClick={() => { setOpen(false); onRemove(); }}
             disabled={busy || locked}
-            title={locked ? 'A graduate registered against this entry — retire it instead' : undefined}
+            title={locked
+              ? `An account is linked to this entry (${entry.accountStatus}) — retire it instead`
+              : undefined}
             className={`${item} text-red-600`}
           >
             <Trash2 className="size-3.5" /> Delete
