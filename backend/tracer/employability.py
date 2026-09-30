@@ -437,24 +437,32 @@ def masterlist_counts(source: str = SOURCE_REAL) -> dict[int, int]:
     from django.db.models import Count
     from users.models import AccountStatus, AlumniProfile, GraduateMasterRecord
 
-    if source == SOURCE_SIMULATED:
-        rows = filter_source(
-            AlumniProfile.objects.filter(alumni__account_status=AccountStatus.ACTIVE, graduation_year__isnull=False),
-            SOURCE_SIMULATED,
-            prefix="alumni__",
-        ).values("graduation_year").annotate(n=Count("id"))
-        return {int(row["graduation_year"]): int(row["n"]) for row in rows}
-
-    return {
+    # Seeded masterlist rows exist so the simulated dashboard has a real
+    # denominator. Before they existed this counted the simulated graduates
+    # themselves, which made the response rate 100% by construction.
+    is_sample = source == SOURCE_SIMULATED
+    counts = {
         int(row["batch_year"]): int(row["n"])
         for row in (
             GraduateMasterRecord.objects
-            .filter(batch_year__lte=latest_graduation_year())
+            .filter(is_sample=is_sample, batch_year__lte=latest_graduation_year())
             .values("batch_year")
             .annotate(n=Count("id"))
         )
         if row["batch_year"]
     }
+    if counts or not is_sample:
+        return counts
+
+    # No seeded masterlist yet (seed_simulated_graduates predates it, or was run
+    # with --no-masterlist). Fall back to the old census assumption rather than
+    # reporting a response rate against zero.
+    rows = filter_source(
+        AlumniProfile.objects.filter(alumni__account_status=AccountStatus.ACTIVE, graduation_year__isnull=False),
+        SOURCE_SIMULATED,
+        prefix="alumni__",
+    ).values("graduation_year").annotate(n=Count("id"))
+    return {int(row["graduation_year"]): int(row["n"]) for row in rows}
 
 
 def reportable(frame):

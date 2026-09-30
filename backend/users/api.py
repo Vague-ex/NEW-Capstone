@@ -283,7 +283,10 @@ def _find_master_record(
     # punctuation or a badly derived stored last_name would otherwise leave a
     # graduate who IS on the masterlist unmatched. A batch is a few hundred
     # rows, so scanning it is cheap.
-    qs = GraduateMasterRecord.objects.filter(is_active=True)
+    # Seeded masterlist rows are excluded: they carry fictional names that exist
+    # only as a denominator for the simulated dashboard, and a real graduate must
+    # never come out "already matched" against one.
+    qs = GraduateMasterRecord.objects.filter(is_active=True, is_sample=False)
     if graduation_year:
         qs = qs.filter(batch_year=graduation_year)
     for record in qs.order_by("created_at").only("id", "full_name", "last_name", "batch_year"):
@@ -3913,7 +3916,17 @@ class MasterlistListView(APIView):
         if _auth_error:
             return _auth_error
         from collections import Counter
-        qs = GraduateMasterRecord.objects.all().order_by("batch_year", "full_name")
+        from tracer import employability
+
+        # The screen follows the analytics source on /admin/debug/a: with
+        # "Simulated graduates" selected it shows the seeded masterlist that the
+        # simulated dashboard is measured against, and never a mix of the two.
+        want_sample = employability.analytics_source() == employability.SOURCE_SIMULATED
+        qs = (
+            GraduateMasterRecord.objects
+            .filter(is_sample=want_sample)
+            .order_by("batch_year", "full_name")
+        )
         # Whether each listed graduate has an account in the system: the
         # registration match (or a later re-match) links the account here.
         linked = dict(

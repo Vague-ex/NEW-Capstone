@@ -98,6 +98,12 @@ class GraduateMasterRecord(models.Model):
     birth_date = models.DateField(null=True, blank=True)
     batch_year = models.PositiveSmallIntegerField(db_index=True)
     is_active = models.BooleanField(default=True)
+    # Seeded alongside the simulated graduates (seed_simulated_graduates), so the
+    # demo has a masterlist to be a denominator against. Kept apart from the real
+    # list the same way sample accounts are: excluded from real registration
+    # matching, from the real response-rate denominator, and from the admin's
+    # batch-upload screen unless the analytics source is "simulated".
+    is_sample = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

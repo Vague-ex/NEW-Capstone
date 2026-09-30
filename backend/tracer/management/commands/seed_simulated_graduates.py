@@ -169,6 +169,14 @@ class Command(BaseCommand):
             "--pick-seed", type=int, default=0, metavar="N",
             help="Try N seeds starting at --seed against the acceptance gate; writes nothing.",
         )
+        parser.add_argument(
+            "--coverage", type=float, default=0.6, metavar="RATE",
+            help=(
+                "Share of the seeded masterlist that registered, per batch (default 0.6). "
+                "The rest are listed but never signed up, which is what gives the simulated "
+                "dashboard a response rate below 100%%. Use 0 to seed no masterlist."
+            ),
+        )
 
     # ── entry point ────────────────────────────────────────────────────────
     def handle(self, *args, **opts):
@@ -194,10 +202,16 @@ class Command(BaseCommand):
         if opts["dry_run"]:
             self.stdout.write("Dry run: nothing written.")
             return
-        removed, created = self._write(plans)
+        removed, created, master_rows, unregistered = self._write(plans, opts["coverage"], opts["seed"])
         self.stdout.write(self.style.SUCCESS(
             f"Replaced {removed} existing sample account(s) with {created} simulated graduates."
         ))
+        if master_rows:
+            pct = 100 * (master_rows - unregistered) / master_rows
+            self.stdout.write(self.style.SUCCESS(
+                f"Seeded {master_rows} masterlist row(s): {master_rows - unregistered} registered, "
+                f"{unregistered} not — a {pct:.0f}% response rate."
+            ))
         self.stdout.write("Next: python manage.py train_employability_model --source simulated-accounts --activate")
 
     # ── simulation → per-graduate plans ────────────────────────────────────
@@ -378,15 +392,79 @@ class Command(BaseCommand):
 
     # ── database ───────────────────────────────────────────────────────────
     def _clear(self) -> int:
-        from users.models import AlumniAccount, User
+        from users.models import AlumniAccount, GraduateMasterRecord, User
 
         samples = AlumniAccount.objects.filter(employability.sample_q()).exclude(employability.demo_q())
         user_ids = list(samples.values_list("user_id", flat=True))
         with transaction.atomic():
             User.objects.filter(id__in=user_ids).delete()
+            # The seeded masterlist goes with them: it exists only as this
+            # cohort's denominator, and leaving it behind would report a
+            # response rate against graduates that no longer exist.
+            GraduateMasterRecord.objects.filter(is_sample=True).delete()
         return len(user_ids)
 
-    def _write(self, plans: list[dict]) -> tuple[int, int]:
+    def _seed_masterlist(self, plans: list[dict], coverage: float, seed: int) -> tuple[int, int]:
+        """Create the seeded masterlist and link each graduate to their entry.
+
+        Every simulated graduate gets a row, so they read as "registered". Then
+        enough unregistered rows are added to bring coverage down to `coverage`
+        -- without them the masterlist was exactly the graduate list and the
+        response rate was 100% by construction.
+
+        Returns (rows created, rows left unregistered).
+        """
+        from users.models import AlumniAccount, GraduateMasterRecord
+
+        rng = random.Random(seed ^ 0x5EED)
+        by_batch: dict[int, int] = {}
+        entries = []
+        for p in plans:
+            full = " ".join(x for x in (p["first"], p.get("middle") or "", p["last"]) if x)
+            entries.append(GraduateMasterRecord(
+                full_name=full, last_name=p["last"], batch_year=p["batch"], is_sample=True,
+            ))
+            by_batch[p["batch"]] = by_batch.get(p["batch"], 0) + 1
+
+        # Unregistered filler, per batch, so every batch has the same coverage.
+        used = {(e.full_name.lower()) for e in entries}
+        extra = 0
+        for batch, registered in by_batch.items():
+            target = max(registered, round(registered / max(coverage, 0.05)))
+            for _ in range(target - registered):
+                for _attempt in range(200):
+                    first = rng.choice(FIRST_NAMES_FEMALE + FIRST_NAMES_MALE)
+                    last = rng.choice(SURNAMES)
+                    middle = rng.choice([s for s in SURNAMES if s != last])
+                    full = f"{first} {middle} {last}"
+                    if full.lower() not in used:
+                        used.add(full.lower())
+                        entries.append(GraduateMasterRecord(
+                            full_name=full, last_name=last, batch_year=batch, is_sample=True,
+                        ))
+                        extra += 1
+                        break
+
+        GraduateMasterRecord.objects.bulk_create(entries, batch_size=200)
+
+        # Link each graduate to their own row, so the screen shows them as
+        # registered and the count of unregistered rows is the real shortfall.
+        rows = {
+            (r.full_name.lower(), r.batch_year): r.id
+            for r in GraduateMasterRecord.objects.filter(is_sample=True).only("id", "full_name", "batch_year")
+        }
+        linked = 0
+        for p in plans:
+            full = " ".join(x for x in (p["first"], p.get("middle") or "", p["last"]) if x)
+            record_id = rows.get((full.lower(), p["batch"]))
+            if record_id and p.get("account_id"):
+                AlumniAccount.objects.filter(id=p["account_id"]).update(
+                    master_record_id=record_id, match_status=AlumniAccount.MatchStatus.MATCHED,
+                )
+                linked += 1
+        return len(entries), extra
+
+    def _write(self, plans: list[dict], coverage: float = 0.6, seed: int = DEFAULT_SEED) -> tuple[int, int, int, int]:
         from tracer.models import (
             AlumniSkill, EmploymentProfile, EmploymentRecord, JobTitle, Skill, SkillCategory, WorkAddress,
         )
@@ -421,6 +499,9 @@ class Command(BaseCommand):
                     profile_reviewed_at=now - timedelta(days=p["reviewed_days_ago"]),
                 )
                 accounts.append(account)
+                # The pk is a uuid4 default, so it exists before bulk_create and
+                # _seed_masterlist can link this graduate to their own row.
+                p["account_id"] = account.id
                 home = p["home"]
                 profiles.append(AlumniProfile(
                     alumni=account,
@@ -501,4 +582,8 @@ class Command(BaseCommand):
             WorkAddress.objects.bulk_create(addresses, batch_size=batch_size)
             EmploymentRecord.objects.bulk_create(records, batch_size=batch_size)
             AlumniSkill.objects.bulk_create(alumni_skills, batch_size=500, ignore_conflicts=True)
-        return removed, len(accounts)
+
+            master_rows, unregistered = (0, 0)
+            if coverage > 0:
+                master_rows, unregistered = self._seed_masterlist(plans, coverage, seed)
+        return removed, len(accounts), master_rows, unregistered
