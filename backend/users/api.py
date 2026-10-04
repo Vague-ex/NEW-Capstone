@@ -3964,8 +3964,11 @@ def _looks_like_full_name(name: str) -> bool:
 
 class MasterlistBulkCreateView(APIView):
     """Admin-only: bulk create GraduateMasterRecord entries from the batch-upload UI."""
+    # DRF's own auth is bypassed project-wide; every handler gates on the bearer
+    # token itself via _require_admin, which is wired and enforced below. The
+    # AllowAny here is what lets that check run instead of DRF's.
     authentication_classes = []
-    permission_classes = [AllowAny]  # TODO: restrict to admin once token auth is wired
+    permission_classes = [AllowAny]
 
     def post(self, request):
         _admin_user, _auth_error = _require_admin(request)

@@ -1762,14 +1762,14 @@ class GraduatingStudentRetrackingTests(TestCase):
 		self.assertEqual(len(E.reportable(E.build_graduate_frame())), 0)
 
 		response = APIClient().post(
-			f"/api/alumni/{account.id}/employment/",
+			f"/api/auth/alumni/account/{account.id}/employment/",
 			{
 				"employment_status": "employed_full_time",
 				"retrace_submission": "true",
 				"survey_data": json.dumps({"employment_status": "employed_full_time"}),
 			},
 			format="json",
-			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.user_id)}",
 		)
 		self.assertEqual(response.status_code, 200, response.data)
 		account.profile.refresh_from_db()
@@ -1783,10 +1783,10 @@ class GraduatingStudentRetrackingTests(TestCase):
 		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
 		account = self._graduating("personal@example.com", past)
 		response = APIClient().post(
-			f"/api/alumni/{account.id}/employment/",
+			f"/api/auth/alumni/account/{account.id}/employment/",
 			{"survey_data": json.dumps({"first_name": "Ana"})},
 			format="json",
-			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.user_id)}",
 		)
 		self.assertEqual(response.status_code, 200, response.data)
 		account.profile.refresh_from_db()
@@ -1971,7 +1971,7 @@ class AdminDecisionAuditTests(TestCase):
 		account = self._graduate(email="nosy@example.com")
 		response = self.client.get(
 			"/api/admin/audit-feed/",
-			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.user_id)}",
 		)
 		self.assertIn(response.status_code, (401, 403))
 
@@ -2111,7 +2111,7 @@ class DebugAuditEventTests(TestCase):
 		account = AlumniAccount.objects.filter(user__email="dbg@example.com").first()
 		response = self.client.patch(
 			self._url(), {"kind": "approved"}, format="json",
-			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.id)}",
+			HTTP_AUTHORIZATION=f"Bearer {generate_alumni_access_token(account.user_id)}",
 		)
 		self.assertIn(response.status_code, (401, 403))
 		self.event.refresh_from_db()
