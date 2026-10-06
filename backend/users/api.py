@@ -4061,10 +4061,15 @@ class MasterlistListView(APIView):
         from collections import Counter
         from tracer import employability
 
-        # The screen follows the analytics source on /admin/debug/a: with
-        # "Simulated graduates" selected it shows the seeded masterlist that the
+        # The screen follows its OWN switch on /admin/debug/a, not the analytics
+        # source: with "Simulated" selected it shows the seeded masterlist that the
         # simulated dashboard is measured against, and never a mix of the two.
-        want_sample = employability.analytics_source() == employability.SOURCE_SIMULATED
+        # Kept separate so a demo can show the simulated masterlist while the
+        # dashboard still reports real graduates.
+        want_sample = (
+            employability.debug_settings()["masterlist_source"]
+            == employability.SOURCE_SIMULATED
+        )
         qs = (
             GraduateMasterRecord.objects
             .filter(is_sample=want_sample)
@@ -4563,7 +4568,10 @@ class DebugAnalyticsSettingsView(APIView):
 
         data = request.data if isinstance(request.data, dict) else {}
         changes = {
-            k: data[k] for k in ("source", "show_samples_in_verified", "allow_current_year_graduates") if k in data
+            k: data[k]
+            for k in ("source", "masterlist_source", "show_samples_in_verified",
+                      "allow_current_year_graduates")
+            if k in data
         }
         try:
             employability.update_debug_settings(**changes)

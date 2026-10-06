@@ -276,7 +276,16 @@ def latest_graduation_year() -> int:
 
 # ── Admin debug settings (analytics source, sample visibility) ────────────────
 
-_SETTINGS_DEFAULTS = {"source": SOURCE_REAL, "show_samples_in_verified": False, "allow_current_year_graduates": True}
+# "source" drives the analytics (dashboard, geomap, reports). The admin
+# Masterlist and Batch Upload screens follow "masterlist_source" instead, so a
+# demo can show the simulated masterlist while the analytics stay on real
+# graduates, or the other way round.
+_SETTINGS_DEFAULTS = {
+    "source": SOURCE_REAL,
+    "masterlist_source": SOURCE_REAL,
+    "show_samples_in_verified": False,
+    "allow_current_year_graduates": True,
+}
 
 
 def _settings_path() -> Path:
@@ -291,8 +300,9 @@ def debug_settings() -> dict:
     except (OSError, ValueError):
         stored = {}
     settings = {**_SETTINGS_DEFAULTS, **{k: v for k, v in stored.items() if k in _SETTINGS_DEFAULTS}}
-    if settings["source"] not in SOURCES:
-        settings["source"] = SOURCE_REAL
+    for key in ("source", "masterlist_source"):
+        if settings[key] not in SOURCES:
+            settings[key] = SOURCE_REAL
     settings["show_samples_in_verified"] = bool(settings["show_samples_in_verified"])
     settings["allow_current_year_graduates"] = bool(settings["allow_current_year_graduates"])
     return settings
@@ -300,10 +310,11 @@ def debug_settings() -> dict:
 
 def update_debug_settings(**changes) -> dict:
     settings = debug_settings()
-    if "source" in changes:
-        if changes["source"] not in SOURCES:
-            raise ValueError(f"source must be one of {', '.join(SOURCES)}")
-        settings["source"] = changes["source"]
+    for key in ("source", "masterlist_source"):
+        if key in changes:
+            if changes[key] not in SOURCES:
+                raise ValueError(f"{key} must be one of {', '.join(SOURCES)}")
+            settings[key] = changes[key]
     for key in ("show_samples_in_verified", "allow_current_year_graduates"):
         if key in changes:
             settings[key] = bool(changes[key])

@@ -1408,13 +1408,67 @@ class SimulatedSourceTests(TestCase):
 		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
 			self.assertEqual(
 				E.debug_settings(),
-				{"source": "real", "show_samples_in_verified": False, "allow_current_year_graduates": True},
+				{
+					"source": "real",
+					"masterlist_source": "real",
+					"show_samples_in_verified": False,
+					"allow_current_year_graduates": True,
+				},
 			)
 			E.update_debug_settings(source="simulated", show_samples_in_verified=True, allow_current_year_graduates=False)
 			self.assertEqual(E.analytics_source(), "simulated")
 			self.assertEqual(E.latest_graduation_year(), timezone.now().year - 1)
 			with self.assertRaises(ValueError):
 				E.update_debug_settings(source="everything")
+
+	def test_masterlist_screen_follows_its_own_switch_not_the_analytics_source(self):
+		"""The Masterlist screen and the analytics are switched independently.
+
+		They used to share one setting, so showing the simulated masterlist for a
+		demo also flipped the dashboard, geomap and reports onto simulated data.
+		"""
+		from users.models import GraduateMasterRecord
+
+		GraduateMasterRecord.objects.create(
+			full_name="Real Graduate", last_name="Graduate", batch_year=2022, is_sample=False,
+		)
+		GraduateMasterRecord.objects.create(
+			full_name="Seeded Graduate", last_name="Graduate", batch_year=2022, is_sample=True,
+		)
+		client = APIClient()
+		names = lambda r: sorted(e["name"] for e in r.json()["entries"])  # noqa: E731
+
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			self.assertEqual(names(client.get("/api/admin/masterlist/", **self.headers)), ["Real Graduate"])
+
+			# Analytics onto simulated: the masterlist screen must NOT follow.
+			client.put(
+				"/api/admin/debug/analytics-settings/", {"source": "simulated"},
+				format="json", **self.headers,
+			)
+			self.assertEqual(names(client.get("/api/admin/masterlist/", **self.headers)), ["Real Graduate"])
+
+			# Its own switch moves it, and leaves the analytics alone.
+			response = client.put(
+				"/api/admin/debug/analytics-settings/", {"masterlist_source": "simulated"},
+				format="json", **self.headers,
+			)
+			self.assertEqual(response.status_code, 200)
+			self.assertEqual(names(client.get("/api/admin/masterlist/", **self.headers)), ["Seeded Graduate"])
+
+			# Analytics back to real, masterlist stays on simulated: fully independent.
+			client.put(
+				"/api/admin/debug/analytics-settings/", {"source": "real"},
+				format="json", **self.headers,
+			)
+			settings_now = client.get("/api/admin/debug/analytics-settings/", **self.headers).json()
+			self.assertEqual(settings_now["source"], "real")
+			self.assertEqual(settings_now["masterlist_source"], "simulated")
+			self.assertEqual(names(client.get("/api/admin/masterlist/", **self.headers)), ["Seeded Graduate"])
+
+			with self.assertRaises(ValueError):
+				from tracer import employability as E
+				E.update_debug_settings(masterlist_source="everything")
 
 	def test_verified_list_hides_simulated_until_toggled(self):
 		client = APIClient()

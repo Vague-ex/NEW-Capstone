@@ -110,7 +110,7 @@ export function AdminAccountsDebug() {
   useEffect(() => { void load(); }, [load]);
 
   const changeSettings = async (
-    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified' | 'allow_current_year_graduates'>>,
+    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'masterlist_source' | 'show_samples_in_verified' | 'allow_current_year_graduates'>>,
   ) => {
     setSaving(true);
     setError('');
@@ -163,6 +163,7 @@ export function AdminAccountsDebug() {
   };
 
   const source: AnalyticsSource = settings?.source ?? 'real';
+  const masterlistSource: AnalyticsSource = settings?.masterlist_source ?? 'real';
   const activeModel = settings?.models[source];
 
   return (
@@ -234,6 +235,37 @@ export function AdminAccountsDebug() {
                   Train: <code className="text-[11px]">{settings.commands.train}</code>
                 </p>
               )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+            <div>
+              <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Masterlist data source</h3>
+              <p className="text-gray-500 text-xs mt-1">
+                Which masterlist the Masterlist and Batch Upload screens list. Independent of the
+                analytics source, so the dashboard can report real graduates while these screens
+                show the simulated batch. Registration always matches against the real masterlist.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {([
+                ['real', 'Real masterlist', Database],
+                ['simulated', 'Simulated masterlist', FlaskConical],
+              ] as const).map(([value, label, Icon]) => {
+                const selected = masterlistSource === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    disabled={saving || loading || selected}
+                    onClick={() => void changeSettings({ masterlist_source: value })}
+                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${selected ? 'border-[#166534] bg-[#166534]/5 text-[#166534]' : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
+                  >
+                    <Icon className="size-5 shrink-0" />
+                    <span className="block text-sm" style={{ fontWeight: 600 }}>{label}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 

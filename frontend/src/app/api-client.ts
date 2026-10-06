@@ -1145,6 +1145,10 @@ export type AnalyticsSource = 'real' | 'simulated';
 
 export interface DebugAnalyticsSettings {
     source: AnalyticsSource;
+    /** Which masterlist the Masterlist and Batch Upload screens list. Separate
+     *  from `source` so a demo can show the simulated masterlist while the
+     *  analytics still describe real graduates. */
+    masterlist_source: AnalyticsSource;
     show_samples_in_verified: boolean;
     /** Off: registration stops at last year's batch and analytics skip this year's graduates. */
     allow_current_year_graduates: boolean;
@@ -1172,7 +1176,7 @@ export async function fetchDebugAnalyticsSettings(): Promise<DebugAnalyticsSetti
 }
 
 export async function updateDebugAnalyticsSettings(
-    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'show_samples_in_verified' | 'allow_current_year_graduates'>>,
+    changes: Partial<Pick<DebugAnalyticsSettings, 'source' | 'masterlist_source' | 'show_samples_in_verified' | 'allow_current_year_graduates'>>,
 ): Promise<DebugAnalyticsSettings> {
     const response = await fetch(`${API_BASE_URL}/api/admin/debug/analytics-settings/`, {
         method: 'PUT',
