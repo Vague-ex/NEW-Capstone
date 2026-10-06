@@ -253,7 +253,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       </div>
 
       {/* Nav */}
-      <nav className="gt-stagger flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      {/* No gt-stagger here. Every page renders its own PortalLayout, so clicking
+          a nav item unmounts this sidebar and mounts a new one, which replayed the
+          entrance and read as the sidebar fading out and back in on every click.
+          The sidebar is persistent chrome; only page content animates in. */}
+      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         <p className="text-white/30 text-xs px-3 mb-2 tracking-widest uppercase" style={{ fontWeight: 600 }}>
           {config.label}
         </p>
