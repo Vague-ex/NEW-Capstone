@@ -341,11 +341,6 @@ export function AdminReports() {
         })}
       </div>
 
-      <p className="text-xs text-gray-400 text-center">
-        Reports preview against the current database state. PDFs carry the College of Computer
-        Studies letterhead on every page, as in the preview.
-      </p>
-
       {preview && (
         <PreviewModal
           report={preview.reportDef}
@@ -450,29 +445,43 @@ function PreviewModal({
               )}
               {payload.sections.map((section, idx) => (
                 <section key={idx}>
-                  <h3 className="text-sm text-[#047940] mb-2" style={{ fontWeight: 700 }}>{section.title}</h3>
+                  {/* Section headings in text colour, not the institutional green:
+                      a report reserves colour for the letterhead. */}
+                  <h3 className="text-sm text-gray-900 mb-2" style={{ fontWeight: 700 }}>{section.title}</h3>
                   {section.rows.length === 0 ? (
                     <p className="text-xs text-gray-400 italic">No rows.</p>
                   ) : (
                     <div className="overflow-x-auto">
+                      {/* APA table style, matching the manuscript: horizontal rules
+                          above the header, under it and below the last row, and
+                          nothing else. The solid green header and the gridlines read
+                          as a web table rather than a report, and colour on a header
+                          row carries no information. */}
                       <table className="w-full text-xs border-collapse">
                         <thead>
-                          <tr>
-                            {section.columns.map((col, i) => (
-                              <th key={i} className="px-2 py-1.5 text-left bg-[#047940] text-white border border-[#047940]" style={{ fontWeight: 700 }}>
-                                {col == null ? '' : String(col)}
-                              </th>
-                            ))}
+                          <tr className="border-y border-gray-900">
+                            {section.columns.map((col, i) => {
+                              const numericCol = section.rows.some(
+                                (r) => r[i] != null && NUMERIC.test(String(r[i]).trim()),
+                              );
+                              return (
+                                <th key={i}
+                                  className={`px-2 py-2 align-bottom text-gray-900 ${i > 0 && numericCol ? 'text-right' : 'text-left'}`}
+                                  style={{ fontWeight: 700 }}>
+                                  {col == null ? '' : String(col)}
+                                </th>
+                              );
+                            })}
                           </tr>
                         </thead>
                         <tbody>
                           {section.rows.map((row, rIdx) => (
-                            <tr key={rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-gray-100'}>
+                            <tr key={rIdx} className={rIdx === section.rows.length - 1 ? 'border-b border-gray-900' : ''}>
                               {row.map((cell, cIdx) => {
                                 const text = cell == null ? '' : String(cell);
                                 return (
                                   <td key={cIdx}
-                                    className={`px-2 py-1.5 text-gray-800 border border-gray-300 ${cIdx > 0 && NUMERIC.test(text.trim()) ? 'text-right' : ''}`}>
+                                    className={`px-2 py-1.5 text-gray-800 ${cIdx > 0 && NUMERIC.test(text.trim()) ? 'text-right tabular-nums' : ''}`}>
                                     {text}
                                   </td>
                                 );

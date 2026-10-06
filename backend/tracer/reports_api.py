@@ -55,18 +55,20 @@ _RATING_TO_SCORE: dict[str, int] = {
     "unsatisfactory": 1,
 }
 
+# Labels match the employer evaluation form word for word, so a panel can line
+# the report up against the instrument it came from.
 _RATING_FIELDS_LABELS: list[tuple[str, str]] = [
-    ("rating_quality_of_work", "Quality"),
-    ("rating_work_habits", "Habits"),
-    ("rating_relationship_with_people", "Relationships"),
+    ("rating_quality_of_work", "Quality of Work"),
+    ("rating_work_habits", "Work Habits"),
+    ("rating_relationship_with_people", "Relationship with People"),
     ("rating_dependability", "Dependability"),
-    ("rating_quantity_of_work", "Quantity"),
+    ("rating_quantity_of_work", "Quantity of Work"),
     ("rating_initiative", "Initiative"),
-    ("rating_analytical_ability", "Analytical"),
-    ("rating_ability_as_supervisor", "Supervisor"),
-    ("rating_administrative_ability", "Admin"),
+    ("rating_analytical_ability", "Analytical Ability"),
+    ("rating_ability_as_supervisor", "Ability as Supervisor"),
+    ("rating_administrative_ability", "Administrative Ability"),
     ("rating_safety", "Safety"),
-    ("rating_commitment_to_social_equity", "Social Equity"),
+    ("rating_commitment_to_social_equity", "Commitment to Social Equity"),
 ]
 
 # Stop-word filter for the Common Themes section. Keeps tokenization-cheap
@@ -310,7 +312,7 @@ class BatchSummaryReportView(APIView):
             "rows": rows,
         }
 
-        # ── Section B: Employer Feedback Aggregates per Batch ───────────────────
+        # ── Section B: Employer Ratings, criteria down the side, batches across ────
         eval_qs = (
             employability.filter_source(
                 VerificationDecision.objects.filter(
@@ -355,30 +357,38 @@ class BatchSummaryReportView(APIView):
             if improvements_text:
                 bucket["improvements_texts"].append(improvements_text)
 
-        feedback_rows: list[list[Any]] = []
+        feedback_years = sorted(eval_buckets)
         composites_by_year: dict[int, float | None] = {}
-        for year in sorted(eval_buckets):
+        means_by_year: dict[int, dict[str, float | None]] = {}
+        for year in feedback_years:
             bucket = eval_buckets[year]
-            field_means: list[float] = []
-            row_cells: list[Any] = [year, bucket["n"]]
-            for field_name, _label in _RATING_FIELDS_LABELS:
-                mean = _avg_2dp(bucket["ratings"][field_name])
-                row_cells.append(f"{mean:.2f}" if mean is not None else "—")
-                if mean is not None:
-                    field_means.append(mean)
-            composite = _avg_2dp(field_means) if field_means else None
-            composites_by_year[year] = composite
-            row_cells.append(f"{composite:.2f}" if composite is not None else "—")
-            feedback_rows.append(row_cells)
+            means = {
+                field_name: _avg_2dp(bucket["ratings"][field_name])
+                for field_name, _label in _RATING_FIELDS_LABELS
+            }
+            means_by_year[year] = means
+            field_means = [m for m in means.values() if m is not None]
+            composites_by_year[year] = _avg_2dp(field_means) if field_means else None
+
+        def _cell(value: float | None) -> str:
+            return f"{value:.2f}" if value is not None else "—"
+
+        feedback_rows: list[list[Any]] = []
+        if feedback_years:
+            feedback_rows.append(
+                ["Evaluations received", *[eval_buckets[y]["n"] for y in feedback_years]]
+            )
+            for field_name, label in _RATING_FIELDS_LABELS:
+                feedback_rows.append(
+                    [label, *[_cell(means_by_year[y][field_name]) for y in feedback_years]]
+                )
+            feedback_rows.append(
+                ["Composite", *[_cell(composites_by_year[y]) for y in feedback_years]]
+            )
 
         section_b = {
-            "title": "Employer Feedback Aggregates",
-            "columns": [
-                "Batch",
-                "Evaluations",
-                *[label for _f, label in _RATING_FIELDS_LABELS],
-                "Composite",
-            ],
+            "title": "Employer Ratings by Batch (1 = Unsatisfactory to 5 = Excellent)",
+            "columns": ["Criterion", *[str(y) for y in feedback_years]],
             "rows": feedback_rows,
         }
 

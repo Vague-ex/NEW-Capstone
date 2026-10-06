@@ -241,7 +241,9 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.setTextColor(...CHMSU_GREEN);
+    // Section headings in black: an institutional report keeps colour for the
+    // letterhead, which is the only place it identifies anything.
+    doc.setTextColor(17, 24, 39);
     doc.text(section.title, margin, cursorY);
     cursorY += 6;
 
@@ -249,18 +251,35 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
       startY: cursorY + 4,
       head: [section.columns],
       body: section.rows.map((r) => r.map((c) => (c == null ? '' : String(c)))),
-      // Thin grey rules and grey banding instead of pale green, which washed
-      // out on paper and made long tables hard to follow across a row.
-      theme: 'grid',
-      styles: { fontSize: 9, cellPadding: 5, lineColor: [209, 213, 219], lineWidth: 0.5, overflow: 'linebreak' },
-      headStyles: { fillColor: CHMSU_GREEN, textColor: 255, fontStyle: 'bold', lineColor: CHMSU_GREEN },
+      // APA table style, matching the manuscript and the on-screen preview: a
+      // rule above the header, under it and below the last row, and nothing
+      // else. A filled header and full gridlines read as a spreadsheet; colour
+      // on a header row carries no information and costs legibility on paper.
+      theme: 'plain',
+      styles: { fontSize: 9, cellPadding: 5, overflow: 'linebreak', textColor: [31, 41, 55] },
+      headStyles: {
+        fillColor: false as unknown as number[],
+        textColor: [17, 24, 39],
+        fontStyle: 'bold',
+        lineWidth: { top: 0.9, bottom: 0.9, left: 0, right: 0 },
+        lineColor: [17, 24, 39],
+      },
       bodyStyles: { textColor: [31, 41, 55] },
-      alternateRowStyles: { fillColor: [243, 244, 246] },
       // Counts and percentages line up on the right. The first column is the
       // row label (a batch year, "Total", a skill), so it stays on the left.
       didParseCell: (data: { section: string; column: { index: number }; cell: { raw: unknown; styles: { halign: string } } }) => {
         if (data.section === 'body' && data.column.index > 0 && /^[-+]?[\d,.]+%?$/.test(String(data.cell.raw ?? '').trim())) {
           data.cell.styles.halign = 'right';
+        }
+      },
+      // Closing rule under the final row, which completes the APA three-rule
+      // table. autoTable has no "last row" style, so it is drawn here.
+      didDrawPage: (data: { table?: { body?: unknown[] }; cursor?: { y: number } | null }) => {
+        const y = data.cursor?.y;
+        if (typeof y === 'number') {
+          doc.setDrawColor(17, 24, 39);
+          doc.setLineWidth(0.9);
+          doc.line(margin, y, pageWidth - margin, y);
         }
       },
       // A table that runs onto a new page resumes below that page's letterhead.

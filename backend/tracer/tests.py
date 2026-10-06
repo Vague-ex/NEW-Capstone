@@ -783,6 +783,56 @@ class CurriculumAlignmentReportTests(TestCase):
 		self.assertFalse(resolved.is_aligned)
 		self.assertTrue(resolved.is_verified)
 
+	def test_employer_ratings_table_is_one_column_per_batch(self):
+		"""The eleven rating criteria go down the side, not across the top.
+
+		One column per criterion made a 13-column table that scrolled on screen
+		and ran off the edge of the PDF page.
+		"""
+		for year, email in ((2021, "r1@example.com"), (2022, "r2@example.com")):
+			account = self._make_alumni(email, year)
+			employer_user = User.objects.create_user(
+				email=f"hr-rate-{year}@example.com",
+				password="TestPass123!",
+				role=User.Role.EMPLOYER,
+			)
+			employer = EmployerAccount.objects.create(
+				user=employer_user,
+				company_email=employer_user.email,
+				company_name="Verifier Corp",
+				account_status=AccountStatus.ACTIVE,
+			)
+			token = VerificationToken.objects.create(
+				alumni=account, expires_at=timezone.now() + timedelta(days=7)
+			)
+			VerificationDecision.objects.create(
+				token=token,
+				employer_account=employer,
+				decision=VerificationDecision.Decision.CONFIRM,
+				evaluation_submitted=True,
+				rating_quality_of_work="excellent",
+				rating_safety="good",
+			)
+
+		response = self.client.get(
+			"/api/admin/reports/batch-summary/?batch_start=2020&batch_end=2025",
+			**self.headers,
+		)
+		self.assertEqual(response.status_code, 200)
+		section = next(
+			s for s in response.data["sections"] if s["title"].startswith("Employer Ratings")
+		)
+
+		# Criterion label, then one column per batch -- never one per criterion.
+		self.assertEqual(section["columns"], ["Criterion", "2021", "2022"])
+		rows = {row[0]: row[1:] for row in section["rows"]}
+		self.assertEqual(rows["Evaluations received"], [1, 1])
+		self.assertEqual(rows["Quality of Work"], ["5.00", "5.00"])
+		self.assertEqual(rows["Safety"], ["3.00", "3.00"])
+		# Criteria nobody rated stay visible, so the instrument reads whole.
+		self.assertEqual(rows["Commitment to Social Equity"], ["—", "—"])
+		self.assertEqual(rows["Composite"], ["4.00", "4.00"])
+
 	def test_report_splits_verified_from_self_reported(self):
 		verified = self._make_alumni("v@example.com", 2022, self_reported=False)
 		self._verify(verified, self.dev_title)
