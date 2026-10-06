@@ -33,6 +33,7 @@ from .api import (
     DebugAlumniUpdateView,
     DebugAnalyticsSettingsView,
     DebugAuditEventView,
+    DebugSeedEmployerEvaluationsView,
     DebugDemoAccountsView,
     DebugDemoOpenView,
     DebugSimulatedAccountsDeleteView,
@@ -138,6 +139,10 @@ urlpatterns = [
     path("admin/debug/analytics-settings/", DebugAnalyticsSettingsView.as_view(), name="debug-analytics-settings"),
     # Editable audit events, so the dashboard card can be demonstrated.
     path("admin/debug/audit-events/<uuid:event_id>/", DebugAuditEventView.as_view(), name="debug-audit-event"),
+    # Employer evaluations for the simulated cohort, so the report's
+    # Common Themes tables have text to summarise.
+    path("admin/debug/seed-evaluations/", DebugSeedEmployerEvaluationsView.as_view(),
+         name="debug-seed-evaluations"),
     path(
         "admin/debug/simulated-accounts/delete/",
         DebugSimulatedAccountsDeleteView.as_view(),

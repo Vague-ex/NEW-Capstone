@@ -591,6 +591,21 @@ export async function debugUpdateAuditEvent(
     await throwIfNotOk(response);
 }
 
+/** Debug (/admin/debug/a): give the simulated graduates employer evaluations so
+ *  the report's Common Themes tables have text to summarise. Real graduates are
+ *  never touched. share=0 clears the seeded rows. */
+export async function debugSeedEvaluations(share: number): Promise<{
+    message: string; created: number; cleared: number; eligible?: number;
+}> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/seed-evaluations/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...withAdminAuthHeaders() },
+        body: JSON.stringify({ share }),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 export async function debugDeleteAuditEvent(eventId: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/api/admin/debug/audit-events/${eventId}/`, {
         method: 'DELETE',

@@ -25,6 +25,7 @@ import {
   ALUMNI_ACCESS_TOKEN_KEY,
   ApiClientError,
   debugDeleteAuditEvent,
+  debugSeedEvaluations,
   debugUpdateAuditEvent,
   fetchAuditFeed,
   type AuditEvent,
@@ -185,6 +186,8 @@ export function AdminAccountsDebug() {
         )}
 
         <AuditEventsPanel onNotice={setNotice} onError={setError} />
+
+        <EmployerEvaluationsPanel onNotice={setNotice} onError={setError} />
 
         {/* ── Data source ─────────────────────────────────────────────────── */}
         <div className="grid gap-5 lg:grid-cols-2">
@@ -761,6 +764,70 @@ function AuditEventsPanel({ onNotice, onError }: {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** Employer evaluations for the simulated cohort. The Employment Outcomes
+ *  report summarises the free text employers write into word-frequency tables
+ *  (Common Themes), and the simulated graduates have no employer responses, so
+ *  those tables render empty. This fills them.
+ *
+ *  Real graduates are deliberately out of scope: an evaluation is a third
+ *  party's statement about a named person, and inventing one against a real
+ *  record would put words in a real employer's mouth. */
+function EmployerEvaluationsPanel({ onNotice, onError }: {
+  onNotice: (m: string) => void;
+  onError: (m: string) => void;
+}) {
+  const [share, setShare] = useState(45);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (pct: number) => {
+    setBusy(true);
+    try {
+      const res = await debugSeedEvaluations(pct / 100);
+      onNotice(res.message);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not seed evaluations.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+      <div>
+        <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Employer evaluations (simulated only)</h3>
+        <p className="text-gray-500 text-xs mt-1">
+          Fills the Employment Outcomes report&apos;s Common Themes tables, which summarise what
+          employers write about a graduate. Only simulated graduates are given evaluations &mdash;
+          real accounts are never touched.
+        </p>
+      </div>
+      <label className="block text-xs text-gray-600">
+        Share of employed simulated graduates with an evaluation: <strong>{share}%</strong>
+        <input
+          type="range" min={0} max={100} step={5} value={share}
+          onChange={(e) => setShare(Number(e.target.value))}
+          className="mt-2 w-full"
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => void run(share)}
+          className="rounded-xl bg-[#166534] px-4 py-2 text-sm text-white disabled:opacity-60"
+          style={{ fontWeight: 600 }}>
+          {busy ? 'Working...' : 'Seed evaluations'}
+        </button>
+        <button type="button" disabled={busy} onClick={() => void run(0)}
+          className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700 disabled:opacity-60">
+          Clear seeded evaluations
+        </button>
+      </div>
+      <p className="text-gray-400 text-[11px]">
+        Re-running replaces the seeded rows rather than adding to them. Switch the analytics
+        source to Simulated graduates to see them in the report.
+      </p>
     </section>
   );
 }

@@ -3738,6 +3738,149 @@ class DebugAuditEventView(APIView):
 # endregion DEBUG-ONLY:CurrenChanDebug
 
 
+# region DEBUG-ONLY:CurrenChanDebug
+class DebugSeedEmployerEvaluationsView(APIView):
+    """Debug (/admin/debug/a): give the SIMULATED graduates employer evaluations,
+    so the Employment Outcomes report's Common Themes tables have something to
+    summarise.
+
+    Only sample accounts are touched. Real graduates are excluded outright: an
+    employer evaluation is a third party's statement about a named person, and
+    inventing one against a real record would put words in a real employer's
+    mouth. The seeded rows are reachable only through the simulated analytics
+    source, exactly like the accounts they belong to.
+
+    Temporary debug surface, like the other /admin/debug/ routes.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    #: Phrases an employer might actually write. Chosen so the word-frequency
+    #: summary in the report has repeated terms to find.
+    STRENGTHS = [
+        "Strong communication skills and always punctual.",
+        "Shows initiative and takes ownership of tasks.",
+        "Dependable, meets deadlines without supervision.",
+        "Good analytical ability and attention to detail.",
+        "Excellent teamwork and willing to help colleagues.",
+        "Technical skills are solid, learns new tools quickly.",
+        "Professional attitude and strong work ethic.",
+        "Reliable under pressure, keeps quality consistent.",
+    ]
+    IMPROVEMENTS = [
+        "Could improve confidence in client presentations.",
+        "Needs more exposure to documentation practices.",
+        "Time management under multiple deadlines could improve.",
+        "Would benefit from deeper database knowledge.",
+        "Communication in written reports can be clearer.",
+        "More initiative in proposing solutions would help.",
+        "Could develop leadership and delegation skills.",
+        "Needs broader experience with testing and quality assurance.",
+    ]
+    RATINGS = ["excellent", "very_good", "good", "fair"]
+    BUSINESSES = ["Information Technology", "Business Process Outsourcing", "Government",
+                  "Education", "Retail and Trading", "Manufacturing"]
+
+    def post(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        import random as _random
+        from datetime import timedelta
+
+        from tracer import employability
+        from tracer.models import EmploymentRecord, VerificationDecision, VerificationToken
+
+        raw_share = request.data.get("share")
+        try:
+            share = float(raw_share) if raw_share is not None else 0.45
+        except (TypeError, ValueError):
+            return Response({"detail": "share must be a number between 0 and 1."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        share = max(0.0, min(share, 1.0))
+
+        # Sample accounts only, demo accounts excluded -- the same population the
+        # simulated analytics source describes.
+        sample_accounts = list(
+            AlumniAccount.objects
+            .filter(employability.sample_q())
+            .exclude(employability.demo_q())
+            .filter(employment_records__is_current=True)
+            .distinct()
+            .select_related("profile")
+        )
+
+        with transaction.atomic():
+            # Replace rather than accumulate, so repeated runs do not pile up.
+            removed = VerificationDecision.objects.filter(
+                token__alumni__in=sample_accounts
+            ).delete()[0]
+            VerificationToken.objects.filter(alumni__in=sample_accounts).delete()
+
+            if share == 0:
+                return Response(
+                    {"message": f"Cleared {removed} seeded evaluation(s).", "created": 0, "cleared": removed},
+                    status=status.HTTP_200_OK,
+                )
+
+            rng = _random.Random(20260917)
+            chosen = [a for a in sample_accounts if rng.random() < share]
+            now = timezone.now()
+            created = 0
+            for account in chosen:
+                record = EmploymentRecord.objects.filter(alumni=account, is_current=True).first()
+                if record is None:
+                    continue
+                token = VerificationToken.objects.create(
+                    alumni=account,
+                    employment_record=record,
+                    expires_at=now + timedelta(days=30),
+                    status=VerificationToken.Status.USED,
+                    used_at=now,
+                )
+                VerificationDecision.objects.create(
+                    token=token,
+                    decision=VerificationDecision.Decision.CONFIRM,
+                    verifier_name=f"HR Officer, {record.employer_name_input[:60]}",
+                    verifier_position="HR Officer",
+                    employee_status=rng.choice(["regular", "probationary_casual_jo"]),
+                    years_in_company=rng.randint(1, 5),
+                    type_of_business=rng.choice(self.BUSINESSES),
+                    date_of_evaluation=timezone.localdate(),
+                    # All eleven, because the real form makes every one of them
+                    # required -- seeding a subset left half the report blank.
+                    rating_quality_of_work=rng.choice(self.RATINGS),
+                    rating_work_habits=rng.choice(self.RATINGS),
+                    rating_relationship_with_people=rng.choice(self.RATINGS),
+                    rating_dependability=rng.choice(self.RATINGS),
+                    rating_quantity_of_work=rng.choice(self.RATINGS),
+                    rating_initiative=rng.choice(self.RATINGS),
+                    rating_analytical_ability=rng.choice(self.RATINGS),
+                    rating_ability_as_supervisor=rng.choice(self.RATINGS),
+                    rating_administrative_ability=rng.choice(self.RATINGS),
+                    rating_safety=rng.choice(self.RATINGS),
+                    rating_commitment_to_social_equity=rng.choice(self.RATINGS),
+                    assessment_strengths=rng.choice(self.STRENGTHS),
+                    assessment_improvements=rng.choice(self.IMPROVEMENTS),
+                    evaluation_submitted=True,
+                    evaluation_submitted_at=now,
+                )
+                created += 1
+
+        return Response(
+            {
+                "message": f"Seeded {created} employer evaluation(s) on simulated graduates.",
+                "created": created,
+                "cleared": removed,
+                "eligible": len(sample_accounts),
+            },
+            status=status.HTTP_200_OK,
+        )
+# endregion DEBUG-ONLY:CurrenChanDebug
+
+
 class AdminAuditFeedView(APIView):
     """Admin: the newest audit events across every graduate, for the dashboard card.
 
