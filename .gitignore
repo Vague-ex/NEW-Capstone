@@ -64,3 +64,6 @@ planning/
 .claude/
 documentations/
 graduates_bsis.csv
+# Admin debug runtime state, rewritten by the debug panel. Never commit it:
+# a stray "simulated" would flip production reports to the fake cohort.
+backend/ml/models/employability/analytics_source.json

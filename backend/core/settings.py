@@ -2,6 +2,7 @@
 
 import os
 import socket
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -350,3 +351,13 @@ if not LOGIN_THROTTLE_BACKOFF_SECONDS:
 # every graduate behind one public IP. Raise it if a tracer drive trips it.
 LOGIN_IP_FAIL_LIMIT     = _env_int("LOGIN_IP_FAIL_LIMIT", 30)
 LOGIN_IP_WINDOW_SECONDS = _env_int("LOGIN_IP_WINDOW_SECONDS", 900)
+
+# Keep the test suite away from the real ml/models directory. analytics_source.json
+# lives there and the admin debug panel rewrites it, so without this a run would
+# inherit whichever data source the last toggle left behind and report tests would
+# pass or fail depending on it. Tests that need their own model dir still override
+# this with self.settings(EMPLOYABILITY_MODEL_DIR=...).
+if "test" in sys.argv:
+    import tempfile
+
+    EMPLOYABILITY_MODEL_DIR = tempfile.mkdtemp(prefix="employability-test-")
