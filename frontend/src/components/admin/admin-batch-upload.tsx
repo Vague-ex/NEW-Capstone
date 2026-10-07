@@ -6,7 +6,7 @@ import {
 } from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
-  Download, Info, Save, X, User, Calendar, Pencil, EyeOff, RotateCcw, MoreHorizontal,
+  Download, Info, Save, X, User, Calendar, Pencil, MoreHorizontal,
 } from 'lucide-react';
 
 interface BatchEntry {
@@ -70,11 +70,10 @@ function RegistrationBadge({ status }: { status: MasterlistEntry['accountStatus'
 /** The per-row edit / retire / delete menu. Collapsed to one button so the
  *  graduate's name owns the row; the actions are a tap away rather than three
  *  permanent controls competing with it. */
-function RowActions({ entry, busy, onEdit, onToggleRetired, onRemove }: {
+function RowActions({ entry, busy, onEdit, onRemove }: {
   entry: MasterlistEntry;
   busy: boolean;
   onEdit: () => void;
-  onToggleRetired: () => void;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -116,18 +115,10 @@ function RowActions({ entry, busy, onEdit, onToggleRetired, onRemove }: {
             <Pencil className="size-3.5" /> Edit name or batch
           </button>
           <button
-            onClick={() => { setOpen(false); onToggleRetired(); }}
-            disabled={busy}
-            className={`${item} text-gray-700`}
-          >
-            {entry.isActive ? <EyeOff className="size-3.5" /> : <RotateCcw className="size-3.5" />}
-            {entry.isActive ? 'Retire' : 'Put back'}
-          </button>
-          <button
             onClick={() => { setOpen(false); onRemove(); }}
             disabled={busy || locked}
             title={locked
-              ? `An account is linked to this entry (${entry.accountStatus}) — retire it instead`
+              ? `A graduate is registered against this entry (${entry.accountStatus}), so it cannot be deleted`
               : undefined}
             className={`${item} text-red-600`}
           >
@@ -356,23 +347,6 @@ export function AdminBatchUpload() {
       refreshMasterlist();
     } catch (err) {
       setMasterError(err instanceof Error ? err.message : 'Could not save that entry.');
-    } finally {
-      setRowBusy(null);
-    }
-  };
-
-  /** Retire a row (it stops matching registrations) or put it back. */
-  const toggleRetired = async (m: MasterlistEntry) => {
-    setRowBusy(m.id);
-    setMasterError('');
-    try {
-      await updateMasterlistEntry(m.id, { isActive: !m.isActive });
-      setMasterNotice(m.isActive
-        ? `${m.name} retired. New registrations will no longer match this entry.`
-        : `${m.name} is active again.`);
-      refreshMasterlist();
-    } catch (err) {
-      setMasterError(err instanceof Error ? err.message : 'Could not update that entry.');
     } finally {
       setRowBusy(null);
     }
@@ -636,7 +610,6 @@ export function AdminBatchUpload() {
                               entry={m}
                               busy={rowBusy === m.id}
                               onEdit={() => startEdit(m)}
-                              onToggleRetired={() => toggleRetired(m)}
                               onRemove={() => removeEntry(m)}
                             />
                           </>
