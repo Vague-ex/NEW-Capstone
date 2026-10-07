@@ -3,9 +3,9 @@ Seed simulated graduate accounts: a believable stand-in for the real tracer
 data until enough graduates have registered.
 
 The graduates come from the realistic-data generator in
-ml/experiments/realistic_stress_test.py: the real masterlist batch sizes
-(2019-2024), a harsh job market, answers that carry a strong signal, and the
-same messiness a real survey has (blanks, recall error, mis-reported status).
+ml/experiments/realistic_stress_test.py: batches 2020-2025 (the study's scope),
+a harsh job market, answers that carry a strong signal, and the same messiness a
+real survey has (blanks, recall error, mis-reported status).
 Every graduate is surveyed (a census), and each becomes an account written to
 the same tables real registration fills, so the dashboard, reports, geomap and
 model read them exactly like real graduates.
@@ -28,6 +28,18 @@ Then:
 """
 
 from __future__ import annotations
+
+# Batch sizes for the demo cohort, on the study's 2020-2025 scope.
+#
+# Deliberately NOT realistic_stress_test.MASTERLIST_BATCH_SIZES: that constant is
+# the real masterlist's own 2019-2024 sizes, and the stress-test figures quoted in
+# the manuscript were produced with it, so it stays as it is. 2020-2024 keep their
+# real sizes here; 2025 continues the 2023-2024 trend, since the real masterlist
+# has no 2025 batch to copy. SURVEY_YEAR is 2026, so a 2025 graduate has a full
+# twelve months of exposure and the employed-within-12-months target still means
+# something for them.
+DEMO_BATCH_SIZES = {2020: 82, 2021: 70, 2022: 68, 2023: 102, 2024: 104, 2025: 108}
+
 
 import math
 import random
@@ -223,7 +235,7 @@ class Command(BaseCommand):
         sim = employability.load_simulator()
         params = {**sim.SCENARIOS[scenario], **sim.SIGNAL_LEVELS[signal]}
         np_rng = np.random.default_rng(seed)
-        population = sim.generate_population(np_rng, dict(sim.MASTERLIST_BATCH_SIZES), params)
+        population = sim.generate_population(np_rng, dict(DEMO_BATCH_SIZES), params)
         survey = sim.run_survey(np_rng, population, census=True, noisy=True)
         rng = random.Random(seed)
 
@@ -394,9 +406,17 @@ class Command(BaseCommand):
     def _clear(self) -> int:
         from users.models import AlumniAccount, GraduateMasterRecord, User
 
+        from tracer.models import VerificationDecision
+
         samples = AlumniAccount.objects.filter(employability.sample_q()).exclude(employability.demo_q())
         user_ids = list(samples.values_list("user_id", flat=True))
         with transaction.atomic():
+            # Decisions first. VerificationDecision.token is SET_NULL, so deleting
+            # the accounts cascades their tokens away and leaves the evaluations
+            # behind with a null token -- unattributable to any graduate, invisible
+            # to the reports (which join through token__alumni), and piling up a
+            # cohort's worth on every re-seed.
+            VerificationDecision.objects.filter(token__alumni__in=samples).delete()
             User.objects.filter(id__in=user_ids).delete()
             # The seeded masterlist goes with them: it exists only as this
             # cohort's denominator, and leaving it behind would report a
