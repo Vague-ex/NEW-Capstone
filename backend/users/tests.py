@@ -966,6 +966,46 @@ class MasterlistNameParsingTests(SimpleTestCase):
 		self.assertEqual(derive_last_name("Dela Cruz"), "Cruz")
 
 
+class StorageKeyTests(SimpleTestCase):
+	"""Supabase rejects a non-ASCII object key with 400 InvalidKey.
+
+	A matched registration builds the key from the masterlist name, so a graduate
+	whose name carries an enye used to get a 500 at the face-scan upload while an
+	unmatched one (key from the email) went through. Twenty of the real masterlist
+	names carry one.
+	"""
+
+	def test_accented_names_fold_to_ascii(self):
+		from users.api import _normalize_storage_key
+
+		for name, expected in (
+			("Fritz Sobrepeña Baliguas", "fritz-sobrepena-baliguas"),
+			("Ma. Jessadel Salido Quinoñes", "ma-jessadel-salido-quinones"),
+			("Roshel Nuñez Gonito", "roshel-nunez-gonito"),
+			("Ñino Peña", "nino-pena"),
+			("José Rizal", "jose-rizal"),
+		):
+			key = _normalize_storage_key(name)
+			self.assertEqual(key, expected)
+			self.assertTrue(key.isascii())
+
+	def test_plain_names_and_punctuation_are_unchanged_in_spirit(self):
+		from users.api import _normalize_storage_key
+
+		self.assertEqual(_normalize_storage_key("Ana Reyes"), "ana-reyes")
+		self.assertEqual(_normalize_storage_key("Jose  Rizal"), "jose-rizal")
+		self.assertEqual(_normalize_storage_key("Adrian Hernaez Duma-Op"), "adrian-hernaez-duma-op")
+		self.assertEqual(_normalize_storage_key("Ariel Jr. Rico Parcon"), "ariel-jr-rico-parcon")
+
+	def test_a_name_with_nothing_ascii_falls_back(self):
+		from users.api import _normalize_storage_key
+
+		for name in ("漢字 漢字", "   ", ""):
+			key = _normalize_storage_key(name)
+			self.assertTrue(key.startswith("alumni-"))
+			self.assertTrue(key.isascii())
+
+
 class MasterlistRowValidationTests(SimpleTestCase):
 	"""
 	An analytics report CSV uploaded through Batch Upload once saved rows such

@@ -338,7 +338,24 @@ def _refresh_master_match(account: AlumniAccount, *, relink: bool = False) -> bo
     return True
 
 def _normalize_storage_key(raw_value: str) -> str:
-    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw_value.strip())
+    """A Supabase Storage object key: lowercase ASCII words joined by dashes.
+
+    Accents are folded rather than kept. str.isalnum() is true for letters like
+    "n~" and "e'", so they used to survive into the key, and Supabase rejects a
+    non-ASCII key outright with 400 InvalidKey -- which surfaced as a 500 when a
+    graduate whose masterlist name carries one registered, since a matched
+    registration builds this key from that name. Folding keeps the key readable
+    ("sobrepena") where dropping the character would not ("sobrepe-a").
+    """
+    import unicodedata
+
+    folded = "".join(
+        ch for ch in unicodedata.normalize("NFKD", raw_value.strip())
+        if not unicodedata.combining(ch)
+    )
+    cleaned = "".join(
+        ch.lower() if (ch.isalnum() and ch.isascii()) else "-" for ch in folded
+    )
     normalized = "-".join(part for part in cleaned.split("-") if part)
     if normalized:
         return normalized
