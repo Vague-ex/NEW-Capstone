@@ -843,14 +843,40 @@ export async function deleteMasterlistEntry(id: string): Promise<void> {
     await throwIfNotOk(response);
 }
 
+/** Move every master list record of one batch year to another. The fix for a
+ *  CSV uploaded under the wrong year. Refused (409) when a name would end up
+ *  twice in the target batch. */
+export async function renameMasterlistYear(year: number, target: number): Promise<{
+    moved: number; from: number; to: number; rematched: number;
+}> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/years/${year}/`, {
+        method: 'PATCH',
+        headers: withAdminAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ year: target }),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
+/** Delete every master list record of one batch year. Refused (409) while any
+ *  graduate is registered against it. */
+export async function deleteMasterlistYear(year: number): Promise<{ deleted: number; year: number }> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/years/${year}/`, {
+        method: 'DELETE',
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 export async function createMasterlistEntries(
     entries: { name: string; graduation_year: number }[],
 ): Promise<{
     created: number;
+    /** How many rows were already on file. */
     duplicates?: number;
-    skipped?: number;
-    /** Rows the server refused, with the reason (first 50). */
-    skippedRows?: { row: number; name: string; reason: string }[];
+    /** Which rows were already on file, so the admin sees the names. */
+    skippedRows?: { name: string; batch_year: number }[];
     entries: { id: string; name: string; batch_year: number }[];
 }> {
     const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/bulk-create/`, {

@@ -275,6 +275,7 @@ class BatchSummaryReportView(APIView):
                 [
                     year,
                     b["n"],
+                    b["employed"],
                     _pct(b["employed"], b["n"]),
                     _avg(b["tth"]),
                     _pct(sum(b["bsis_first"]), len(b["bsis_first"])),
@@ -292,6 +293,7 @@ class BatchSummaryReportView(APIView):
                 [
                     "Total",
                     totals["n"],
+                    totals["employed"],
                     _pct(totals["employed"], totals["n"]),
                     _avg(totals["tth"]),
                     _pct(sum(totals["bsis_first"]), len(totals["bsis_first"])),
@@ -304,6 +306,7 @@ class BatchSummaryReportView(APIView):
             "columns": [
                 "Batch",
                 "Alumni (N)",
+                "Employed (n)",
                 "Employment Rate",
                 "Avg Time-to-Hire (mo)",
                 "BSIS-Aligned (First)",

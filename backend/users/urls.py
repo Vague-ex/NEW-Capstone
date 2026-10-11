@@ -18,6 +18,7 @@ from .api import (
     AdminAuditFeedView,
     MasterlistCheckView,
     MasterlistEntryView,
+    MasterlistYearView,
     MasterlistListView,
     PendingAlumniListView,
     ProfileReviewAlumniListView,
@@ -122,6 +123,8 @@ urlpatterns = [
     ),
     path("admin/masterlist/", MasterlistListView.as_view(), name="admin-masterlist-list"),
     path("admin/masterlist/bulk-create/", MasterlistBulkCreateView.as_view(), name="admin-masterlist-bulk-create"),
+    # Before the <uuid:record_id> route so an int year is not read as an id.
+    path("admin/masterlist/years/<int:year>/", MasterlistYearView.as_view(), name="admin-masterlist-year"),
     path("admin/masterlist/<uuid:record_id>/", MasterlistEntryView.as_view(), name="admin-masterlist-entry"),
     path("admin/users/", AdminListCreateView.as_view(), name="admin-users"),
     path("admin/users/<uuid:admin_id>/", AdminDetailView.as_view(), name="admin-user-detail"),

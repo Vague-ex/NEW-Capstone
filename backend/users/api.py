@@ -4194,6 +4194,10 @@ class MasterlistBulkCreateView(APIView):
 
         created = []
         duplicates = 0
+        # Which rows were already on file, so the admin sees WHICH names were
+        # skipped instead of only how many. The frontend already read
+        # `skippedRows`; the backend never sent it.
+        skipped_rows: list[dict] = []
         with transaction.atomic():
             for name, year_int in valid:
                 # Registration matches the graduate's family name against
@@ -4207,6 +4211,7 @@ class MasterlistBulkCreateView(APIView):
                     created.append({"id": str(obj.id), "name": obj.full_name, "batch_year": obj.batch_year})
                 else:
                     duplicates += 1
+                    skipped_rows.append({"name": name, "batch_year": year_int})
             # Link graduates who registered before these rows existed.
             rematched = 0
             if created:
@@ -4222,10 +4227,112 @@ class MasterlistBulkCreateView(APIView):
                 "created": len(created),
                 "rematched": rematched,
                 "duplicates": duplicates,
+                "skippedRows": skipped_rows,
                 "entries": created,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class MasterlistYearView(APIView):
+    """Admin: rename or delete a whole batch year on the master list.
+
+    A batch year owns no row of its own -- it exists because graduates carry it
+    -- so both operations act on those graduates:
+
+      PATCH {"year": 2026}  moves every record of this batch to that year. The
+                            fix for a CSV uploaded under the wrong year.
+      DELETE                removes every record of this batch.
+
+    Both refuse rather than surprise. A rename that would collide with a name
+    already in the target year is refused with the names; a delete is refused
+    while any graduate is registered against the batch, the same rule a single
+    row follows, because clearing their master_record would silently turn them
+    back into unmatched registrations.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def patch(self, request, year):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        try:
+            target = int(request.data.get("year"))
+        except (TypeError, ValueError):
+            return Response({"detail": "Send the new year."}, status=status.HTTP_400_BAD_REQUEST)
+        max_year = _masterlist_max_year()
+        if not (MASTERLIST_MIN_YEAR <= target <= max_year):
+            return Response(
+                {"detail": f"Year must be between {MASTERLIST_MIN_YEAR} and {max_year}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if target == year:
+            return Response({"detail": "That is already the batch year."}, status=status.HTTP_400_BAD_REQUEST)
+
+        moving = GraduateMasterRecord.objects.filter(batch_year=year, is_sample=False)
+        if not moving.exists():
+            return Response({"detail": f"No master list records in batch {year}."}, status=status.HTTP_404_NOT_FOUND)
+
+        # The uploader treats (name, batch_year) as the identity, so a move that
+        # duplicates one would leave two rows a registration could match.
+        taken = {
+            n.strip().lower()
+            for n in GraduateMasterRecord.objects.filter(batch_year=target, is_sample=False)
+            .values_list("full_name", flat=True)
+        }
+        clashes = [n for n in moving.values_list("full_name", flat=True) if n.strip().lower() in taken]
+        if clashes:
+            return Response(
+                {
+                    "detail": (
+                        f"{len(clashes)} name(s) already exist in batch {target}: "
+                        f"{', '.join(clashes[:3])}. Nothing was moved."
+                    ),
+                    "clashes": clashes[:50],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        from tracer import employability
+
+        with transaction.atomic():
+            moved = moving.update(batch_year=target)
+            # Registration matches on batch_year exactly, so a graduate who was
+            # pending under the old year may match now (and vice versa).
+            rematched = 0
+            for account in AlumniAccount.objects.select_related("user").filter(
+                Q(master_record__isnull=True) | Q(master_record__batch_year=target)
+            ).exclude(employability.sample_q()):
+                rematched += _refresh_master_match(account, relink=True)
+        return Response({"moved": moved, "from": year, "to": target, "rematched": rematched})
+
+    def delete(self, request, year):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        records = GraduateMasterRecord.objects.filter(batch_year=year, is_sample=False)
+        if not records.exists():
+            return Response({"detail": f"No master list records in batch {year}."}, status=status.HTTP_404_NOT_FOUND)
+
+        registered = AlumniAccount.objects.filter(master_record__in=records).count()
+        if registered:
+            return Response(
+                {
+                    "detail": (
+                        f"{registered} graduate(s) are registered against batch {year}. "
+                        "Remove or re-link those accounts first; nothing was deleted."
+                    ),
+                    "registered": registered,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        deleted = records.count()
+        records.delete()
+        return Response({"deleted": deleted, "year": year})
 
 
 class MasterlistEntryView(APIView):

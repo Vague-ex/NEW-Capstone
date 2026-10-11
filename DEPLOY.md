@@ -246,6 +246,35 @@ into the frontend bundle, not read at runtime.
 
 ---
 
+## 8b. Two-year retracking reminders
+
+`send_retracking_reminders` emails every ACTIVE graduate whose record is 730
+days old, whatever their employment status. It is idempotent, has a 30-day
+cooldown per graduate, and skips seeded accounts — so a double run cannot
+double-send. Nothing schedules it until you do.
+
+**Prove it locally first.** `--dry-run` sends nothing and prints who would get one:
+
+```bash
+cd backend && ../venv/Scripts/python.exe manage.py send_retracking_reminders --dry-run
+```
+
+It reports `sent=N skipped=M`. `sent=0` early in the project is correct: nobody
+is 730 days old yet.
+
+**Then schedule it on the VPS:**
+
+```bash
+crontab -e
+0 2 * * * cd /opt/gradtracer && docker compose exec -T backend python manage.py send_retracking_reminders
+```
+
+> The database is shared between the VPS and any developer laptop. A non-dry
+> run from a laptop emails real graduates — keep `--dry-run` on anything you
+> schedule locally.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause |

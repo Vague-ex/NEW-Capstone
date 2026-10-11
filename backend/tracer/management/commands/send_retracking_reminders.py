@@ -12,6 +12,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Prefetch
 from django.utils import timezone
 
+from tracer import employability
 from tracer.models import EmploymentProfile
 from users.models import AccountStatus, AlumniAccount
 from users.retracking import (
@@ -54,10 +55,13 @@ class Command(BaseCommand):
         from_email = options.get("from_email")
         login_url = options.get("login_url")
 
-        # Pending and rejected accounts are never asked to retrace.
+        # Pending and rejected accounts are never asked to retrace, and neither
+        # are the seeded ones: they carry .test addresses today, but one real
+        # address on a sample row would email a graduate who does not exist.
         accounts = (
             AlumniAccount.objects.select_related("user", "profile")
             .filter(account_status=AccountStatus.ACTIVE)
+            .exclude(employability.sample_q())
             .prefetch_related(
                 Prefetch(
                     "employment_profiles",

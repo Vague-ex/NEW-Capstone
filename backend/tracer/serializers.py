@@ -12,6 +12,8 @@ Handles validation and serialization of:
 
 from rest_framework import serializers
 from users.models import AlumniProfile, AlumniAccount
+
+from .validators import FieldValidationRules
 from tracer.models import (
     EmploymentProfile, WorkAddress, CompetencyProfile,
     EmploymentRecord, AlumniSkill, Skill
@@ -47,7 +49,14 @@ class EducationalBackgroundSerializer(serializers.Serializer):
     """Section 2: Educational Background"""
 
     graduation_date = serializers.DateField(required=True)
-    graduation_year = serializers.IntegerField(required=True, min_value=2020, max_value=2025)
+    # Bounds come from FieldValidationRules.BATCH_RANGE so there is one source.
+    # They used to be a hardcoded 2020-2025, which already rejected the 2019
+    # batch on file and would have started rejecting this year's in 2026.
+    graduation_year = serializers.IntegerField(
+        required=True,
+        min_value=FieldValidationRules.BATCH_RANGE[0],
+        max_value=FieldValidationRules.BATCH_RANGE[1],
+    )
     scholarship = serializers.CharField(max_length=255, required=False, allow_blank=True)
     highest_attainment = serializers.ChoiceField(
         choices=['NA', 'Graduate', 'PostGrad', 'Doctorate'],

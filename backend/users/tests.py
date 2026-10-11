@@ -1639,6 +1639,88 @@ class AuthEnumerationAndIpThrottleTests(TestCase):
 
 
 @skipUnless(connection.vendor == "postgresql", "masterlist CHECK constraints use Postgres regex classes")
+class MasterlistYearTests(TestCase):
+	"""Renaming or deleting a batch year acts on the graduates that carry it.
+
+	A year owns no row of its own, so "rename 2025 to 2026" means moving those
+	records -- the fix for a CSV uploaded under the wrong year.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="year-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		self.a = GraduateMasterRecord.objects.create(
+			full_name="Ana Reyes", last_name="Reyes", batch_year=2025)
+		self.b = GraduateMasterRecord.objects.create(
+			full_name="Ben Cruz", last_name="Cruz", batch_year=2025)
+
+	def _url(self, year):
+		return f"/api/admin/masterlist/years/{year}/"
+
+	def test_renaming_a_year_moves_every_record_in_it(self):
+		response = self.client.patch(self._url(2025), {"year": 2026}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(response.data["moved"], 2)
+		self.a.refresh_from_db()
+		self.b.refresh_from_db()
+		self.assertEqual([self.a.batch_year, self.b.batch_year], [2026, 2026])
+
+	def test_a_rename_that_would_duplicate_a_name_is_refused(self):
+		"""The uploader treats (name, batch_year) as the identity, so two rows
+		with the same name in one batch would both match a registration."""
+		GraduateMasterRecord.objects.create(
+			full_name="Ana Reyes", last_name="Reyes", batch_year=2026)
+
+		response = self.client.patch(self._url(2025), {"year": 2026}, format="json", **self.headers)
+		self.assertEqual(response.status_code, 409)
+		self.assertIn("Ana Reyes", response.data["clashes"])
+		self.a.refresh_from_db()
+		self.assertEqual(self.a.batch_year, 2025)  # nothing moved
+
+	def test_deleting_a_year_removes_its_records(self):
+		response = self.client.delete(self._url(2025), **self.headers)
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(response.data["deleted"], 2)
+		self.assertFalse(GraduateMasterRecord.objects.filter(batch_year=2025).exists())
+
+	def test_a_year_with_a_registered_graduate_is_not_deleted(self):
+		"""Clearing their master_record would silently turn a verified graduate
+		back into an unmatched registration."""
+		user = User.objects.create_user(email="reg@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		AlumniAccount.objects.create(
+			user=user, account_status=AccountStatus.ACTIVE, master_record=self.a)
+
+		response = self.client.delete(self._url(2025), **self.headers)
+		self.assertEqual(response.status_code, 409)
+		self.assertEqual(response.data["registered"], 1)
+		self.assertEqual(GraduateMasterRecord.objects.filter(batch_year=2025).count(), 2)
+
+	def test_an_out_of_range_or_unknown_year_is_refused(self):
+		self.assertEqual(
+			self.client.patch(self._url(2025), {"year": 1900}, format="json", **self.headers).status_code, 400)
+		self.assertEqual(
+			self.client.patch(self._url(2025), {"year": 2025}, format="json", **self.headers).status_code, 400)
+		self.assertEqual(self.client.delete(self._url(1999), **self.headers).status_code, 404)
+
+	def test_a_non_admin_cannot_touch_a_batch_year(self):
+		self.assertIn(self.client.delete(self._url(2025)).status_code, (401, 403))
+		self.assertEqual(GraduateMasterRecord.objects.filter(batch_year=2025).count(), 2)
+
+	def test_seeded_rows_are_never_moved_or_deleted(self):
+		"""The simulated masterlist is a separate population behind its own
+		debug switch; admin year maintenance must not reach it."""
+		sample = GraduateMasterRecord.objects.create(
+			full_name="Seeded Person", last_name="Person", batch_year=2025, is_sample=True)
+
+		self.client.patch(self._url(2025), {"year": 2026}, format="json", **self.headers)
+		sample.refresh_from_db()
+		self.assertEqual(sample.batch_year, 2025)
+
+
 class MasterlistEntryEditTests(TestCase):
 	"""Admins can correct, retire and remove masterlist rows."""
 
@@ -1900,6 +1982,20 @@ class GraduatingStudentReminderEmailTests(TestCase):
 
 		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
 		self._graduating("recent@example.com", past, reminded_at=timezone.now() - timedelta(days=3))
+		with patch("users.retracking.send_branded_email") as send:
+			call_command("send_retracking_reminders")
+		self.assertEqual(send.call_count, 0)
+
+	def test_command_never_emails_a_seeded_graduate(self):
+		"""Simulated accounts carry .test addresses today, but one real address
+		on a sample row would email a graduate who does not exist."""
+		from django.core.management import call_command
+
+		past = (timezone.now() - timedelta(days=60)).strftime("%Y-%m")
+		account = self._graduating("seeded@example.com", past)
+		account.biometric_template = {"is_sample": True}
+		account.save(update_fields=["biometric_template"])
+
 		with patch("users.retracking.send_branded_email") as send:
 			call_command("send_retracking_reminders")
 		self.assertEqual(send.call_count, 0)

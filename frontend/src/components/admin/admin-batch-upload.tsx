@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { PortalLayout } from '../shared/portal-layout';
 import {
   createMasterlistEntries, deleteMasterlistEntry, fetchMasterlist, updateMasterlistEntry,
+  renameMasterlistYear, deleteMasterlistYear,
   type MasterlistEntry,
 } from '../../app/api-client';
 import {
   Upload, CheckCircle2, AlertCircle, FileText, Plus, Trash2,
-  Download, Info, Save, X, User, Calendar, Pencil, MoreHorizontal,
+  Download, Info, Save, X, User, Calendar, Pencil, MoreHorizontal, Settings,
 } from 'lucide-react';
 
 interface BatchEntry {
@@ -142,6 +143,10 @@ export function AdminBatchUpload() {
   const [importedCount, setImportedCount] = useState(0);
   const [importedEntries, setImportedEntries] = useState<BatchEntry[]>([]);
   const [savedSummary, setSavedSummary] = useState<{ created: number; skipped: number } | null>(null);
+  /** Rows sent so far / total, while a chunked upload is in flight. */
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
+  /** Names already on file, shown for confirmation before anything is written. */
+  const [dupePreview, setDupePreview] = useState<{ name: string; graduationYear: string }[] | null>(null);
   const [csvError, setCsvError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -193,6 +198,108 @@ export function AdminBatchUpload() {
     masterPerBatch[yr] ?? 0;
   const [manualSaved, setManualSaved] = useState(false);
   const [manualError, setManualError] = useState('');
+  const [yearMenuOpen, setYearMenuOpen] = useState(false);
+  const [newYear, setNewYear] = useState('');
+  const [yearMenuError, setYearMenuError] = useState('');
+  const [renameYear, setRenameYear] = useState<{ from: number; to: string } | null>(null);
+  const [yearBusy, setYearBusy] = useState(false);
+  // Batch years an admin opened before any graduate carries one, so a new batch
+  // can be seen and filled before its CSV exists.
+  //
+  // localStorage, not a table: a year has no fields of its own, so a table would
+  // store nothing but its own primary key. The moment one record exists the year
+  // comes back from the database for every admin; until then it is one person's
+  // working state. Survives reloads, which component state did not.
+  const [openedYears, setOpenedYears] = useState<number[]>([]);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('gt.openedBatchYears') ?? '[]');
+      if (Array.isArray(saved)) setOpenedYears(saved.filter((y: unknown) => typeof y === 'number'));
+    } catch { /* a cleared or blocked store just means no extra years */ }
+  }, []);
+  const persistOpenedYears = (years: number[]) => {
+    setOpenedYears(years);
+    try {
+      localStorage.setItem('gt.openedBatchYears', JSON.stringify(years));
+    } catch { /* private window: the years still work for this session */ }
+  };
+
+  // Tiles and the manual-entry dropdown both show the batches on file plus the
+  // ones opened by hand. The dropdown used to read YEAR_RANGE (2020 onward), so
+  // 2019 could not be picked even though 98 rows on file are 2019.
+  const shownYears = Array.from(new Set([...tileYears, ...openedYears]))
+    .filter(y => y >= MIN_GRAD_YEAR && y <= MAX_GRAD_YEAR)
+    .sort((a, b) => a - b);
+  const selectableYears = shownYears;
+
+  const addBatchYear = () => {
+    const year = Number(newYear);
+    if (!year || year < MIN_GRAD_YEAR || year > MAX_GRAD_YEAR) {
+      setYearMenuError(`Year must be between ${MIN_GRAD_YEAR} and ${MAX_GRAD_YEAR}.`);
+      return;
+    }
+    if (shownYears.includes(year)) {
+      setYearMenuError(`Batch ${year} is already listed.`);
+      return;
+    }
+    setYearMenuError('');
+    persistOpenedYears([...openedYears, year]);
+    setNewYear('');
+  };
+
+  /** Move every record of one batch to another year. */
+  const applyRenameYear = async () => {
+    if (!renameYear) return;
+    const target = Number(renameYear.to);
+    if (!target || target < MIN_GRAD_YEAR || target > MAX_GRAD_YEAR) {
+      setYearMenuError(`Year must be between ${MIN_GRAD_YEAR} and ${MAX_GRAD_YEAR}.`);
+      return;
+    }
+    setYearBusy(true);
+    setYearMenuError('');
+    try {
+      const res = await renameMasterlistYear(renameYear.from, target);
+      // The year was opened by hand and has now moved, so carry the marker with
+      // it -- otherwise the old empty year keeps a tile and the new one loses it.
+      persistOpenedYears(
+        openedYears.map(y => (y === renameYear.from ? target : y)).filter((y, i, a) => a.indexOf(y) === i),
+      );
+      setRenameYear(null);
+      setManualError('');
+      setManualSaved(false);
+      refreshMasterlist();
+      setYearMenuError(`Moved ${res.moved} record(s) from ${res.from} to ${res.to}.`);
+    } catch (err) {
+      setYearMenuError(err instanceof Error ? err.message : 'Could not move that batch.');
+    } finally {
+      setYearBusy(false);
+    }
+  };
+
+  /** Close an empty batch year, or delete every record in a populated one. */
+  const removeBatchYear = async (year: number) => {
+    const count = batchCount(year);
+    if (count === 0) {
+      persistOpenedYears(openedYears.filter(y => y !== year));
+      setYearMenuError('');
+      return;
+    }
+    if (!window.confirm(
+      `Delete all ${count} master list record(s) in batch ${year}? This cannot be undone.`,
+    )) return;
+    setYearBusy(true);
+    setYearMenuError('');
+    try {
+      const res = await deleteMasterlistYear(year);
+      persistOpenedYears(openedYears.filter(y => y !== year));
+      refreshMasterlist();
+      setYearMenuError(`Deleted ${res.deleted} record(s) from batch ${year}.`);
+    } catch (err) {
+      setYearMenuError(err instanceof Error ? err.message : 'Could not delete that batch.');
+    } finally {
+      setYearBusy(false);
+    }
+  };
 
   const parseCsvLine = (line: string): string[] => {
     const out: string[] = [];
@@ -379,8 +486,11 @@ export function AdminBatchUpload() {
     setImportedCount(c => Math.max(0, c - 1));
   };
 
-  /** Persist the (possibly edited) preview rows to the masterlist DB. */
-  const saveImportedToDb = async () => {
+  /** Persist the (possibly edited) preview rows to the masterlist DB.
+   *
+   *  `confirmed` is set by the duplicate dialog: the first call stops to show
+   *  what is already on file, the second goes ahead with the new rows only. */
+  const saveImportedToDb = async (confirmed = false) => {
     setCsvError('');
     // Validate each row before sending.
     const cleaned: { name: string; graduation_year: number }[] = [];
@@ -397,23 +507,49 @@ export function AdminBatchUpload() {
         : 'No rows to save.');
       return;
     }
+    // Flag rows already on the master list BEFORE writing anything. The list is
+    // already loaded for the table below, so this costs no request.
+    const onFile = new Set(
+      masterEntries.map(m => `${m.name.trim().toLowerCase()}|${m.graduationYear ?? ''}`),
+    );
+    const dupes = cleaned.filter(r => onFile.has(`${r.name.toLowerCase()}|${r.graduation_year}`));
+    if (dupes.length && !confirmed) {
+      setDupePreview(dupes.map(r => ({ name: r.name, graduationYear: String(r.graduation_year) })));
+      return;
+    }
+    setDupePreview(null);
+
     setIsProcessing(true);
+    setUploadProgress({ done: 0, total: cleaned.length });
     try {
-      const res = await createMasterlistEntries(cleaned);
-      const created = typeof res?.created === 'number' ? res.created : cleaned.length;
-      const skipped = cleaned.length - created;
-      setSavedSummary({ created, skipped });
+      // Sent in chunks so the admin sees "x of y" instead of a spinner that
+      // sits there for a 500-row file. Every row was validated above, so a
+      // later chunk cannot fail on something an earlier one would have caught.
+      const CHUNK = 25;
+      let created = 0;
+      const skippedRows: { name: string; batch_year: number }[] = [];
+      for (let i = 0; i < cleaned.length; i += CHUNK) {
+        const slice = cleaned.slice(i, i + CHUNK);
+        const res = await createMasterlistEntries(slice);
+        created += typeof res?.created === 'number' ? res.created : slice.length;
+        skippedRows.push(...(res?.skippedRows ?? []));
+        setUploadProgress({ done: Math.min(i + CHUNK, cleaned.length), total: cleaned.length });
+      }
+      setSavedSummary({ created, skipped: cleaned.length - created });
       setCsvStage('saved');
       refreshMasterlist();
-      const serverSkipped = (res?.skippedRows ?? []).map(r => `Row ${r.row}: ${r.reason}`);
-      const allSkipped = [...errors, ...serverSkipped];
-      if (allSkipped.length) {
-        setCsvError(`${allSkipped.length} row(s) not saved: ${allSkipped.slice(0, 3).join('; ')}`);
+      if (skippedRows.length) {
+        const names = skippedRows.slice(0, 3).map(r => `${r.name} (${r.batch_year})`);
+        setCsvError(
+          `${skippedRows.length} row(s) were already on the master list and were not added: ${names.join('; ')}`
+          + (skippedRows.length > 3 ? ` and ${skippedRows.length - 3} more.` : ''),
+        );
       }
     } catch (err) {
       setCsvError(err instanceof Error ? err.message : 'Save failed. Please try again.');
     } finally {
       setIsProcessing(false);
+      setUploadProgress(null);
     }
   };
 
@@ -488,13 +624,137 @@ export function AdminBatchUpload() {
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Master List Status</h3>
               <p className="text-gray-500 text-xs mt-0.5">Current graduate records on file</p>
             </div>
-            <div className="text-right">
-              <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '1.8rem', lineHeight: 1 }}>{totalMaster}</p>
-              <p className="text-gray-400 text-xs">total entries</p>
+            <div className="flex items-start gap-2">
+              <div className="text-right">
+                <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '1.8rem', lineHeight: 1 }}>{totalMaster}</p>
+                <p className="text-gray-400 text-xs">total entries</p>
+              </div>
+              {/* Batch year maintenance. Only years opened by hand can be
+                  removed here -- once a graduate carries a year, the year is
+                  the records, and removing it would mean deleting them. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setYearMenuOpen(o => !o)}
+                  aria-label="Manage batch years"
+                  aria-expanded={yearMenuOpen}
+                  className="flex size-9 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
+                >
+                  <Settings className="size-4" />
+                </button>
+                {yearMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setYearMenuOpen(false)} />
+                    <div className="absolute right-0 top-full z-20 mt-1 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-lg text-left">
+                      <p className="text-gray-800 text-xs" style={{ fontWeight: 700 }}>Batch years</p>
+                      <p className="text-gray-400 text-[11px] mt-0.5 leading-relaxed">
+                        Open a batch before its records exist. It gets a tile and becomes
+                        selectable when adding graduates by hand.
+                      </p>
+
+                      <div className="mt-2.5 flex items-center gap-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder={String(MAX_GRAD_YEAR)}
+                          value={newYear}
+                          onChange={e => setNewYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBatchYear(); } }}
+                          className="w-20 px-2.5 py-2 border border-gray-200 rounded-lg text-sm tabular-nums"
+                        />
+                        <button
+                          type="button"
+                          onClick={addBatchYear}
+                          className="flex-1 px-3 py-2 rounded-lg bg-[#166534] hover:bg-[#14532d] text-white text-xs transition"
+                          style={{ fontWeight: 600 }}
+                        >
+                          Add year
+                        </button>
+                      </div>
+                      {yearMenuError && (
+                        <p className="text-rose-600 text-[11px] mt-1.5">{yearMenuError}</p>
+                      )}
+
+                      <div className="mt-3 border-t border-gray-100 pt-2.5 max-h-60 overflow-y-auto">
+                        {shownYears.map(yr => {
+                          const count = batchCount(yr);
+                          const renaming = renameYear?.from === yr;
+                          return (
+                            <div key={yr} className="py-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-gray-700 tabular-nums min-w-0">
+                                  Batch {yr}
+                                  <span className="text-gray-400">
+                                    {' · '}{count} record{count !== 1 ? 's' : ''}
+                                  </span>
+                                </span>
+                                <span className="flex items-center gap-0.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={count === 0 || yearBusy}
+                                    title={count === 0
+                                      ? 'Nothing to move: this batch has no records.'
+                                      : `Move all ${count} record(s) to another year`}
+                                    onClick={() => { setRenameYear({ from: yr, to: '' }); setYearMenuError(''); }}
+                                    className="flex size-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent transition"
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={yearBusy}
+                                    title={count === 0
+                                      ? 'Close this empty batch year'
+                                      : `Delete all ${count} record(s) in this batch`}
+                                    onClick={() => void removeBatchYear(yr)}
+                                    className="flex size-7 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-30 transition"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </span>
+                              </div>
+                              {renaming && (
+                                <div className="flex items-center gap-2 mt-1.5 mb-1 pl-2">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="New year"
+                                    value={renameYear.to}
+                                    onChange={e => setRenameYear({ from: yr, to: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void applyRenameYear(); } }}
+                                    className="w-20 px-2 py-1.5 border border-[#166534] rounded-lg text-xs tabular-nums"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={yearBusy}
+                                    onClick={() => void applyRenameYear()}
+                                    className="px-2.5 py-1.5 rounded-lg bg-[#166534] text-white text-[11px] disabled:opacity-60"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    Move
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRenameYear(null)}
+                                    className="px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] text-gray-600"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-3 sm:grid-cols-6 xl:grid-cols-3 2xl:grid-cols-6 gap-2">
-            {tileYears.map(yr => {
+            {shownYears.map(yr => {
               const count = batchCount(yr);
               return (
                 <div key={yr} className="bg-gray-50 border border-gray-100 rounded-xl p-2 text-center">
@@ -767,14 +1027,16 @@ export function AdminBatchUpload() {
                     Discard and upload a different file
                   </button>
                   <button
-                    onClick={saveImportedToDb}
+                    onClick={() => void saveImportedToDb()}
                     disabled={isProcessing || importedEntries.length === 0}
                     className="flex items-center justify-center gap-2 bg-[#166534] hover:bg-[#14532d] disabled:opacity-50 text-white text-sm px-5 py-2.5 rounded-lg transition"
                     style={{ fontWeight: 600 }}>
                     {isProcessing ? (
                       <>
                         <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Saving…
+                        {uploadProgress
+                          ? `Saving ${uploadProgress.done} of ${uploadProgress.total}…`
+                          : 'Saving…'}
                       </>
                     ) : (
                       <>
@@ -783,6 +1045,74 @@ export function AdminBatchUpload() {
                       </>
                     )}
                   </button>
+                </div>
+
+                {uploadProgress && (
+                  <div className="mt-3">
+                    <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full bg-[#166534] transition-all duration-200"
+                        style={{ width: `${Math.round((uploadProgress.done / uploadProgress.total) * 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-gray-500 text-xs mt-1.5 text-center tabular-nums">
+                      {uploadProgress.done} of {uploadProgress.total} rows sent
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Duplicate confirmation. Shown before anything is written, so the
+                admin can back out of re-uploading a file they already imported. */}
+            {dupePreview && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                <div className="w-full max-w-lg rounded-2xl bg-white p-5 sm:p-6 shadow-xl">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="size-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
+                        {dupePreview.length} of {importedEntries.length} rows are already on the master list
+                      </h3>
+                      <p className="text-gray-500 text-sm mt-1">
+                        {dupePreview.length >= importedEntries.length
+                          ? 'Every row in this file already exists. Saving would add nothing.'
+                          : `Only the ${importedEntries.length - dupePreview.length} new row(s) will be added. The rest are left as they are.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 max-h-48 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50 p-3">
+                    {dupePreview.slice(0, 50).map((d, i) => (
+                      <p key={i} className="text-xs text-gray-600 py-0.5">
+                        {d.name} <span className="text-gray-400">· {d.graduationYear}</span>
+                      </p>
+                    ))}
+                    {dupePreview.length > 50 && (
+                      <p className="text-xs text-gray-400 pt-1">
+                        … and {dupePreview.length - 50} more.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDupePreview(null)}
+                      className="px-4 py-2.5 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={dupePreview.length >= importedEntries.length}
+                      onClick={() => void saveImportedToDb(true)}
+                      className="px-4 py-2.5 rounded-lg bg-[#166534] hover:bg-[#14532d] disabled:opacity-50 text-white text-sm transition"
+                      style={{ fontWeight: 600 }}
+                    >
+                      Add the {importedEntries.length - dupePreview.length} new row(s)
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -861,7 +1191,7 @@ export function AdminBatchUpload() {
                       onChange={e => updateEntry(i, 'graduationYear', e.target.value)}
                       className={inputCls}>
                       <option value="">Year</option>
-                      {YEAR_RANGE.map(y => <option key={y} value={y}>{y}</option>)}
+                      {selectableYears.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                     <button type="button" onClick={() => removeRow(i)} disabled={manualEntries.length === 1}
                       className="flex size-9 items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition disabled:opacity-30">
