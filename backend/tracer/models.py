@@ -194,6 +194,13 @@ class CityMunicipality(models.Model):
 	name = models.CharField(max_length=160)
 	psgc_id = models.CharField(max_length=12, unique=True)
 	is_city = models.BooleanField(default=False, help_text="True for city/submunicipality, False for municipality.")
+	# Postal code, filled by `manage.py sync_city_zip_codes` and editable in
+	# Admin -> Settings -> Locations. Blank where the import found no match.
+	#
+	# One value per city, which is an approximation: a large city has a code per
+	# district (Manila alone has 18), so the city-proper code is stored and the
+	# graduate can correct it on the work-address form.
+	zip_code = models.CharField(max_length=10, blank=True)
 	is_active = models.BooleanField(default=True)
 
 	class Meta:
