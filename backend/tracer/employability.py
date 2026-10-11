@@ -578,15 +578,24 @@ def group_indicators(frame, graduates: int | None = None, active=None) -> dict:
     }
 
 
+def _pooled(window) -> float:
+    """Employment rate of the window's graduates pooled together, rather than
+    the average of each batch's rate: batches differ a lot in how many
+    graduates answered, and an unweighted average lets a batch of five count
+    as much as a batch of ninety.
+    """
+    return sum(rate * n for _, rate, n in window) / sum(n for _, _, n in window)
+
+
 def employment_outlook(
     per_batch: list[dict], horizon: int | None = None, current_year: int | None = None,
 ) -> dict:
     """Expected range for the next batches' employment rate.
 
-    Not a forecast from features. The centre is the mean of the last
-    OUTLOOK_WINDOW batches with a reportable rate. The half-width comes from a
-    backtest: how far each past batch landed from the mean of the batches
-    before it (80% interval, 1.2816 times the root-mean-square error). With
+    Not a forecast from features. The centre pools the graduates of the last
+    OUTLOOK_WINDOW batches with a reportable rate, so batches count in
+    proportion to how many answered. The half-width comes from a backtest: how
+    far each past batch landed from the pooled rate of the batches before it (80% interval, 1.2816 times the root-mean-square error). With
     fewer than three backtest errors it falls back to +/-20 points, the
     uncertainty the realistic-data stress test found for six batches.
 
@@ -596,7 +605,7 @@ def employment_outlook(
     Batches that have already graduated are never shown as predictions.
     """
     points = [
-        (entry["batch"], entry["employment_rate"]["rate"])
+        (entry["batch"], entry["employment_rate"]["rate"], entry["employment_rate"].get("n") or 1)
         for entry in per_batch
         if entry["employment_rate"]["rate"] is not None
     ]
@@ -609,11 +618,10 @@ def employment_outlook(
 
     errors = []
     for i in range(1, len(points)):
-        previous = [rate for _, rate in points[max(0, i - OUTLOOK_WINDOW):i]]
-        errors.append(points[i][1] - mean(previous))
+        errors.append(points[i][1] - _pooled(points[max(0, i - OUTLOOK_WINDOW):i]))
 
     recent = points[-OUTLOOK_WINDOW:]
-    centre = mean(rate for _, rate in recent)
+    centre = _pooled(recent)
     if len(errors) >= 3:
         half = max(1.2816 * math.sqrt(mean(e * e for e in errors)), OUTLOOK_MIN_HALF_WIDTH)
         basis = "backtest"
@@ -646,7 +654,7 @@ def employment_outlook(
     return {
         "available": True,
         "basis": basis,
-        "batches_used": [batch for batch, _ in recent],
+        "batches_used": [batch for batch, _, _ in recent],
         "backtest_errors": len(errors),
         "half_width": half,
         "years": years,

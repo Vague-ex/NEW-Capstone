@@ -1299,6 +1299,20 @@ class EmployabilityDataGuardTests(SimpleTestCase):
 		self.assertNotIn(2027, [b["batch"] for b in payload["per_batch"]])
 		self.assertEqual(payload["overall"]["respondents"], 37)
 
+	def test_expected_range_is_not_dragged_by_a_tiny_batch(self):
+		"""A batch where five graduates answered and all are employed must not
+		pull the centre as hard as a batch where ninety answered."""
+		from tracer.employability import employment_outlook
+
+		batches = [
+			{"batch": 2023, "employment_rate": {"rate": 0.6, "n": 90}},
+			{"batch": 2024, "employment_rate": {"rate": 0.6, "n": 60}},
+			{"batch": 2025, "employment_rate": {"rate": 1.0, "n": 5}},
+		]
+		centre = employment_outlook(batches, current_year=2026)["years"][0]["centre"]
+		# Pooled: (54 + 36 + 5) / 155 = 0.613, not the 0.733 average of the rates.
+		self.assertAlmostEqual(centre, 95 / 155, places=3)
+
 	def test_expected_range_follows_the_latest_reported_batch(self):
 		from tracer.employability import employment_outlook
 
