@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   Plus, Trash2, Pencil, Check, X, AlertCircle, RefreshCw, Search,
   Tag, Briefcase, MapPin, FolderOpen, Building2, Inbox, Users, Shield, ChevronDown,
@@ -80,94 +80,19 @@ const LIST_GRID = 'grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y
 type Selection = 'all' | null | string;
 
 // ── Inline editable text (pencil → input) ───────────────────────────────────
-function InlineEdit({
-  value,
-  onSave,
-  className = '',
-  inputClassName = '',
-}: {
-  value: string;
-  onSave: (v: string) => Promise<void>;
-  className?: string;
-  inputClassName?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
+/** Which row, anywhere on the page, currently has its editor open.
+ *
+ *  Page-wide rather than per-list so that opening one row closes any other --
+ *  two open editors mean two pending saves and an ambiguous Enter key. */
+const OpenEditorContext = createContext<{
+  openId: string | null;
+  setOpenId: (id: string | null) => void;
+}>({ openId: null, setOpenId: () => {} });
 
-  useEffect(() => {
-    if (!editing) setDraft(value);
-  }, [value, editing]);
-
-  const save = async () => {
-    const trimmed = draft.trim();
-    if (!trimmed || trimmed === value) {
-      setEditing(false);
-      return;
-    }
-    setBusy(true);
-    setErr('');
-    try {
-      await onSave(trimmed);
-      setEditing(false);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Save failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (editing) {
-    return (
-      <div className={`flex flex-wrap lg:flex-nowrap items-center gap-1.5 ${className}`}>
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') save();
-            if (e.key === 'Escape') setEditing(false);
-          }}
-          className={`flex-1 min-w-0 rounded-lg border border-[#166534] bg-white px-2.5 py-1 text-sm outline-none ring-2 ring-[#166534]/15 ${inputClassName}`}
-        />
-        <button
-          onClick={save}
-          disabled={busy}
-          className="flex size-9 lg:size-7 shrink-0 items-center justify-center rounded-lg bg-[#166534] text-white hover:bg-[#0f3d21] disabled:opacity-60 transition"
-          aria-label="Save"
-        >
-          {busy ? (
-            <span className="size-3 border border-white/30 border-t-white rounded-full animate-spin" />
-          ) : (
-            <Check className="size-3.5" />
-          )}
-        </button>
-        <button
-          onClick={() => {
-            setEditing(false);
-            setErr('');
-          }}
-          className="flex size-9 lg:size-7 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 transition"
-          aria-label="Cancel"
-        >
-          <X className="size-3.5" />
-        </button>
-        {err && <span className="text-rose-600 text-xs">{err}</span>}
-      </div>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => setEditing(true)}
-      className={`group flex items-center gap-1.5 text-left min-h-9 lg:min-h-0 ${className}`}
-    >
-      <span className="text-sm text-gray-700 min-w-0 break-words">{value}</span>
-      {/* Hover-only on desktop; always shown on touch screens, which have no hover. */}
-      <Pencil className="size-3.5 lg:size-3 shrink-0 text-gray-300 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition" />
-    </button>
-  );
+function OpenEditorProvider({ children }: { children: React.ReactNode }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const value = useMemo(() => ({ openId, setOpenId }), [openId]);
+  return <OpenEditorContext.Provider value={value}>{children}</OpenEditorContext.Provider>;
 }
 
 // ── Confirm-delete button (morphs in place) ─────────────────────────────────
@@ -381,38 +306,178 @@ function InlineRenameTrigger({
 
 // ── Item-row: name + optional badge + edit + delete ─────────────────────────
 function ItemRow({
+  rowId,
   name,
   badge,
   badgeTone = 'gray',
   onRename,
   onDelete,
+  secondLabel,
+  secondValue,
+  secondPlaceholder = 'none',
+  onSaveSecond,
 }: {
+  /** Identifies this row in the page-wide "one editor open" state. */
+  rowId: string;
   name: string;
   badge?: string;
   badgeTone?: 'gray' | 'navy';
   onRename: (v: string) => Promise<void>;
   onDelete: () => Promise<void>;
+  /** A second editable value shown beside the name. Only the Cities tab uses
+   *  it (for the ZIP code); the other tabs pass nothing and keep a single field. */
+  secondLabel?: string;
+  secondValue?: string;
+  secondPlaceholder?: string;
+  onSaveSecond?: (v: string) => Promise<void>;
 }) {
+  const { openId, setOpenId } = useContext(OpenEditorContext);
+  const editing = openId === rowId;
+  const [draftName, setDraftName] = useState(name);
+  const [draftSecond, setDraftSecond] = useState(secondValue || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  // Reset the drafts whenever the row closes or the stored values change, so
+  // reopening never shows someone else's abandoned typing.
+  useEffect(() => {
+    if (!editing) {
+      setDraftName(name);
+      setDraftSecond(secondValue || '');
+      setErr('');
+    }
+  }, [editing, name, secondValue]);
+
+  const save = async () => {
+    const nextName = draftName.trim();
+    const nextSecond = draftSecond.trim();
+    if (!nextName) {
+      setErr('Name cannot be blank.');
+      return;
+    }
+    setBusy(true);
+    setErr('');
+    try {
+      if (nextName !== name) await onRename(nextName);
+      if (onSaveSecond && nextSecond !== (secondValue || '')) await onSaveSecond(nextSecond);
+      setOpenId(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="rounded-xl border border-[#166534]/30 bg-[#166534]/[0.03] px-2 lg:px-3 py-2.5">
+        {/* Stacks on a phone, one line on a desktop. Only the layout differs
+            between breakpoints -- never which controls exist. */}
+        <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+          <label className="flex-1 min-w-0">
+            <span className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">Name</span>
+            <input
+              autoFocus
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void save();
+                if (e.key === 'Escape') setOpenId(null);
+              }}
+              className="w-full rounded-lg border border-[#166534] bg-white px-2.5 py-2 lg:py-1.5 text-sm outline-none ring-2 ring-[#166534]/15"
+            />
+          </label>
+          {onSaveSecond && (
+            <label className="sm:w-24 shrink-0">
+              <span className="block text-[10px] uppercase tracking-wide text-gray-500 mb-1">{secondLabel}</span>
+              <input
+                value={draftSecond}
+                inputMode="numeric"
+                placeholder={secondPlaceholder}
+                onChange={(e) => setDraftSecond(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void save();
+                  if (e.key === 'Escape') setOpenId(null);
+                }}
+                className="w-full rounded-lg border border-[#166534] bg-white px-2.5 py-2 lg:py-1.5 text-sm tabular-nums outline-none ring-2 ring-[#166534]/15"
+              />
+            </label>
+          )}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={busy}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#166534] px-3 min-h-9 lg:min-h-8 text-sm text-white hover:bg-[#0f3d21] disabled:opacity-60 transition"
+              style={{ fontWeight: 600 }}
+            >
+              {busy
+                ? <span className="size-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                : <Check className="size-3.5" />}
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpenId(null)}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 min-h-9 lg:min-h-8 text-sm text-gray-600 hover:bg-gray-50 transition"
+            >
+              <X className="size-3.5" />
+              Cancel
+            </button>
+          </div>
+        </div>
+        {err && <p className="text-rose-600 text-xs mt-1.5">{err}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2 px-2 lg:px-3 py-2 rounded-xl hover:bg-gray-50 transition">
       <div className="flex-1 min-w-0">
-        <InlineEdit value={name} onSave={onRename} className="w-full" />
-        {/* The badge sits under the name at every width. Beside it, a long
-            industry ("Professional and Business Services") left the name a few
-            letters per line in the three-column desktop grid. */}
-        {badge && (
-          <span
-            className={`mt-0.5 inline-block max-w-full truncate align-top text-[11px] px-2 py-0.5 rounded-full ${
-              badgeTone === 'navy'
-                ? 'bg-[#166534]/10 text-[#166534]'
-                : 'bg-gray-100 text-gray-500'
-            }`}
-            style={{ fontWeight: 600 }}
-          >
-            {badge}
+        <span className="block text-sm text-gray-700 break-words">{name}</span>
+        {/* Badge and ZIP both sit under the name, at every width. As a separate
+            right-hand column the ZIP crowded Edit and Delete on a phone; as a
+            chip it costs no horizontal room and reads the same on both. */}
+        {(badge || onSaveSecond) && (
+          <span className="mt-0.5 flex flex-wrap items-center gap-1">
+            {badge && (
+              <span
+                className={`inline-block max-w-full truncate text-[11px] px-2 py-0.5 rounded-full ${
+                  badgeTone === 'navy'
+                    ? 'bg-[#166534]/10 text-[#166534]'
+                    : 'bg-gray-100 text-gray-500'
+                }`}
+                style={{ fontWeight: 600 }}
+              >
+                {badge}
+              </span>
+            )}
+            {onSaveSecond && (
+              <span
+                className={`inline-block text-[11px] px-2 py-0.5 rounded-full tabular-nums ${
+                  secondValue ? 'bg-gray-100 text-gray-600' : 'bg-amber-50 text-amber-700'
+                }`}
+                style={{ fontWeight: 600 }}
+              >
+                {secondLabel} {secondValue || secondPlaceholder}
+              </span>
+            )}
           </span>
         )}
       </div>
+      {/* Always visible, at every width. It used to be a hover-only pencil,
+          which meant desktop users had to guess the row was editable at all --
+          phones showed it because touch has no hover, which is why only the
+          mobile view tested well. */}
+      <button
+        type="button"
+        onClick={() => setOpenId(rowId)}
+        className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 min-h-9 lg:min-h-8 text-xs text-gray-600 hover:border-[#166534] hover:text-[#166534] transition"
+        style={{ fontWeight: 600 }}
+      >
+        <Pencil className="size-3.5" />
+        <span className="hidden sm:inline">Edit</span>
+      </button>
       <DeleteButton onConfirm={onDelete} />
     </div>
   );
@@ -713,6 +778,7 @@ export function AdminSettings() {
       pageTitle="Settings"
       pageSubtitle="Manage skills, jobs, locations and admin users"
     >
+     <OpenEditorProvider>
       <div className="gt-stagger space-y-5">
         {/* Tab nav (matches admin-analytics.tsx pattern) */}
         <div className="border-b border-gray-200">
@@ -842,6 +908,7 @@ export function AdminSettings() {
         {SHOW_DEBUG_PANEL && <DebugAccountsPanel />}
         {/* #endregion DEBUG-ONLY:CurrenChanDebug */}
       </div>
+     </OpenEditorProvider>
     </PortalLayout>
   );
 }
@@ -1226,6 +1293,7 @@ function SkillsView({
             (compact ? visibleSkills.slice(0, limit) : visibleSkills).map((s) => (
               <ItemRow
                 key={s.id}
+                rowId={s.id}
                 name={s.name}
                 badge={selected === 'all' && s.category_name ? s.category_name : undefined}
                 onRename={(name) => onRenameSkill(s.id, name)}
@@ -1427,6 +1495,7 @@ function JobsView({
             (compact ? visibleJobs.slice(0, limit) : visibleJobs).map((j) => (
               <ItemRow
                 key={j.id}
+                rowId={j.id}
                 name={j.name}
                 badge={selected === 'all' && j.industry_name ? j.industry_name : undefined}
                 onRename={(name) => onRenameJob(j.id, name)}
@@ -1859,6 +1928,7 @@ function ProvincesView({ regions, search }: { regions: RegionItem[]; search: str
           visible.map((p) => (
             <ItemRow
               key={p.id}
+              rowId={p.id}
               name={p.name}
               badge={p.psgc_id}
               badgeTone="navy"
@@ -1881,6 +1951,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newPsgc, setNewPsgc] = useState('');
+  const [newZip, setNewZip] = useState('');
   const [newIsCity, setNewIsCity] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -1923,18 +1994,25 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
       setError('Pick a region (and optionally a province), then enter a name + PSGC ID.');
       return;
     }
+    if (newZip.trim() && !/^\d{4}$/.test(newZip.trim())) {
+      setError('ZIP code must be 4 digits, or left blank.');
+      return;
+    }
     setAdding(true);
     setError(null);
     try {
-      await citiesApi.create({
+      const created = await citiesApi.create({
         name: newName.trim(),
         region_id: filterRegionId,
         province_id: filterProvinceId || null,
         psgc_id: newPsgc.trim(),
         is_city: newIsCity,
       });
+      // create does not take a ZIP, so set it in the same breath when given.
+      if (newZip.trim()) await citiesApi.update(created.city.id, { zip_code: newZip.trim() });
       setNewName('');
       setNewPsgc('');
+      setNewZip('');
       setNewIsCity(false);
       await load();
     } catch (err) {
@@ -1962,9 +2040,27 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
     }
   };
 
+  // The ZIP import leaves roughly one city in five unmatched, and the scrape
+  // carries the odd wrong code. This is how those get fixed without a developer.
+  const handleZip = async (id: string, zip_code: string) => {
+    try {
+      await citiesApi.update(id, { zip_code });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ZIP update failed.');
+    }
+  };
+
   const q = search.trim().toLowerCase();
   const visible = q
-    ? items.filter((c) => c.name.toLowerCase().includes(q) || c.psgc_id.includes(q))
+    // "no zip" lists every city still missing one, which is the whole point of
+    // being able to edit them here.
+    ? q === 'no zip'
+      ? items.filter((c) => !c.zip_code)
+      : items.filter((c) =>
+          c.name.toLowerCase().includes(q)
+          || c.psgc_id.includes(q)
+          || (c.zip_code || '').includes(q))
     : items;
 
   return (
@@ -2014,7 +2110,7 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
       </div>
 
       {filterRegionId && (
-        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2 lg:max-w-4xl">
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-5 gap-2 lg:max-w-4xl">
           <input
             type="text"
             placeholder="City / Municipality name"
@@ -2028,6 +2124,14 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
             value={newPsgc}
             onChange={(e) => setNewPsgc(e.target.value.replace(/\D/g, '').slice(0, 12))}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="ZIP (optional)"
+            value={newZip}
+            onChange={(e) => setNewZip(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm tabular-nums"
           />
           <div className="flex items-center gap-2 sm:col-span-1">
             <label className="flex items-center gap-1.5 text-xs text-gray-700">
@@ -2069,11 +2173,16 @@ function CitiesView({ regions, search }: { regions: RegionItem[]; search: string
           visible.map((c) => (
             <ItemRow
               key={c.id}
+              rowId={c.id}
               name={`${c.name}${c.is_city ? ' (City)' : ''}`}
               badge={c.psgc_id}
               badgeTone="navy"
               onRename={(name) => handleRename(c.id, name)}
               onDelete={() => handleDelete(c.id)}
+              secondLabel="ZIP"
+              secondValue={c.zip_code}
+              secondPlaceholder="not set"
+              onSaveSecond={(zip) => handleZip(c.id, zip)}
             />
           ))
         )}
@@ -2294,6 +2403,7 @@ function BarangaysView({ regions, search }: { regions: RegionItem[]; search: str
           shown.map((b) => (
             <ItemRow
               key={b.id}
+              rowId={b.id}
               name={b.name}
               badge={b.psgc_id}
               badgeTone="navy"
@@ -2359,6 +2469,7 @@ function RegionsView({
           visible.map((r) => (
             <ItemRow
               key={r.id}
+              rowId={r.id}
               name={r.name}
               badge={r.code}
               badgeTone="navy"

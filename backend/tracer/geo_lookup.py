@@ -160,10 +160,14 @@ def resolve_location(payload: dict) -> dict:
     """Map a Nominatim reverse result onto this app's reference rows."""
     address = payload.get("address") or {}
     country_code = (address.get("country_code") or "").lower()
+    # Nominatim returns a postcode for most fixes. The work-address form falls
+    # back to it when the chosen city has no stored ZIP of its own.
+    postcode = str(address.get("postcode") or "").strip()
     result = {
         "country": address.get("country") or "",
         "country_code": country_code,
         "abroad": bool(country_code) and country_code != "ph",
+        "postcode": postcode,
         "locality": "",
         "state": "",
         "region": None,

@@ -121,6 +121,197 @@ def _psgc_fixture():
 	]
 
 
+class CityZipCodeEndpointTests(TestCase):
+	"""The cities API serves the ZIP and lets an admin correct it.
+
+	The importer leaves roughly one city in five without a code, so this edit is
+	the only way those get filled without a developer.
+	"""
+
+	def setUp(self):
+		from rest_framework.test import APIClient
+		from tracer.models import CityMunicipality, Region
+		from users.models import User
+
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="zip-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+		region = Region.objects.create(code="NIR", name="Negros Island Region", psgc_id="1800000000")
+		self.city = CityMunicipality.objects.create(
+			region=region, name="City of Bacolod", psgc_id="1804501000", is_city=True, zip_code="6100",
+		)
+
+	def test_the_list_serves_the_zip_so_the_form_can_autofill_it(self):
+		response = self.client.get("/api/reference/cities/")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["cities"][0]["zip_code"], "6100")
+
+	def test_an_admin_can_correct_it(self):
+		response = self.client.patch(
+			f"/api/reference/cities/{self.city.id}/", {"zip_code": "6101"},
+			format="json", **self.headers,
+		)
+		self.assertEqual(response.status_code, 200)
+		self.city.refresh_from_db()
+		self.assertEqual(self.city.zip_code, "6101")
+
+	def test_a_blank_clears_it(self):
+		self.client.patch(
+			f"/api/reference/cities/{self.city.id}/", {"zip_code": ""},
+			format="json", **self.headers,
+		)
+		self.city.refresh_from_db()
+		self.assertEqual(self.city.zip_code, "")
+
+	def test_a_code_that_is_not_four_digits_is_refused(self):
+		for bad in ("61", "61000", "abcd", "610a"):
+			response = self.client.patch(
+				f"/api/reference/cities/{self.city.id}/", {"zip_code": bad},
+				format="json", **self.headers,
+			)
+			self.assertEqual(response.status_code, 400, bad)
+		self.city.refresh_from_db()
+		self.assertEqual(self.city.zip_code, "6100")
+
+	def test_a_non_admin_cannot_edit_it(self):
+		response = self.client.patch(
+			f"/api/reference/cities/{self.city.id}/", {"zip_code": "6101"}, format="json",
+		)
+		self.assertIn(response.status_code, (401, 403))
+		self.city.refresh_from_db()
+		self.assertEqual(self.city.zip_code, "6100")
+
+
+class CityZipSyncTests(TestCase):
+	"""sync_city_zip_codes: the matching rules that keep wrong codes out.
+
+	The scrape has no PSGC code, so rows are matched by name. The dangerous case
+	is a name that exists twice: a Quezon City barangay called Katipunan must not
+	lend its 1105 to the Zamboanga del Norte municipality, which is really 7109.
+	"""
+
+	def setUp(self):
+		from tracer.models import CityMunicipality, Province, Region
+
+		self.ncr = Region.objects.create(code="NCR", name="National Capital Region (NCR)", psgc_id="1300000000")
+		self.zamboanga = Region.objects.create(code="Region IX", name="Region IX", psgc_id="0900000000")
+		self.zdn = Province.objects.create(region=self.zamboanga, name="Zamboanga del Norte", psgc_id="0907200000")
+		self.negros = Province.objects.create(region=self.zamboanga, name="Negros Occidental", psgc_id="0604500000")
+
+		self.quezon_city = CityMunicipality.objects.create(
+			region=self.ncr, name="Quezon City", psgc_id="1380700000", is_city=True)
+		self.caloocan = CityMunicipality.objects.create(
+			region=self.ncr, name="City of Caloocan", psgc_id="1380100000", is_city=True)
+		# Same name as a Quezon City barangay, and a municipality, not a city.
+		self.katipunan = CityMunicipality.objects.create(
+			region=self.zamboanga, province=self.zdn, name="Katipunan", psgc_id="0907209000")
+		# Four more "Quezon" municipalities, so the parent rollup is ambiguous.
+		for i in range(4):
+			CityMunicipality.objects.create(
+				region=self.zamboanga, province=self.zdn, name="Quezon", psgc_id=f"090720100{i}")
+		self.bago = CityMunicipality.objects.create(
+			region=self.zamboanga, province=self.negros, name="Bago City", psgc_id="0604501000", is_city=True)
+		self.santa = CityMunicipality.objects.create(
+			region=self.zamboanga, province=self.negros, name="Santa Cruz", psgc_id="0604502000")
+
+	def _sync(self, rows):
+		from tracer.zip_sync import sync_zip_codes
+
+		return sync_zip_codes(rows, apply=True)
+
+	def test_a_shared_name_never_takes_the_weaker_passs_code(self):
+		self._sync([
+			("Zamboanga del Norte", "Katipunan", "7109"),   # province+city, rank 1
+			("Quezon City", "Katipunan", "1105"),            # unique name, rank 3
+		])
+		self.katipunan.refresh_from_db()
+		self.assertEqual(self.katipunan.zip_code, "7109")
+
+	def test_a_city_parent_outranks_four_municipalities_of_that_name(self):
+		"""'Quezon City' folds to 'quezon', which four municipalities answer to."""
+		self._sync([("Quezon City", "Alicia", "1105")])
+		self.quezon_city.refresh_from_db()
+		self.assertEqual(self.quezon_city.zip_code, "1105")
+
+	def test_districts_roll_up_and_the_city_proper_code_wins(self):
+		self._sync([
+			("Kalookan City (North)", "Bagong Silang", "1428"),
+			("Kalookan City (South)", "Baesa", "1401"),
+		])
+		self.caloocan.refresh_from_db()
+		# Kalookan is the scrape's spelling, and (North)/(South) are one city.
+		self.assertEqual(self.caloocan.zip_code, "1401")
+
+	def test_abbreviated_saints_match(self):
+		self._sync([("Negros Occidental", "Sta. Cruz", "6101")])
+		self.santa.refresh_from_db()
+		self.assertEqual(self.santa.zip_code, "6101")
+
+	def test_a_middle_initial_in_the_psa_name_still_matches(self):
+		"""The PSA writes "Enrique B. Magalona"; the scrape writes it without
+		the initial. Province-scoped, so dropping it cannot reach another province."""
+		from tracer.models import CityMunicipality
+
+		magalona = CityMunicipality.objects.create(
+			region=self.zamboanga, province=self.negros,
+			name="Enrique B. Magalona", psgc_id="0604503000",
+		)
+		self._sync([("Negros Occidental", "Enrique Magalona", "6118")])
+		magalona.refresh_from_db()
+		self.assertEqual(magalona.zip_code, "6118")
+
+	def test_dropping_initials_never_outvotes_an_exact_match(self):
+		"""The loose pass is ranked below the exact one, so a name that only
+		collides once an initial is removed cannot overwrite a real match."""
+		from tracer.models import CityMunicipality
+
+		exact = CityMunicipality.objects.create(
+			region=self.zamboanga, province=self.negros,
+			name="San Carlos", psgc_id="0604504000",
+		)
+		self._sync([
+			("Negros Occidental", "San Carlos", "6127"),      # rank 1
+			("Negros Occidental", "San B. Carlos", "9999"),   # rank 2, loose
+		])
+		exact.refresh_from_db()
+		self.assertEqual(exact.zip_code, "6127")
+
+	def test_po_boxes_and_institutional_codes_are_dropped(self):
+		from tracer.zip_sync import load_rows
+		import tempfile, os
+
+		rows_csv = "\n".join([
+			"Region,Location,ZIP Code",
+			"Big Companies & Institutions w/ Own ZIP Code:,Ateneo De Manila,917",
+			"Negros Occidental,Bago City,6101",
+		])
+		with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8-sig", newline="") as fh:
+			fh.write(rows_csv)
+			path = fh.name
+		try:
+			rows = load_rows(path)
+		finally:
+			os.unlink(path)
+		# Every institutional row carries a 3-digit code; only the real place stays.
+		self.assertEqual(rows, [("Negros Occidental", "Bago City", "6101")])
+
+	def test_a_dry_run_writes_nothing(self):
+		from tracer.zip_sync import sync_zip_codes
+
+		report = sync_zip_codes([("Negros Occidental", "Bago City", "6101")], apply=False)
+		self.assertEqual(report.updated, 1)
+		self.bago.refresh_from_db()
+		self.assertEqual(self.bago.zip_code, "")
+
+	def test_an_unmatched_row_is_reported_not_guessed(self):
+		report = self._sync([("Nowhere Province", "Nowhereville", "9999")])
+		self.assertEqual(report.unresolved, [("Nowhere Province", "Nowhereville", "9999")])
+		self.assertEqual(report.updated, 0)
+
+
 class PsgcSyncTests(TestCase):
 	"""
 	sync_psgc against the reference data as it was actually found: Region X

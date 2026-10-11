@@ -554,6 +554,9 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
         currentJobProvinceId: found.province?.id ?? '',
         currentJobCityId: found.city?.id ?? '',
         city_municipality: found.city?.name ?? '',
+        // OpenStreetMap's postcode is the district the pin sits in, which beats
+        // the city-proper code the select would otherwise supply.
+        zip_code: /^\d{4}$/.test(found.postcode ?? '') ? found.postcode : f.zip_code,
       }));
       setLocateNote(found.city
         ? { tone: 'ok', text: `Work address filled in from ${subject}. Please check it and adjust anything that is off.` }
@@ -601,12 +604,19 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
       !== form.currentJobCompany.trim().toLowerCase()
     );
 
-    // ZIP-code validation: PH must be exactly 4 digits when typed (the field
-    // remains optional, so empty stays valid). Foreign ZIPs are unrestricted.
+    // ZIP code is required for an employed graduate: it is autofilled from the
+    // chosen city, so a blank one means the city carries no stored code and the
+    // graduate has to supply it. PH must be exactly 4 digits; foreign are free.
+    if (isCurrentlyEmployed && !form.zip_code) {
+      setSaveError(form.currentJobLocation === 'Local (Philippines)'
+        ? 'ZIP code is required.'
+        : 'Postal code is required.');
+      setIsSaving(false);
+      return;
+    }
     if (
       isCurrentlyEmployed
       && form.currentJobLocation === 'Local (Philippines)'
-      && form.zip_code
       && !/^\d{4}$/.test(form.zip_code)
     ) {
       setSaveError('Philippine ZIP code must be exactly 4 digits.');
@@ -1295,6 +1305,8 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                                 ...f,
                                 currentJobCityId: e.target.value,
                                 city_municipality: city?.name ?? '',
+                                // The city carries its city-proper ZIP; still editable.
+                                zip_code: city?.zip_code || f.zip_code,
                               }));
                             }}
                             disabled={
@@ -1348,7 +1360,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
 
                   <div className="grid grid-cols-2 items-end gap-3">
                     <div>
-                      <FieldLabel>{isLocal ? 'ZIP Code' : 'Postal Code'}</FieldLabel>
+                      <FieldLabel required>{isLocal ? 'ZIP Code' : 'Postal Code'}</FieldLabel>
                       <input
                         type="text"
                         inputMode={isLocal ? 'numeric' : 'text'}

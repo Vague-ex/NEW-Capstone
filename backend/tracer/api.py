@@ -134,6 +134,7 @@ def _serialize_city(c: CityMunicipality) -> dict:
         "home_province_name": c.home_province.name if c.home_province_id else None,
         "name": c.name,
         "psgc_id": c.psgc_id,
+        "zip_code": c.zip_code,
         "is_city": c.is_city,
         "is_active": c.is_active,
     }
@@ -1001,6 +1002,16 @@ class CityMunicipalityDetailView(APIView):
             city.region_id = request.data.get("region_id")
         if "province_id" in request.data:
             city.province_id = request.data.get("province_id") or None
+        if "zip_code" in request.data:
+            # Blank clears it; otherwise a PH code, the same four-digit rule the
+            # importer and audit_data_quality apply.
+            zip_code = str(request.data.get("zip_code") or "").strip()
+            if zip_code and not (len(zip_code) == 4 and zip_code.isdigit()):
+                return Response(
+                    {"detail": "zip_code must be 4 digits, or blank to clear it."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            city.zip_code = zip_code
         if "is_city" in request.data:
             city.is_city = bool(request.data.get("is_city"))
         if "is_active" in request.data:

@@ -61,6 +61,9 @@ export interface CityMunicipalityItem {
     province_name: string | null;
     name: string;
     psgc_id: string;
+    /** Postal code of the city proper. Blank where the import found no match;
+     *  an admin fills those in Settings -> Locations. */
+    zip_code: string;
     is_city: boolean;
     is_active: boolean;
     /** Highly urbanized cities only: the province they are listed under. */
@@ -82,6 +85,9 @@ export interface LocationLookupResult {
     abroad: boolean;
     country: string;
     country_code: string;
+    /** Postal code OpenStreetMap reports for the point, when it has one. Used
+     *  as the fallback when the chosen city carries no stored ZIP. */
+    postcode: string;
     /** Abroad only: the town/city and state OpenStreetMap reports. */
     locality: string;
     state: string;

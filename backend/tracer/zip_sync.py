@@ -59,6 +59,17 @@ def fold(name: str) -> str:
     return _ALIASES.get(core, core)
 
 
+def drop_initials(name: str) -> str:
+    """fold(), minus any single-letter word.
+
+    The PSA writes middle initials the scrape leaves out -- "Enrique B.
+    Magalona" against "Enrique Magalona". Used only by the lower-confidence
+    passes, so a name that collides once the initial is gone cannot outvote an
+    exact province-scoped match.
+    """
+    return " ".join(word for word in fold(name).split() if len(word) > 1)
+
+
 def load_rows(path: str | Path | None = None) -> list[tuple[str, str, str]]:
     """Read the CSV as (province_or_parent_city, location, zip), 4-digit codes only."""
     path = Path(path) if path else DEFAULT_DATA_FILE
@@ -116,11 +127,17 @@ def _sync(rows, report: ZipSyncReport) -> None:
 
     by_province_city: dict[tuple[str, str], list] = defaultdict(list)
     by_name: dict[str, list] = defaultdict(list)
+    # The same two indexes with middle initials dropped, so the PSA's
+    # "Enrique B. Magalona" meets the scrape's "Enrique Magalona".
+    by_province_city_loose: dict[tuple[str, str], list] = defaultdict(list)
+    by_name_loose: dict[str, list] = defaultdict(list)
     for city in cities:
         by_name[fold(city.name)].append(city)
+        by_name_loose[drop_initials(city.name)].append(city)
         for province in (city.province, city.home_province):
             if province is not None:
                 by_province_city[(fold(province.name), fold(city.name))].append(city)
+                by_province_city_loose[(fold(province.name), drop_initials(city.name))].append(city)
 
     # city id -> confidence rank -> the codes that pass offered.
     # Ranked because the passes are not equally trustworthy: a Quezon City
@@ -128,11 +145,23 @@ def _sync(rows, report: ZipSyncReport) -> None:
     # del Norte municipality of the same name, which is really 7109.
     candidates: dict[str, dict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
     by_id = {str(c.id): c for c in cities}
-    passes = {1: "province+city", 2: "parent rollup", 3: "unique name"}
+    passes = {
+        1: "province+city",
+        2: "province+city, no initials",
+        3: "parent rollup",
+        4: "unique name",
+        5: "unique name, no initials",
+    }
 
     for parent, location, code in rows:
         report.rows += 1
         rank, hit = 1, by_province_city.get((fold(parent), fold(location)))
+        if not hit:
+            # Still province-scoped, so dropping an initial cannot reach across
+            # the country: "Enrique B. Magalona" meets "Enrique Magalona".
+            loose = by_province_city_loose.get((fold(parent), drop_initials(location)))
+            if loose and len(loose) == 1:
+                rank, hit = 2, loose
         if not hit:
             # `Manila | Binondo`: the parent column names the city itself.
             owner = by_name.get(fold(parent)) or []
@@ -141,11 +170,15 @@ def _sync(rows, report: ZipSyncReport) -> None:
                 # answer to. Only a city has districts to list, so that breaks it.
                 owner = [c for c in owner if c.is_city] or owner
             if len(owner) == 1:
-                rank, hit = 2, owner
+                rank, hit = 3, owner
         if not hit:
             named = by_name.get(fold(location))
             if named and len(named) == 1:
-                rank, hit = 3, named
+                rank, hit = 4, named
+        if not hit:
+            named = by_name_loose.get(drop_initials(location))
+            if named and len(named) == 1:
+                rank, hit = 5, named
         if not hit:
             report.unresolved.append((parent, location, code))
             continue

@@ -615,6 +615,10 @@ export default function RegisterAlumniEmployment({
         province_work: found.province?.name ?? '',
         city_municipality: found.city?.name ?? '',
         barangay: '',
+        // OpenStreetMap usually reports a postcode for the point, which is more
+        // precise than the city-proper code: it is the district the pin is in.
+        // The city-select handler fills the stored one when this is absent.
+        zip_code: /^\d{4}$/.test(found.postcode ?? '') ? found.postcode : f.zip_code,
       }));
       setWorkNote(found.city
         ? { tone: 'ok', text: `Work address filled in from ${subject}. Please check it and adjust anything that is off.` }
@@ -767,7 +771,10 @@ export default function RegisterAlumniEmployment({
         }
         {
           const expectedZipLen = isPhilippinesWork ? 4 : 5;
-          if (form.zip_code && form.zip_code.length !== expectedZipLen) {
+          if (!form.zip_code) {
+            return fail('Please answer the questions marked with a red asterisk.');
+          }
+          if (form.zip_code.length !== expectedZipLen) {
             setStepError(`ZIP code must be exactly ${expectedZipLen} digits`);
             return false;
           }
@@ -1422,8 +1429,15 @@ export default function RegisterAlumniEmployment({
                   <select
                     value={form.city_municipality}
                     onChange={(e) => {
-                      // PSGC dataset has no ZIP column - user types it manually now.
-                      setForm({ ...form, city_municipality: e.target.value, barangay: '' });
+                      // Cities carry their city-proper ZIP (sync_city_zip_codes).
+                      // It stays editable: a large city has a code per district.
+                      const picked = phCitiesWork.find(c => c.name === e.target.value);
+                      setForm({
+                        ...form,
+                        city_municipality: e.target.value,
+                        barangay: '',
+                        zip_code: picked?.zip_code || '',
+                      });
                     }}
                     disabled={!form.province_work && phProvincesWork.length > 0}
                     className={fieldCls(missing(!form.city_municipality), 'disabled:bg-gray-100')}
@@ -1458,7 +1472,7 @@ export default function RegisterAlumniEmployment({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">
-                ZIP Code (optional)
+                ZIP Code<Required />
               </label>
               <input
                 type="text"
@@ -1470,7 +1484,7 @@ export default function RegisterAlumniEmployment({
                   const digits = e.target.value.replace(/\D/g, '').slice(0, max);
                   setForm({ ...form, zip_code: digits });
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                className={fieldCls(missing(!form.zip_code))}
               />
               {form.zip_code && form.zip_code.length !== (isPhilippinesWork ? 4 : 5) && (
                 <p className="text-red-500 text-xs mt-1">ZIP must be exactly {isPhilippinesWork ? 4 : 5} digits</p>
