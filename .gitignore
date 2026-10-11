@@ -67,3 +67,10 @@ graduates_bsis.csv
 # Admin debug runtime state, rewritten by the debug panel. Never commit it:
 # a stray "simulated" would flip production reports to the fake cohort.
 backend/ml/models/employability/analytics_source.json
+
+# Trained model artifacts. ml/models is a bind mount from the checkout on the
+# VPS, which retrains its own, so a model built on a laptop must never travel
+# through git: model.joblib is a binary, and the active-* pointer is per-machine
+# runtime state like analytics_source.json above.
+backend/ml/models/employability/v*/
+backend/ml/models/employability/active*.json
