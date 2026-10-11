@@ -83,6 +83,11 @@ EMAIL_PROVIDERS = [("gmail.test", 0.72), ("yahoo.test", 0.18), ("outlook.test", 
 
 # (city, province, region, latitude, longitude, weight). PSGC spellings, so the
 # Employment page's dropdowns resolve them.
+# How far a seeded pin may sit from its city centroid, in degrees (~330 m).
+# It was 0.02 (2.2 km), which put pins in open water: every one of these
+# cities is coastal, so a 2 km nudge off a centroid crosses the shoreline.
+PIN_SPREAD = 0.003
+
 HOME_CITIES = [
     ("City of Talisay", "Negros Occidental", "Negros Island Region (NIR)", 10.7363, 122.9673, 22),
     ("City of Bacolod", "Negros Occidental", "Negros Island Region (NIR)", 10.6765, 122.9509, 20),
@@ -528,8 +533,8 @@ class Command(BaseCommand):
                     first_name=p["first"], middle_name=p["middle"], last_name=p["last"],
                     gender=p["gender"], birth_date=p["birth_date"], civil_status=p["civil_status"],
                     city=home[0], province=home[1], home_region=home[2], home_country="Philippines",
-                    home_latitude=round(home[3] + jitter.uniform(-0.02, 0.02), 6),
-                    home_longitude=round(home[4] + jitter.uniform(-0.02, 0.02), 6),
+                    home_latitude=round(home[3] + jitter.uniform(-PIN_SPREAD, PIN_SPREAD), 6),
+                    home_longitude=round(home[4] + jitter.uniform(-PIN_SPREAD, PIN_SPREAD), 6),
                     graduation_date=p["graduation_date"], graduation_year=p["batch"],
                     scholarship=p["scholarship"], further_studies_status=p["further_studies"],
                     academic_honors=p["academic_honors"], prior_work_experience=p["prior_work_experience"],
@@ -570,8 +575,8 @@ class Command(BaseCommand):
                         city_municipality=city, province=province or "—",
                         region=region if current["local"] else "Abroad",
                         country="Philippines" if current["local"] else region,
-                        latitude=round(lat + jitter.uniform(-0.015, 0.015), 6),
-                        longitude=round(lng + jitter.uniform(-0.015, 0.015), 6),
+                        latitude=round(lat + jitter.uniform(-PIN_SPREAD, PIN_SPREAD), 6),
+                        longitude=round(lng + jitter.uniform(-PIN_SPREAD, PIN_SPREAD), 6),
                     ))
                     if current["title"] and current["company"]:
                         records.append(EmploymentRecord(

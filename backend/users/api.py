@@ -3260,22 +3260,32 @@ class VerifiedAlumniListView(APIView):
             return _auth_error
         from tracer import employability
 
-        # Seeded simulated graduates (seed_simulated_graduates), both set on
-        # /admin/debug/a:
-        #   ?purpose=analytics (geomap, dashboard) follows the analytics source,
-        #   so it shows real graduates or seeded ones, never a mix;
-        #   the Verified Graduates list shows real graduates, plus the seeded
-        #   ones only while "show simulated accounts" is on.
+        # Seeded simulated graduates (seed_simulated_graduates), both switches
+        # on /admin/debug/a:
+        #   ?purpose=analytics (dashboard, predictions) follows the analytics
+        #     source and shows one population or the other, NEVER a mix -- an
+        #     employment rate over real and invented graduates together is not
+        #     a number that means anything;
+        #   ?purpose=geomap and the Verified Graduates list show real graduates
+        #     plus the seeded ones while "show simulated accounts" is on. A map
+        #     is pins, not statistics, so a mix is readable there and an admin
+        #     searching for a real graduate finds them whatever the analytics
+        #     source happens to be set to.
         settings = employability.debug_settings()
+        purpose = request.query_params.get("purpose")
         active = AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE)
-        if request.query_params.get("purpose") == "analytics":
+        if purpose == "analytics":
             active = employability.exclude_not_yet_graduated(
                 employability.filter_source(active, settings["source"])
             )
-        elif not settings["show_samples_in_verified"]:
-            # Demo graduates (/admin/debug/a) stay listed: they exist to show
-            # this page's badges and history.
-            active = active.filter(~employability.sample_q() | employability.demo_q())
+        else:
+            if not settings["show_samples_in_verified"]:
+                # Demo graduates (/admin/debug/a) stay listed: they exist to show
+                # this page's badges and history.
+                active = active.filter(~employability.sample_q() | employability.demo_q())
+            if purpose == "geomap":
+                # A graduating student has no workplace to plot yet.
+                active = employability.exclude_not_yet_graduated(active)
         try:
             verified_accounts = _alumni_dashboard_queryset(active).order_by("-updated_at")
             results = [_admin_alumni_payload(account) for account in verified_accounts]

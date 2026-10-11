@@ -509,12 +509,15 @@ export async function fetchProfileReviewAlumni(): Promise<unknown[]> {
 }
 
 /**
- * `analytics` (geomap, dashboard) follows the real/simulated source chosen on
- * /admin/debug/a; the default (Verified Graduates) is real graduates, plus
- * simulated ones only when that page's "show simulated accounts" is on.
+ * `analytics` (dashboard, predictions) follows the real/simulated source chosen
+ * on /admin/debug/a and never mixes the two. `geomap` and the default (Verified
+ * Graduates) show real graduates plus simulated ones when that page's "show
+ * simulated accounts" is on, so a real graduate is findable either way.
  */
-export async function fetchVerifiedAlumni(purpose: 'list' | 'analytics' = 'list'): Promise<unknown[]> {
-    const query = purpose === 'analytics' ? '?purpose=analytics' : '';
+export async function fetchVerifiedAlumni(
+    purpose: 'list' | 'analytics' | 'geomap' = 'list',
+): Promise<unknown[]> {
+    const query = purpose === 'list' ? '' : `?purpose=${purpose}`;
     const response = await fetch(`${API_BASE_URL}/api/admin/alumni/verified/${query}`, {
         headers: withAdminAuthHeaders(),
     });

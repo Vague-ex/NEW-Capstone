@@ -1279,22 +1279,26 @@ class RegistrationValidationGateTests(SimpleTestCase):
 		full = validate_registration_payload(self.CLEAN_SURVEY, self.CLEAN_PERSONAL)
 		self.assertEqual(full['completeness_score'], 100.0)
 
-	def test_graduation_years_outside_the_old_hard_coded_range_are_accepted(self):
+	def test_graduation_year_must_be_inside_the_study_scope(self):
 		"""
-		BATCH_RANGE was (2020, 2025). The masterlist holds 2019 batches and a
-		2026 graduate is already registered, so the old bound rejected real
-		people and would have broken again every January.
+		The study covers batches from 2020. The upper bound is the current year
+		rather than a fixed one, which is what used to break every January.
+
+		2019 was accepted while the masterlist still carried that batch. It no
+		longer does: those rows are out of scope and were removed, so a 2019
+		registration must now be refused rather than creating a batch the
+		analytics and the manuscript do not describe.
 		"""
-		for year in (2019, timezone.now().year):
+		current = validate_registration_payload(
+			self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=timezone.now().year)
+		)
+		self.assertTrue(current['is_valid'], 'this year should be accepted')
+
+		for year in (2019, 1999, 2999):
 			result = validate_registration_payload(
 				self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=year)
 			)
-			self.assertTrue(result['is_valid'], f'year {year} should be accepted')
-
-		future = validate_registration_payload(
-			self.CLEAN_SURVEY, dict(self.CLEAN_PERSONAL, graduation_year=2999)
-		)
-		self.assertFalse(future['is_valid'])
+			self.assertFalse(result['is_valid'], f'year {year} is outside the scope')
 
 	def test_future_graduation_dates_are_refused(self):
 		"""
@@ -1766,11 +1770,49 @@ class SimulatedSourceTests(TestCase):
 			self.assertEqual(response.json()["counts"], {"real": 1, "simulated": 1})
 			self.assertEqual(len(client.get("/api/admin/alumni/verified/", **self.headers).json()["results"]), 2)
 
-			# The geomap follows the analytics source instead.
+			# Analytics follows the source and shows ONE population: a rate over
+			# real and invented graduates together means nothing.
 			client.put("/api/admin/debug/analytics-settings/", {"source": "simulated"}, format="json", **self.headers)
 			self.assertEqual(
 				emails(client.get("/api/admin/alumni/verified/?purpose=analytics", **self.headers)),
 				["bea.santos21@gmail.test"],
+			)
+
+	def test_the_geomap_shows_both_populations(self):
+		"""A map is pins, not statistics, so a mix is readable -- and an admin
+		searching for a real graduate must find them whatever the analytics
+		source is set to. Looking for one and getting nothing is what sent us
+		hunting for a search bug that did not exist."""
+		client = APIClient()
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			emails = lambda r: sorted(a["email"] for a in r.json()["results"])  # noqa: E731
+			client.put(
+				"/api/admin/debug/analytics-settings/",
+				{"source": "simulated", "show_samples_in_verified": True},
+				format="json", **self.headers,
+			)
+			# Analytics: the seeded graduate only.
+			self.assertEqual(
+				emails(client.get("/api/admin/alumni/verified/?purpose=analytics", **self.headers)),
+				["bea.santos21@gmail.test"],
+			)
+			# Geomap: both, even though the source says simulated.
+			self.assertEqual(
+				emails(client.get("/api/admin/alumni/verified/?purpose=geomap", **self.headers)),
+				["bea.santos21@gmail.test", "real.grad@example.com"],
+			)
+
+	def test_the_geomap_honours_the_show_simulated_switch(self):
+		client = APIClient()
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			emails = lambda r: sorted(a["email"] for a in r.json()["results"])  # noqa: E731
+			client.put(
+				"/api/admin/debug/analytics-settings/",
+				{"show_samples_in_verified": False}, format="json", **self.headers,
+			)
+			self.assertEqual(
+				emails(client.get("/api/admin/alumni/verified/?purpose=geomap", **self.headers)),
+				["real.grad@example.com"],
 			)
 
 	def test_analytics_endpoint_reports_its_source(self):

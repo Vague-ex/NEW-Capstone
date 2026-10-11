@@ -125,14 +125,17 @@ class FieldValidationRules:
 
     # Continuous/Range Fields
     TIME_TO_HIRE_VALID = {1, 3, 4.5, 9, 18, 30}
-    # Was hard-coded (2020, 2025), which rejected real graduates: the masterlist
-    # holds 2019 batches and a 2026 graduate is already registered. A fixed upper
-    # bound also silently breaks every January, so it is anchored to the current
-    # year. It stops AT the current year: nobody can have graduated in the
-    # future, and allowing next year let 2027 records in, which then appeared as
-    # a batch in analytics. _validate_educational_background reads the year at
-    # call time so the bound moves without a server restart.
-    # 2020 is the first batch in scope; see MASTERLIST_MIN_YEAR.
+    # Lower bound: 2020 is the first batch the study covers (MASTERLIST_MIN_YEAR
+    # is the same number for the master list). Earlier years are out of scope,
+    # so letting one register would create a batch the analytics and the
+    # manuscript do not describe.
+    #
+    # Upper bound: the current year, read at call time by
+    # _validate_educational_background so it moves without a server restart. It
+    # was once hard-coded to 2025, which silently broke every January. It stops
+    # AT the current year rather than allowing the next: nobody can have
+    # graduated in the future, and permitting next year let 2027 records in,
+    # which then showed up in analytics as a batch that has not graduated yet.
     BATCH_RANGE = (2020, datetime.now().year)
     AGE_RANGE = (18, 70)
 
