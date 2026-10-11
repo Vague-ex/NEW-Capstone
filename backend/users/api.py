@@ -1520,6 +1520,10 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "workLocation": survey_data.get("currentJobLocation") or "",
         "workCity": addr_row.city_municipality if addr_row is not None else "",
         "workRegion": (addr_row.region or "") if addr_row is not None else "",
+        # Abroad workplaces have no PH region, so the country is the only place
+        # name they carry. Without it, searching the map for "Singapore" on the
+        # geomap found nothing.
+        "workCountry": (addr_row.country or "") if addr_row is not None else "",
         "unemploymentReason": survey_data.get("unemploymentReason") or "",
         "dateUpdated": timezone.localtime(account.updated_at).date().isoformat() if account.updated_at else timezone.localdate().isoformat(),
         **_admin_retracking_fields(account),

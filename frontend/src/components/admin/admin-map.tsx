@@ -3,7 +3,7 @@ import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
 import { fetchVerifiedAlumni } from '../../app/api-client';
 import { geocoderCityName } from '../../app/geolocation';
-import { MapPin, Filter, Users, CheckCircle2, AlertTriangle, Globe, Home, Search } from 'lucide-react';
+import { MapPin, Filter, Users, AlertTriangle, Globe, Home, Search } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
   employed: '#10b981',
@@ -167,7 +167,12 @@ export function AdminMap() {
   );
 
   const availableRegions = useMemo(
-    () => Array.from(new Set(alumniRecords.filter(a => a.geomapConsent === true && hasPlottableLocation(a)).map(workRegion).filter(Boolean)))
+    // "Abroad" is stored in WorkAddress.region, so it used to sit in this list
+    // beside the real regions -- and picking it with Location = Local gave a
+    // guaranteed empty map. Location already answers inside/outside the country.
+    () => Array.from(new Set(alumniRecords
+      .filter(a => a.geomapConsent === true && hasPlottableLocation(a))
+      .map(workRegion).filter(r => r && r !== 'Abroad')))
       .sort((a, b) => a.localeCompare(b)),
     [alumniRecords],
   );
@@ -186,7 +191,7 @@ export function AdminMap() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const rec = a as Record<string, unknown>;
-      if (!(['name', 'company', 'workCity', 'workLocation', 'workRegion'] as const).some(
+      if (!(['name', 'company', 'workCity', 'workLocation', 'workRegion', 'workCountry'] as const).some(
         k => ((rec[k] as string) ?? '').toLowerCase().includes(q)
       )) return false;
     }
@@ -453,7 +458,7 @@ export function AdminMap() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-gray-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search name, company, city, region…"
+              placeholder="Search name, company, city, region, country…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10 w-full sm:w-52 py-2.5 sm:py-1.5"
@@ -621,30 +626,6 @@ export function AdminMap() {
               )}
             </div>
 
-            {/* Biometric Status */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-              <h3 className="text-gray-800 mb-3" style={{ fontWeight: 700 }}>Face Recognition</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-4 text-emerald-500" />
-                    <span className="text-gray-600 text-xs">Captured</span>
-                  </div>
-                  <span className="text-gray-800 text-xs" style={{ fontWeight: 700 }}>
-                    {filteredAlumni.filter(a => a.biometricCaptured).length}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="size-4 text-amber-400" />
-                    <span className="text-gray-600 text-xs">Pending</span>
-                  </div>
-                  <span className="text-gray-800 text-xs" style={{ fontWeight: 700 }}>
-                    {filteredAlumni.filter(a => !a.biometricCaptured).length}
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>

@@ -38,13 +38,16 @@ function rateValue(r: RateEstimate | undefined): string {
 function rateDetail(r: RateEstimate | undefined, population: string): string {
   if (!r || r.n === 0) return `No graduates ${population} yet`;
   if (r.suppressed) return `Only ${r.n} ${population}; groups under 5 are hidden`;
-  return `Likely between ${pct(r.ci_low, 0)} and ${pct(r.ci_high, 0)} · ${r.n} ${population}`;
+  // A counted rate, not an estimated one. These graduates answered, so the
+  // share among them is exact -- an interval here read as though the system
+  // were unsure about people it can already see and count.
+  return `${r.k} of ${r.n} ${population}`;
 }
 
 function rateCell(r: RateEstimate): string {
   if (r.n === 0) return '—';
   if (r.suppressed) return `hidden (n=${r.n})`;
-  return `${pct(r.rate)} (${pct(r.ci_low, 0)}–${pct(r.ci_high, 0)})`;
+  return `${pct(r.rate)} (${r.k} of ${r.n})`;
 }
 
 /** "18 (20%)" — whole-number count first, share in brackets. */
@@ -183,7 +186,7 @@ export function AdminAnalyticsPredictions() {
         next: null,
         nextError: null,
         detail: shown
-          ? `${pct(r.rate, 0)} ${label}. With ${r.n} graduates, the true rate is likely between ${pct(r.ci_low, 0)} and ${pct(r.ci_high, 0)}.`
+          ? `${pct(r.rate, 0)} ${label} — ${r.k} of ${r.n} graduates.`
           : r.n === 0
             ? 'No answers yet.'
             : `Only ${r.n} graduates answered, too few to show.`,
@@ -284,8 +287,8 @@ export function AdminAnalyticsPredictions() {
           <Brain className="size-5" /> Employability Trend Analysis
         </h2>
         <p className="text-white/75 text-xs mt-1">
-          What graduates reported for each batch and how sure those numbers are, a likely range for the coming
-          batches, and the answers at graduation linked with finding work within a year.
+          What graduates reported for each batch, a likely range for the coming batches that have not
+          answered yet, and the answers at graduation linked with finding work within a year.
         </p>
       </div>
 
@@ -402,7 +405,7 @@ export function AdminAnalyticsPredictions() {
           <p>
             <span style={{ fontWeight: 600 }}>Why a range on the coming batches?</span> Those graduates have not
             answered yet, so their rate is an expectation rather than a count, and it is shown as a range. The
-            batches that have answered are shown as a single reported rate; hover one for its 95% interval.
+            batches that have answered are shown as a single reported rate, counted from their answers.
           </p>
           <p>
             <span style={{ fontWeight: 600 }}>Hidden</span> means fewer than 5 graduates answered. The number is not
@@ -942,7 +945,7 @@ export function AdminAnalyticsPredictions() {
               </button>
             </div>
             <div className="p-6 max-h-[70vh] overflow-y-auto">
-              <p className="text-xs text-gray-500 mb-3">Values in brackets are the likely (95%) range.</p>
+              <p className="text-xs text-gray-500 mb-3">Values in brackets are the count behind the share.</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
