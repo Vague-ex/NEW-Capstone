@@ -301,16 +301,12 @@ function ReviewDialog({
         ['Home address', personal.homeIsAbroad
           ? personal.homeCountry
           : [personal.barangay, personal.city, personal.province].filter(Boolean).join(', ')],
-        [personal.hasGraduated === false ? 'Graduating (expected)' : 'Graduated', monthYear(personal.graduationDate)],
+        ['Graduated', monthYear(personal.graduationDate)],
       ],
     },
     {
       title: 'Employment',
-      // A graduating student was never asked these, so the section would be four
-      // blank rows. They are told what happens instead.
-      rows: personal.hasGraduated === false
-        ? [['Not asked yet', "We'll email you to complete this once you graduate"]]
-        : e ? [
+      rows: e ? [
         ['Status', EMPLOYMENT_STATUS_OPTIONS.find((o) => o.value === e.employment_status)?.label ?? e.employment_status],
         ['Current job', [e.current_job_title, e.current_job_company].filter(Boolean).join(' at ')],
         ['Work location', [e.city_municipality, e.province_work, e.country !== 'Philippines' ? e.country : '']
@@ -439,10 +435,9 @@ export function RegisterAlumni() {
         }
       }
       payload.append('graduation_date', personalData.graduationDate || '');
-      // A graduating student: the date above is their EXPECTED month, the
-      // employment section was skipped, and the backend keeps them out of
-      // analytics until they confirm.
-      payload.append('has_graduated', String(personalData.hasGraduated !== false));
+      // Only graduates register, so this is always true. The column stays on the
+      // model for the profiles that predate the option being removed.
+      payload.append('has_graduated', 'true');
       payload.append('graduation_year', personalData.graduationYear?.toString() || '');
       payload.append('scholarship', personalData.scholarship || '');
       // Further-studies replaces the old highest_attainment / graduate_school question.
@@ -596,7 +591,6 @@ export function RegisterAlumni() {
               onBack={handleEmploymentBack}
               initialForm={state.employmentData}
               fieldErrors={state.fieldErrors}
-              hasGraduated={state.personalData?.hasGraduated !== false}
             />
           </div>
         </div>

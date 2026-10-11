@@ -36,7 +36,6 @@ import { FloatingAlert } from './shared/floating-alert';
 import {
   useReferenceData,
   latestGraduationMonth,
-  nextMonth,
   thisMonth,
   provincesApi,
   citiesApi,
@@ -968,16 +967,11 @@ export default function RegisterAlumniPersonal({
     }
     if (step === 3) {
       if (!form.graduationDate.trim()) {
-        setStepError(form.hasGraduated ? 'Graduation date is required.' : 'Expected graduation date is required.');
+        setStepError('Graduation date is required.');
         return false;
       }
-      // The month picker's min/max are not enforced when the date is typed.
-      if (!form.hasGraduated) {
-        if (form.graduationDate < nextMonth()) {
-          setStepError('That month has already passed. Choose "Yes, I have graduated" instead.');
-          return false;
-        }
-      } else {
+      // The month picker's max is not enforced when the date is typed.
+      {
         const latestYear = referenceData.latest_graduation_year;
         if (form.graduationDate > latestGraduationMonth(latestYear)) {
           setStepError(latestYear && latestYear < new Date().getFullYear()
@@ -989,7 +983,7 @@ export default function RegisterAlumniPersonal({
       // The graduate list is authoritative for the batch, and matching at
       // submission is exact on it. Catch the mismatch here, where it can be
       // explained, instead of letting the account land in Pending unexplained.
-      if (form.hasGraduated && listedBatchYear && form.graduationYear
+      if (listedBatchYear && form.graduationYear
           && form.graduationYear !== listedBatchYear) {
         setStepError(
           `The BSIS graduate list has you under Batch ${listedBatchYear}. `
@@ -1933,81 +1927,25 @@ export default function RegisterAlumniPersonal({
 
               <div className="gt-stagger space-y-4">
                 <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
-                  {form.hasGraduated
-                    ? "Every CHMSU Talisay BSIS graduate already holds a Bachelor's degree, so we only ask about graduation date and any post-baccalaureate studies you've taken."
-                    : "We only ask about your expected graduation date. The questions about further studies come later, once you hold your BSIS degree."}
+                  Every CHMSU Talisay BSIS graduate already holds a Bachelor&apos;s degree, so we only ask
+                  about graduation date and any post-baccalaureate studies you&apos;ve taken.
                 </div>
 
-                {/* Asked before the date, because the answer decides whether the
-                    date is a past month or an expected one — and whether the
-                    employment section is asked at all. */}
-                <div>
-                  <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                    Have you already graduated from BSIS? *
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {([
-                      { value: true, label: 'Yes, I have graduated' },
-                      { value: false, label: 'Not yet — I am graduating soon' },
-                    ] as const).map((option) => (
-                      <button
-                        key={String(option.value)}
-                        type="button"
-                        onClick={() => {
-                          if (form.hasGraduated === option.value) return;
-                          setStepError('');
-                          setF('hasGraduated', option.value);
-                          // The old month is wrong for the other answer by
-                          // definition (past vs future), so clear it rather than
-                          // leaving a value the validator will reject.
-                          setF('graduationDate', '');
-                          setF('graduationYear', null);
-                          if (!option.value) {
-                            // The further-studies block is hidden for them, so any
-                            // answer already given must be cleared rather than
-                            // submitted from a field they can no longer see.
-                            setF('furtherStudies', 'none');
-                            setF('postgradProgram', '');
-                            setF('postgradField', '');
-                            setF('postgradSchool', '');
-                            setF('postgradYearStarted', '');
-                            setF('postgradYearCompleted', '');
-                          }
-                        }}
-                        className={`text-left rounded-xl border px-3.5 py-2.5 text-sm transition ${
-                          form.hasGraduated === option.value
-                            ? 'border-[#166534] bg-green-50 text-[#166534]'
-                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
-                        }`}
-                        style={{ fontWeight: form.hasGraduated === option.value ? 600 : 400 }}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                  {form.hasGraduated && listedBatchYear && (
-                    <p className="text-emerald-700 text-xs mt-2 leading-relaxed">
-                      The BSIS graduate list has you under <strong>Batch {listedBatchYear}</strong>.
-                      Pick the month you graduated in {listedBatchYear}.
-                    </p>
-                  )}
-                  {!form.hasGraduated && (
-                    <p className="text-amber-700 text-xs mt-2 leading-relaxed">
-                      We'll register you now and skip the employment questions. Once your
-                      expected graduation month arrives, we'll email you to complete them.
-                    </p>
-                  )}
-                </div>
+                {listedBatchYear && (
+                  <p className="text-emerald-700 text-xs leading-relaxed">
+                    The BSIS graduate list has you under <strong>Batch {listedBatchYear}</strong>.
+                    Pick the month you graduated in {listedBatchYear}.
+                  </p>
+                )}
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    {form.hasGraduated ? 'Date of Graduation (BSIS) *' : 'Expected Date of Graduation (BSIS) *'}{' '}
+                    Date of Graduation (BSIS) *{' '}
                     <span className="text-gray-400 font-normal">(month &amp; year)</span>
                   </label>
                   <input
                     type="month"
-                    max={form.hasGraduated ? latestGraduationMonth(referenceData.latest_graduation_year) : undefined}
-                    min={form.hasGraduated ? undefined : nextMonth()}
+                    max={latestGraduationMonth(referenceData.latest_graduation_year)}
                     value={form.graduationDate}
                     onChange={(e) => {
                       const v = e.target.value;  // "YYYY-MM" from <input type="month">
@@ -2035,9 +1973,6 @@ export default function RegisterAlumniPersonal({
                 </div>
 
 
-                {/* Post-baccalaureate study is impossible for someone who has not
-                    finished their bachelor's yet, so a graduating student is not asked. */}
-                {form.hasGraduated && (<>
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
                     Are you currently pursuing or have you completed further studies? *
@@ -2132,7 +2067,6 @@ export default function RegisterAlumniPersonal({
                     </div>
                   </div>
                 )}
-                </>)}
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1" style={{ fontWeight: 600 }}>
