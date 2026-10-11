@@ -104,7 +104,6 @@ type TrendView = 'employment' | 'within12';
 type TrendRow = {
   year: string;
   observed: number | null;
-  observedError: [number, number] | null;
   next: number | null;
   nextError: [number, number] | null;
   detail: string;
@@ -181,7 +180,6 @@ export function AdminAnalyticsPredictions() {
       return {
         year: String(b.batch),
         observed: shown ? value : null,
-        observedError: shown ? ([value - low, high - value] as [number, number]) : null,
         next: null,
         nextError: null,
         detail: shown
@@ -197,7 +195,6 @@ export function AdminAnalyticsPredictions() {
         rows.push({
           year: String(range.batch),
           observed: null,
-          observedError: null,
           next: centre,
           nextError: [centre - (point(range.low) ?? 0), (point(range.high) ?? 0) - centre],
           detail: `If this batch does about as well as recent batches, expect ${pct(range.low, 0)} to ${pct(range.high, 0)} employed.${
@@ -403,9 +400,9 @@ export function AdminAnalyticsPredictions() {
         <Info className="size-3.5 shrink-0 mt-0.5 text-gray-400" />
         <div className="space-y-1">
           <p>
-            <span style={{ fontWeight: 600 }}>Why ranges?</span> Only some graduates answer, so every rate is an
-            estimate. &ldquo;Likely between&rdquo; is the 95% range: with this many answers, the true rate is very
-            probably inside it. Fewer answers means a wider range.
+            <span style={{ fontWeight: 600 }}>Why a range on the coming batches?</span> Those graduates have not
+            answered yet, so their rate is an expectation rather than a count, and it is shown as a range. The
+            batches that have answered are shown as a single reported rate; hover one for its 95% interval.
           </p>
           <p>
             <span style={{ fontWeight: 600 }}>Hidden</span> means fewer than 5 graduates answered. The number is not
@@ -448,8 +445,8 @@ export function AdminAnalyticsPredictions() {
 
           <p className="text-gray-500 text-xs mb-4 leading-relaxed">
             {trendView === 'employment'
-              ? 'Each dot is the share of a batch that is employed, among graduates working or looking for work. The line through it is the likely range. The orange marks are the likely ranges for the coming batches if they do about as well as recent batches; each year further ahead is wider.'
-              : 'Each dot is the share of a batch that found a first job within 12 months of graduating. The line through it is the likely range.'}{' '}
+              ? 'Each green dot is the share of a batch that is employed, among graduates working or looking for work. The orange marks are the coming batches, which have not answered yet: they show a likely range if those batches do about as well as recent ones, and each year further ahead is wider.'
+              : 'Each dot is the share of a batch that found a first job within 12 months of graduating.'}{' '}
             Hover a dot for details.
           </p>
           {trendSeries.length === 0 ? (
@@ -467,16 +464,14 @@ export function AdminAnalyticsPredictions() {
                 <Line
                   type="linear"
                   dataKey="observed"
-                  name="Reported rate (line = likely range)"
+                  name="Reported rate"
                   stroke="#166534"
                   strokeWidth={2}
                   dot={{ r: 4, fill: '#166534' }}
                   activeDot={{ r: 6 }}
                   connectNulls={false}
                   isAnimationActive={false}
-                >
-                  <ErrorBar dataKey="observedError" width={6} strokeWidth={1.5} stroke="#166534" direction="y" />
-                </Line>
+                />
                 {trendView === 'employment' && (
                   <Line
                     type="linear"

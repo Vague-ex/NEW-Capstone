@@ -185,6 +185,84 @@ class CityZipCodeEndpointTests(TestCase):
 		self.assertEqual(self.city.zip_code, "6100")
 
 
+class EmploymentTypeAndSectorReportTests(TestCase):
+	"""The panel asked for the type of business/employment per batch.
+
+	Counts, not rates: the question is what kind of work a batch found, and a
+	percentage of a small batch hides how few people it describes.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="sector-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+
+	def _grad(self, email, year, status, sector):
+		user = User.objects.create_user(email=email, password="TestPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(alumni=account, first_name="A", last_name="B", graduation_year=year)
+		EmploymentProfile.objects.create(
+			alumni=account, employment_status=status, current_job_sector=sector,
+		)
+		return account
+
+	def _section(self):
+		response = self.client.get(
+			"/api/admin/reports/batch-summary/?batch_start=2020&batch_end=2025", **self.headers,
+		)
+		self.assertEqual(response.status_code, 200)
+		return next(
+			s for s in response.data["sections"]
+			if s["title"] == "Employment Type and Sector by Batch"
+		)
+
+	def test_counts_work_type_and_sector_for_each_batch(self):
+		self._grad("ft@example.com", 2022, "employed_full_time", "private")
+		self._grad("pt@example.com", 2022, "employed_part_time", "government")
+		self._grad("se@example.com", 2022, "self_employed", "entrepreneurial")
+
+		section = self._section()
+		self.assertEqual(section["columns"], [
+			"Batch", "Employed (n)", "Full-time", "Part-time", "Self-employed",
+			"Government", "Private", "Entrepreneurial", "Sector not stated",
+		])
+		row = next(r for r in section["rows"] if r[0] == 2022)
+		# employed, full, part, self, gov, private, entrep, unstated
+		self.assertEqual(list(row), [2022, 3, 1, 1, 1, 1, 1, 1, 0])
+
+	def test_an_unemployed_graduate_is_counted_in_neither(self):
+		self._grad("ft@example.com", 2023, "employed_full_time", "private")
+		self._grad("none@example.com", 2023, "seeking", "")
+
+		row = next(r for r in self._section()["rows"] if r[0] == 2023)
+		self.assertEqual(row[1], 1)             # one employed, not two
+		self.assertEqual(sum(row[2:5]), 1)      # work types
+		self.assertEqual(sum(row[5:8]), 1)      # sectors
+
+	def test_an_employed_graduate_with_no_sector_is_shown_as_not_stated(self):
+		"""The sector columns must visibly fall short of the employed count
+		rather than looking like an arithmetic error."""
+		self._grad("ft@example.com", 2024, "employed_full_time", "private")
+		self._grad("blank@example.com", 2024, "employed_full_time", "")
+
+		row = next(r for r in self._section()["rows"] if r[0] == 2024)
+		self.assertEqual(row[1], 2)       # both employed
+		self.assertEqual(sum(row[5:8]), 1)  # only one named a sector
+		self.assertEqual(row[8], 1)       # the other is not stated
+
+	def test_the_total_row_adds_up(self):
+		self._grad("a@example.com", 2021, "employed_full_time", "private")
+		self._grad("b@example.com", 2022, "self_employed", "entrepreneurial")
+
+		total = next(r for r in self._section()["rows"] if r[0] == "Total")
+		self.assertEqual(total[1], 2)
+		self.assertEqual(sum(total[2:5]), 2)
+		self.assertEqual(sum(total[5:8]) + total[8], 2)
+
+
 class CityZipSyncTests(TestCase):
 	"""sync_city_zip_codes: the matching rules that keep wrong codes out.
 

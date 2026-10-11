@@ -132,7 +132,8 @@ class FieldValidationRules:
     # future, and allowing next year let 2027 records in, which then appeared as
     # a batch in analytics. _validate_educational_background reads the year at
     # call time so the bound moves without a server restart.
-    BATCH_RANGE = (2000, datetime.now().year)
+    # 2020 is the first batch in scope; see MASTERLIST_MIN_YEAR.
+    BATCH_RANGE = (2020, datetime.now().year)
     AGE_RANGE = (18, 70)
 
     # Count Ranges

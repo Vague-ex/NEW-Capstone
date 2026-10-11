@@ -4110,7 +4110,10 @@ class MasterlistListView(APIView):
             "entries": entries,
         })
 
-MASTERLIST_MIN_YEAR = 2000
+# The study covers BSIS batches from 2020. Earlier years are out of scope,
+# so the master list refuses them rather than quietly carrying a batch the
+# analytics and the manuscript do not describe.
+MASTERLIST_MIN_YEAR = 2020
 
 
 def _masterlist_max_year() -> int:

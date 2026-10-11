@@ -33,6 +33,7 @@ from tracer.text_quality import (
     profanity_problem,
     year_month_problem,
 )
+from users.api import MASTERLIST_MIN_YEAR
 from users.models import AlumniProfile, GraduateMasterRecord, User
 
 VALID_TIME_TO_HIRE = {1, 3, 4.5, 9, 18, 30}
@@ -73,8 +74,9 @@ class Command(BaseCommand):
                 problem = "is a single word"
             if problem:
                 self.flag("ERROR", "Master list: bad graduate name", r.pk, "full_name", r.full_name, problem)
-            if not (2000 <= (r.batch_year or 0) <= max_year):
-                self.flag("ERROR", "Master list: impossible batch year", r.pk, "batch_year", r.batch_year, f"outside 2000-{max_year}")
+            if not (MASTERLIST_MIN_YEAR <= (r.batch_year or 0) <= max_year):
+                self.flag("ERROR", "Master list: batch year out of scope", r.pk, "batch_year", r.batch_year,
+                          f"outside {MASTERLIST_MIN_YEAR}-{max_year}")
 
     def _users(self):
         for u in User.objects.all().only("id", "email").iterator():

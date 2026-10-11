@@ -20,7 +20,8 @@ const YEAR_RANGE = Array.from({ length: currentYear - 2019 }, (_, i) => 2020 + i
 
 // Mirrors MasterlistBulkCreateView. A report CSV uploaded here once saved rows
 // like "Avg Time-to-Hire (mo)" / batch 2 and "2021" / batch 6.
-const MIN_GRAD_YEAR = 2000;
+// The study covers batches from 2020. Mirrors MASTERLIST_MIN_YEAR.
+const MIN_GRAD_YEAR = 2020;
 const MAX_GRAD_YEAR = currentYear + 1;
 
 /** Why a row can't go in the master list, or null when it looks valid. */

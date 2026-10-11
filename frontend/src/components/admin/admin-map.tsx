@@ -38,10 +38,16 @@ function isAbroad(a: AlumniRecord): boolean {
   );
 }
 
-// Only a work address puts a graduate on the map: a workplace pin, or a work
-// city the map geocodes. A home pin or the face-scan GPS is not where they work.
-function hasWorkAddress(a: AlumniRecord): boolean {
-  return Boolean((a.workLat && a.workLng) || a.workCity);
+/** Whether this graduate can be plotted at all.
+ *
+ *  The panel asked that every registrant appear. Requiring a WORK address hid
+ *  the unemployed ones entirely -- they have no workplace to give -- which made
+ *  the Unemployed legend entry and filter decorative. The backend already
+ *  resolves lat/lng in precedence order (work, then home, then the face-scan
+ *  GPS) and says which it used in locationSource, so a home pin is enough and
+ *  the marker is already drawn dashed to show it is approximate. */
+function hasPlottableLocation(a: AlumniRecord): boolean {
+  return Boolean(a.lat && a.lng);
 }
 
 function workRegion(a: AlumniRecord): string {
@@ -161,7 +167,7 @@ export function AdminMap() {
   );
 
   const availableRegions = useMemo(
-    () => Array.from(new Set(alumniRecords.filter(a => a.geomapConsent === true && hasWorkAddress(a)).map(workRegion).filter(Boolean)))
+    () => Array.from(new Set(alumniRecords.filter(a => a.geomapConsent === true && hasPlottableLocation(a)).map(workRegion).filter(Boolean)))
       .sort((a, b) => a.localeCompare(b)),
     [alumniRecords],
   );
@@ -171,8 +177,7 @@ export function AdminMap() {
     // the tracer study. No consent, no pin — including legacy records that
     // predate the consent gate.
     if (a.geomapConsent !== true) return false;
-    if (!hasWorkAddress(a)) return false;
-    if (!a.lat || !a.lng) return false;
+    if (!hasPlottableLocation(a)) return false;
     if (filterYear !== 'all' && a.graduationYear !== parseInt(filterYear)) return false;
     if (filterStatus !== 'all' && a.employmentStatus !== filterStatus) return false;
     if (filterRegion !== 'all' && workRegion(a) !== filterRegion) return false;
@@ -181,7 +186,7 @@ export function AdminMap() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const rec = a as Record<string, unknown>;
-      if (!(['name', 'company', 'workCity', 'workLocation'] as const).some(
+      if (!(['name', 'company', 'workCity', 'workLocation', 'workRegion'] as const).some(
         k => ((rec[k] as string) ?? '').toLowerCase().includes(q)
       )) return false;
     }
@@ -201,8 +206,9 @@ export function AdminMap() {
     }
   }, [filteredAlumni, searchQuery]);
 
-  // All employed/self-employed graduates with location
-  const withLocation = alumniRecords.filter(a => a.lat && a.lng && hasWorkAddress(a) && a.employmentStatus !== 'unemployed');
+  // The same set the map plots. These tiles used to skip the consent check and
+  // drop the unemployed, so they counted graduates no pin was ever drawn for.
+  const withLocation = alumniRecords.filter(a => a.geomapConsent === true && hasPlottableLocation(a));
   const localCount = withLocation.filter(a => !isAbroad(a)).length;
   const abroadCount = withLocation.filter(a => isAbroad(a)).length;
   const effectiveError = mapError || dataError;
@@ -299,12 +305,20 @@ export function AdminMap() {
         );
         const color = STATUS_COLORS[statusKey];
         const abroad = isAbroad(alumni);
-        // Exact = a workplace pin, or a home pin the graduate placed themselves.
-        // Anything else came from the face-scan GPS or a city-centre geocode.
         const locationSource = (alumni as Record<string, unknown>).locationSource;
-        const approximate = !(alumni.workLat && alumni.workLng) && locationSource !== 'home';
+        // No workplace on file, so the pin is their home. Accurate as a home,
+        // but this map answers "where do graduates work" -- showing it solid
+        // would read as a verified workplace. Mostly the unemployed, who have
+        // no workplace to give and were invisible here until now.
+        const homeOnly = !((alumni.workLat && alumni.workLng) || alumni.workCity);
+        // Exact = a workplace pin. A city-centre geocode, the face-scan GPS or
+        // a home address standing in for a workplace is not.
+        const approximate = homeOnly
+          || (!(alumni.workLat && alumni.workLng) && locationSource !== 'home');
+        // Dashed wins over the abroad ring, which used to hide it: an abroad
+        // estimate looked exactly like an abroad workplace pin.
         const borderStyle = abroad
-          ? '3px solid #f59e0b'
+          ? (approximate ? '3px dashed #f59e0b' : '3px solid #f59e0b')
           : approximate ? '2.5px dashed #ffffff' : '2.5px solid #ffffff';
         const sdLoc = ((alumni as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
         const regionText = (typeof sdLoc.region_address === 'string' && sdLoc.region_address)
@@ -313,7 +327,7 @@ export function AdminMap() {
 
         const icon = L.divIcon({
           className: '',
-          html: `<div style="width:${abroad ? 22 : 18}px;height:${abroad ? 22 : 18}px;border-radius:50%;background:${color};border:${borderStyle};box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;" title="${alumni.name}${approximate ? ' (approximate location)' : ''}"></div>`,
+          html: `<div style="width:${abroad ? 22 : 18}px;height:${abroad ? 22 : 18}px;border-radius:50%;background:${color};border:${borderStyle};box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;" title="${alumni.name}${homeOnly ? ' (home location, no workplace on file)' : approximate ? ' (approximate location)' : ''}"></div>`,
           iconSize: [abroad ? 22 : 18, abroad ? 22 : 18],
           iconAnchor: [abroad ? 11 : 9, abroad ? 11 : 9],
         });
@@ -343,11 +357,13 @@ export function AdminMap() {
               ? `<p style="margin:0 0 2px;font-size:12px;color:#374151;font-weight:600">${alumni.jobTitle ?? 'Employed'} @ ${alumni.company}</p>`
               : ''}
             ${(locLabel || approximate)
-              ? `<p style="margin:0 0 4px;font-size:11px;color:#6b7280">&#128205; ${locLabel || 'Location on file'}${approximate ? ` <span style="color:#d97706;font-weight:600">· approximate</span>` : ''}</p>`
+              ? `<p style="margin:0 0 4px;font-size:11px;color:#6b7280">&#128205; ${locLabel || (homeOnly ? 'Home address' : 'Location on file')}${approximate ? ` <span style="color:#d97706;font-weight:600">· ${homeOnly ? 'home' : 'approximate'}</span>` : ''}</p>`
               : ''}
-            ${approximate
-              ? `<p style="margin:0 0 4px;font-size:10px;color:#9ca3af;font-style:italic">Pin is an estimate from the city/region — not an exact workplace.</p>`
-              : ''}
+            ${homeOnly
+              ? `<p style="margin:0 0 4px;font-size:10px;color:#9ca3af;font-style:italic">No workplace on file — pinned at their home address.</p>`
+              : approximate
+                ? `<p style="margin:0 0 4px;font-size:10px;color:#9ca3af;font-style:italic">Pin is an estimate from the city/region — not an exact workplace.</p>`
+                : ''}
             ${skills.length
               ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:4px">
                    ${skills.slice(0, 4).map(s =>
@@ -437,7 +453,7 @@ export function AdminMap() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-gray-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search name, company, city…"
+              placeholder="Search name, company, city, region…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 py-1.5 text-sm outline-none focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/10 w-full sm:w-52 py-2.5 sm:py-1.5"
@@ -480,7 +496,7 @@ export function AdminMap() {
             </div>
             <div className="flex items-center gap-1.5">
               <span className="size-3.5 rounded-full bg-gray-400 shadow-sm" style={{ border: '2px dashed #ffffff' }} />
-              <span className="text-gray-500 text-xs">Approx. (city-level)</span>
+              <span className="text-gray-500 text-xs">Approx. / home address</span>
             </div>
           </div>
         </div>

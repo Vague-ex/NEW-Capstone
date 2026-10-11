@@ -243,6 +243,11 @@ class BatchSummaryReportView(APIView):
                 "tth": [],
                 "bsis_first": [],
                 "bsis_current": [],
+                # "Per batch, show the type of business/employment of the
+                # respondents": the arrangement they work under, and the sector
+                # they work in. Counted here rather than in a second pass.
+                "work_type": Counter(),
+                "sector": Counter(),
             }
         )
 
@@ -256,6 +261,13 @@ class BatchSummaryReportView(APIView):
             if _is_employed(emp):
                 b["employed"] += 1
             if emp is not None:
+                if _is_employed(emp):
+                    b["work_type"][emp.employment_status] += 1
+                    # current_job_sector is blank for a graduate who gave a
+                    # first job but no current one, so it is left uncounted
+                    # rather than guessed from the earlier answer.
+                    if emp.current_job_sector:
+                        b["sector"][emp.current_job_sector] += 1
                 if emp.time_to_hire_months is not None:
                     b["tth"].append(float(emp.time_to_hire_months))
                 if emp.first_job_related_to_bsis is True:
@@ -313,6 +325,59 @@ class BatchSummaryReportView(APIView):
                 "BSIS-Aligned (Current)",
             ],
             "rows": rows,
+        }
+
+        # ── Employment type and sector, per batch ─────────────────────────
+        # Asked for by the panel. Counts, not rates: the question is what kind
+        # of work this batch found, and a percentage of a small batch hides how
+        # few people it describes.
+        WORK_TYPES = [
+            ("employed_full_time", "Full-time"),
+            ("employed_part_time", "Part-time"),
+            ("self_employed", "Self-employed"),
+        ]
+        SECTORS = [
+            ("government", "Government"),
+            ("private", "Private"),
+            ("entrepreneurial", "Entrepreneurial"),
+        ]
+        work_rows: list[list[Any]] = []
+        work_totals: dict[str, int] = defaultdict(int)
+        for year in sorted(buckets):
+            b = buckets[year]
+            stated = sum(b["sector"].values())
+            row: list[Any] = [year, b["employed"]]
+            for key, _label in WORK_TYPES:
+                row.append(b["work_type"].get(key, 0))
+                work_totals[key] += b["work_type"].get(key, 0)
+            for key, _label in SECTORS:
+                row.append(b["sector"].get(key, 0))
+                work_totals[key] += b["sector"].get(key, 0)
+            # Employed graduates who never named a sector. Shown so the sector
+            # columns visibly fall short of the employed count instead of
+            # looking like an arithmetic error.
+            row.append(b["employed"] - stated)
+            work_totals["unstated"] += b["employed"] - stated
+            work_totals["employed"] += b["employed"]
+            work_rows.append(row)
+
+        if work_rows:
+            work_rows.append([
+                "Total", work_totals["employed"],
+                *[work_totals[k] for k, _ in WORK_TYPES],
+                *[work_totals[k] for k, _ in SECTORS],
+                work_totals["unstated"],
+            ])
+
+        section_work = {
+            "title": "Employment Type and Sector by Batch",
+            "columns": [
+                "Batch", "Employed (n)",
+                *[label for _k, label in WORK_TYPES],
+                *[label for _k, label in SECTORS],
+                "Sector not stated",
+            ],
+            "rows": work_rows,
         }
 
         # ── Section B: Employer Ratings, criteria down the side, batches across ────
@@ -516,7 +581,7 @@ class BatchSummaryReportView(APIView):
         return _ok(
             "Batch Summary",
             [
-                section_a, section_b, section_c,
+                section_a, section_work, section_b, section_c,
                 section_d_strengths, section_d_improvements,
                 section_e, section_f,
             ],

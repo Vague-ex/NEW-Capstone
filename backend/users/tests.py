@@ -1022,7 +1022,7 @@ class MasterlistRowValidationTests(SimpleTestCase):
 			self.assertTrue(api._looks_like_full_name(name), name)
 
 	def test_year_window(self):
-		self.assertEqual(api.MASTERLIST_MIN_YEAR, 2000)
+		self.assertEqual(api.MASTERLIST_MIN_YEAR, 2020)  # the study starts at batch 2020
 		self.assertEqual(api._masterlist_max_year(), timezone.now().year + 1)
 
 
