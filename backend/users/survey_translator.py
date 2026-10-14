@@ -168,8 +168,8 @@ _EMPLOYMENT_STATUS = {
     "no, currently seeking employment": "seeking",
     "not_seeking": "not_seeking",
     "no, not seeking employment (further studies, personal reasons)": "not_seeking",
-    "never_employed": None,  # not in EmploymentProfile choices
-    "never employed": None,
+    "never_employed": "never_employed",
+    "never employed": "never_employed",
 }
 
 

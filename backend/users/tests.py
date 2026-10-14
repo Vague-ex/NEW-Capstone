@@ -1595,6 +1595,73 @@ class RegistrationFeedbackFixTests(TestCase):
 		self.assertIsNone(profile.first_job_company)
 		self.assertIsNone(profile.time_to_hire_months)
 
+	def test_editing_employment_saves_a_work_address(self):
+		"""An edit used to leave the graduate off the map, silently.
+
+		_resolve_region_choice matched the region against
+		WorkAddress.RegionChoices keys ("Region VI", "NCR"). Nothing produces
+		those -- the dropdown is Region.name and registration stores it
+		verbatim -- so it returned None for every Philippine address, and the
+		caller's `if region_choice:` skipped the WorkAddress without error.
+		Only the Abroad fallback ever fired, which is why the table held real
+		regions from registration but nothing except 'Abroad' from this path.
+		"""
+		from tracer.models import Region, WorkAddress
+		from users.survey_translator import apply_survey_data_to_normalized_tables
+
+		region_name = "Region VI (Western Visayas)"
+		Region.objects.create(code="Region VI", name=region_name, psgc_id="0600000000")
+
+		apply_survey_data_to_normalized_tables(self.account, {
+			"employment_status": "employed_full_time",
+			"region_address": region_name,
+			"province_address": "Negros Occidental",
+			"city_municipality": "Bacolod City",
+		})
+
+		address = WorkAddress.objects.get(alumni=self.account, is_current=True)
+		self.assertEqual(address.region, region_name)
+		self.assertEqual(address.city_municipality, "Bacolod City")
+
+	def test_editing_to_never_employed_is_saved(self):
+		"""The answer used to be discarded and the previous status left standing.
+
+		_EMPLOYMENT_STATUS mapped "never_employed" to None and the raw-value
+		fallback checked EmploymentStatusChoices, which did not list it. So a
+		graduate who had been recorded as employed and later said "Never
+		employed" stayed recorded as employed -- wrong, and invisible.
+		"""
+		from tracer.models import EmploymentProfile
+		from users.survey_translator import apply_survey_data_to_normalized_tables
+
+		apply_survey_data_to_normalized_tables(self.account, {"employment_status": "employed_full_time"})
+		self.assertEqual(
+			EmploymentProfile.objects.get(alumni=self.account).employment_status,
+			"employed_full_time",
+		)
+
+		for answer in ("never_employed", "Never employed"):
+			apply_survey_data_to_normalized_tables(self.account, {"employment_status": "employed_full_time"})
+			apply_survey_data_to_normalized_tables(self.account, {"employment_status": answer})
+			self.assertEqual(
+				EmploymentProfile.objects.get(alumni=self.account).employment_status,
+				"never_employed",
+				f"{answer!r} was dropped",
+			)
+
+	def test_editing_employment_abroad_still_saves_a_work_address(self):
+		"""The one path that did work must keep working."""
+		from tracer.models import WorkAddress
+		from users.survey_translator import apply_survey_data_to_normalized_tables
+
+		apply_survey_data_to_normalized_tables(self.account, {
+			"employment_status": "employed_full_time",
+			"city_municipality": "Singapore",
+			"country_address": "Singapore",
+		})
+		address = WorkAddress.objects.get(alumni=self.account, is_current=True)
+		self.assertEqual(address.region, "Abroad")
+
 
 @override_settings(LOGIN_IP_FAIL_LIMIT=3, LOGIN_IP_WINDOW_SECONDS=900)
 class AuthEnumerationAndIpThrottleTests(TestCase):
@@ -2379,3 +2446,161 @@ class HealthcheckTests(TestCase):
 		with self.settings(SECURE_SSL_REDIRECT=True):
 			response = self.client.get("/healthz/", HTTP_HOST="127.0.0.1:8000")
 		self.assertEqual(response.status_code, 200)
+
+
+class PsgcNamesFitTheColumnsTests(SimpleTestCase):
+	"""Every PSGC name the dropdowns can offer must fit the column that stores it.
+
+	BARMM's region name is 55 characters and WorkAddress.region was
+	varchar(50). The registration form sends Region.name verbatim, so every
+	BARMM graduate's registration died on the INSERT with an unhandled
+	psycopg2 StringDataRightTruncation -- a bare 500, raised inside the atomic
+	block *after* the Supabase upload had already run, and with no LOGGING
+	config at the time it left no traceback anywhere. A graduate working in
+	Tawi-Tawi simply could not register.
+
+	This reads the same vendored release psgc_sync reads, so dropping in a
+	newer PSGC file re-checks every column automatically instead of waiting
+	for the next province to be renamed into a 500.
+	"""
+
+	# PSGC level -> the model fields that store a name from that level.
+	# A level with no receiver here is not written to any column.
+	RECEIVERS = {
+		"region": (("WorkAddress", "region"), ("AlumniProfile", "home_region")),
+		"province": (("WorkAddress", "province"), ("AlumniProfile", "province")),
+		"city": (("WorkAddress", "city_municipality"), ("AlumniProfile", "city")),
+		"barangay": (("WorkAddress", "barangay"), ("AlumniProfile", "home_barangay")),
+	}
+	# PSGC publishes cities at four levels and provinces at two; the form shows
+	# them in one dropdown each, so they land in one column each.
+	LEVEL_GROUPS = {
+		"region": "region",
+		"province": "province",
+		"special_geographic_area": "province",
+		"component_city": "city",
+		"highly_urbanized_city": "city",
+		"independent_component_city": "city",
+		"municipality": "city",
+		"submunicipality": "city",
+		"barangay": "barangay",
+	}
+
+	def _longest_per_group(self):
+		import gzip
+		from tracer.psgc_sync import DEFAULT_DATA_FILE
+
+		with gzip.open(DEFAULT_DATA_FILE, "rt", encoding="utf-8") as fh:
+			rows = json.load(fh)
+
+		longest = {}
+		unknown = set()
+		for level, _psgc_id, _parent, name in rows:
+			group = self.LEVEL_GROUPS.get(level)
+			if group is None:
+				unknown.add(level)
+				continue
+			if group not in longest or len(name) > len(longest[group]):
+				longest[group] = name
+		# A new PSGC level must not slip through unnoticed: it would be a tier
+		# of place names nothing here is checking.
+		self.assertEqual(unknown, set(), f"unmapped PSGC levels: {sorted(unknown)}")
+		return longest
+
+	def test_every_psgc_name_fits_the_column_that_stores_it(self):
+		from tracer.models import WorkAddress
+		from users.models import AlumniProfile
+
+		models = {"WorkAddress": WorkAddress, "AlumniProfile": AlumniProfile}
+		longest = self._longest_per_group()
+		self.assertEqual(set(longest), set(self.RECEIVERS), "PSGC file is missing a level")
+
+		too_short = []
+		for group, name in sorted(longest.items()):
+			for model_name, field_name in self.RECEIVERS[group]:
+				field = models[model_name]._meta.get_field(field_name)
+				if field.max_length < len(name):
+					too_short.append(
+						f"{model_name}.{field_name} is varchar({field.max_length}) but the "
+						f"longest PSGC {group} is {len(name)} chars: {name!r}"
+					)
+		self.assertEqual(too_short, [], "\n".join(too_short))
+
+
+class EmploymentStatusVocabularyTests(SimpleTestCase):
+	"""Every employment status the system accepts must be a declared choice.
+
+	EmploymentStatusChoices omitted "never_employed" while both registration
+	forms, the alumni edit form, tracer.validators, tracer.serializers,
+	employability.LOOKING_STATUSES and _DEBUG_EMPLOYMENT_STATUSES all treated
+	it as a real status. survey_translator guards with
+	`raw in EmploymentStatusChoices`, so editing your employment and answering
+	"Never employed" silently discarded the answer and left the old status in
+	place -- the same silent-drop shape as the region bug, in the same file.
+
+	This is the guard that would have caught both: a value the UI can produce
+	must be one the model admits.
+	"""
+
+	def test_the_declared_choices_match_the_statuses_the_api_accepts(self):
+		from tracer.models import EmploymentProfile
+		from users.api import _DEBUG_EMPLOYMENT_STATUSES
+
+		declared = {c[0] for c in EmploymentProfile.EmploymentStatusChoices.choices}
+		self.assertEqual(declared, set(_DEBUG_EMPLOYMENT_STATUSES))
+
+	def test_every_status_the_translator_maps_to_is_a_declared_choice(self):
+		"""The mapper turns form labels into stored values; none may be unstorable."""
+		from tracer.models import EmploymentProfile
+		from users.survey_translator import _EMPLOYMENT_STATUS
+
+		declared = {c[0] for c in EmploymentProfile.EmploymentStatusChoices.choices}
+		produced = {v for v in _EMPLOYMENT_STATUS.values() if v is not None}
+		self.assertEqual(produced - declared, set())
+
+	def test_statuses_counted_as_looking_are_declared_choices(self):
+		"""employability groups by these; an undeclared one is a silent zero."""
+		from tracer.employability import LOOKING_STATUSES
+		from tracer.models import EmploymentProfile
+
+		declared = {c[0] for c in EmploymentProfile.EmploymentStatusChoices.choices}
+		self.assertEqual(set(LOOKING_STATUSES) - declared, set())
+
+	def test_every_declared_status_fits_the_column(self):
+		from tracer.models import EmploymentProfile
+
+		field = EmploymentProfile._meta.get_field("employment_status")
+		longest = max((c[0] for c in field.choices), key=len)
+		self.assertLessEqual(len(longest), field.max_length, f"{longest!r} does not fit")
+
+
+class TranslatorMapsProduceStorableValuesTests(SimpleTestCase):
+	"""Every value survey_translator's lookup tables produce must be storable.
+
+	The tables turn form labels into column values. When a table produces
+	something the target field does not declare, the write is refused by a
+	`raw in ...choices` guard and the answer vanishes with no error -- which is
+	exactly how "Never employed" was lost. Checking the tables against the
+	fields they feed catches the next divergence at import time instead of in
+	somebody's saved profile.
+	"""
+
+	def _declared(self, field_name):
+		from tracer.models import EmploymentProfile
+
+		return {c[0] for c in EmploymentProfile._meta.get_field(field_name).choices}
+
+	def test_sector_table_produces_declared_sectors(self):
+		from users.survey_translator import _SECTOR
+
+		self.assertEqual(set(_SECTOR.values()) - self._declared("first_job_sector"), set())
+
+	def test_job_status_table_produces_declared_job_statuses(self):
+		from users.survey_translator import _JOB_STATUS
+
+		self.assertEqual(set(_JOB_STATUS.values()) - self._declared("first_job_status"), set())
+
+	def test_job_source_table_produces_declared_job_sources(self):
+		from users.survey_translator import _JOB_SOURCE
+
+		self.assertEqual(set(_JOB_SOURCE.values()) - self._declared("first_job_source"), set())

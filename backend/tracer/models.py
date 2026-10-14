@@ -552,6 +552,14 @@ class EmploymentProfile(models.Model):
 		SELF_EMPLOYED = "self_employed", "Self-Employed/Freelance"
 		SEEKING = "seeking", "Seeking Employment"
 		NOT_SEEKING = "not_seeking", "Not Seeking Employment"
+		# Both registration forms offer it, the alumni edit form offers it,
+		# validators accept it and employability.LOOKING_STATUSES counts it --
+		# this enum was the only place that did not list it. The gap meant
+		# survey_translator dropped the status of anyone who edited their
+		# employment and answered "Never employed", because its guard is
+		# `raw in EmploymentStatusChoices`. Registration writes the column
+		# directly, which is why such rows exist in the table at all.
+		NEVER_EMPLOYED = "never_employed", "Never Been Employed"
 
 	class SectorChoices(models.TextChoices):
 		GOVERNMENT = "government", "Government"
