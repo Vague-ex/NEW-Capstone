@@ -83,7 +83,7 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8000/api/reference/ || exit 1
+  CMD curl -fsS http://127.0.0.1:8000/healthz/ || exit 1
 
 # Worker count is an env var because the right answer depends on the engine,
 # not on the image.

@@ -789,9 +789,19 @@ class WorkAddress(models.Model):
 		help_text="Province (required)"
 	)
 	region = models.CharField(
-		max_length=50,
-		choices=RegionChoices.choices,
-		help_text="Philippine region or Abroad"
+		# Holds the PSGC region NAME, matching the registration form's dropdown
+		# (Region.name), not a RegionChoices key -- every row ever written here
+		# is a display name. 50 was too short for the longest one,
+		# "Bangsamoro Autonomous Region In Muslim Mindanao (BARMM)" at 55, which
+		# made every BARMM registration fail with a bare 500; 100 matches the
+		# sibling province/city/country columns.
+		#
+		# No `choices=` on purpose. It used to declare RegionChoices, which no
+		# writer has ever produced, so the model promised a vocabulary the table
+		# does not contain -- and _resolve_region_choice believed that promise
+		# and dropped work addresses it could not match against it.
+		max_length=100,
+		help_text="PSGC region name (Region.name), or 'Abroad' for overseas work"
 	)
 	zip_code = models.CharField(
 		max_length=20,

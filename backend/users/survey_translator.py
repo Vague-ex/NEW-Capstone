@@ -22,6 +22,7 @@ import logging
 import re
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
@@ -239,32 +240,42 @@ def _split_skills(value: Any) -> list[str]:
 
 
 def _resolve_region_choice(survey_data: dict, region_name_hint: str = "") -> str | None:
-    """Resolve a region choice value usable by ``WorkAddress.region``.
+    """Resolve the value to store in ``WorkAddress.region``.
 
     Frontend sends ``currentJobRegionId`` (UUID) or ``region_address`` (string).
-    Returns the choice key (e.g. ``"Region VI"``, ``"NCR"``, ``"Abroad"``) or
-    ``None`` if it can't be matched.
+    Returns a PSGC region name (e.g. ``"Region VI (Western Visayas)"``),
+    ``"Abroad"``, or ``None`` if it can't be matched.
+
+    This used to accept only RegionChoices keys ("Region VI", "NCR"). Nothing
+    produces those -- the form's dropdown is Region.name and registration
+    stores it verbatim -- so every Philippine address fell through to None and
+    the caller's ``if region_choice:`` quietly skipped the WorkAddress, leaving
+    the graduate off the map. Matching on Region.name is what the column
+    actually holds.
     """
     from tracer.models import Region, WorkAddress
 
-    valid_choices = {c[0] for c in WorkAddress.RegionChoices.choices}
+    # Direct string from form. Trusted only when PSGC knows it, so a typo or a
+    # stale client value still falls through to the lookups below.
+    direct = (survey_data.get("region_address") or region_name_hint or "").strip()
+    if direct:
+        if direct == WorkAddress.RegionChoices.ABROAD:
+            return direct
+        # is_active, matching the reference endpoint the dropdown reads: PSGC
+        # retires old region spellings ("Region VI - Western Visayas") rather
+        # than deleting them, and a retired one must not come back as new data.
+        if Region.objects.filter(name=direct, is_active=True).exists():
+            return direct
 
-    # Direct string from form
-    direct = survey_data.get("region_address") or region_name_hint
-    if isinstance(direct, str) and direct.strip() in valid_choices:
-        return direct.strip()
-
-    # Lookup by UUID
+    # Lookup by UUID. A non-UUID value makes the filter raise, which is just
+    # another way of saying "not a region", so it falls through.
     region_id = survey_data.get("currentJobRegionId") or survey_data.get("region_id")
     if region_id:
         try:
-            region = Region.objects.filter(id=region_id).first()
+            region = Region.objects.filter(id=region_id, is_active=True).first()
             if region:
-                if region.code in valid_choices:
-                    return region.code
-                if region.name in valid_choices:
-                    return region.name
-        except Exception:
+                return region.name
+        except (ValidationError, ValueError, TypeError):
             pass
 
     # Country fallback: anything non-Philippines counts as Abroad

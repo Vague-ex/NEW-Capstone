@@ -1393,6 +1393,21 @@ class RegistrationSweepTests(TestCase):
 		self.assertIn("longitude", response.data["field_errors"])
 		self.assertFalse(AlumniAccount.objects.filter(user__email=self.EMAIL).exists())
 
+	def test_longest_psgc_region_name_is_stored(self):
+		"""BARMM's PSGC name is 55 chars; WorkAddress.region was varchar(50).
+
+		Every BARMM registration died on the INSERT with a bare 500 --
+		StringDataRightTruncation, raised inside the atomic block after the
+		Supabase upload had already happened. The form sends Region.name, so the
+		column has to fit the longest one PSGC publishes.
+		"""
+		barmm = "Bangsamoro Autonomous Region In Muslim Mindanao (BARMM)"
+		self.assertGreater(len(barmm), 50)
+		_, account = self._register(
+			self._payload(survey_data=self._work_survey(region=barmm)), self.engine,
+		)
+		self.assertEqual(account.work_addresses.get(is_current=True).region, barmm)
+
 	def test_geomap_prefers_the_home_pin_over_the_face_scan_gps(self):
 		_, account = self._register(
 			self._payload(
@@ -2312,3 +2327,55 @@ class AuditFeedFilterTests(TestCase):
 	def test_an_unknown_kind_falls_back_to_all(self):
 		data = self._feed(kind="nonsense")
 		self.assertEqual(data["kind"], "all")
+
+
+class ResolveRegionChoiceTests(TestCase):
+	"""_resolve_region_choice matched against WorkAddress.RegionChoices keys
+	("Region VI", "NCR"), which nothing produces: the form's dropdown is
+	Region.name and registration stores it verbatim. So every Philippine
+	address resolved to None and the caller's `if region_choice:` silently
+	skipped the WorkAddress, leaving the graduate off the map -- only the
+	Abroad fallback ever fired.
+	"""
+
+	NAME = "Region VI (Western Visayas)"
+
+	def setUp(self):
+		from tracer.models import Region
+
+		self.region = Region.objects.create(code="06", name=self.NAME, psgc_id="0600000000")
+
+	def _resolve(self, **survey):
+		from users.survey_translator import _resolve_region_choice
+
+		return _resolve_region_choice(survey)
+
+	def test_psgc_name_sent_directly_is_kept(self):
+		self.assertEqual(self._resolve(region_address=self.NAME), self.NAME)
+
+	def test_uuid_resolves_to_the_psgc_name(self):
+		self.assertEqual(self._resolve(currentJobRegionId=str(self.region.id)), self.NAME)
+
+	def test_abroad_is_still_recognised(self):
+		self.assertEqual(self._resolve(region_address="Abroad"), "Abroad")
+		self.assertEqual(self._resolve(country_address="Singapore"), "Abroad")
+
+	def test_a_region_psgc_does_not_know_is_refused(self):
+		"""A typo must not be stored as if it were a real region."""
+		self.assertIsNone(self._resolve(region_address="Regoin VI"))
+
+
+class HealthcheckTests(TestCase):
+	"""The Docker healthcheck curls http://127.0.0.1:8000/healthz/."""
+
+	def test_healthz_answers_on_loopback_without_touching_the_database(self):
+		with self.assertNumQueries(0):
+			response = self.client.get("/healthz/", HTTP_HOST="127.0.0.1:8000")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.json(), {"status": "ok"})
+
+	def test_healthz_is_exempt_from_the_ssl_redirect(self):
+		"""Otherwise `curl -fsS` gets a 301, exits 0, and the probe proves nothing."""
+		with self.settings(SECURE_SSL_REDIRECT=True):
+			response = self.client.get("/healthz/", HTTP_HOST="127.0.0.1:8000")
+		self.assertEqual(response.status_code, 200)

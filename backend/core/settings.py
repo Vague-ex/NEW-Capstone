@@ -99,6 +99,12 @@ SECRET_KEY = os.getenv("SECRET_KEY", "replace-me")
 DEBUG = _env_bool("DEBUG", True)
 
 ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", "127.0.0.1,localhost,0.0.0.0,[::1]")
+# Loopback is always allowed, whatever ALLOWED_HOSTS says. Production sets it to
+# the public domains only, which silently broke the container healthcheck: it
+# curls http://127.0.0.1:8000/healthz/, so every probe got a DisallowedHost 400
+# and the container has never reported healthy. Allowing loopback is not a
+# widening -- nothing outside the container can present it as a Host.
+ALLOWED_HOSTS = list(dict.fromkeys([*ALLOWED_HOSTS, "127.0.0.1", "localhost", "[::1]"]))
 if DEBUG:
     # Dev convenience: allow accessing API from localhost, loopback, or LAN hosts.
     ALLOWED_HOSTS = ["*"]
@@ -185,6 +191,10 @@ CSRF_COOKIE_SECURE = _env_bool("CSRF_COOKIE_SECURE", not DEBUG)
 # Caddy already redirects http to https, so Django does not need to do it a
 # second time. Opt-in for deployments that expose gunicorn directly.
 SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", False)
+# The healthcheck curls plain http on loopback. Without this, a deployment that
+# does turn the redirect on answers it with a 301 -- which `curl -fsS` treats as
+# success without following, so the probe would pass while testing nothing.
+SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
 
 
 # Database
