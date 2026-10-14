@@ -361,3 +361,32 @@ if "test" in sys.argv:
     import tempfile
 
     EMPLOYABILITY_MODEL_DIR = tempfile.mkdtemp(prefix="employability-test-")
+
+
+# Unhandled exceptions must reach the container log.
+#
+# There was no LOGGING block here at all, so Django's default applied: with
+# DEBUG=False it routes django.request errors to mail_admins and NOTHING to the
+# console. A 500 in production therefore showed up in the gunicorn access log as
+# a bare status code with no traceback anywhere, which is how a registration
+# failure went undiagnosed -- the only evidence was `POST /register/ 500`.
+#
+# stdout, because that is what `docker compose logs backend` reads.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {"format": "[{asctime}] {levelname} {name}: {message}", "style": "{"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+    },
+    "loggers": {
+        # The traceback for any unhandled exception in a view.
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+        # Our own logger.exception(...) calls.
+        "users": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "tracer": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+}
