@@ -110,7 +110,28 @@ type TrendRow = {
   next: number | null;
   nextError: [number, number] | null;
   detail: string;
+  // How many graduates this batch's percentage is actually based on. The rate
+  // was always computed over respondents, never over the whole batch, but n
+  // only appeared on hover -- so a batch of 20 answers looked exactly as solid
+  // as one of 80, and the line between them read as a real swing.
+  n: number | null;
 };
+
+/** Year with the number of respondents under it, so a thin batch is visible
+ *  without hovering. Future batches have no n and just show the year. */
+function TrendTick({ x, y, payload, rows }: {
+  x?: number; y?: number; payload?: { value: string }; rows: TrendRow[];
+}) {
+  const row = rows.find((r) => r.year === payload?.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text dy={12} textAnchor="middle" fontSize={11} fill="#6b7280">{payload?.value}</text>
+      {row?.n != null && (
+        <text dy={25} textAnchor="middle" fontSize={10} fill="#9ca3af">n={row.n}</text>
+      )}
+    </g>
+  );
+}
 
 function TrendTooltip({ active, payload }: { active?: boolean; payload?: { payload: TrendRow }[] }) {
   if (!active || !payload?.length) return null;
@@ -185,11 +206,17 @@ export function AdminAnalyticsPredictions() {
         observed: shown ? value : null,
         next: null,
         nextError: null,
+        n: r.n,
+        // "graduates" was the wrong word and did the damage: the denominator
+        // has always been the graduates who answered, not the whole batch, but
+        // calling them "graduates" invited everyone to read 50% as 50% of the
+        // batch. Say respondents, and say the batch size it came from.
         detail: shown
-          ? `${pct(r.rate, 0)} ${label} — ${r.k} of ${r.n} graduates.`
+          ? `${pct(r.rate, 0)} ${label} — ${r.k} of ${r.n} who answered.`
+          + ` This is a share of respondents, not of the whole batch.`
           : r.n === 0
-            ? 'No answers yet.'
-            : `Only ${r.n} graduates answered, too few to show.`,
+            ? 'No one from this batch has answered yet.'
+            : `Only ${r.n} answered, too few to show.`,
       };
     });
     if (trendView === 'employment') {
@@ -200,6 +227,7 @@ export function AdminAnalyticsPredictions() {
           observed: null,
           next: centre,
           nextError: [centre - (point(range.low) ?? 0), (point(range.high) ?? 0) - centre],
+          n: null,
           detail: `If this batch does about as well as recent batches, expect ${pct(range.low, 0)} to ${pct(range.high, 0)} employed.${
             i > 0 ? ' The range is wider because it is further ahead.' : ''
           } This is a range, not a prediction.`,
@@ -448,8 +476,13 @@ export function AdminAnalyticsPredictions() {
 
           <p className="text-gray-500 text-xs mb-4 leading-relaxed">
             {trendView === 'employment'
-              ? 'Each green dot is the share of a batch that is employed, among graduates working or looking for work. The orange marks are the coming batches, which have not answered yet: they show a likely range if those batches do about as well as recent ones, and each year further ahead is wider.'
+              ? 'Each green dot is the share of a batch that is employed, among the graduates who answered and are working or looking for work. The orange marks are the coming batches, which have not answered yet: they show a likely range if those batches do about as well as recent ones, and each year further ahead is wider.'
               : 'Each dot is the share of a batch that found a first job within 12 months of graduating.'}{' '}
+            <span className="text-gray-600">
+              Every percentage is out of the graduates who answered that year — the n under each
+              year — not out of the whole batch. A year with a small n moves more easily, so read
+              the line with the n beside it.
+            </span>{' '}
             Hover a dot for details.
           </p>
           {trendSeries.length === 0 ? (
@@ -460,7 +493,15 @@ export function AdminAnalyticsPredictions() {
             <ResponsiveContainer width="100%" height={300}>
               <ComposedChart data={trendSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                <XAxis
+                  dataKey="year"
+                  height={44}
+                  // No interval={0}: the n under each year makes the labels
+                  // twice as tall, and forcing every tick overlaps them on a
+                  // phone. Recharts thins them instead, and a year whose label
+                  // is dropped still shows its n on hover and in Raw numbers.
+                  tick={<TrendTick rows={trendSeries} />}
+                />
                 <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
                 <Tooltip content={<TrendTooltip />} />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
