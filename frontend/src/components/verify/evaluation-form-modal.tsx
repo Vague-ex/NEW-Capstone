@@ -24,27 +24,45 @@ const RATING_QUESTIONS: { key: keyof EmployerEvaluationPayload; label: string; d
   { key: 'rating_commitment_to_social_equity', label: 'Commitment to Social Equity', description: 'Promotes fairness, advocates for inclusivity, and addresses systemic inequalities.' },
 ];
 
-const EMPLOYEE_STATUSES = [
-  { value: 'regular', label: 'Regular' },
-  { value: 'probationary_casual_jo', label: 'Probationary / Casual / Job Order' },
-  { value: 'other', label: 'Other' },
-] as const;
-
 const EMPTY_RATINGS: Record<string, EmployerEvaluationRating | ''> = Object.fromEntries(
   RATING_QUESTIONS.map((q) => [q.key, '' as const]),
 );
 
+/**
+ * What the employer already typed in steps 2 and 3 of the page. Shown here
+ * read-only and submitted as part of this form's own payload, so the same
+ * questions are never asked twice. `employeeStatus` is the form's required
+ * "Employee's status" answer, derived from step 2's employment status.
+ */
+export type EvaluationContext = {
+  employerName: string;
+  jobTitle: string;
+  startDate: string;
+  employmentStatusLabel: string;
+  employeeStatus: EmployerEvaluationPayload['employee_status'] | '';
+  employeeStatusOther: string;
+  verifierName: string;
+  verifierPosition: string;
+  verifierEmail: string;
+};
+
 type Props = {
   isOpen: boolean;
   graduateName: string;
-  defaultBusinessType?: string;
-  /** Pre-fills "Employer's name" from the page's "Your name" field. */
-  defaultEvaluatorName?: string;
+  context: EvaluationContext;
   initialPayload?: EmployerEvaluationPayload | null;
   onClose: () => void;
   onSubmit: (payload: EmployerEvaluationPayload) => Promise<void> | void;
   isSubmitting?: boolean;
 };
+
+/** Whole years between an ISO date and today - seeds "Number of years". */
+function yearsSince(isoDate: string): string {
+  const start = new Date(isoDate);
+  if (Number.isNaN(start.getTime())) return '';
+  const years = Math.floor((Date.now() - start.getTime()) / 31557600000);
+  return years >= 0 ? String(years) : '';
+}
 
 /**
  * Employer's Confidential Feedback Form.
@@ -57,8 +75,7 @@ type Props = {
 export function EvaluationFormModal({
   isOpen,
   graduateName,
-  defaultBusinessType = '',
-  defaultEvaluatorName = '',
+  context,
   initialPayload = null,
   onClose,
   onSubmit,
@@ -77,16 +94,12 @@ export function EvaluationFormModal({
   };
 
   const [evaluatorName, setEvaluatorName] = useState(initialPayload?.evaluator_name ?? '');
-  const [employeeStatus, setEmployeeStatus] = useState<'regular' | 'probationary_casual_jo' | 'other' | ''>(
-    initialPayload?.employee_status ?? '',
-  );
-  const [employeeStatusOther, setEmployeeStatusOther] = useState(initialPayload?.employee_status_other ?? '');
   const [yearsInCompany, setYearsInCompany] = useState(
     initialPayload?.years_in_company != null ? String(initialPayload.years_in_company) : '',
   );
   const [educationalAttainment, setEducationalAttainment] = useState(initialPayload?.educational_attainment ?? '');
   const [maritalStatus, setMaritalStatus] = useState(initialPayload?.marital_status ?? '');
-  const [typeOfBusiness, setTypeOfBusiness] = useState(initialPayload?.type_of_business ?? defaultBusinessType);
+  const [typeOfBusiness, setTypeOfBusiness] = useState(initialPayload?.type_of_business ?? '');
   const [dateOfEvaluation, setDateOfEvaluation] = useState(
     initialPayload?.date_of_evaluation || new Date().toISOString().slice(0, 10),
   );
@@ -96,11 +109,11 @@ export function EvaluationFormModal({
   const [error, setError] = useState('');
   const [showErrors, setShowErrors] = useState(false);
 
-  // Pre-fill the evaluator from "Your name" when the sheet opens empty.
+  // Carry step 3's name and step 2's start date in when the sheet opens empty.
   useEffect(() => {
-    if (isOpen && !evaluatorName.trim() && defaultEvaluatorName.trim()) {
-      setEvaluatorName(defaultEvaluatorName.trim());
-    }
+    if (!isOpen) return;
+    if (!evaluatorName.trim() && context.verifierName) setEvaluatorName(context.verifierName);
+    if (!yearsInCompany.trim() && context.startDate) setYearsInCompany(yearsSince(context.startDate));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -130,8 +143,10 @@ export function EvaluationFormModal({
     e.preventDefault();
     setError('');
 
+    if (!context.employeeStatus) {
+      return fail('Please choose the employment status in step 2 (Job details) first.', 'eval-context');
+    }
     if (!evaluatorName.trim()) return fail("Employer's name is required.", 'eval-evaluator');
-    if (!employeeStatus) return fail("Employee's status is required.", 'eval-status');
     const missing = RATING_QUESTIONS.filter((q) => !ratings[q.key]);
     if (missing.length) {
       return fail(
@@ -144,8 +159,8 @@ export function EvaluationFormModal({
 
     const payload: EmployerEvaluationPayload = {
       evaluator_name: evaluatorName.trim(),
-      employee_status: employeeStatus,
-      employee_status_other: employeeStatus === 'other' ? employeeStatusOther.trim() : '',
+      employee_status: context.employeeStatus,
+      employee_status_other: context.employeeStatusOther,
       years_in_company: yearsInCompany.trim() ? Number(yearsInCompany) : null,
       educational_attainment: educationalAttainment.trim(),
       marital_status: maritalStatus.trim(),
@@ -177,10 +192,9 @@ export function EvaluationFormModal({
 
   const requestClose = () => {
     const dirty =
-      evaluatorName.trim() !== defaultEvaluatorName.trim() ||
-      employeeStatus ||
-      employeeStatusOther.trim() ||
-      yearsInCompany.trim() ||
+      evaluatorName.trim() !== context.verifierName ||
+      yearsInCompany.trim() !== yearsSince(context.startDate) ||
+      typeOfBusiness.trim() ||
       educationalAttainment.trim() ||
       maritalStatus.trim() ||
       strengths.trim() ||
@@ -233,6 +247,31 @@ export function EvaluationFormModal({
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
           <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">
+            {/* Already answered on the page: shown as context, never re-asked. */}
+            <section id="eval-context" className="scroll-mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+              <h3 className="text-sm text-gray-900" style={{ fontWeight: 700 }}>From your answers so far</h3>
+              <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+                {[
+                  ['Employee', graduateName],
+                  ['Organisation', context.employerName],
+                  ['Job title', context.jobTitle],
+                  ['Employment status', context.employmentStatusLabel],
+                  ['Started', context.startDate],
+                  ['Answered by', [context.verifierName, context.verifierPosition].filter(Boolean).join(' · ')],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex min-w-0 gap-2">
+                    <dt className="shrink-0 text-gray-600">{label}:</dt>
+                    <dd className="min-w-0 break-words text-gray-900" style={{ fontWeight: 600 }}>
+                      {value || <span className="text-gray-500" style={{ fontWeight: 400 }}>not given</span>}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-2.5 text-xs text-gray-600">
+                To change any of these, close this form and edit them on the page.
+              </p>
+            </section>
+
             {/* Confidential notice - RA 10173 (Data Privacy Act) */}
             <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#166534]" />
@@ -260,48 +299,10 @@ export function EvaluationFormModal({
                     onChange={(e) => setEvaluatorName(e.target.value)}
                     autoComplete="name"
                   />
-                </label>
-                <label className="block">
-                  <span className={labelCls} style={{ fontWeight: 600 }}>Employee&apos;s name</span>
-                  <input className={`${inputCls} bg-gray-100 text-gray-700`} value={graduateName} readOnly />
-                </label>
-
-                <div className="md:col-span-2" id="eval-status">
-                  <span className={labelCls} style={{ fontWeight: 600 }}>
-                    Employee&apos;s status <span className="text-red-600">*</span>
+                  <span className="mt-1.5 block text-xs text-gray-600">
+                    Carried over from your details - please write it as Last, First, Middle.
                   </span>
-                  <div role="radiogroup" aria-label="Employee's status" className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-3">
-                    {EMPLOYEE_STATUSES.map((s) => {
-                      const active = employeeStatus === s.value;
-                      return (
-                        <button
-                          key={s.value}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          onClick={() => setEmployeeStatus(s.value)}
-                          className={`min-h-11 rounded-xl border px-3 py-2 text-sm transition ${
-                            active
-                              ? 'border-[#166534] bg-[#166534] text-white'
-                              : `border-gray-300 bg-white text-gray-800 hover:bg-gray-50 ${showErrors && !employeeStatus ? 'border-red-400' : ''}`
-                          }`}
-                          style={{ fontWeight: active ? 600 : 500 }}
-                        >
-                          {s.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {employeeStatus === 'other' && (
-                    <input
-                      className={`${inputCls} mt-2`}
-                      placeholder="Specify other status"
-                      value={employeeStatusOther}
-                      onChange={(e) => setEmployeeStatusOther(e.target.value)}
-                    />
-                  )}
-                </div>
-
+                </label>
                 <label className="block">
                   <span className={labelCls} style={{ fontWeight: 600 }}>Number of years <span className="text-gray-500 font-normal">(optional)</span></span>
                   <input type="number" inputMode="numeric" min={0} className={inputCls} value={yearsInCompany} onChange={(e) => setYearsInCompany(e.target.value)} />

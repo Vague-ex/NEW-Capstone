@@ -14,12 +14,13 @@
  * work in a private window for someone who has never used the system.
  *
  * Most employers open the link on a phone, so the page is one short column of
- * numbered steps with a submit bar pinned to the bottom. Confirming requires
- * the Confidential Feedback Form: the backend rejects a confirmation without
- * it, so the page must never present it as optional.
+ * numbered steps with a submit bar pinned to the bottom. The Confidential
+ * Feedback Form is optional, but once started it must be complete: the backend
+ * rejects a half-filled evaluation. Everything the employer types in steps 2
+ * and 3 is carried into that form rather than asked a second time.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 import {
   ApiClientError,
@@ -29,7 +30,7 @@ import {
   type VerificationTokenDetail,
 } from '../../app/api-client';
 import { useReferenceData } from '../../hooks/useReferenceData';
-import { EvaluationFormModal } from './evaluation-form-modal';
+import { EvaluationFormModal, type EvaluationContext } from './evaluation-form-modal';
 import {
   GraduationCap, CheckCircle2, XCircle, AlertTriangle, Building2,
   Briefcase, ShieldCheck, Loader2, ClipboardList, Pencil,
@@ -84,67 +85,16 @@ function Section({ id, step, title, subtitle, children }: {
 }
 
 /**
- * Shown before the form: whose record this is and what the answers are used
- * for. The employer may not know the University, so this is said up front
- * rather than only in the fine print of the feedback form.
+ * Employment status, with the Confidential Feedback Form's own three-way
+ * answer beside it. The employer is asked once, here, and the form reuses it;
+ * keeping both columns in one table is what stops the two drifting apart.
  */
-function PurposeNotice({ graduateName, onAccept }: { graduateName: string; onAccept: () => void }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    buttonRef.current?.focus({ preventScroll: true });
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = previous; };
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="purpose-title"
-        className="flex max-h-[100dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white text-gray-900 shadow-2xl sm:max-w-lg sm:rounded-2xl"
-      >
-        <div className="flex-1 overflow-y-auto px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-[#166534]/10 mb-3">
-            <ShieldCheck className="size-5 text-[#166534]" />
-          </div>
-          <h2 id="purpose-title" className="text-gray-900 text-lg" style={{ fontWeight: 700 }}>Before you begin</h2>
-          <p className="text-gray-700 text-sm mt-2 leading-relaxed">
-            This form is about your employee <span style={{ fontWeight: 700 }}>{graduateName}</span>, a BSIS graduate
-            of Carlos Hilado Memorial State University. The graduate sent you this link.
-          </p>
-          <p className="text-gray-900 text-sm mt-4" style={{ fontWeight: 700 }}>Your answers are used only to:</p>
-          <ul className="mt-1.5 space-y-1.5 text-sm text-gray-700 list-disc pl-5">
-            <li>confirm this graduate&apos;s employment record in the BSIS Graduate Tracer, and</li>
-            <li>produce anonymous, batch-level reports that help the BSIS program improve its curriculum.</li>
-          </ul>
-          <p className="text-gray-900 text-sm mt-4" style={{ fontWeight: 700 }}>Your answers are never:</p>
-          <ul className="mt-1.5 space-y-1.5 text-sm text-gray-700 list-disc pl-5">
-            <li>shown to the graduate,</li>
-            <li>shared with other employers or the public, or</li>
-            <li>used for any decision about the graduate&apos;s job.</li>
-          </ul>
-          <p className="text-gray-600 text-xs mt-4 leading-relaxed">
-            Handled under RA 10173, the Data Privacy Act of 2012. If you do not know this graduate, answer
-            &quot;No&quot; to the first question.
-          </p>
-        </div>
-        <div className="shrink-0 border-t border-gray-200 px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
-          <button
-            ref={buttonRef}
-            type="button"
-            onClick={onAccept}
-            className="min-h-12 w-full rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
-            style={{ fontWeight: 600 }}
-          >
-            I understand, continue
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const STATUS_OPTIONS = [
+  { value: 'regular', label: 'Regular / Permanent', employeeStatus: 'regular', other: '' },
+  { value: 'probationary', label: 'Probationary', employeeStatus: 'probationary_casual_jo', other: '' },
+  { value: 'contractual', label: 'Contractual / Casual', employeeStatus: 'probationary_casual_jo', other: '' },
+  { value: 'self_employed', label: 'Self-Employed / Freelance', employeeStatus: 'other', other: 'Self-Employed / Freelance' },
+] as const;
 
 export function EmployerVerificationPage() {
   const { tokenId = '' } = useParams();
@@ -165,7 +115,6 @@ export function EmployerVerificationPage() {
   const [verifierEmail, setVerifierEmail] = useState('');
   const [verifierPosition, setVerifierPosition] = useState('');
 
-  const [noticeAccepted, setNoticeAccepted] = useState(false);
   const [evaluation, setEvaluation] = useState<EmployerEvaluationPayload | null>(null);
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -212,11 +161,12 @@ export function EmployerVerificationPage() {
     const items: { sectionId: string; text: string }[] = [];
     if (worksHere === null) return items;
     if (worksHere && !employerName.trim()) items.push({ sectionId: 'section-job', text: 'organisation name' });
+    if (worksHere && !employmentStatus) items.push({ sectionId: 'section-job', text: 'employment status' });
     if (!verifierName.trim()) items.push({ sectionId: 'section-you', text: 'your name' });
     if (!EMAIL_RE.test(verifierEmail.trim())) items.push({ sectionId: 'section-you', text: 'a valid work email' });
     if (!verifierPosition.trim()) items.push({ sectionId: 'section-you', text: 'your position' });
     return items;
-  }, [worksHere, employerName, verifierName, verifierEmail, verifierPosition]);
+  }, [worksHere, employerName, employmentStatus, verifierName, verifierEmail, verifierPosition]);
 
   const submit = useCallback(async () => {
     if (worksHere === null) return;
@@ -235,13 +185,14 @@ export function EmployerVerificationPage() {
         comment: comment.trim(),
         verified_employer_name: employerName.trim(),
         verified_job_title_id: jobTitleId || undefined,
-        employment_status: employmentStatus || undefined,
-        start_date: startDate || undefined,
         verifier_name: verifierName.trim(),
         verifier_email: verifierEmail.trim(),
         verifier_position: verifierPosition.trim(),
+        // Step 2's status and start date reach the backend inside the
+        // evaluation, as employee_status / years_in_company; the decision
+        // endpoint has no column of its own for either.
         ...(decision === 'confirm' && evaluation ? evaluation : {}),
-      } as Parameters<typeof submitVerificationDecision>[1]);
+      });
       setResultMessage(res.message ?? 'Thank you — your response has been recorded.');
       setStage('done');
       window.scrollTo({ top: 0 });
@@ -250,12 +201,33 @@ export function EmployerVerificationPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [tokenId, worksHere, missing, comment, employerName, jobTitleId, employmentStatus, startDate,
+  }, [tokenId, worksHere, missing, comment, employerName, jobTitleId,
       verifierName, verifierEmail, verifierPosition, evaluation]);
 
   const graduateName = detail?.alumni?.name ?? 'BSIS Graduate';
   const firstName = graduateName.split(' ')[0] || 'this graduate';
-  const jobTitles = (referenceData?.job_titles ?? []) as Array<{ id: string; name: string }>;
+  const jobTitles = useMemo(
+    () => (referenceData?.job_titles ?? []) as Array<{ id: string; name: string }>,
+    [referenceData],
+  );
+
+  // Steps 2 and 3, shaped for the feedback form: it shows these read-only and
+  // submits employeeStatus / employeeStatusOther as its own required answers.
+  const evaluationContext = useMemo<EvaluationContext>(() => {
+    const status = STATUS_OPTIONS.find((o) => o.value === employmentStatus);
+    return {
+      employerName: employerName.trim(),
+      jobTitle: jobTitles.find((t) => t.id === jobTitleId)?.name ?? '',
+      startDate,
+      employmentStatusLabel: status?.label ?? '',
+      employeeStatus: status?.employeeStatus ?? '',
+      employeeStatusOther: status?.other ?? '',
+      verifierName: verifierName.trim(),
+      verifierPosition: verifierPosition.trim(),
+      verifierEmail: verifierEmail.trim(),
+    };
+  }, [employerName, jobTitles, jobTitleId, startDate, employmentStatus,
+      verifierName, verifierPosition, verifierEmail]);
 
   const stepYou = worksHere ? 3 : 2;
   const showBar = stage === 'form' && worksHere !== null;
@@ -327,11 +299,17 @@ export function EmployerVerificationPage() {
                 </div>
               </div>
               <p className="text-gray-600 text-xs mt-3 pt-3 border-t border-gray-100">
-                Takes about 5 minutes. Your feedback is confidential — the graduate never sees it.
+                Takes about 5 minutes. Your answers are confidential — the graduate never sees them — and are
+                handled under RA 10173, the Data Privacy Act of 2012.
               </p>
             </div>
 
-            <Section id="section-works" step={1} title={`Does ${firstName} work at your organisation?`}>
+            <Section
+              id="section-works"
+              step={1}
+              title={`Does ${firstName} work at your organisation?`}
+              subtitle="If you do not know this graduate, answer No."
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -374,13 +352,11 @@ export function EmployerVerificationPage() {
                     </select>
                   </Field>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="Employment status" htmlFor="v-status">
-                      <select id="v-status" value={employmentStatus} onChange={(e) => setEmploymentStatus(e.target.value)} className={inputCls}>
+                    <Field label="Employment status" required htmlFor="v-status">
+                      <select id="v-status" value={employmentStatus} onChange={(e) => setEmploymentStatus(e.target.value)}
+                        className={`${inputCls} ${needs('employment status') ? 'border-red-400 ring-2 ring-red-100' : ''}`}>
                         <option value="">Select status</option>
-                        <option value="regular">Regular / Permanent</option>
-                        <option value="probationary">Probationary</option>
-                        <option value="contractual">Contractual / Casual</option>
-                        <option value="self_employed">Self-Employed / Freelance</option>
+                        {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     </Field>
                     <Field label="Start date" htmlFor="v-start" hint="Approximate is fine.">
@@ -485,14 +461,10 @@ export function EmployerVerificationPage() {
         </div>
       )}
 
-      {stage === 'form' && !noticeAccepted && (
-        <PurposeNotice graduateName={graduateName} onAccept={() => setNoticeAccepted(true)} />
-      )}
-
       <EvaluationFormModal
         isOpen={showEvaluation}
         graduateName={graduateName}
-        defaultEvaluatorName={verifierName}
+        context={evaluationContext}
         initialPayload={evaluation}
         onClose={() => setShowEvaluation(false)}
         onSubmit={(payload) => {
