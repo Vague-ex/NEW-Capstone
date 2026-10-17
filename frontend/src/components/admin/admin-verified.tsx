@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
@@ -1050,6 +1050,7 @@ export function AdminVerified() {
 
   const [backendVerified, setBackendVerified] = useState<AlumniRecord[]>([]);
   const [loadingVerified, setLoadingVerified] = useState(true);
+  const [refreshingVerified, setRefreshingVerified] = useState(false);
   const [fetchError, setFetchError] = useState('');
   // The dashboard links here with ?retracing=needs, the debug page with ?q=<name>.
   const [searchParams] = useSearchParams();
@@ -1070,36 +1071,31 @@ export function AdminVerified() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    let active = true;
-    const loadVerified = async (initialLoad = false) => {
-      if (initialLoad) {
-        setLoadingVerified(true);
-      }
-      setFetchError('');
-      try {
-        const results = await fetchVerifiedAlumni();
-        if (!active) return;
-        setBackendVerified(results as AlumniRecord[]);
-      } catch (err) {
-        if (!active) return;
-        const message = err instanceof Error ? err.message : 'Failed to load verified graduates.';
-        setFetchError(message);
-      } finally {
-        if (active && initialLoad) setLoadingVerified(false);
-      }
-    };
-
-    void loadVerified(true);
-    const intervalId = window.setInterval(() => {
-      void loadVerified(false);
-    }, 30000);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
+  // Loaded once on mount and on the Refresh button -- NOT on a timer. The list
+  // is unpaginated, so a 30s poll dragged every graduate row out of Supabase
+  // 120 times an hour per open tab and ate the free plan's egress quota.
+  const loadVerified = useCallback(async (initialLoad = false) => {
+    if (initialLoad) {
+      setLoadingVerified(true);
+    } else {
+      setRefreshingVerified(true);
+    }
+    setFetchError('');
+    try {
+      const results = await fetchVerifiedAlumni();
+      setBackendVerified(results as AlumniRecord[]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load verified graduates.';
+      setFetchError(message);
+    } finally {
+      if (initialLoad) setLoadingVerified(false);
+      else setRefreshingVerified(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadVerified(true);
+  }, [loadVerified]);
 
   // Batches reflect what's actually in the verified-alumni list - a year only
   // appears once at least one alum from that batch has been verified.
@@ -1196,6 +1192,18 @@ export function AdminVerified() {
             </p>
           </div>
         )}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => void loadVerified(false)}
+            disabled={loadingVerified || refreshingVerified}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`size-3.5 ${refreshingVerified ? 'animate-spin' : ''}`} />
+            {refreshingVerified ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
 
         {/* Summary */}
         {/* On phones each card is ~100px wide. Side-by-side icon + text left

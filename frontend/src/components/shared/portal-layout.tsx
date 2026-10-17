@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import Image from 'next/image';
 import {
@@ -13,6 +13,7 @@ import {
   fetchVerifiedAlumni,
 } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
+const ADMIN_PENDING_TOTAL_KEY = 'admin_last_pending_total';
 
 type PortalRole = 'alumni' | 'admin';
 
@@ -135,68 +136,62 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
     };
   }, [role]);
 
+  // Refreshed on mount and whenever the admin opens the bell -- NOT on a timer.
+  // This used to poll every 30s, and because the retracing count is derived from
+  // the whole verified list, each tick dragged every graduate row out of Supabase.
+  // With the simulated cohort seeded that was hundreds of MB per hour per open
+  // tab, and it burned through the free plan's egress quota in a week.
+  const refreshAdminNotificationCount = useCallback(async () => {
+    if (role !== 'admin') return;
+    try {
+      const [pendingAlumni, profileReview, verified] = await Promise.all([
+        fetchPendingAlumni(),
+        // A failed review fetch must not blank the pending count too.
+        fetchProfileReviewAlumni().catch(() => [] as unknown[]),
+        // The same list the alert links to (/admin/verified?retracing=needs),
+        // so demo graduates count here even though analytics leaves them out.
+        // ponytail: still pulls the whole verified list for one count. Now
+        // that it only runs on open that is a few calls a day, not 2,880 --
+        // add a count endpoint if it moves back onto any kind of timer.
+        fetchVerifiedAlumni().catch(() => [] as unknown[]),
+      ]);
+
+      // Employer requests no longer exist — employers verify by one-time
+      // link and never await approval. The bell counts graduates waiting on
+      // approval, masterlist matches waiting on a profile check, and
+      // graduates overdue for retracing.
+      const totalPending = pendingAlumni.length + profileReview.length;
+      setPendingAlumniCount(pendingAlumni.length);
+      setProfileReviewCount(profileReview.length);
+      setRetracingCount(
+        verified.filter((a) => (a as { requiresRetracking?: boolean }).requiresRetracking === true).length,
+      );
+
+      const previousTotal = lastKnownAdminPendingRef.current;
+      if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
+        notificationAudioRef.current.currentTime = 0;
+        void notificationAudioRef.current.play().catch((err) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[notification] play failed:', err);
+          }
+        });
+      }
+
+      lastKnownAdminPendingRef.current = totalPending;
+      sessionStorage.setItem(ADMIN_PENDING_TOTAL_KEY, String(totalPending));
+    } catch {
+      /* leave the last known counts on screen */
+    }
+  }, [role]);
+
   useEffect(() => {
     if (role !== 'admin') return;
-
-    const sessionKey = 'admin_last_pending_total';
-    const storedTotal = Number(sessionStorage.getItem(sessionKey));
+    const storedTotal = Number(sessionStorage.getItem(ADMIN_PENDING_TOTAL_KEY));
     if (!Number.isNaN(storedTotal)) {
       lastKnownAdminPendingRef.current = storedTotal;
     }
-
-    let active = true;
-    const updateAdminNotificationCount = async () => {
-      try {
-        const [pendingAlumni, profileReview, verified] = await Promise.all([
-          fetchPendingAlumni(),
-          // A failed review fetch must not blank the pending count too.
-          fetchProfileReviewAlumni().catch(() => [] as unknown[]),
-          // The same list the alert links to (/admin/verified?retracing=needs),
-          // so demo graduates count here even though analytics leaves them out.
-          // ponytail: pulls the whole verified list for one count; add a count
-          // endpoint if that list grows to thousands.
-          fetchVerifiedAlumni().catch(() => [] as unknown[]),
-        ]);
-        if (!active) return;
-
-        // Employer requests no longer exist — employers verify by one-time
-        // link and never await approval. The bell counts graduates waiting on
-        // approval, masterlist matches waiting on a profile check, and
-        // graduates overdue for retracing.
-        const totalPending = pendingAlumni.length + profileReview.length;
-        setPendingAlumniCount(pendingAlumni.length);
-        setProfileReviewCount(profileReview.length);
-        setRetracingCount(
-          verified.filter((a) => (a as { requiresRetracking?: boolean }).requiresRetracking === true).length,
-        );
-
-        const previousTotal = lastKnownAdminPendingRef.current;
-        if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
-          notificationAudioRef.current.currentTime = 0;
-          void notificationAudioRef.current.play().catch((err) => {
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn('[notification] play failed:', err);
-            }
-          });
-        }
-
-        lastKnownAdminPendingRef.current = totalPending;
-        sessionStorage.setItem(sessionKey, String(totalPending));
-      } catch {
-        if (!active) return;
-      }
-    };
-
-    void updateAdminNotificationCount();
-    const intervalId = window.setInterval(() => {
-      void updateAdminNotificationCount();
-    }, 30000);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
-  }, [role]);
+    void refreshAdminNotificationCount();
+  }, [role, refreshAdminNotificationCount]);
 
   // Close bell dropdown on outside click
   useEffect(() => {
@@ -352,7 +347,11 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
               <div className="relative">
                 <button
                   ref={notifButtonRef}
-                  onClick={() => setNotifOpen(o => !o)}
+                  onClick={() => {
+                    // Opening the bell is the manual refresh.
+                    if (!notifOpen) void refreshAdminNotificationCount();
+                    setNotifOpen(o => !o);
+                  }}
                   className="relative flex size-10 items-center justify-center rounded-lg hover:bg-gray-100 transition"
                   aria-label="Notifications"
                 >

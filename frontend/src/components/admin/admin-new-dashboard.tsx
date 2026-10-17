@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
@@ -344,14 +344,17 @@ export function AdminNewDashboard() {
   const [listedAlumni, setListedAlumni] = useState<AlumniRecord[]>([]);
   const [alignment, setAlignment] = useState<AlignmentSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState('');
 
-  useEffect(() => {
-    let active = true;
-
-    const loadDashboardData = async (initialLoad = false) => {
+  // Loaded once on mount and on the Refresh button -- NOT on a timer. This used
+  // to re-run all five fetches every 30s, two of them unpaginated graduate
+  // lists, which is what drained the Supabase free-plan egress quota.
+  const loadDashboardData = useCallback(async (initialLoad = false) => {
       if (initialLoad) {
         setLoading(true);
+      } else {
+        setRefreshing(true);
       }
 
       const [pendingResult, verifiedResult, alignmentResult, listedResult, auditResult] = await Promise.allSettled([
@@ -372,8 +375,6 @@ export function AdminNewDashboard() {
           // The endpoint's own ceiling; the modal pages through it 15 at a time.
           fetchAuditFeed(50),
         ]);
-
-      if (!active) return;
 
       const errorMessages: string[] = [];
 
@@ -425,21 +426,13 @@ export function AdminNewDashboard() {
         setFetchError('Some dashboard sections could not refresh. Showing last available values.');
       }
 
-      if (active && initialLoad) {
-        setLoading(false);
-      }
-    };
-
-    void loadDashboardData(true);
-    const intervalId = window.setInterval(() => {
-      void loadDashboardData(false);
-    }, 30000);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
+      if (initialLoad) setLoading(false);
+      else setRefreshing(false);
   }, []);
+
+  useEffect(() => {
+    void loadDashboardData(true);
+  }, [loadDashboardData]);
 
   const registeredAlumni = useMemo(() => [...verifiedAlumni, ...pendingAlumni], [verifiedAlumni, pendingAlumni]);
   const totalRegistered = registeredAlumni.length;
@@ -645,6 +638,18 @@ export function AdminNewDashboard() {
           </div>
         )}
 
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => void loadDashboardData(false)}
+            disabled={loading || refreshing}
+            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 gt-stagger">
           <StatCard label="Total Registered" value={totalRegistered} sub={`${pendingAlumni.length} pending · ${verifiedCount} verified`}
