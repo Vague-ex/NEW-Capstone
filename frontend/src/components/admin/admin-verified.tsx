@@ -3,6 +3,9 @@ import { useSearchParams } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import type { AlumniRecord } from '../../data/app-data';
 import {
+  fetchAlumniDetail,
+  fetchVerifiedAlumniPage,
+  type VerifiedTotals,
   fetchEmployerDecisions,
   fetchRetrackingHistory,
   fetchVerifiedAlumni,
@@ -25,6 +28,8 @@ import { employmentStatusLabel } from './employment-status-label';
 type ModalTab = 'profile' | 'employment' | 'skills' | 'history';
 
 const PAGE_SIZE = 20;
+// Matches the server's ORDER BY on the paged endpoint (-updated_at).
+const DEFAULT_SORT_FIELD = 'dateUpdated';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -422,6 +427,30 @@ function loadHistory(alumniId: string, force = false): Promise<RetrackingHistory
       if (historyInflight.get(alumniId) === request) historyInflight.delete(alumniId);
     });
   historyInflight.set(alumniId, request);
+  return request;
+}
+
+// Same shape as the history cache above, for the fields the list no longer
+// carries (surveyData, the enrolment sweep, the capture summary). The window
+// opens instantly on the list row and fills in when this lands.
+const detailCache = new Map<string, AlumniRecord>();
+const detailInflight = new Map<string, Promise<AlumniRecord>>();
+
+function loadDetail(alumniId: string): Promise<AlumniRecord> {
+  const cached = detailCache.get(alumniId);
+  if (cached) return Promise.resolve(cached);
+  const pending = detailInflight.get(alumniId);
+  if (pending) return pending;
+  const request = fetchAlumniDetail(alumniId)
+    .then((res) => {
+      const record = res as AlumniRecord;
+      detailCache.set(alumniId, record);
+      return record;
+    })
+    .finally(() => {
+      if (detailInflight.get(alumniId) === request) detailInflight.delete(alumniId);
+    });
+  detailInflight.set(alumniId, request);
   return request;
 }
 
@@ -1067,14 +1096,21 @@ export function AdminVerified() {
   const openedRef = useRef<string | null>(null);
   // Which tab the details window opens on ("History" button opens it straight there).
   const [modalTab, setModalTab] = useState<ModalTab>('profile');
-  const [sortField, setSortField] = useState('name');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  // The server's page order. Any other sort needs every row to be correct, so
+  // it falls back to the full fetch -- see needsFullSet below.
+  const [sortField, setSortField] = useState(DEFAULT_SORT_FIELD);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [totals, setTotals] = useState<VerifiedTotals | null>(null);
+  // True while backendVerified holds ONE page rather than every graduate.
+  const [serverPaged, setServerPaged] = useState(false);
   const [page, setPage] = useState(1);
 
   // Loaded once on mount and on the Refresh button -- NOT on a timer. The list
   // is unpaginated, so a 30s poll dragged every graduate row out of Supabase
   // 120 times an hour per open tab and ate the free plan's egress quota.
-  const loadVerified = useCallback(async (initialLoad = false) => {
+  const loadVerified = useCallback(async (
+    { initialLoad = false, full = false, pageNo = 1 } = {},
+  ) => {
     if (initialLoad) {
       setLoadingVerified(true);
     } else {
@@ -1082,8 +1118,17 @@ export function AdminVerified() {
     }
     setFetchError('');
     try {
-      const results = await fetchVerifiedAlumni();
-      setBackendVerified(results as AlumniRecord[]);
+      if (full) {
+        // Search / filters / a different sort all work over every graduate.
+        const results = await fetchVerifiedAlumni();
+        setBackendVerified(results as AlumniRecord[]);
+        setServerPaged(false);
+      } else {
+        const { results, totals: t } = await fetchVerifiedAlumniPage(pageNo, PAGE_SIZE);
+        setBackendVerified(results as AlumniRecord[]);
+        setTotals(t);
+        setServerPaged(true);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load verified graduates.';
       setFetchError(message);
@@ -1093,21 +1138,48 @@ export function AdminVerified() {
     }
   }, []);
 
+  // Search, the filters and any non-default sort all work across every
+  // graduate, so they need the full set; the plain view does not and takes one
+  // page. Opening the page is automatic and constant, filtering is a click, so
+  // the cheap path is the one that runs on its own.
+  const needsFullSet =
+    search.trim() !== ''
+    || filterYear !== 'all'
+    || filterStatus !== 'all'
+    || filterRetrace !== 'all'
+    || sortField !== DEFAULT_SORT_FIELD
+    || sortDir !== 'desc';
+
+  const hasFullSetRef = useRef(false);
+  hasFullSetRef.current = !serverPaged && backendVerified.length > 0;
+  const firstLoadRef = useRef(true);
+
   useEffect(() => {
-    void loadVerified(true);
-  }, [loadVerified]);
+    const initialLoad = firstLoadRef.current;
+    firstLoadRef.current = false;
+    if (needsFullSet) {
+      // Already holding every row: refine in the browser, do not refetch.
+      if (hasFullSetRef.current) return;
+      void loadVerified({ initialLoad, full: true });
+    } else {
+      void loadVerified({ initialLoad, pageNo: page });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsFullSet, page]);
 
   // Batches reflect what's actually in the verified-alumni list - a year only
   // appears once at least one alum from that batch has been verified.
   const availableBatches = useMemo(
-    () => Array.from(
-      new Set(
-        backendVerified
-          .map(a => a.graduationYear)
-          .filter((y): y is number => typeof y === 'number' && y > 0),
-      ),
-    ).sort((a, b) => b - a),
-    [backendVerified],
+    () => (serverPaged
+      ? (totals?.batches ?? [])
+      : Array.from(
+        new Set(
+          backendVerified
+            .map(a => a.graduationYear)
+            .filter((y): y is number => typeof y === 'number' && y > 0),
+        ),
+      ).sort((a, b) => b - a)),
+    [backendVerified, serverPaged, totals],
   );
 
   // Reset stale year filter if its batch vanished from the list.
@@ -1117,15 +1189,43 @@ export function AdminVerified() {
     }
   }, [availableBatches, filterYear]);
 
+  // The window opens on the list row straight away, then swaps in the full
+  // record once the detail fetch lands -- the survey answers, the enrolment
+  // sweep and the capture summary no longer ride along with every list row.
+  const openGraduate = useCallback((a: AlumniRecord, tab: ModalTab = 'profile') => {
+    setModalTab(tab);
+    setModalAlumni(a);
+    const id = String(a.id ?? '');
+    if (!id) return;
+    loadDetail(id)
+      .then((full) => {
+        setModalAlumni((current) =>
+          current && String(current.id ?? '') === id ? { ...current, ...full } : current,
+        );
+      })
+      .catch(() => { /* the row's own fields stay on screen */ });
+  }, []);
+
   // Opened once per id, so closing the modal does not immediately reopen it.
   useEffect(() => {
     if (!openId || openedRef.current === openId) return;
     const match = backendVerified.find((a) => String(a.id ?? '') === openId);
-    if (!match) return;
+    if (match) {
+      openedRef.current = openId;
+      openGraduate(match);
+      return;
+    }
+    // Linked straight to a graduate who is not on the page being shown. The
+    // detail endpoint carries every field the window needs, so open from that
+    // rather than pulling the whole list back just to find one row.
     openedRef.current = openId;
-    setModalTab('profile');
-    setModalAlumni(match);
-  }, [openId, backendVerified]);
+    loadDetail(openId)
+      .then((full) => {
+        setModalTab('profile');
+        setModalAlumni(full);
+      })
+      .catch(() => { openedRef.current = null; });
+  }, [openId, backendVerified, openGraduate]);
 
   const verifiedAlumni = useMemo(() => backendVerified.filter(a => {
     const q = search.toLowerCase().trim();
@@ -1150,11 +1250,16 @@ export function AdminVerified() {
     else { setSortField(f); setSortDir('asc'); }
   };
 
-  const totalPages = Math.max(1, Math.ceil(verifiedAlumni.length / PAGE_SIZE));
+  // How many graduates the current view covers: the server's count while paged,
+  // the filtered length once the browser holds every row.
+  const matchCount = serverPaged ? (totals?.total ?? 0) : verifiedAlumni.length;
+  const totalPages = Math.max(1, Math.ceil(matchCount / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pagedAlumni = useMemo(
-    () => verifiedAlumni.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [verifiedAlumni, safePage],
+    () => (serverPaged
+      ? backendVerified
+      : verifiedAlumni.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)),
+    [serverPaged, backendVerified, verifiedAlumni, safePage],
   );
 
   // Snap back to page 1 whenever the filtered set changes shape.
@@ -1167,12 +1272,16 @@ export function AdminVerified() {
     </span>
   );
 
-  const empCount = verifiedAlumni.filter(a => a.employmentStatus !== 'unemployed').length;
+  const empCount = serverPaged
+    ? (totals?.employed ?? 0)
+    : verifiedAlumni.filter(a => a.employmentStatus !== 'unemployed').length;
   // Counted before the retracing filter so the card keeps its number while the
   // filter is toggled.
   const retraceCount = useMemo(
-    () => backendVerified.filter(needsRetracing).length,
-    [backendVerified],
+    () => (serverPaged
+      ? (totals?.retracing ?? 0)
+      : backendVerified.filter(needsRetracing).length),
+    [backendVerified, serverPaged, totals],
   );
 
   const handleReminderSent = (alumniId: string, sentAt: string) => {
@@ -1196,7 +1305,7 @@ export function AdminVerified() {
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => void loadVerified(false)}
+            onClick={() => void loadVerified(needsFullSet ? { full: true } : { pageNo: page })}
             disabled={loadingVerified || refreshingVerified}
             className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
           >
@@ -1211,9 +1320,9 @@ export function AdminVerified() {
             above the number and labels wrap instead of truncating. */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
           {[
-            { label: 'Total Verified', value: verifiedAlumni.length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { label: 'Total Verified', value: matchCount, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
             { label: 'Employed / Self-Employed', value: empCount, icon: Briefcase, color: 'text-[#166534]', bg: 'bg-[#166534]/10' },
-            { label: 'Employment Rate', value: `${verifiedAlumni.length ? Math.round(empCount / verifiedAlumni.length * 100) : 0}%`, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: 'Employment Rate', value: `${matchCount ? Math.round(empCount / matchCount * 100) : 0}%`, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
             {
               label: 'Needs Retracing', value: retraceCount, icon: RefreshCw, color: 'text-red-600', bg: 'bg-red-50',
               onClick: () => setFilterRetrace(f => (f === 'needs' ? 'all' : 'needs')), active: filterRetrace === 'needs',
@@ -1270,7 +1379,7 @@ export function AdminVerified() {
           </select>
           {/* Simulated (seeded) graduates are included by the server only when
               "Show simulated accounts" is on at /admin/debug/a. */}
-          <span className="text-gray-400 text-xs ml-auto">{verifiedAlumni.length} records</span>
+          <span className="text-gray-400 text-xs ml-auto">{matchCount} records</span>
         </div>
 
         {/* Table */}
@@ -1289,7 +1398,7 @@ export function AdminVerified() {
                   <li key={String(a.id ?? a.email ?? safeName(a))}>
                     <button
                       type="button"
-                      onClick={() => { setModalTab('profile'); setModalAlumni(a); }}
+                      onClick={() => openGraduate(a)}
                       className="w-full flex items-start gap-3 px-4 py-3.5 text-left active:bg-gray-100 transition"
                     >
                       <div className="flex size-10 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-xs shrink-0"
@@ -1386,12 +1495,12 @@ export function AdminVerified() {
                           <td className="px-4 py-3 text-gray-500 text-xs max-w-[100px] truncate">{a.workCity ?? '-'}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
-                              <button onClick={() => { setModalTab('profile'); setModalAlumni(a); }}
+                              <button onClick={() => openGraduate(a)}
                                 className="text-[#166534] bg-[#166534]/5 hover:bg-[#166534]/15 text-xs px-3 py-1.5 rounded-lg transition"
                                 style={{ fontWeight: 600 }}>
                                 View Details
                               </button>
-                              <button onClick={() => { setModalTab('history'); setModalAlumni(a); }}
+                              <button onClick={() => openGraduate(a, 'history')}
                                 onPointerEnter={() => prefetchHistory(a.id)}
                                 onFocus={() => prefetchHistory(a.id)}
                                 aria-label={`Retracking history for ${safeName(a)}`}
@@ -1408,16 +1517,16 @@ export function AdminVerified() {
                 </table>
               </div>
 
-              {verifiedAlumni.length === 0 && (
+              {pagedAlumni.length === 0 && (
                 <div className="text-center py-12 text-gray-400 text-sm">No verified graduates match the current filters.</div>
               )}
 
-              {verifiedAlumni.length > PAGE_SIZE && (
+              {matchCount > PAGE_SIZE && (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
                   <p className="text-xs text-gray-500">
                     Showing <span className="text-gray-700" style={{ fontWeight: 600 }}>
-                      {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, verifiedAlumni.length)}
-                    </span> of {verifiedAlumni.length}
+                      {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, matchCount)}
+                    </span> of {matchCount}
                   </p>
                   <div className="flex items-center gap-1">
                     <button

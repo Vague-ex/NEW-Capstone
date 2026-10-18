@@ -1146,6 +1146,15 @@ def _admin_retracking_fields(account: AlumniAccount) -> dict:
     fields["lastRetrackingReminderAt"] = reminded.isoformat() if reminded else None
     return fields
 
+def _positive_int(value):
+    """Query-parameter integer, or None when absent / junk / not positive."""
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _to_float(value):
     """Coerce a form value to float, or None when absent / non-numeric."""
     if value in (None, ""):
@@ -1543,6 +1552,110 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "geomapConsent": bool(getattr(getattr(account, "profile", None), "geomap_consent", False)),
         "surveyData": survey_data,
     }
+
+# Survey keys the LIST views actually read. Everything else in survey_data is
+# only ever rendered by the graduate details window, which now fetches its own
+# copy per graduate (AlumniDetailView below).
+#   timeToHire                     -> admin-new-dashboard, time-to-hire analytics
+#   currentJobLocation, region_address, region -> admin-map, pin placement
+_LIST_SURVEY_KEYS = ("timeToHire", "currentJobLocation", "region_address", "region")
+
+
+def _trim_for_list(payload: dict) -> dict:
+    """Strip the details-window-only fields from a list row.
+
+    The verified list is unpaginated, so every one of these rides along once per
+    graduate on every load: with the simulated cohort seeded that was ~2.7 KB a
+    row and 1.4 MB a response. The table draws none of it.
+    """
+    survey = payload.get("surveyData") or {}
+    payload["surveyData"] = {k: survey[k] for k in _LIST_SURVEY_KEYS if k in survey}
+    # Dropped outright rather than emptied: at 548 rows even `"captureSummary":
+    # null` is real bytes. The details window reads both through helpers that
+    # already tolerate a missing key.
+    payload.pop("registrationPoseScans", None)
+    payload.pop("captureSummary", None)
+    # admin-map falls back to the front scan when facePhotoUrl is empty, so that
+    # one URL stays; left/right are shown only in the details window.
+    scans = payload.get("registrationFaceScans") or {}
+    payload["registrationFaceScans"] = {"front": scans.get("front")}
+    return payload
+
+
+def _verified_totals(qs) -> dict:
+    """The stat-card numbers and the batch dropdown, over the WHOLE set.
+
+    These cover every graduate, so they cannot be read off one page of rows.
+    They depend only on AlumniProfile and EmploymentProfile, so this pass skips
+    the prefetches that dominate the list query: on 548 graduates the skills
+    prefetch alone is ~4,870 rows that none of these numbers look at.
+    """
+    from tracer.models import EmploymentProfile
+
+    rows = (
+        qs.defer("biometric_template")
+        .annotate(_list_template=_LIST_TEMPLATE)
+        .select_related("user", "profile", "master_record")
+        .prefetch_related(
+            Prefetch(
+                "employment_profiles",
+                queryset=EmploymentProfile.objects.order_by("-updated_at"),
+                to_attr="_prefetched_emp",
+            )
+        )
+    )
+
+    total = employed = retracing = 0
+    batches: set[int] = set()
+    for account in rows:
+        # _normalized_view_from_tables falls back to a per-account query when a
+        # to_attr is missing, which would turn this pass into an N+1. An empty
+        # list reads as "this graduate has none", and none of the three numbers
+        # below depends on those tables.
+        account._prefetched_skills = []
+        account._prefetched_addr = []
+        account._prefetched_comp = []
+        account._prefetched_scans = []
+
+        total += 1
+
+        template = _template_of(account)
+        blob = template.get("profile", {}) if isinstance(template, dict) else {}
+        survey_blob = blob.get("survey_data", {}) if isinstance(blob, dict) else {}
+        if not isinstance(survey_blob, dict):
+            survey_blob = {}
+        # Same two calls, in the same order, as _admin_alumni_payload -- the card
+        # must not disagree with the rows underneath it.
+        status_value = _derive_employment_status_from_survey(
+            _merge_survey_view(survey_blob, account),
+            fallback=_normalize_employment_status(
+                blob.get("employment_status"), fallback="unemployed"
+            ),
+        )
+        if status_value != "unemployed":
+            employed += 1
+
+        if _admin_retracking_fields(account).get("requiresRetracking"):
+            retracing += 1
+
+        year = blob.get("graduation_year")
+        if not year and account.profile is not None:
+            year = account.profile.graduation_year
+        if not year and account.master_record is not None:
+            year = account.master_record.batch_year
+        if year:
+            try:
+                batches.add(int(year))
+            except (TypeError, ValueError):
+                pass
+
+    return {
+        "total": total,
+        "employed": employed,
+        "retracing": retracing,
+        "batches": sorted(batches, reverse=True),
+    }
+
 
 def _pending_alumni_payload(account: AlumniAccount) -> dict:
     return _admin_alumni_payload(account)
@@ -3249,6 +3362,33 @@ class ProfileReviewAlumniListView(APIView):
             status=status.HTTP_200_OK,
         )
 
+class AlumniDetailView(APIView):
+    """One graduate, with every field the details window renders.
+
+    The list endpoints ship a trimmed row (_trim_for_list); this fills in the
+    survey blob, the enrolment sweep and the capture summary for the single
+    graduate an admin actually opened.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, alumni_id):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+        try:
+            account = _alumni_dashboard_queryset(
+                AlumniAccount.objects.filter(id=alumni_id)
+            ).first()
+        except (OperationalError, DatabaseError):
+            return _temporary_admin_data_unavailable_response("Graduate details")
+        if account is None:
+            return Response({"detail": "Graduate not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_admin_alumni_payload(account), status=status.HTTP_200_OK)
+
+
 class VerifiedAlumniListView(APIView):
     parser_classes = [JSONParser]
     authentication_classes = []
@@ -3286,9 +3426,44 @@ class VerifiedAlumniListView(APIView):
             if purpose == "geomap":
                 # A graduating student has no workplace to plot yet.
                 active = employability.exclude_not_yet_graduated(active)
+        # ?page=N serves one page of rows instead of the whole set. The table
+        # shows 20 at a time, so an unfiltered load used to pull 548 graduates
+        # (and ~4,870 prefetched skill rows) out of Supabase to draw 20.
+        #
+        # Search, the year/status/retracing filters and sorting still run in the
+        # browser over the full set, because the fields they work on -- name,
+        # employmentStatus, graduationYear, company -- are built in Python with
+        # fallback chains rather than read from a column. Reproducing those in
+        # SQL risks the list quietly disagreeing with what it displays, so the
+        # frontend asks for every row (no ?page) the moment a filter is active,
+        # and asks for a page when it is not. Page loads are the common case and
+        # the automatic one; filtering is a deliberate click.
+        page = _positive_int(request.query_params.get("page"))
+        page_size = min(_positive_int(request.query_params.get("pageSize")) or 20, 200)
+
         try:
-            verified_accounts = _alumni_dashboard_queryset(active).order_by("-updated_at")
-            results = [_admin_alumni_payload(account) for account in verified_accounts]
+            if purpose in (None, "", "list") and page:
+                # "id" breaks ties: the seeded cohort was bulk-created, so
+                # hundreds of rows share an updated_at. Without a total order
+                # LIMIT/OFFSET is free to return the same graduate on two
+                # different pages, and skip another entirely.
+                window = _alumni_dashboard_queryset(active).order_by("-updated_at", "id")[
+                    (page - 1) * page_size : page * page_size
+                ]
+                return Response(
+                    {
+                        "results": [
+                            _trim_for_list(_admin_alumni_payload(account)) for account in window
+                        ],
+                        "page": page,
+                        "pageSize": page_size,
+                        "totals": _verified_totals(active),
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+            verified_accounts = _alumni_dashboard_queryset(active).order_by("-updated_at", "id")
+            results = [_trim_for_list(_admin_alumni_payload(account)) for account in verified_accounts]
         except (OperationalError, DatabaseError):
             return _temporary_admin_data_unavailable_response("Verified alumni")
 

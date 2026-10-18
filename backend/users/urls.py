@@ -23,6 +23,7 @@ from .api import (
     PendingAlumniListView,
     ProfileReviewAlumniListView,
     VerifiedAlumniListView,
+    AlumniDetailView,
 )
 
 # region DEBUG-ONLY:CurrenChanDebug
@@ -96,6 +97,7 @@ urlpatterns = [
     path("admin/alumni/pending/", PendingAlumniListView.as_view(), name="admin-pending-alumni"),
     path("admin/alumni/profile-review/", ProfileReviewAlumniListView.as_view(), name="admin-profile-review-alumni"),
     path("admin/alumni/verified/", VerifiedAlumniListView.as_view(), name="admin-verified-alumni"),
+    path("admin/alumni/<uuid:alumni_id>/detail/", AlumniDetailView.as_view(), name="admin-alumni-detail"),
     path(
         "admin/alumni/requests/<uuid:alumni_id>/approve/",
         AlumniRequestApproveView.as_view(),

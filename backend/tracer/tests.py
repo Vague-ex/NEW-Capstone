@@ -1757,6 +1757,69 @@ class SimulatedSourceTests(TestCase):
 				from tracer import employability as E
 				E.update_debug_settings(masterlist_source="everything")
 
+	def test_verified_list_paginates_and_keeps_totals_whole(self):
+		"""?page serves one page, but the stat-card totals still cover everyone.
+
+		The totals come from a second, skinny pass (_verified_totals) that skips
+		the skills / address / competency / face-scan prefetches, so this also
+		guards against that pass drifting away from the rows it summarises.
+		"""
+		client = APIClient()
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			client.put(
+				"/api/admin/debug/analytics-settings/", {"show_samples_in_verified": True},
+				format="json", **self.headers,
+			)
+			whole = client.get("/api/admin/alumni/verified/", **self.headers).json()["results"]
+			self.assertEqual(len(whole), 2)
+
+			first = client.get("/api/admin/alumni/verified/?page=1&pageSize=1", **self.headers).json()
+			second = client.get("/api/admin/alumni/verified/?page=2&pageSize=1", **self.headers).json()
+			self.assertEqual(len(first["results"]), 1)
+			self.assertEqual(len(second["results"]), 1)
+			# Two pages of one, no overlap, same set as the unpaginated call.
+			self.assertEqual(
+				{first["results"][0]["id"], second["results"][0]["id"]},
+				{row["id"] for row in whole},
+			)
+
+			# The cards must not shrink to the page.
+			self.assertEqual(first["totals"]["total"], 2)
+			self.assertEqual(
+				first["totals"]["employed"],
+				sum(1 for row in whole if row["employmentStatus"] != "unemployed"),
+			)
+			self.assertEqual(
+				first["totals"]["retracing"],
+				sum(1 for row in whole if row.get("requiresRetracking") is True),
+			)
+			self.assertEqual(
+				first["totals"]["batches"],
+				sorted({row["graduationYear"] for row in whole}, reverse=True),
+			)
+
+	def test_list_rows_drop_details_window_fields_and_detail_restores_them(self):
+		"""List rows carry none of the fields only the details window renders."""
+		client = APIClient()
+		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):
+			row = client.get("/api/admin/alumni/verified/", **self.headers).json()["results"][0]
+			self.assertNotIn("registrationPoseScans", row)
+			self.assertNotIn("captureSummary", row)
+			self.assertEqual(set(row["registrationFaceScans"]), {"front"})
+			# Only the handful of survey keys the list itself reads.
+			self.assertLessEqual(
+				set(row["surveyData"]),
+				{"timeToHire", "currentJobLocation", "region_address", "region"},
+			)
+
+			detail = client.get(f"/api/admin/alumni/{row['id']}/detail/", **self.headers)
+			self.assertEqual(detail.status_code, 200)
+			body = detail.json()
+			self.assertIn("registrationPoseScans", body)
+			self.assertIn("captureSummary", body)
+			self.assertEqual(set(body["registrationFaceScans"]), {"front", "left", "right"})
+			self.assertEqual(body["id"], row["id"])
+
 	def test_verified_list_hides_simulated_until_toggled(self):
 		client = APIClient()
 		with self.settings(EMPLOYABILITY_MODEL_DIR=self.model_dir):

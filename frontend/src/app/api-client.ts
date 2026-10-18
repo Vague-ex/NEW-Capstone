@@ -526,6 +526,47 @@ export async function fetchVerifiedAlumni(
     return Array.isArray(data) ? data : (data.results ?? []);
 }
 
+/** Stat-card numbers over the whole verified set, not just the page. */
+export interface VerifiedTotals {
+    total: number;
+    employed: number;
+    retracing: number;
+    batches: number[];
+}
+
+/**
+ * One page of verified graduates, ordered most-recently-updated first, plus the
+ * totals for the stat cards and the batch dropdown (which cover every graduate,
+ * not just this page). Used when no search or filter is active; once one is,
+ * the table falls back to fetchVerifiedAlumni() and works over the full set.
+ */
+export async function fetchVerifiedAlumniPage(
+    page: number,
+    pageSize: number,
+): Promise<{ results: unknown[]; totals: VerifiedTotals }> {
+    const response = await fetch(
+        `${API_BASE_URL}/api/admin/alumni/verified/?page=${page}&pageSize=${pageSize}`,
+        { headers: withAdminAuthHeaders() },
+    );
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return { results: data.results ?? [], totals: data.totals };
+}
+
+/**
+ * One graduate with every field the details window renders. The list endpoints
+ * ship a trimmed row (the survey blob, the enrolment sweep and the capture
+ * summary are stripped), so the window fills them in for the one graduate the
+ * admin opened instead of all of them riding along on every list load.
+ */
+export async function fetchAlumniDetail(alumniId: string): Promise<unknown> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/alumni/${alumniId}/detail/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 /** One row of the admin audit feed. */
 export interface AuditEvent {
     id: string;
