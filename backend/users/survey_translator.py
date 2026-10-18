@@ -494,6 +494,13 @@ def apply_survey_data_to_normalized_tables(
 
     if (val := _map(_SECTOR, sd.get("currentJobSector"))) is not None:
         employment_updates["current_job_sector"] = val
+    if (val := _map(_JOB_STATUS, sd.get("currentJobStatus"))) is not None:
+        employment_updates["current_job_status"] = val
+    # CHED Q20b. The option keys are the only accepted values, so validate
+    # against the enum instead of keeping a second label table in step.
+    nature = _norm(sd.get("natureOfBusiness"))
+    if nature in {c[0] for c in EmploymentProfile.NatureOfBusinessChoices.choices}:
+        employment_updates["nature_of_business"] = nature
     if sd.get("currentJobPosition"):
         employment_updates["current_job_title"] = str(sd["currentJobPosition"])[:150]
     if sd.get("currentJobCompany"):

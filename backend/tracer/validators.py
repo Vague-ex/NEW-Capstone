@@ -114,6 +114,14 @@ class FieldValidationRules:
     # Categorical Fields
     JOB_SECTOR_VALID = {'government', 'private', 'entrepreneurial'}
     JOB_STATUS_VALID = {'regular', 'probationary', 'contractual', 'self_employed'}
+    # CHED Q20b line-of-business options (EmploymentProfile.NatureOfBusinessChoices).
+    NATURE_OF_BUSINESS_VALID = {
+        'agriculture_forestry', 'fishing', 'mining_quarrying', 'manufacturing',
+        'electricity_gas_water', 'construction', 'wholesale_retail', 'hotels_restaurants',
+        'transport_communication', 'financial_intermediation', 'information_communication',
+        'real_estate_business', 'public_administration', 'education', 'health_social_work',
+        'community_social_personal', 'private_households', 'extraterritorial', 'other'
+    }
     JOB_SOURCE_VALID = {
         'personal_network', 'online_portal', 'career_fair', 'walk_in',
         'social_media', 'entrepreneurship', 'other'
@@ -495,6 +503,26 @@ class SurveyDataValidator:
             else:
                 self.field_completeness['current_job_sector'] = True
 
+        if data.get('current_job_status') is not None:
+            if data['current_job_status'] not in FieldValidationRules.JOB_STATUS_VALID:
+                self.errors.append({
+                    'section': 'current_job_details',
+                    'field': 'current_job_status',
+                    "error": f"Status {data['current_job_status']} not in valid choices"
+                })
+            else:
+                self.field_completeness['current_job_status'] = True
+
+        if data.get('nature_of_business') is not None:
+            if data['nature_of_business'] not in FieldValidationRules.NATURE_OF_BUSINESS_VALID:
+                self.errors.append({
+                    'section': 'current_job_details',
+                    'field': 'nature_of_business',
+                    "error": f"Nature of business {data['nature_of_business']} not in valid choices"
+                })
+            else:
+                self.field_completeness['nature_of_business'] = True
+
         if data.get('location_type') is not None:
             if not isinstance(data['location_type'], bool):
                 self.errors.append({
@@ -653,7 +681,10 @@ class SurveyDataValidator:
             'time_to_hire_months', 'first_job_sector', 'first_job_status',
             'first_job_applications_count', 'first_job_source',
         ),
-        'current_job_details': ('current_job_sector', 'location_type'),
+        'current_job_details': (
+            'current_job_sector', 'current_job_status', 'nature_of_business',
+            'location_type',
+        ),
         'work_address': ('city_municipality', 'province', 'region'),
         'competency_assessment': ('technical_skill_count', 'soft_skill_count'),
     }
@@ -794,7 +825,8 @@ def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
             'first_job_related_to_bsis', 'first_job_title',
         )),
         ('current_job_details', (
-            'current_job_sector', 'location_type', 'current_job_related_to_bsis',
+            'current_job_sector', 'current_job_status', 'nature_of_business',
+            'location_type', 'current_job_related_to_bsis',
             'current_job_title', 'current_job_company',
         )),
         ('work_address', (

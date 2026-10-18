@@ -169,6 +169,18 @@ class CurrentJobDetailsSerializer(serializers.Serializer):
         allow_blank=True,
         allow_null=True
     )
+    current_job_status = serializers.ChoiceField(
+        choices=EmploymentProfile.JobStatusChoices.values,
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
+    nature_of_business = serializers.ChoiceField(
+        choices=EmploymentProfile.NatureOfBusinessChoices.values,
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
     current_job_title = serializers.CharField(max_length=150, required=False, allow_blank=True, allow_null=True)
     current_job_company = serializers.CharField(max_length=200, required=False, allow_blank=True, allow_null=True)
     current_job_related_to_bsis = serializers.BooleanField(required=False, allow_null=True)
@@ -266,6 +278,7 @@ class EmploymentProfileDetailSerializer(serializers.ModelSerializer):
             'id', 'alumni', 'employment_status', 'time_to_hire_months',
             'first_job_sector', 'first_job_status', 'first_job_title',
             'first_job_related_to_bsis', 'current_job_sector', 'current_job_title',
+            'current_job_status', 'nature_of_business',
             'location_type', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']

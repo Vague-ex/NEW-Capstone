@@ -15,7 +15,9 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import RegisterAlumniPersonal, { PERSONAL_STEP_CONFIG, type PersonalStep } from '../register-alumni-personal';
-import RegisterAlumniEmployment, { EMPLOYMENT_STEP_CONFIG, type EmploymentStep } from '../register-alumni-employment';
+import RegisterAlumniEmployment, {
+  EMPLOYMENT_STEP_CONFIG, INITIAL_EMPLOYMENT_FORM, type EmploymentStep,
+} from '../register-alumni-employment';
 import PrivacyNoticeModal from '../auth/privacy-notice-modal';
 import { clearRegistrationDrafts } from '../registration-draft';
 
@@ -68,6 +70,9 @@ export function AdminRegistrationDebug() {
           <div className="mx-auto w-full max-w-lg px-4 py-8">
             <RegisterAlumniEmployment
               initialStep={open.step}
+              // Current Job renders only for an employed graduate, so opening
+              // step 4 on a blank form showed an empty page.
+              initialForm={{ ...INITIAL_EMPLOYMENT_FORM, employment_status: 'employed_full_time' }}
               onComplete={async (data) => finish(data)}
               onBack={() => setOpen(null)}
             />

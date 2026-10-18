@@ -852,6 +852,10 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             view["jobSource"] = emp.first_job_source
         if emp.current_job_title:
             view["currentJobPosition"] = emp.current_job_title
+        if emp.current_job_status:
+            view["currentJobStatus"] = emp.current_job_status
+        if emp.nature_of_business:
+            view["natureOfBusiness"] = emp.nature_of_business
         if emp.current_job_company:
             view["currentJobCompany"] = emp.current_job_company
         if emp.current_job_sector:
@@ -2139,6 +2143,8 @@ def _extract_employment_profile_data(survey_data: dict) -> dict:
         # Current Job Details (Section 7)
         "current_job_sector": survey_data.get("current_job_sector"),
         "current_job_title": survey_data.get("current_job_title"),
+        "current_job_status": survey_data.get("current_job_status"),
+        "nature_of_business": survey_data.get("nature_of_business"),
         "current_job_company": survey_data.get("current_job_company"),
         "current_job_related_to_bsis": survey_data.get("current_job_related_to_bsis"),
         "location_type": survey_data.get("location_type"),

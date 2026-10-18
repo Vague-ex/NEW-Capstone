@@ -572,6 +572,37 @@ class EmploymentProfile(models.Model):
 		CONTRACTUAL = "contractual", "Contractual/Casual"
 		SELF_EMPLOYED = "self_employed", "Self-Employed/Freelance"
 
+	class NatureOfBusinessChoices(models.TextChoices):
+		"""
+		CHED Graduate Tracer Study Q20b: "Major line of business of the
+		company you are presently employed in."
+
+		The 17 CHED options are verbatim (PSIC 1992). INFORMATION_COMMUNICATION
+		is an addition, not a replacement: PSIC 1992 files software and BPO
+		work under "Real Estate, Renting and Business Activities", which reads
+		as wrong for a BSIS population. It is PSIC 2019 Section J.
+		"""
+
+		AGRICULTURE_FORESTRY = "agriculture_forestry", "Agriculture, Hunting and Forestry"
+		FISHING = "fishing", "Fishing"
+		MINING_QUARRYING = "mining_quarrying", "Mining and Quarrying"
+		MANUFACTURING = "manufacturing", "Manufacturing"
+		ELECTRICITY_GAS_WATER = "electricity_gas_water", "Electricity, Gas and Water Supply"
+		CONSTRUCTION = "construction", "Construction"
+		WHOLESALE_RETAIL = "wholesale_retail", "Wholesale and Retail Trade"
+		HOTELS_RESTAURANTS = "hotels_restaurants", "Hotels and Restaurants"
+		TRANSPORT_COMMUNICATION = "transport_communication", "Transport, Storage and Communication"
+		FINANCIAL_INTERMEDIATION = "financial_intermediation", "Financial Intermediation"
+		INFORMATION_COMMUNICATION = "information_communication", "Information and Communication (IT/BPO/Software)"
+		REAL_ESTATE_BUSINESS = "real_estate_business", "Real Estate, Renting and Business Activities"
+		PUBLIC_ADMINISTRATION = "public_administration", "Public Administration and Defense; Compulsory Social Security"
+		EDUCATION = "education", "Education"
+		HEALTH_SOCIAL_WORK = "health_social_work", "Health and Social Work"
+		COMMUNITY_SOCIAL_PERSONAL = "community_social_personal", "Other Community, Social and Personal Service Activities"
+		PRIVATE_HOUSEHOLDS = "private_households", "Private Households with Employed Persons"
+		EXTRATERRITORIAL = "extraterritorial", "Extra-territorial Organizations and Bodies"
+		OTHER = "other", "Other"
+
 	class JobSourceChoices(models.TextChoices):
 		PERSONAL_NETWORK = "personal_network", "Personal Network/Referral"
 		ONLINE_PORTAL = "online_portal", "Online Job Portal"
@@ -674,6 +705,20 @@ class EmploymentProfile(models.Model):
 		null=True,
 		blank=True,
 		help_text="Sector of current/most recent job"
+	)
+	current_job_status = models.CharField(
+		max_length=30,
+		choices=JobStatusChoices.choices,
+		null=True,
+		blank=True,
+		help_text="CHED Q18: employment status of current/most recent job"
+	)
+	nature_of_business = models.CharField(
+		max_length=30,
+		choices=NatureOfBusinessChoices.choices,
+		null=True,
+		blank=True,
+		help_text="CHED Q20b: major line of business of the current employer"
 	)
 	current_job_title = models.CharField(
 		max_length=150,

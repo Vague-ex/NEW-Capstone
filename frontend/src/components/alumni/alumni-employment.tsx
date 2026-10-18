@@ -19,6 +19,7 @@ import {
 import { describeGpsFailure, geocoderCityName, locateDevice } from '../../app/geolocation';
 import { JobTitleInput } from '../shared/job-title-input';
 import { jobTitleProblem } from '../../app/job-titles';
+import { JOB_STATUS_OPTIONS, NATURE_OF_BUSINESS_OPTIONS } from '../../app/ched-options';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,8 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
 
     // Section 7: Current Job
     currentJobSector: String(sdIn.currentJobSector ?? ''),
+    currentJobStatus: String(sdIn.currentJobStatus ?? ''),
+    natureOfBusiness: String(sdIn.natureOfBusiness ?? ''),
     currentJobTitleId: String(sdIn.currentJobTitleId ?? alumniIn.jobTitleId ?? ''),
     currentJobPosition: String(sdIn.currentJobPosition ?? sdIn.current_job_title ?? alumniIn.jobTitle ?? ''),
     currentJobCompany: String(sdIn.currentJobCompany ?? sdIn.current_job_company ?? alumniIn.company ?? ''),
@@ -1125,6 +1128,39 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                     />
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <FieldLabel required>6. Employment Status of CURRENT/MOST RECENT JOB</FieldLabel>
+                <select
+                  value={form.currentJobStatus}
+                  required
+                  onChange={e => setF('currentJobStatus', e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Select Status</option>
+                  {JOB_STATUS_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel required>7. Nature of Business</FieldLabel>
+                <select
+                  value={form.natureOfBusiness}
+                  required
+                  onChange={e => setF('natureOfBusiness', e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Select Nature of Business</option>
+                  {NATURE_OF_BUSINESS_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="mt-1.5 text-[11px] text-gray-500 leading-snug">
+                  The main line of business of your employer, not your own role.
+                </p>
               </div>
 
               </div>{/* end right column */}

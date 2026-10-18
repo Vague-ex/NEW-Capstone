@@ -263,6 +263,77 @@ class EmploymentTypeAndSectorReportTests(TestCase):
 		self.assertEqual(sum(total[5:8]) + total[8], 2)
 
 
+class EmploymentOutcomesRosterTests(TestCase):
+	"""The adviser asked for type of employment and nature of business on the
+	Employment Outcomes roster (CHED Q18 and Q20b).
+
+	Asserts the value sits under its own header: a row that drifts out of
+	step with the columns is worse than a missing one, because the report
+	still looks right.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin = User.objects.create_user(
+			email="roster-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin.id)}"}
+
+	def test_roster_shows_employment_type_and_nature_of_business(self):
+		user = User.objects.create_user(
+			email="grad@example.com", password="TestPass123!", role=User.Role.ALUMNI,
+		)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="A", last_name="B", graduation_year=2022,
+		)
+		EmploymentProfile.objects.create(
+			alumni=account,
+			employment_status="employed_full_time",
+			current_job_sector="private",
+			current_job_status="contractual",
+			nature_of_business="information_communication",
+		)
+
+		response = self.client.get(
+			"/api/admin/reports/employment-outcomes/?batch_start=2020&batch_end=2025",
+			**self.headers,
+		)
+		self.assertEqual(response.status_code, 200)
+		section = response.data["sections"][0]
+		columns = list(section["columns"])
+		row = list(section["rows"][0])
+
+		self.assertEqual(len(row), len(columns))
+		self.assertEqual(row[columns.index("Type of Employment")], "Contractual/Casual")
+		self.assertEqual(
+			row[columns.index("Nature of Business")],
+			"Information and Communication (IT/BPO/Software)",
+		)
+		self.assertEqual(row[columns.index("Type of Business (Sector)")], "Private")
+
+	def test_unanswered_columns_fall_back_to_a_dash(self):
+		user = User.objects.create_user(
+			email="blank@example.com", password="TestPass123!", role=User.Role.ALUMNI,
+		)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name="C", last_name="D", graduation_year=2023,
+		)
+		EmploymentProfile.objects.create(alumni=account, employment_status="seeking")
+
+		response = self.client.get(
+			"/api/admin/reports/employment-outcomes/?batch_start=2020&batch_end=2025",
+			**self.headers,
+		)
+		section = response.data["sections"][0]
+		columns = list(section["columns"])
+		row = list(section["rows"][0])
+		self.assertEqual(len(row), len(columns))
+		self.assertEqual(row[columns.index("Type of Employment")], "—")
+		self.assertEqual(row[columns.index("Nature of Business")], "—")
+
 class CityZipSyncTests(TestCase):
 	"""sync_city_zip_codes: the matching rules that keep wrong codes out.
 
@@ -1214,6 +1285,8 @@ class RegistrationValidationGateTests(SimpleTestCase):
 		'first_job_applications_count': 2,
 		'first_job_source': 'personal_network',
 		'current_job_sector': 'private',
+		'current_job_status': 'regular',
+		'nature_of_business': 'information_communication',
 		'location_type': True,
 		'city_municipality': 'Talisay',
 		'province': 'Negros Occidental',

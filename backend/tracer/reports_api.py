@@ -614,6 +614,10 @@ class EmploymentOutcomesReportView(APIView):
                     emp.current_job_sector, emp.current_job_sector
                 )
 
+            # Both columns have choices, so Django hands over the CHED label.
+            job_status = emp.get_current_job_status_display() if emp else ""
+            nature = emp.get_nature_of_business_display() if emp else ""
+
             location = ""
             if addr is not None:
                 bits = [addr.city_municipality, addr.country]
@@ -628,6 +632,8 @@ class EmploymentOutcomesReportView(APIView):
                     (emp.current_job_company if emp and emp.current_job_company else "—"),
                     (emp.current_job_title if emp and emp.current_job_title else "—"),
                     sector or "—",
+                    job_status or "—",
+                    nature or "—",
                     (
                         f"{emp.time_to_hire_months:.1f}"
                         if emp and emp.time_to_hire_months is not None
@@ -652,7 +658,9 @@ class EmploymentOutcomesReportView(APIView):
                         "Batch",
                         "Employer",
                         "Position",
-                        "Sector",
+                        "Type of Business (Sector)",
+                        "Type of Employment",
+                        "Nature of Business",
                         "Time-to-Hire (mo)",
                         "Location",
                         "BSIS-Aligned",

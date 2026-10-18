@@ -2604,3 +2604,28 @@ class TranslatorMapsProduceStorableValuesTests(SimpleTestCase):
 		from users.survey_translator import _JOB_SOURCE
 
 		self.assertEqual(set(_JOB_SOURCE.values()) - self._declared("first_job_source"), set())
+
+	def test_ched_option_keys_agree_across_the_three_places_that_hold_them(self):
+		"""CHED Q18/Q20b keys live in the model enum, the clean-data gate and the
+		shared dropdown list both forms import. A key in one but not another is
+		an answer the graduate picks and the save quietly drops."""
+		import re
+		from pathlib import Path
+
+		from tracer.validators import FieldValidationRules
+
+		self.assertEqual(
+			FieldValidationRules.NATURE_OF_BUSINESS_VALID,
+			self._declared("nature_of_business"),
+		)
+
+		options = Path(__file__).resolve().parents[2] / "frontend/src/app/ched-options.ts"
+		source = options.read_text(encoding="utf-8")
+		for const, field in (
+			("JOB_STATUS_OPTIONS", "current_job_status"),
+			("NATURE_OF_BUSINESS_OPTIONS", "nature_of_business"),
+		):
+			block = source[source.index(const):]
+			block = block[:block.index("];")]
+			keys = set(re.findall(r"value: '([a-z_]+)'", block))
+			self.assertEqual(keys, self._declared(field), const)

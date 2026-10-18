@@ -1851,6 +1851,8 @@ class ComprehensiveSurveySubmissionView(APIView):
                 emp_profile.first_job_source = first_job.get('first_job_source')
                 emp_profile.current_job_sector = current_job.get('current_job_sector')
                 emp_profile.current_job_title = current_job.get('current_job_title')
+                emp_profile.current_job_status = current_job.get('current_job_status')
+                emp_profile.nature_of_business = current_job.get('nature_of_business')
                 emp_profile.current_job_company = current_job.get('current_job_company')
                 emp_profile.current_job_related_to_bsis = current_job.get('current_job_related_to_bsis')
                 emp_profile.location_type = current_job.get('location_type')

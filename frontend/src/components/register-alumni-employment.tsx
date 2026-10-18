@@ -12,6 +12,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { EMPLOYMENT_DRAFT_KEY, saveDraft, loadDraft } from './registration-draft';
 import { JobTitleInput } from './shared/job-title-input';
 import { jobTitleProblem } from '../app/job-titles';
+import { JOB_STATUS_OPTIONS, NATURE_OF_BUSINESS_OPTIONS } from '../app/ched-options';
 import { describeGpsFailure, geocoderCityName, locateDevice } from '../app/geolocation';
 import HomeLocationMap from './home-location-map';
 import {
@@ -65,6 +66,8 @@ export interface EmploymentFormData {
 
   // Step 4: Current Job
   current_job_sector: string;
+  current_job_status: string;
+  nature_of_business: string;
   current_job_title: string;
   current_job_company: string;
   current_job_related_to_bsis: boolean | null;
@@ -181,7 +184,7 @@ const EMPLOYMENT_STATUS_HINTS: Record<string, string> = {
 const EMPLOYED_STATUSES = ['employed_full_time', 'employed_part_time', 'self_employed'];
 const UNEMPLOYED_STATUSES = ['seeking', 'not_seeking'];
 
-const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
+export const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   academic_honors: null,
   prior_work_experience: false,
   ojt_relevance: null,
@@ -201,6 +204,8 @@ const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   first_job_source: '',
   first_job_source_display: '',
   current_job_sector: '',
+  current_job_status: '',
+  nature_of_business: '',
   current_job_title: '',
   current_job_company: '',
   current_job_related_to_bsis: null,
@@ -467,6 +472,7 @@ export default function RegisterAlumniEmployment({
         ...f,
         // Sector option values are identical between first/current job selects.
         current_job_sector: f.first_job_sector,
+        current_job_status: f.first_job_status,
         current_job_title: f.first_job_title,
         current_job_company: f.first_job_company,
         current_job_related_to_bsis: f.first_job_related_to_bsis,
@@ -755,7 +761,7 @@ export default function RegisterAlumniEmployment({
         }
         break;
       case 4: { // Current Job (company required; a given title must be listed or marked "not listed")
-        if (!form.current_job_company.trim()) {
+        if (!form.current_job_company.trim() || !form.current_job_status || !form.nature_of_business) {
           return fail('Please answer the questions marked with a red asterisk.');
         }
         const titleProblem = jobTitleProblem(form.current_job_title, refJobTitles);
@@ -857,7 +863,8 @@ export default function RegisterAlumniEmployment({
       }
       if (!isEmployedNow) {
         Object.assign(kept, {
-          current_job_sector: '', current_job_title: '', current_job_company: '',
+          current_job_sector: '', current_job_status: '', nature_of_business: '',
+          current_job_title: '', current_job_company: '',
           current_job_related_to_bsis: null, location_type: null,
           street_address: '', barangay: '', city_municipality: '', province_work: '', region: '',
           zip_code: '', latitude: null, longitude: null,
@@ -1119,10 +1126,9 @@ export default function RegisterAlumniEmployment({
                 className={fieldCls(missing(!form.first_job_status))}
               >
                 <option value="">Select Status</option>
-                <option value="regular">Regular / Permanent</option>
-                <option value="probationary">Probationary</option>
-                <option value="contractual">Contractual / Casual</option>
-                <option value="self_employed">Self-Employed / Freelance</option>
+                {JOB_STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -1244,6 +1250,37 @@ export default function RegisterAlumniEmployment({
               <option value="Government">Government</option>
               <option value="Private Sector">Private Sector</option>
               <option value="Entrepreneurial/Freelance/Self-Employed">Entrepreneurial/Freelance</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Status<Required /></label>
+            <select
+              value={form.current_job_status}
+              onChange={(e) => setForm({ ...form, current_job_status: e.target.value })}
+              className={fieldCls(missing(!form.current_job_status))}
+            >
+              <option value="">Select Status</option>
+              {JOB_STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Nature of Business<Required /></label>
+            <p className="text-[11px] text-gray-500 leading-snug mb-2">
+              The main line of business of your employer, not your own role.
+            </p>
+            <select
+              value={form.nature_of_business}
+              onChange={(e) => setForm({ ...form, nature_of_business: e.target.value })}
+              className={fieldCls(missing(!form.nature_of_business))}
+            >
+              <option value="">Select Nature of Business</option>
+              {NATURE_OF_BUSINESS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
 
