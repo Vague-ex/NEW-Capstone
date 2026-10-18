@@ -250,7 +250,10 @@ export function EmployerVerificationPage() {
         </div>
       </header>
 
-      <main className={`max-w-2xl mx-auto px-4 py-5 sm:py-8 space-y-4 ${showBar ? 'pb-40' : ''}`}>
+      {/* Bottom padding has to be its own utility, not a `pb-40` after
+          `sm:py-8`: the variant is emitted later in the sheet, so from 640px up
+          it won the cascade and the fixed bar covered the end of step 4. */}
+      <main className={`max-w-2xl mx-auto px-4 pt-5 sm:pt-8 space-y-4 ${showBar ? 'pb-40' : 'pb-5 sm:pb-8'}`}>
         {stage === 'loading' && (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-10 text-center">
             <Loader2 className="size-6 text-[#166534] animate-spin mx-auto mb-3" />
