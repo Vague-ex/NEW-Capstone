@@ -1158,7 +1158,9 @@ class AlumniVerificationInviteView(APIView):
         # leaves a working link the graduate can copy, so it is not an error.
         email_sent = False
         if invited_email:
-            email_sent = _send_verification_invite_email(token, record, ttl_days)
+            email_sent = _send_verification_invite_email(
+                token, record, ttl_days, origin=_frontend_origin(request),
+            )
 
         return Response(
             {
@@ -1177,7 +1179,29 @@ class AlumniVerificationInviteView(APIView):
         )
 
 
-def _send_verification_invite_email(token, record, ttl_days: int) -> bool:
+def _frontend_origin(request) -> str:
+    """Where to point the employer's link: the site the graduate is using.
+
+    Taken from the request origin, but only when it is one this deployment
+    already trusts -- an email link built from an arbitrary Origin header would
+    be a phishing hole. Anything else falls back to the configured public URL,
+    which is what production sends.
+    """
+    from django.conf import settings
+
+    origin = (request.headers.get("Origin") or "").strip().rstrip("/")
+    trusted = {
+        str(value).rstrip("/")
+        for value in (
+            list(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
+            + list(getattr(settings, "CSRF_TRUSTED_ORIGINS", []))
+        )
+    }
+    if origin and origin in trusted:
+        return origin
+    return settings.GRADUATE_LOGIN_URL.rstrip("/")
+
+def _send_verification_invite_email(token, record, ttl_days: int, origin: str = "") -> bool:
     """Email the one-time link to the employer address on the token."""
     from django.conf import settings
     from users.email_send import send_branded_email
@@ -1195,7 +1219,7 @@ def _send_verification_invite_email(token, record, ttl_days: int) -> bool:
                 "graduate_name": name,
                 "company_name": record.employer_name_input or "",
                 "expires_in_days": ttl_days,
-                "verify_url": f"{settings.GRADUATE_LOGIN_URL.rstrip('/')}/verify/{token.token_id}",
+                "verify_url": f"{(origin or settings.GRADUATE_LOGIN_URL).rstrip('/')}/verify/{token.token_id}",
             },
         )
     except Exception:

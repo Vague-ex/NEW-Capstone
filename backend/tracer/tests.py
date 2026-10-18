@@ -916,6 +916,33 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertEqual(response.status_code, 400)
 		self.assertEqual(VerificationDecision.objects.count(), 0)
 
+	def test_invite_email_links_back_to_the_site_the_graduate_is_using(self):
+		"""Local testing must not mail out a production link."""
+		from django.core import mail
+
+		response = self.client.post(
+			f"/api/verification/alumni/{self.alumni_account.id}/invite/",
+			{"employer_email": "hr@acme.com"}, format="json",
+			HTTP_ORIGIN="http://localhost:3001", **self._alumni_auth(),
+		)
+		self.assertEqual(response.status_code, 201)
+		token_id = response.data["token"]["id"]
+		self.assertIn(f"http://localhost:3001/verify/{token_id}", mail.outbox[-1].body)
+
+	def test_invite_email_ignores_an_untrusted_origin(self):
+		"""An Origin header is attacker-controlled; only known sites are used."""
+		from django.conf import settings
+		from django.core import mail
+
+		response = self.client.post(
+			f"/api/verification/alumni/{self.alumni_account.id}/invite/",
+			{"employer_email": "hr@acme.com"}, format="json",
+			HTTP_ORIGIN="https://phish.example", **self._alumni_auth(),
+		)
+		self.assertEqual(response.status_code, 201)
+		self.assertNotIn("phish.example", mail.outbox[-1].body)
+		self.assertIn(settings.GRADUATE_LOGIN_URL.rstrip("/"), mail.outbox[-1].body)
+
 	def test_graduate_cannot_verify_themselves_under_another_address(self):
 		"""Same name, different inbox: the email check cannot see this one."""
 		AlumniProfile.objects.create(

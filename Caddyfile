@@ -78,11 +78,15 @@ api.{$SITE_DOMAIN} {
 		max_size 25MB
 	}
 
-	# Django's built-in admin and the temporary debug routes stay off the
-	# public internet. The admin portal on the main domain is unaffected.
-	# Django admin is still reachable through an SSH tunnel to 127.0.0.1:8000.
-	# Comment these two lines out (and restart Caddy) to use the debug pages.
-	@internal path /admin /admin/* /api/admin/debug/*
+	# Django's built-in admin stays off the public internet; it is still
+	# reachable through an SSH tunnel to 127.0.0.1:8000. The admin portal on
+	# the main domain is unaffected.
+	#
+	# /api/admin/debug/* is NOT blocked here: every debug view calls
+	# _require_admin, so it is behind the same admin token as the rest of the
+	# portal, and a bare 404 from Caddy carries no CORS headers -- the debug
+	# pages just failed in the browser with "CORS error" and no way to tell why.
+	@internal path /admin /admin/*
 	respond @internal 404
 
 	reverse_proxy backend:8000
