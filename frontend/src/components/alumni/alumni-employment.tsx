@@ -610,6 +610,11 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     // ZIP code is required for an employed graduate: it is autofilled from the
     // chosen city, so a blank one means the city carries no stored code and the
     // graduate has to supply it. PH must be exactly 4 digits; foreign are free.
+    if (isCurrentlyEmployed && !form.currentJobSector) {
+      setSaveError('Employment sector is required.');
+      setIsSaving(false);
+      return;
+    }
     if (isCurrentlyEmployed && !form.zip_code) {
       setSaveError(form.currentJobLocation === 'Local (Philippines)'
         ? 'ZIP code is required.'
@@ -1046,7 +1051,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               <div className="space-y-5">
 
               <div>
-                <FieldLabel>1. Employment Sector of CURRENT/MOST RECENT JOB</FieldLabel>
+                <FieldLabel required>1. Employment Sector of CURRENT/MOST RECENT JOB</FieldLabel>
                 <div className="space-y-1.5">
                   {['Government', 'Private', 'Entrepreneurial / Freelance / Self-Employed'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.currentJobSector} onSelect={v => setF('currentJobSector', v)} />

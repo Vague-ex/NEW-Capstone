@@ -487,13 +487,17 @@ export default function RegisterAlumniEmployment({
     }
   }, [stepError]);
 
-  // Restore form from sessionStorage on mount.
+  // Restore form from sessionStorage on mount, unless the caller handed us a
+  // form: a stale draft used to merge over it one frame after mount, which is
+  // why the debug page's Current Job step appeared and then vanished wherever
+  // an old draft existed. Mirrors the same guard in register-alumni-personal.
   // loadDraft merges over the defaults rather than replacing the object, so a
   // draft written before a field was added restores with that field at its
   // default instead of undefined.
   useEffect(() => {
+    if (initialForm) return; // parent state wins; it is fresher than any draft
     setForm((prev) => loadDraft(EMPLOYMENT_DRAFT_KEY, prev));
-  }, []);
+  }, [initialForm]);
 
   // Persist form to sessionStorage
   useEffect(() => {
@@ -761,7 +765,10 @@ export default function RegisterAlumniEmployment({
         }
         break;
       case 4: { // Current Job (company required; a given title must be listed or marked "not listed")
-        if (!form.current_job_company.trim() || !form.current_job_status || !form.nature_of_business) {
+        if (
+          !form.current_job_company.trim() || !form.current_job_sector
+          || !form.current_job_status || !form.nature_of_business
+        ) {
           return fail('Please answer the questions marked with a red asterisk.');
         }
         const titleProblem = jobTitleProblem(form.current_job_title, refJobTitles);
@@ -1240,13 +1247,13 @@ export default function RegisterAlumniEmployment({
           )}
 
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Sector</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Employment Sector<Required /></label>
             <select
               value={form.current_job_sector}
               onChange={(e) => setForm({ ...form, current_job_sector: e.target.value, })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+              className={fieldCls(missing(!form.current_job_sector))}
             >
-              <option value="">Select Sector (optional)</option>
+              <option value="">Select Sector</option>
               <option value="Government">Government</option>
               <option value="Private Sector">Private Sector</option>
               <option value="Entrepreneurial/Freelance/Self-Employed">Entrepreneurial/Freelance</option>
