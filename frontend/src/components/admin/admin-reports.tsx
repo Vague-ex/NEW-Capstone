@@ -35,7 +35,7 @@ const REPORTS: ReportDef[] = [
     id: 'employment-outcomes',
     title: 'Employment Outcomes',
     description:
-      'A roster of graduates with their employer, position, sector, time-to-hire, work location and whether the job is BSIS-aligned.',
+      'A roster of graduates with their employer, position, type of business and employment, nature of business, time-to-hire, work location and whether the job is BSIS-aligned.',
     endpoint: 'employment-outcomes',
     formats: ['pdf', 'xlsx', 'csv'],
     Icon: Briefcase,
@@ -75,7 +75,7 @@ const REPORTS: ReportDef[] = [
     id: 'predictive-trend',
     title: 'Predictive Employability Trend',
     description:
-      'Observed employment rates per batch with 95% intervals, time to first job, the expected range for the next batch (not a forecast), and the factors and acceptance checks of the active model.',
+      'Observed employment rates per batch, time to first job, the expected range for the next batch (not a forecast), and the factors of the active model.',
     endpoint: 'predictive-trend',
     formats: ['pdf', 'xlsx'],
     Icon: TrendingUp,
@@ -109,15 +109,14 @@ function saveStamps(next: Record<string, string>) {
 function loadFilters(): ReportFilters {
   try {
     const raw = sessionStorage.getItem(FILTERS_KEY);
-    if (!raw) return { batchStart: DEFAULT_START, batchEnd: DEFAULT_END, includeUnverified: false };
+    if (!raw) return { batchStart: DEFAULT_START, batchEnd: DEFAULT_END };
     const parsed = JSON.parse(raw) as Partial<ReportFilters>;
     return {
       batchStart: Number(parsed.batchStart) || DEFAULT_START,
       batchEnd: Number(parsed.batchEnd) || DEFAULT_END,
-      includeUnverified: Boolean(parsed.includeUnverified),
     };
   } catch {
-    return { batchStart: DEFAULT_START, batchEnd: DEFAULT_END, includeUnverified: false };
+    return { batchStart: DEFAULT_START, batchEnd: DEFAULT_END };
   }
 }
 
@@ -260,19 +259,6 @@ export function AdminReports() {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="flex items-end">
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={filters.includeUnverified}
-                onChange={(e) =>
-                  setFilters((f) => ({ ...f, includeUnverified: e.target.checked }))
-                }
-                className="size-4 accent-[#16a34a]"
-              />
-              <span>Include unverified graduates</span>
-            </label>
           </div>
         </div>
         {batchRangeInvalid && (

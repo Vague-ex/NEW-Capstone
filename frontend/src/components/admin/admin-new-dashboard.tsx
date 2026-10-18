@@ -367,7 +367,6 @@ export function AdminNewDashboard() {
           fetchReport('batch-summary', {
             batchStart: ALIGNMENT_BATCH_START,
             batchEnd: new Date().getFullYear(),
-            includeUnverified: false,
           }),
           fetchVerifiedAlumni(),
           // Audit stays in the same allSettled batch: a failed feed must not

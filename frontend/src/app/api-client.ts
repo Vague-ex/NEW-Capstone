@@ -1130,7 +1130,6 @@ export interface ReportPayload {
     filters: {
         batch_start: number;
         batch_end: number;
-        include_unverified: boolean;
     };
     sections: ReportSection[];
 }
@@ -1138,7 +1137,6 @@ export interface ReportPayload {
 export interface ReportFilters {
     batchStart: number;
     batchEnd: number;
-    includeUnverified: boolean;
 }
 
 export async function fetchReport(
@@ -1148,7 +1146,6 @@ export async function fetchReport(
     const params = new URLSearchParams({
         batch_start: String(filters.batchStart),
         batch_end: String(filters.batchEnd),
-        include_unverified: String(filters.includeUnverified),
     });
     const response = await fetch(
         `${API_BASE_URL}/api/admin/reports/${endpointSlug}/?${params.toString()}`,

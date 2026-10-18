@@ -311,7 +311,7 @@ class EmploymentOutcomesRosterTests(TestCase):
 			row[columns.index("Nature of Business")],
 			"Information and Communication (IT/BPO/Software)",
 		)
-		self.assertEqual(row[columns.index("Type of Business (Sector)")], "Private")
+		self.assertEqual(row[columns.index("Type of Business")], "Private")
 
 	def test_unanswered_columns_fall_back_to_a_dash(self):
 		user = User.objects.create_user(
@@ -1180,8 +1180,7 @@ class CurriculumAlignmentReportTests(TestCase):
 		self._make_alumni("u@example.com", 2022)  # no data at all -> unknown
 
 		response = self.client.get(
-			"/api/admin/reports/batch-summary/"
-			"?batch_start=2020&batch_end=2025&include_unverified=false",
+			"/api/admin/reports/batch-summary/?batch_start=2020&batch_end=2025",
 			**self.headers,
 		)
 		self.assertEqual(response.status_code, 200)
@@ -1617,7 +1616,9 @@ class EmployabilityApiTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		titles = [s["title"] for s in response.json()["sections"]]
 		self.assertIn("Cross-Batch Timeline", titles)
-		self.assertIn("Model Acceptance Checks", titles)
+		# The panel asked for no model checks and no 95% intervals on reports.
+		self.assertNotIn("Model Acceptance Checks", titles)
+		self.assertFalse([t for t in titles if "Interval" in t])
 
 
 class EmployabilityDataGuardTests(SimpleTestCase):

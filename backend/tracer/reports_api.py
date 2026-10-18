@@ -5,7 +5,7 @@ Each endpoint returns a JSON document of the form:
     {
         "title":       "<report title>",
         "generated_at": "<iso timestamp>",
-        "filters":     {... echo of batch_start / batch_end / include_unverified},
+        "filters":     {... echo of batch_start / batch_end},
         "sections":    [
             {"title": "...", "columns": [...], "rows": [[...], ...]},
             ...
@@ -119,15 +119,9 @@ def _parse_filters(request) -> dict[str, Any]:
         end = DEFAULT_END
     if end < start:
         start, end = end, start
-    include_unverified = str(qp.get("include_unverified", "false")).lower() in {
-        "1",
-        "true",
-        "yes",
-    }
     return {
         "batch_start": start,
         "batch_end": end,
-        "include_unverified": include_unverified,
         # Real graduates or the seeded simulated ones, as set on /admin/debug/a.
         "data_source": employability.analytics_source(),
     }
@@ -138,8 +132,7 @@ def _alumni_qs(filters: dict[str, Any]):
     qs = employability.exclude_not_yet_graduated(
         employability.filter_source(AlumniAccount.objects.all(), filters["data_source"])
     )
-    if not filters["include_unverified"]:
-        qs = qs.filter(account_status=AccountStatus.ACTIVE)
+    qs = qs.filter(account_status=AccountStatus.ACTIVE)
     qs = qs.filter(
         profile__graduation_year__gte=filters["batch_start"],
         profile__graduation_year__lte=filters["batch_end"],
@@ -658,15 +651,31 @@ class EmploymentOutcomesReportView(APIView):
                         "Batch",
                         "Employer",
                         "Position",
-                        "Type of Business (Sector)",
+                        "Type of Business",
                         "Type of Employment",
                         "Nature of Business",
-                        "Time-to-Hire (mo)",
+                        "TTH (mo)",
                         "Location",
                         "BSIS-Aligned",
                     ],
                     "rows": rows,
-                }
+                },
+                {
+                    "title": "How to Read This Report",
+                    "columns": ["Note"],
+                    "rows": [
+                        ["TTH (mo) is time-to-hire: months from graduation to the first job, taken as the "
+                         "midpoint of the range the graduate chose."],
+                        ["Type of Business is the employer's sector: Government, Private, or "
+                         "Entrepreneurial/Freelance/Self-Employed."],
+                        ["Type of Employment is how the graduate is hired in the current job "
+                         "(CHED Q18): regular, probationary, contractual or self-employed."],
+                        ["Nature of Business is the employer's major line of business (CHED Q20b), "
+                         "not the graduate's own role."],
+                        ["A dash means the graduate has not answered that question yet."],
+                        ["Only verified graduates are counted."],
+                    ],
+                },
             ],
             filters,
         )
@@ -1012,12 +1021,6 @@ def _rate_text(estimate: dict) -> str:
     return f"{estimate['rate'] * 100:.1f}%"
 
 
-def _interval_text(estimate: dict) -> str:
-    if estimate["rate"] is None or estimate["ci_low"] is None:
-        return "-"
-    return f"{estimate['ci_low'] * 100:.0f}-{estimate['ci_high'] * 100:.0f}%"
-
-
 def _employability_summary(batches: list[dict], overall: dict, outlook: dict, model: dict) -> str:
     parts: list[str] = []
     employment = overall["employment_rate"]
@@ -1034,8 +1037,7 @@ def _employability_summary(batches: list[dict], overall: dict, outlook: dict, mo
         )
         parts.append(
             f"{overall['respondents']} graduates answered the tracer survey{response}. Among those working or "
-            f"looking for work, {employment['rate'] * 100:.0f}% are employed (95% interval "
-            f"{employment['ci_low'] * 100:.0f}-{employment['ci_high'] * 100:.0f}%)."
+            f"looking for work, {employment['rate'] * 100:.0f}% are employed."
         )
 
     shown = [b for b in batches if b["employment_rate"]["rate"] is not None]
@@ -1043,8 +1045,7 @@ def _employability_summary(batches: list[dict], overall: dict, outlook: dict, mo
         first, last = shown[0], shown[-1]
         parts.append(
             f"Across batches {first['batch']}-{last['batch']} the observed rate moved from "
-            f"{first['employment_rate']['rate'] * 100:.0f}% to {last['employment_rate']['rate'] * 100:.0f}%; "
-            f"overlapping intervals mean a difference may be sampling noise."
+            f"{first['employment_rate']['rate'] * 100:.0f}% to {last['employment_rate']['rate'] * 100:.0f}%."
         )
 
     if outlook["available"] and outlook["years"]:
@@ -1065,18 +1066,18 @@ def _employability_summary(batches: list[dict], overall: dict, outlook: dict, mo
         source = (
             "simulated graduates" if model.get("source") in {"simulated", "simulated-accounts"} else "graduate records"
         )
-        parts.append(f"The active model ({model['version']}, trained on {source}) passed every acceptance check.")
+        parts.append(f"The factors below come from the active model ({model['version']}, trained on {source}).")
     else:
-        parts.append("No predictive model has passed the acceptance gate, so this report shows observed values only.")
+        parts.append("No model is active, so this report shows observed values only.")
     return " ".join(parts)
 
 
 class PredictiveTrendReportView(APIView):
     """Predictive Employability Trend report.
 
-    Observed indicators per batch with 95% intervals, time to first job, the
-    expected employment range for the next batches, and the active model's
-    factors and acceptance checks. Built from tracer/employability.py, the same
+    Observed indicators per batch, time to first job, the expected employment
+    range for the next batches, and the active model's factors. Built from
+    tracer/employability.py, the same
     source as the Analytics tab, so the report and the dashboard never disagree.
     """
 
@@ -1135,10 +1136,10 @@ class PredictiveTrendReportView(APIView):
             intro_text = simulated_note + (
                 f"This report summarizes the employability of BSIS graduates for batches "
                 f"{batches[0]['batch']}-{batches[-1]['batch']} from the graduate tracer records. Every rate is "
-                f"shown with the number of graduates behind it and a 95% interval, and groups of fewer than "
+                f"shown with the number of graduates behind it, and groups of fewer than "
                 f"{employability.MIN_GROUP} graduates are hidden. The next-batch figure is an expected range "
-                f"based on how much past batches varied, not a forecast. Factors are shown only from a model "
-                f"that passed every acceptance check."
+                f"based on how much past batches varied, not a forecast. Factors are shown only when a model "
+                f"is active."
             )
         else:
             intro_text = "No graduating batches fall within the selected year range."
@@ -1150,9 +1151,7 @@ class PredictiveTrendReportView(APIView):
                 b["respondents"],
                 f"{b['response_rate'] * 100:.0f}%" if b["response_rate"] is not None else "-",
                 _rate_text(b["employment_rate"]),
-                _interval_text(b["employment_rate"]),
                 _rate_text(b["employed_within_12_months"]),
-                _interval_text(b["employed_within_12_months"]),
                 _rate_text(b["bsis_aligned_current_job"]),
             ]
             for b in batches
@@ -1181,16 +1180,9 @@ class PredictiveTrendReportView(APIView):
                     reading = f"{f['odds_ratio']:.1f} times the odds of finding work within a year"
                 else:
                     reading = f"{1 / f['odds_ratio']:.1f} times lower odds of finding work within a year"
-                factor_rows.append(
-                    [f["label"], f"{f['odds_ratio']:.2f}", f"{f['ci_low']:.2f}-{f['ci_high']:.2f}", reading]
-                )
+                factor_rows.append([f["label"], f"{f['odds_ratio']:.2f}", reading])
         else:
-            factor_rows = [[model.get("message") or "No active model.", "", "", ""]]
-
-        check_rows = [
-            [c["label"], "Pass" if c["passed"] else "Fail", c["value"], c["rule"]]
-            for c in (model.get("checks") or [])
-        ] or [["No active model", "-", "Train one with python manage.py train_employability_model", ""]]
+            factor_rows = [[model.get("message") or "No active model.", "", ""]]
 
         sections: list[dict[str, Any]] = [
             {"title": "Introduction", "columns": ["Overview"], "rows": [[intro_text]]},
@@ -1211,8 +1203,8 @@ class PredictiveTrendReportView(APIView):
             {
                 "title": "Observed Indicators by Batch",
                 "columns": [
-                    "Batch", "Graduates", "Respondents", "Response Rate", "Employment Rate", "95% Interval",
-                    "Employed Within 12 Months", "95% Interval", "BSIS-Aligned Current Job",
+                    "Batch", "Graduates", "Respondents", "Response Rate", "Employment Rate",
+                    "Employed Within 12 Months", "BSIS-Aligned Current Job",
                 ],
                 "rows": indicator_rows,
             },
@@ -1224,15 +1216,13 @@ class PredictiveTrendReportView(APIView):
             },
             {
                 "title": "Factors Associated with Finding Work Within a Year",
-                "columns": ["Factor", "Odds Ratio", "95% Interval", "Reading"],
+                "columns": ["Factor", "Odds Ratio", "Reading"],
                 "rows": factor_rows,
             },
-            {"title": "Model Acceptance Checks", "columns": ["Check", "Result", "Value", "Rule"], "rows": check_rows},
             {
                 "title": "How to Read This Report",
                 "columns": ["Note"],
                 "rows": [
-                    ["A 95% interval is the range the true rate probably lies in, given how many graduates answered."],
                     [f"Groups of fewer than {employability.MIN_GROUP} graduates are hidden, never shown as 0%."],
                     ["Employment rate counts graduates who are working or looking for work."],
                     ["An odds ratio above 1 means graduates with that answer were more likely to find work within a "
