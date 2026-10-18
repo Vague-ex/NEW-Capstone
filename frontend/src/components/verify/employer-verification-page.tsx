@@ -44,8 +44,24 @@ const inputCls =
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function Field({ label, required, children, hint, htmlFor }: {
-  label: string; required?: boolean; children: React.ReactNode; hint?: string; htmlFor?: string;
+// Mirrors _is_same_person in backend/tracer/api.py: the comparable words of a
+// name, without punctuation, order or single-letter initials. The verifier may
+// not answer under the graduate's own name.
+const nameKey = (value: string) =>
+  [...new Set(value.toLowerCase().replace(/[^a-z]+/g, ' ').split(' ').filter((w) => w.length > 1))];
+
+function isSamePerson(one: string, other: string): boolean {
+  const a = nameKey(one), b = nameKey(other);
+  if (a.length < 2 || b.length < 2) return false;
+  // Subset either way: the stored name carries the full middle name, and
+  // almost nobody types theirs.
+  const [small, big] = a.length <= b.length ? [a, b] : [b, a];
+  return small.every((word) => big.includes(word));
+}
+
+function Field({ label, required, children, hint, hintTone, htmlFor }: {
+  label: string; required?: boolean; children: React.ReactNode; hint?: string;
+  hintTone?: 'error'; htmlFor?: string;
 }) {
   return (
     <div>
@@ -56,7 +72,7 @@ function Field({ label, required, children, hint, htmlFor }: {
           : <span className="text-gray-500" style={{ fontWeight: 400 }}> (optional)</span>}
       </label>
       {children}
-      {hint && <p className="text-gray-600 text-xs mt-1.5">{hint}</p>}
+      {hint && <p className={`text-xs mt-1.5 ${hintTone === 'error' ? 'text-red-700' : 'text-gray-600'}`}>{hint}</p>}
     </div>
   );
 }
@@ -177,6 +193,13 @@ export function EmployerVerificationPage() {
       document.getElementById(missing[0].sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
+    // The backend refuses this too; stopping here saves a round trip and keeps
+    // the message beside the box that has to change.
+    if (isSamePerson(verifierName, detail?.alumni?.name ?? '')) {
+      setFormError('Step 3 must be the person confirming this employment, not the graduate.');
+      document.getElementById('section-you')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const decision = worksHere ? 'confirm' : 'deny';
     setSubmitting(true);
     try {
@@ -201,7 +224,7 @@ export function EmployerVerificationPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [tokenId, worksHere, missing, comment, employerName, jobTitleId,
+  }, [tokenId, worksHere, missing, comment, employerName, jobTitleId, detail,
       verifierName, verifierEmail, verifierPosition, evaluation]);
 
   const graduateName = detail?.alumni?.name ?? 'BSIS Graduate';
@@ -229,6 +252,7 @@ export function EmployerVerificationPage() {
   }, [employerName, jobTitles, jobTitleId, startDate, employmentStatus,
       verifierName, verifierPosition, verifierEmail]);
 
+  const selfName = isSamePerson(verifierName, graduateName);
   const stepYou = worksHere ? 3 : 2;
   const showBar = stage === 'form' && worksHere !== null;
   const needs = (text: string) => triedSubmit && missing.some((m) => m.text === text);
@@ -373,10 +397,12 @@ export function EmployerVerificationPage() {
             {worksHere !== null && (
               <Section id="section-you" step={stepYou} title="Your details" subtitle="So the University knows who confirmed this record.">
                 <div className="space-y-4">
-                  <Field label="Your name" required htmlFor="v-name">
+                  <Field label="Your name" required htmlFor="v-name"
+                    hint={selfName ? `That is the graduate's own name — ${firstName} cannot confirm this. Enter your own.` : undefined}
+                    hintTone={selfName ? 'error' : undefined}>
                     <input id="v-name" value={verifierName} onChange={(e) => setVerifierName(e.target.value)}
                       autoComplete="name"
-                      className={`${inputCls} ${needs('your name') ? 'border-red-400 ring-2 ring-red-100' : ''}`}
+                      className={`${inputCls} ${needs('your name') || selfName ? 'border-red-400 ring-2 ring-red-100' : ''}`}
                       placeholder="e.g. Maria Reyes" />
                   </Field>
                   <Field label="Your work email" required htmlFor="v-email" hint="Please use your company email if you have one.">

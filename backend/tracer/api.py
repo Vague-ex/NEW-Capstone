@@ -291,6 +291,28 @@ def _companies_match(employer_company: str, graduate_company: str) -> bool:
         for graduate_word in graduate_words
     )
 
+def _name_key(value: str) -> frozenset[str]:
+    """The comparable words of a person's name.
+
+    Middle initials, punctuation and word order are dropped, so "Cypher F.
+    Espiritu" and "Espiritu, Cypher" come out the same. Single letters go
+    because an initial carries no identity on its own.
+    """
+    words = re.sub(r"[^a-z]+", " ", (value or "").lower()).split()
+    return frozenset(word for word in words if len(word) > 1)
+
+def _is_same_person(one: str, other: str) -> bool:
+    """Whether two names are the same person, for self-verification checks.
+
+    Subset, not equality: the stored name carries the full middle name and
+    almost nobody types theirs, so "Cypher Espiritu" has to match "Cypher
+    Fernandez Espiritu". Two words minimum, or a shared surname would match.
+    """
+    first, second = _name_key(one), _name_key(other)
+    if len(first) < 2 or len(second) < 2:
+        return False
+    return first <= second or second <= first
+
 def _build_alumni_name(record: EmploymentRecord) -> str:
     alumni = record.alumni
     profile = getattr(alumni, "profile", None)
@@ -1368,6 +1390,14 @@ class VerificationTokenDecisionView(APIView):
         if alumni_email and verifier_email == alumni_email:
             return Response(
                 {"detail": "A graduate cannot verify their own employment. Ask your employer to complete this."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Same person, different inbox: the name is the other directly
+        # comparable field, and the page shows the graduate's name right above
+        # the box, so answering with it is never an honest mistake.
+        if _is_same_person(verifier_name, _build_alumni_name(employment_record)):
+            return Response(
+                {"detail": "A graduate cannot verify their own employment. Enter the name of the person at the organisation who is confirming it."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

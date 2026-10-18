@@ -916,6 +916,42 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertEqual(response.status_code, 400)
 		self.assertEqual(VerificationDecision.objects.count(), 0)
 
+	def test_graduate_cannot_verify_themselves_under_another_address(self):
+		"""Same name, different inbox: the email check cannot see this one."""
+		AlumniProfile.objects.create(
+			alumni=self.alumni_account,
+			first_name="Cypher", middle_name="Fernandez", last_name="Espiritu",
+			graduation_year=2022,
+		)
+		token_id = self._invite().data["token"]["id"]
+
+		response = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{
+				"decision": "confirm",
+				# Initial dropped and order reversed: still the same person.
+				"verifier_name": "Espiritu, Cypher F.",
+				"verifier_email": "cypher.personal@gmail.com",
+				"verifier_position": "Manager",
+			},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(VerificationDecision.objects.count(), 0)
+
+		# A colleague who merely shares a surname is not blocked.
+		ok = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{
+				"decision": "confirm",
+				"verifier_name": "Maria Espiritu",
+				"verifier_email": "maria@acme.com",
+				"verifier_position": "HR Manager",
+			},
+			format="json",
+		)
+		self.assertEqual(ok.status_code, 200)
+
 	def test_links_are_refused_in_employer_answers(self):
 		token_id = self._invite().data["token"]["id"]
 		response = self.client.post(

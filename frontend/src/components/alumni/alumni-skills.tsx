@@ -160,6 +160,13 @@ export function AlumniSkills() {
     }
   };
 
+  // Technical first, then soft: one list so the summary matches what the save
+  // button counts.
+  const allSelected = [
+    ...selectedSkills.map(name => ({ name, isSoft: false })),
+    ...selectedSoftSkills.map(name => ({ name, isSoft: true })),
+  ];
+
   const coreSelected = selectedSkills.filter(s => BSIS_CORE_SKILLS.includes(s));
   const additionalSelected = selectedSkills.filter(s => !BSIS_CORE_SKILLS.includes(s));
 
@@ -374,33 +381,44 @@ export function AlumniSkills() {
             column beside the checklists. */}
         <aside className="contents xl:flex xl:flex-col xl:gap-5 xl:col-span-4 xl:sticky xl:top-0">
         {/* ── All Selected Skills Summary ─────────────────────────────── */}
-        {selectedSkills.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
-                All Selected Skills
-                <span className="text-gray-400 text-sm ml-2" style={{ fontWeight: 400 }}>({selectedSkills.length})</span>
-              </h3>
-              {saved && (
-                <span className="flex items-center gap-1 text-emerald-600 text-xs" style={{ fontWeight: 600 }}>
-                  <CheckCircle2 className="size-4" /> Saved
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedSkills.map(skill => (
-                <span key={skill}
-                  className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-full"
-                  style={{ fontWeight: 500 }}>
-                  {skill}
-                  <button onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`} className="-my-1.5 -mr-2 flex size-8 items-center justify-center rounded-full hover:bg-gray-200 hover:text-red-500 transition">
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
+        {/* Always rendered, and the chip list scrolls inside a fixed height:
+            a card that appears, disappears and grows with every tick is what
+            made the save button below it jump around the page. */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-gray-800" style={{ fontWeight: 700 }}>
+              All Selected Skills
+              <span className="text-gray-400 text-sm ml-2" style={{ fontWeight: 400 }}>({allSelected.length})</span>
+            </h3>
+            {saved && (
+              <span className="flex items-center gap-1 text-emerald-600 text-xs" style={{ fontWeight: 600 }}>
+                <CheckCircle2 className="size-4" /> Saved
+              </span>
+            )}
           </div>
-        )}
+          {/* Fixed height beside the checklists (xl), so the save button under
+              it never shifts as chips come and go; capped, not fixed, on phones
+              where the button is pinned to the viewport anyway. */}
+          <div className="flex flex-wrap content-start gap-2 max-h-56 overflow-y-auto xl:h-56 xl:max-h-none">
+            {allSelected.length === 0 && (
+              <p className="text-gray-400 text-xs">Nothing selected yet — tick the skills you use above.</p>
+            )}
+            {allSelected.map(({ name, isSoft }) => (
+              <span key={`${isSoft ? 'soft' : 'tech'}-${name}`}
+                className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full ${
+                  isSoft ? 'bg-[#166534] text-white' : 'bg-gray-100 text-gray-700'}`}
+                style={{ fontWeight: 500 }}>
+                {name}
+                <button onClick={() => (isSoft ? removeSoftSkill(name) : removeSkill(name))}
+                  aria-label={`Remove ${name}`}
+                  className={`-my-1.5 -mr-2 flex size-8 items-center justify-center rounded-full transition ${
+                    isSoft ? 'hover:bg-white/15 hover:text-red-300' : 'hover:bg-gray-200 hover:text-red-500'}`}>
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
 
         {/* Save button */}
         <button onClick={handleSave} disabled={isSaving}
@@ -408,7 +426,7 @@ export function AlumniSkills() {
           style={{ fontWeight: 600 }}>
           {isSaving
             ? <><span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
-            : <><Save className="size-4" /> Save Skills ({selectedSkills.length + selectedSoftSkills.length} selected)</>}
+            : <><Save className="size-4" /> Save Skills ({allSelected.length} selected)</>}
         </button>
         </aside>
 
