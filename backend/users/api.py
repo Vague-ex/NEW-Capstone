@@ -1259,7 +1259,11 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "accountStatus": account.account_status,
         "surveyData": survey_data,
         "skills": skills,
-        "requiresRetracking": _needs_retracking(account),
+        # The whole set, not just the boolean: the retracking prompt on the
+        # employment page tells the graduate the date their record was last
+        # confirmed and how long ago that was, rather than "over 2 years".
+        # Same helper the admin list uses, so the two cannot drift.
+        **_admin_retracking_fields(account),
         # False only for a graduating student who has not confirmed graduation yet:
         # the dashboard swaps the retracking wording for a first-employment prompt.
         "hasGraduated": bool(getattr(_profile_or_none(account), "has_graduated", True)),

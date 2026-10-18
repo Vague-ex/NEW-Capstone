@@ -85,6 +85,23 @@ function normalizeEmploymentStatus(status: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/** "2 years and 4 months", from the retracking clock's day count. */
+function elapsedLabel(days: number): string {
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  const y = `${years} year${years === 1 ? '' : 's'}`;
+  const m = `${months} month${months === 1 ? '' : 's'}`;
+  if (years && months) return `${y} and ${m}`;
+  return years ? y : m;
+}
+
+/** "15 March 2024" from the API's plain yyyy-mm-dd. */
+function longDate(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { retrackingMode?: boolean } = {}) {
   // Retracking can be requested two ways: the dashboard renders this page with
   // the prop, or redirects to /alumni/employment?retracking=1. Either one counts.
@@ -178,6 +195,27 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   // Retracking notice: shown on entry when the dashboard routed the graduate
   // here because their record is 2+ years old.
   const [retrackNoticeOpen, setRetrackNoticeOpen] = useState(retrackingMode);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Dismissing the notice is meant to START the update, so put the cursor in
+  // the first thing to fill in. Without this the button looked like an action
+  // and did nothing visible: the form was already behind the modal.
+  const beginRetracking = () => {
+    setRetrackNoticeOpen(false);
+    // A frame for the modal to unmount, or the scroll lands under it.
+    requestAnimationFrame(() => {
+      const first = formRef.current?.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      );
+      first?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      first?.focus({ preventScroll: true });
+    });
+  };
+
+  // Null for a graduating student who has never confirmed a record -- there is
+  // no "last update" to date, so the copy falls back to the generic wording.
+  const lastRetracedOn = typeof alumni.lastRetracedAt === 'string' ? longDate(alumni.lastRetracedAt) : '';
+  const retracedAgo = typeof alumni.daysSinceRetrace === 'number' ? elapsedLabel(alumni.daysSinceRetrace) : '';
   // Share-link modal: shown AFTER a successful save when the company
   // changed (including first-time becoming employed). Replaces the older
   // inline amber banner and the small emerald sub-panel that used to live
@@ -796,7 +834,10 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
             <div>
               <p className="text-red-800 text-sm" style={{ fontWeight: 700 }}>Employment record retracking required</p>
               <p className="text-red-700 text-xs mt-0.5 leading-relaxed">
-                Your employment data is over 2 years old. Please review and update every section before continuing - your dashboard and other features remain locked until this form is submitted.
+                {lastRetracedOn
+                  ? `Your employment record was last confirmed on ${lastRetracedOn}${retracedAgo ? `, ${retracedAgo} ago` : ''}.`
+                  : 'Your employment data is over 2 years old.'}
+                {' '}Please review and update every section before continuing - your dashboard and other features remain locked until this form is submitted.
               </p>
             </div>
           </div>
@@ -815,7 +856,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
           </div>
         )}
 
-        <form onSubmit={handleSave} className="space-y-5">
+        <form ref={formRef} onSubmit={handleSave} className="space-y-5">
 
           {/* ── Section 4: Academic & Pre-Employment ─────────────────────────── */}
           {/* On large screens, Academic + Employment Status sit side-by-side */}
@@ -1562,22 +1603,26 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                 <AlertTriangle className="size-5 text-amber-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Time to update your record</p>
-                <p className="text-gray-500 text-xs mt-0.5">It&apos;s been over 2 years since your last update.</p>
+                <p className="text-gray-900 text-sm" style={{ fontWeight: 700 }}>Your dashboard is on hold</p>
+                <p className="text-gray-500 text-xs mt-0.5">
+                  {lastRetracedOn
+                    ? <>Last confirmed {lastRetracedOn}{retracedAgo ? ` — ${retracedAgo} ago` : ''}.</>
+                    : <>It&apos;s been over 2 years since your last update.</>}
+                </p>
               </div>
             </div>
             <div className="px-5 py-4 text-sm text-gray-700 space-y-2">
               <p>
-                Please confirm your <span style={{ fontWeight: 600 }}>current</span>{' '}details — your present job,
-                work location, and any personal changes. You won&apos;t need to re-enter your first-job or
-                academic history.
+                Your dashboard stays locked until you submit this form. Please confirm your{' '}
+                <span style={{ fontWeight: 600 }}>current</span> details — your present job, work location,
+                and any personal changes. You won&apos;t need to re-enter your first-job or academic history.
               </p>
               <p className="text-xs text-gray-500">Skills and personal info can also be updated from their own pages.</p>
             </div>
             <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end">
               <button
                 type="button"
-                onClick={() => setRetrackNoticeOpen(false)}
+                onClick={beginRetracking}
                 className="px-4 py-2 rounded-xl bg-[#166534] hover:bg-[#14532d] text-white text-sm transition"
                 style={{ fontWeight: 600 }}
               >
