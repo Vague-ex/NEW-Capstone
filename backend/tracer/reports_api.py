@@ -1210,7 +1210,9 @@ class PredictiveTrendReportView(APIView):
             },
             {"title": "Time to First Job (Observed)", "columns": ["Time Range", "Graduates"], "rows": time_rows},
             {
-                "title": f"Expected Employment Range - Next {forecast_years} Batch(es)",
+                "title": "Expected Employment Range - Next %d Batch(es)" % (
+                    len(outlook["years"]) if outlook["available"] else 0
+                ),
                 "columns": ["Batch", "Expected Range", "Basis"],
                 "rows": outlook_rows,
             },
