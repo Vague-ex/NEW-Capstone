@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import {
   ADMIN_ACCESS_TOKEN_KEY, ALUMNI_ACCESS_TOKEN_KEY, fetchPendingAlumni, fetchProfileReviewAlumni,
-  fetchVerifiedAlumni,
+  fetchVerifiedAlumniPage,
 } from '../../app/api-client';
 const schoolLogo = '/CHMSULogo.png';
 const ADMIN_PENDING_TOTAL_KEY = 'admin_last_pending_total';
@@ -144,16 +144,16 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
   const refreshAdminNotificationCount = useCallback(async () => {
     if (role !== 'admin') return;
     try {
-      const [pendingAlumni, profileReview, verified] = await Promise.all([
+      const [pendingAlumni, profileReview, retracing] = await Promise.all([
         fetchPendingAlumni(),
         // A failed review fetch must not blank the pending count too.
         fetchProfileReviewAlumni().catch(() => [] as unknown[]),
-        // The same list the alert links to (/admin/verified?retracing=needs),
+        // Covers the same list the alert links to (/admin/verified?retracing=needs),
         // so demo graduates count here even though analytics leaves them out.
-        // ponytail: still pulls the whole verified list for one count. Now
-        // that it only runs on open that is a few calls a day, not 2,880 --
-        // add a count endpoint if it moves back onto any kind of timer.
-        fetchVerifiedAlumni().catch(() => [] as unknown[]),
+        // One row, because only the totals are wanted: this used to pull every
+        // verified graduate -- 794 kB on each admin page load -- to count the
+        // handful whose records are overdue.
+        fetchVerifiedAlumniPage(1, 1).then((r) => r.totals.retracing).catch(() => 0),
       ]);
 
       // Employer requests no longer exist — employers verify by one-time
@@ -163,9 +163,7 @@ export function PortalLayout({ role, children, pageTitle, pageSubtitle, notifica
       const totalPending = pendingAlumni.length + profileReview.length;
       setPendingAlumniCount(pendingAlumni.length);
       setProfileReviewCount(profileReview.length);
-      setRetracingCount(
-        verified.filter((a) => (a as { requiresRetracking?: boolean }).requiresRetracking === true).length,
-      );
+      setRetracingCount(retracing);
 
       const previousTotal = lastKnownAdminPendingRef.current;
       if (previousTotal !== null && totalPending > previousTotal && notificationAudioRef.current) {
