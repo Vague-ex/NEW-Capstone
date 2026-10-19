@@ -1259,8 +1259,8 @@ class CurriculumAlignmentReportTests(TestCase):
 		self.assertEqual(row[5], 1)
 		self.assertEqual(row[7], 1)          # the third stays unknown
 
-		fields = sections["IS Field Distribution (employer-verified titles)"]
-		self.assertIn(["Software Development", 1], [list(r) for r in fields["rows"]])
+		# The IS Field Distribution section was dropped: nothing read it.
+		self.assertNotIn("IS Field Distribution (employer-verified titles)", sections)
 
 
 class PublicVerificationLandingTests(TestCase):

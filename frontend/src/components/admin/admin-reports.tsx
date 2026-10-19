@@ -3,12 +3,102 @@ import {
   FileText, FileSpreadsheet, FileType2, Loader2, AlertCircle, Filter, Eye, X,
   Users, Briefcase, Wrench, ShieldCheck, TrendingUp, GraduationCap,
 } from 'lucide-react';
-import { fetchReport, ReportFilters, type ReportPayload } from '../../app/api-client';
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
+import { fetchReport, ReportFilters, type ReportPayload, type ReportSection } from '../../app/api-client';
 import {
   exportCsv, exportPdf, exportXlsx, formatFilters, formatTimestamp, LETTERHEAD, PDF_PAGE, SUBTITLE,
 } from '../../lib/report-export';
 
 type ExportFormat = 'pdf' | 'xlsx' | 'csv';
+
+// Series colours, the same three the PDF uses, so a printed report and the
+// preview do not disagree about which bar is which.
+const SERIES_COLORS = ['#047940', '#78909C', '#CDD5DB'];
+
+function cellNumber(value: unknown): number {
+  const n = Number(String(value ?? '').replace(/[^\d.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function GroupedBars({ section, columnIndexes, title }: {
+  section: ReportSection; columnIndexes: number[]; title: string;
+}) {
+  // A Total row would dwarf every batch beside it.
+  const rows = section.rows.filter((r) => String(r[0] ?? '').toLowerCase() !== 'total');
+  const names = columnIndexes.filter((i) => i < section.columns.length).map((i) => String(section.columns[i] ?? ''));
+  if (rows.length === 0 || names.length === 0) return null;
+  const data = rows.map((r) => {
+    const point: Record<string, string | number> = { batch: String(r[0] ?? '') };
+    columnIndexes.forEach((i, k) => { point[names[k]] = cellNumber(r[i]); });
+    return point;
+  });
+  return (
+    <div className="mt-4">
+      <p className="text-xs text-gray-700 mb-1" style={{ fontWeight: 600 }}>{title}</p>
+      <ResponsiveContainer width="100%" height={210}>
+        <BarChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="batch" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+          <Tooltip />
+          <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+          {names.map((name, i) => (
+            <Bar key={name} dataKey={name} fill={SERIES_COLORS[i % SERIES_COLORS.length]} isAnimationActive={false} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** The preview printed every section as a table, so the charts only existed
+ *  in the downloaded PDF. These are the same two the PDF draws. */
+function SectionChart({ section }: { section: ReportSection }) {
+  if (section.rows.length === 0) return null;
+
+  if (section.title === 'Cross-Batch Timeline') {
+    const years = section.columns.slice(1).map((c) => String(c ?? '')).filter(Boolean);
+    if (years.length < 2) return null;
+    const names = section.rows.map((r) => String(r[0] ?? ''));
+    const data = years.map((year, i) => {
+      const point: Record<string, string | number> = { year };
+      section.rows.forEach((r, k) => { point[names[k]] = cellNumber(r[i + 1]); });
+      return point;
+    });
+    return (
+      <div className="mt-4">
+        <ResponsiveContainer width="100%" height={230}>
+          <LineChart data={data} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+            {/* Full 0-100: scaling to the data exaggerates every dip. */}
+            <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
+            <Tooltip />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+            {names.map((name, i) => (
+              <Line key={name} type="linear" dataKey={name} stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+  if (section.title === 'Employment Type and Sector by Batch') {
+    return (
+      <>
+        <GroupedBars section={section} columnIndexes={[2, 3, 4]} title="Employment type by batch" />
+        <GroupedBars section={section} columnIndexes={[5, 6, 7]} title="Type of business by batch" />
+      </>
+    );
+  }
+
+  return null;
+}
+
 
 interface ReportDef {
   id: string;
@@ -478,6 +568,7 @@ function PreviewModal({
                       </table>
                     </div>
                   )}
+                  <SectionChart section={section} />
                 </section>
               ))}
             </div>

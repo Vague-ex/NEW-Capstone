@@ -73,6 +73,9 @@ function drawLetterhead(doc: jsPDF, logo: HTMLImageElement | Uint8Array | null, 
 // The green of the ring in CHMSULogo.png (#047940). White on it is 5.5:1, so
 // table headers stay readable; the old green-600 was brighter and paler.
 const CHMSU_GREEN: [number, number, number] = [4, 121, 64];
+// Two more series colours for the grouped bars. Chosen to stay apart in
+// greyscale as well as colour, because these reports get printed.
+const SERIES_COLORS: [number, number, number][] = [CHMSU_GREEN, [120, 144, 156], [205, 213, 219]];
 
 export function formatTimestamp(iso: string): string {
   try {
@@ -301,6 +304,14 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
     if (section.title === 'Cross-Batch Timeline' && section.rows.length > 0) {
       cursorY = drawTimelineChart(doc, section, margin, cursorY, pageWidth, CONTENT_TOP);
     }
+    // Columns: Batch, Employed (n), Full-time, Part-time, Self-employed,
+    // Government, Private, Entrepreneurial, Sector not stated.
+    if (section.title === 'Employment Type and Sector by Batch' && section.rows.length > 0) {
+      cursorY = drawGroupedBars(doc, section, [2, 3, 4], 'Employment type by batch',
+                                margin, cursorY, pageWidth, CONTENT_TOP);
+      cursorY = drawGroupedBars(doc, section, [5, 6, 7], 'Type of business by batch',
+                                margin, cursorY, pageWidth, CONTENT_TOP);
+    }
   }
 
   // Letterhead and footers go on last, once the page count is final, so every
@@ -331,7 +342,7 @@ type JsPdfLike = {
   text: (text: string, x: number, y: number) => void;
   line: (x1: number, y1: number, x2: number, y2: number) => void;
   circle: (x: number, y: number, r: number, style?: string) => void;
-  rect: (x: number, y: number, w: number, h: number) => void;
+  rect: (x: number, y: number, w: number, h: number, style?: string) => void;
   addPage: () => void;
 };
 
@@ -342,6 +353,99 @@ function parseTimelineCell(value: unknown): number | null {
   const cleaned = str.replace(/[%,\s]/g, '');
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Grouped bars for one section's count columns, per batch.
+ *
+ * `columnIndexes` picks which columns become series, so the same routine
+ * draws employment type and sector from the one table the backend already
+ * sends. Rows whose first cell is "Total" are skipped: a total bar would
+ * dwarf every batch beside it.
+ */
+function drawGroupedBars(
+  doc: JsPdfLike,
+  section: { columns: (string | number | null)[]; rows: (string | number | null)[][] },
+  columnIndexes: number[],
+  title: string,
+  margin: number,
+  startY: number,
+  pageWidth: number,
+  pageTop: number,
+): number {
+  const rows = section.rows.filter((r) => String(r[0] ?? '').toLowerCase() !== 'total');
+  if (rows.length === 0) return startY;
+
+  const series = columnIndexes
+    .filter((i) => i < section.columns.length)
+    .map((i) => ({
+      name: String(section.columns[i] ?? ''),
+      values: rows.map((r) => {
+        const n = Number(String(r[i] ?? '').replace(/[^\d.-]/g, ''));
+        return Number.isFinite(n) ? n : 0;
+      }),
+    }));
+  if (series.length === 0) return startY;
+
+  const maxValue = Math.max(1, ...series.flatMap((x) => x.values));
+  const chartW = pageWidth - margin * 2;
+  const chartH = 90;
+
+  let cursorY = startY;
+  if (cursorY + chartH + 60 > doc.internal.pageSize.getHeight() - margin) {
+    doc.addPage();
+    cursorY = pageTop;
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(40, 40, 40);
+  doc.text(title, margin, cursorY + 10);
+
+  const plotX0 = margin + 26;
+  const plotY0 = cursorY + 18;
+  const plotX1 = margin + chartW - 4;
+  const plotY1 = plotY0 + chartH;
+
+  doc.setDrawColor(220, 224, 230);
+  doc.setLineWidth(0.5);
+  doc.line(plotX0, plotY1, plotX1, plotY1);
+  doc.line(plotX0, plotY0, plotX0, plotY1);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(120, 120, 120);
+  doc.text(String(maxValue), plotX0 - 22, plotY0 + 3);
+  doc.text('0', plotX0 - 10, plotY1);
+
+  const groupW = (plotX1 - plotX0) / rows.length;
+  const barW = Math.max(3, (groupW * 0.72) / series.length);
+  rows.forEach((row, g) => {
+    const groupX0 = plotX0 + groupW * g + (groupW - barW * series.length) / 2;
+    series.forEach((one, i) => {
+      const value = one.values[g];
+      const h = (value / maxValue) * chartH;
+      doc.setFillColor(...SERIES_COLORS[i % SERIES_COLORS.length]);
+      doc.rect(groupX0 + barW * i, plotY1 - h, barW, h, 'F');
+    });
+    doc.setFontSize(7);
+    doc.setTextColor(120, 120, 120);
+    doc.text(String(row[0] ?? ''), plotX0 + groupW * g + groupW / 2 - 9, plotY1 + 10);
+  });
+
+  // Legend under the axis labels, so a reader knows which bar is which.
+  let legendX = plotX0;
+  const legendY = plotY1 + 22;
+  series.forEach((one, i) => {
+    doc.setFillColor(...SERIES_COLORS[i % SERIES_COLORS.length]);
+    doc.rect(legendX, legendY - 5, 6, 6, 'F');
+    doc.setFontSize(7);
+    doc.setTextColor(90, 90, 90);
+    doc.text(one.name, legendX + 9, legendY);
+    legendX += 9 + one.name.length * 3.6 + 14;
+  });
+
+  return legendY + 18;
 }
 
 function drawTimelineChart(
@@ -374,16 +478,19 @@ function drawTimelineChart(
     const valid = numeric.filter((v): v is number => v != null);
     if (valid.length < 2) continue;
 
-    const minV = Math.min(...valid);
-    const maxV = Math.max(...valid);
-    const range = maxV === minV ? 1 : maxV - minV;
+    // Every series here is a percentage, so the axis runs the full 0-100.
+    // Scaling to the data's own min and max made a move from 64.9% to 32.6%
+    // use the whole plot height, which reads as a collapse rather than a dip.
+    const axisMin = 0;
+    const axisMax = 100;
+    const range = axisMax - axisMin;
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(40, 40, 40);
     doc.text(label, margin, cursorY + 10);
 
-    const plotX0 = margin + 4;
+    const plotX0 = margin + 26;
     const plotY0 = cursorY + 18;
     const plotX1 = margin + chartW - 4;
     const plotY1 = plotY0 + chartH;
@@ -395,15 +502,18 @@ function drawTimelineChart(
 
     doc.setFontSize(7);
     doc.setTextColor(120, 120, 120);
-    doc.text(maxV.toFixed(2), plotX0 - 2, plotY0 + 3);
-    doc.text(minV.toFixed(2), plotX0 - 2, plotY1);
+    doc.text('100%', plotX0 - 22, plotY0 + 3);
+    doc.text('50%', plotX0 - 19, plotY0 + chartH / 2 + 2);
+    doc.text('0%', plotX0 - 15, plotY1);
+    doc.setDrawColor(235, 238, 242);
+    doc.line(plotX0, plotY0 + chartH / 2, plotX1, plotY0 + chartH / 2);
 
     const stepX = (plotX1 - plotX0) / (numeric.length - 1 || 1);
     const points: { x: number; y: number }[] = [];
     numeric.forEach((value, idx) => {
       if (value == null) return;
       const x = plotX0 + stepX * idx;
-      const y = plotY1 - ((value - minV) / range) * chartH;
+      const y = plotY1 - ((value - axisMin) / range) * chartH;
       points.push({ x, y });
     });
 

@@ -41,7 +41,7 @@ from users.models import AccountStatus, AlumniAccount
 
 from . import employability
 from .alignment import resolve_alignment, summarize, verified_titles_by_alumni
-from .models import JobTitle, VerificationDecision
+from .models import VerificationDecision
 
 logger = logging.getLogger(__name__)
 
@@ -515,7 +515,6 @@ class BatchSummaryReportView(APIView):
         verified_titles = verified_titles_by_alumni(a.id for a in accounts)
 
         align_buckets: dict[int, list] = defaultdict(list)
-        field_counts: dict[str, int] = defaultdict(int)
         for acc in accounts:
             year = _grad_year(acc)
             if year is None:
@@ -526,8 +525,6 @@ class BatchSummaryReportView(APIView):
                 self_reported=(emp.current_job_related_to_bsis if emp is not None else None),
             )
             align_buckets[year].append(resolved)
-            if resolved.is_field:
-                field_counts[resolved.is_field] += 1
 
         align_rows = []
         for year in sorted(align_buckets):
@@ -559,24 +556,12 @@ class BatchSummaryReportView(APIView):
             "rows": align_rows,
         }
 
-        # Which IS fields verified graduates actually landed in — the diagnostic
-        # behind "check the alignment of the job field in IS".
-        field_rows = [
-            [JobTitle.ISField(f).label, n]
-            for f, n in sorted(field_counts.items(), key=lambda kv: -kv[1])
-        ]
-        section_f = {
-            "title": "IS Field Distribution (employer-verified titles)",
-            "columns": ["IS Field", "Graduates"],
-            "rows": field_rows,
-        }
-
         return _ok(
             "Batch Summary",
             [
                 section_a, section_work, section_b, section_c,
                 section_d_strengths, section_d_improvements,
-                section_e, section_f,
+                section_e,
             ],
             filters,
         )
