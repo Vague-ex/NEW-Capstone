@@ -8,7 +8,8 @@ import {
 } from 'recharts';
 import { fetchReport, ReportFilters, type ReportPayload, type ReportSection } from '../../app/api-client';
 import {
-  exportCsv, exportPdf, exportXlsx, formatFilters, formatTimestamp, LETTERHEAD, PDF_PAGE, SUBTITLE,
+  exportCsv, exportPdf, exportXlsx, formatFilters, formatTimestamp, isLandscapeReport,
+  LETTERHEAD, PDF_PAGE, SUBTITLE,
 } from '../../lib/report-export';
 
 type ExportFormat = 'pdf' | 'xlsx' | 'csv';
@@ -434,14 +435,19 @@ export function AdminReports() {
 
 // Letterhead sizes are container-query units of the page width (PDF points
 // scaled to 100cqw), so it keeps the PDF's proportions on any screen width.
-const pt = (n: number) => `${((n * 100) / PDF_PAGE.width).toFixed(3)}cqw`;
+// A landscape page is 841.89pt wide, so the same points are a smaller share of
+// it -- pass the width of the page actually being drawn.
+const ptOf = (pageWidth: number) => (n: number) => `${((n * 100) / pageWidth).toFixed(3)}cqw`;
+// A4 at 96 dpi: 210mm across portrait, 297mm across landscape.
+const PAGE_PX = { portrait: 794, landscape: 1123 };
 // Arial's baseline sits 0.847 em below the top of a line box when line-height is 1.
 const ARIAL_BASELINE = 0.847;
 const NUMERIC = /^[-+]?[\d,.]+%?$/;
 
-function ReportLetterhead() {
+function ReportLetterhead({ pageWidth }: { pageWidth: number }) {
   const L = LETTERHEAD;
   const m = PDF_PAGE.margin;
+  const pt = ptOf(pageWidth);
   const titleTop = L.title.baseline - ARIAL_BASELINE * L.title.capSize;
   return (
     <div
@@ -491,14 +497,22 @@ function PreviewModal({
   onClose: () => void;
   onGenerate: (format: ExportFormat) => void | Promise<void>;
 }) {
+  // The same rule the PDF uses, so the preview turns the page with it.
+  const landscape = isLandscapeReport(payload.sections);
+  const pageWidthPt = landscape ? PDF_PAGE.height : PDF_PAGE.width;
+  const gutter = `${((PDF_PAGE.margin * 100) / pageWidthPt).toFixed(2)}cqw`;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-5xl xl:max-w-6xl max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden">
+      <div className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-h-[100dvh] sm:max-h-[92vh] flex flex-col overflow-hidden ${
+        landscape ? 'max-w-6xl xl:max-w-[1220px]' : 'max-w-5xl xl:max-w-6xl'
+      }`}>
         {/* Top bar */}
         <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 border-b border-gray-200">
           <p className="min-w-0 truncate text-sm text-gray-700">
             <span style={{ fontWeight: 700 }}>Report Preview</span>
             <span className="text-gray-400">{' · '}{payload.title}</span>
+            {/* Said plainly, so a turned page is never a surprise at print time. */}
+            <span className="text-gray-400">{' · '}A4 {landscape ? 'landscape' : 'portrait'}</span>
           </p>
           <button onClick={onClose} className="-mr-2 flex size-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100" aria-label="Close">
             <X className="size-5" />
@@ -507,9 +521,11 @@ function PreviewModal({
 
         {/* The report as it will print */}
         <div className="flex-1 overflow-y-auto bg-gray-100 px-2 sm:px-6 py-3 sm:py-6">
-          <article className="mx-auto w-full max-w-[794px] bg-white shadow-md" style={{ containerType: 'inline-size' }}>
-            <ReportLetterhead />
-            <div className="px-[6.72cqw] pt-6 pb-10 space-y-6">
+          <article
+            className="mx-auto w-full bg-white shadow-md"
+            style={{ containerType: 'inline-size', maxWidth: landscape ? PAGE_PX.landscape : PAGE_PX.portrait }}>
+            <ReportLetterhead pageWidth={pageWidthPt} />
+            <div className="pt-6 pb-10 space-y-6" style={{ paddingLeft: gutter, paddingRight: gutter }}>
               <header>
                 <h2 className="text-[#047940] text-xl sm:text-2xl" style={{ fontWeight: 700 }}>{payload.title}</h2>
                 <p className="text-sm text-gray-600 mt-1">{SUBTITLE}</p>

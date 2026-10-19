@@ -26,7 +26,18 @@ export const SUBTITLE = 'Predictive Employability Trend';
 // (the header of Graduate_Tracer_System_formatted.docx), measured in points.
 // x is from the page's left margin; the green band runs edge to edge. The PDF
 // and the preview in admin-reports.tsx both draw from these numbers.
-export const PDF_PAGE = { width: 595.28, margin: 40 }; // A4
+export const PDF_PAGE = { width: 595.28, height: 841.89, margin: 40 }; // A4 portrait, in points
+
+/**
+ * Does this report print on a turned page?
+ *
+ * A4 portrait leaves ~515pt for the table, about seven columns before
+ * autoTable starts breaking headings mid-word. The preview asks the same
+ * question, so the page on screen is the page that comes out.
+ */
+export function isLandscapeReport(sections: { columns: unknown[] }[]): boolean {
+  return Math.max(0, ...sections.map((s) => s.columns.length)) > 7;
+}
 export const LETTERHEAD = {
   logo: { x: 13.9, y: 9.1, size: 57.4, src: '/CHMSULogo.png' },
   // Initials at 18 pt in orange, the rest of each word at 12 pt in dark green.
@@ -211,14 +222,10 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
   ]);
   const autoTable = (autoTableModule as unknown as { default: (doc: unknown, opts: unknown) => unknown }).default;
 
-  // A4 portrait leaves ~515pt for the table, which is about seven columns
-  // before autoTable starts breaking headings mid-word ("Type of Em ployment").
-  // A wider report turns the page instead of being squeezed into it.
-  const widestSection = Math.max(0, ...payload.sections.map((s) => s.columns.length));
   const doc = new JsPDF({
     unit: 'pt',
     format: 'a4',
-    orientation: widestSection > 7 ? 'landscape' : 'portrait',
+    orientation: isLandscapeReport(payload.sections) ? 'landscape' : 'portrait',
   });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();

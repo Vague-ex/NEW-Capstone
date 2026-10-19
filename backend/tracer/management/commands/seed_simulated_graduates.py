@@ -158,6 +158,55 @@ EMPLOYERS = {
     ],
     "entrepreneurial": ["Self-employed", "Freelance (Upwork)", "Freelance (OnlineJobs.ph)", "Own business"],
 }
+# CHED Q20b, per employer rather than per sector: a roster that files BDO
+# Unibank under "Wholesale and Retail Trade" reads as wrong to anyone who
+# looks. Employers not listed fall back to NATURE_BY_SECTOR.
+NATURE_BY_EMPLOYER = {
+    "Concentrix": "information_communication",
+    "Teleperformance": "information_communication",
+    "TaskUs": "information_communication",
+    "Accenture Philippines": "information_communication",
+    "Transcosmos Asia Philippines": "information_communication",
+    "Ubiquity Global Services": "information_communication",
+    "iQor Philippines": "information_communication",
+    "StarTek Philippines": "information_communication",
+    "Nexus Technologies Inc.": "information_communication",
+    "Globe Telecom": "transport_communication",
+    "PLDT Inc.": "transport_communication",
+    "Converge ICT Solutions": "transport_communication",
+    "BDO Unibank": "financial_intermediation",
+    "Metrobank": "financial_intermediation",
+    "Bank of the Philippine Islands": "financial_intermediation",
+    "Ayala Land": "real_estate_business",
+    "Robinsons Land Corporation": "real_estate_business",
+    "SM Supermalls": "wholesale_retail",
+    "Jollibee Foods Corporation": "hotels_restaurants",
+    "VICMICO": "manufacturing",
+    "City Government of Bacolod": "public_administration",
+    "City Government of Talisay": "public_administration",
+    "Provincial Government of Negros Occidental": "public_administration",
+    "Department of Information and Communications Technology": "public_administration",
+    "Philippine Statistics Authority": "public_administration",
+    "Social Security System": "public_administration",
+    "Land Transportation Office": "public_administration",
+    "Bureau of Internal Revenue": "public_administration",
+    "Carlos Hilado Memorial State University": "education",
+    "Department of Education - Division of Negros Occidental": "education",
+    "Freelance (Upwork)": "information_communication",
+    "Freelance (OnlineJobs.ph)": "information_communication",
+    "Own business": "wholesale_retail",
+    "Self-employed": "information_communication",
+}
+NATURE_BY_SECTOR = {
+    "government": "public_administration",
+    "private": "information_communication",
+    "entrepreneurial": "information_communication",
+}
+# CHED Q18. Freelancers are self-employed by definition; the rest spread over
+# the terms a recent graduate actually gets hired on.
+JOB_STATUS_MIX = [("regular", 50), ("probationary", 20), ("contractual", 30)]
+
+
 TECHNICAL_EXTRA = ["HTML/CSS", "JavaScript", "React", "MySQL", "PostgreSQL", "Figma", "Canva", "Linux", "Python", "Agile / Scrum"]
 
 
@@ -325,13 +374,19 @@ class Command(BaseCommand):
                 work = _weighted(rng, WORK_CITIES_LOCAL if local else WORK_CITIES_ABROAD)
                 current_job = {
                     "title": title_for(current_category) if current_category else "",
-                    "company": (first_job["company"] if first_job and first_job["same_as_current"]
+                    "company": (first_job["company"]
+                                if first_job and first_job["same_as_current"] and first_job["sector"] == sector
                                 else rng.choice(EMPLOYERS[sector])),
                     "sector": sector,
                     "related": is_it,
                     "local": local,
                     "work": work,
+                    "job_status": "self_employed" if freelance else _weighted(rng, JOB_STATUS_MIX)[0],
+                    "nature": None,  # filled below, once the company is known
                 }
+                current_job["nature"] = NATURE_BY_EMPLOYER.get(
+                    current_job["company"], NATURE_BY_SECTOR[sector],
+                )
 
             home = _weighted(rng, HOME_CITIES)
             birth_year = batch - rng.choice([21, 21, 22, 22, 23, 24])
@@ -563,6 +618,9 @@ class Command(BaseCommand):
                     current_job_title=(current["title"] or None) if current else None,
                     current_job_company=current["company"] if current else None,
                     current_job_related_to_bsis=current["related"] if current else None,
+                    # Only an employed graduate answers these two.
+                    current_job_status=current["job_status"] if current else None,
+                    nature_of_business=current["nature"] if current else None,
                     location_type=current["local"] if current else None,
                     survey_completion_status="completed",
                 )
