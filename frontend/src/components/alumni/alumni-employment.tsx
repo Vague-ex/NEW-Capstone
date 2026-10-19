@@ -1614,7 +1614,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
             <div className="px-5 py-4 text-sm text-gray-700 space-y-2">
               <p>
                 Your dashboard stays locked until you submit this form. Please confirm your{' '}
-                <span style={{ fontWeight: 600 }}>current</span> details — your present job, work location,
+                <span style={{ fontWeight: 600 }}>current</span>{' '}details — your present job, work location,
                 and any personal changes. You won&apos;t need to re-enter your first-job or academic history.
               </p>
               <p className="text-xs text-gray-500">Skills and personal info can also be updated from their own pages.</p>
