@@ -208,8 +208,17 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
   ]);
   const autoTable = (autoTableModule as unknown as { default: (doc: unknown, opts: unknown) => unknown }).default;
 
-  const doc = new JsPDF({ unit: 'pt', format: 'a4' });
+  // A4 portrait leaves ~515pt for the table, which is about seven columns
+  // before autoTable starts breaking headings mid-word ("Type of Em ployment").
+  // A wider report turns the page instead of being squeezed into it.
+  const widestSection = Math.max(0, ...payload.sections.map((s) => s.columns.length));
+  const doc = new JsPDF({
+    unit: 'pt',
+    format: 'a4',
+    orientation: widestSection > 7 ? 'landscape' : 'portrait',
+  });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = PDF_PAGE.margin;
 
   let cursorY = CONTENT_TOP;
@@ -234,7 +243,7 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
   cursorY += 18;
 
   for (const section of payload.sections) {
-    if (cursorY > 740) {
+    if (cursorY > pageHeight - 100) {
       doc.addPage();
       cursorY = CONTENT_TOP;
     }

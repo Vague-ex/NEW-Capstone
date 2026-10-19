@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, BarChart, ErrorBar,
+  Tooltip, Legend, ResponsiveContainer, BarChart,
 } from 'recharts';
 import {
   TrendingUp, Clock, Brain, AlertCircle, AlertTriangle, Cpu, Table as TableIcon,
-  Lightbulb, Users, Target, ShieldCheck, Check, X, Info,
+  Lightbulb, Users, Target, ShieldCheck, Info,
 } from 'lucide-react';
 import {
   fetchAnalyticsPredictions,
@@ -108,7 +108,6 @@ type TrendRow = {
   year: string;
   observed: number | null;
   next: number | null;
-  nextError: [number, number] | null;
   detail: string;
   // How many graduates this batch's percentage is actually based on. The rate
   // was always computed over respondents, never over the whole batch, but n
@@ -205,7 +204,6 @@ export function AdminAnalyticsPredictions() {
         year: String(b.batch),
         observed: shown ? value : null,
         next: null,
-        nextError: null,
         n: r.n,
         // "graduates" was the wrong word and did the damage: the denominator
         // has always been the graduates who answered, not the whole batch, but
@@ -221,16 +219,14 @@ export function AdminAnalyticsPredictions() {
     });
     if (trendView === 'employment') {
       nextRanges.forEach((range, i) => {
-        const centre = point(range.centre) ?? 0;
         rows.push({
           year: String(range.batch),
           observed: null,
-          next: centre,
-          nextError: [centre - (point(range.low) ?? 0), (point(range.high) ?? 0) - centre],
+          next: point(range.centre) ?? 0,
           n: null,
-          detail: `If this batch does about as well as recent batches, expect ${pct(range.low, 0)} to ${pct(range.high, 0)} employed.${
-            i > 0 ? ' The range is wider because it is further ahead.' : ''
-          } This is a range, not a prediction.`,
+          detail: `If this batch does about as well as recent batches, expect about `
+            + `${pct(range.centre, 0)} employed.${i > 0 ? ' Further ahead, so less certain.' : ''}`
+            + ` This is an expectation, not a measurement.`,
         });
       });
     }
@@ -258,7 +254,6 @@ export function AdminAnalyticsPredictions() {
 
   const batches = answeredBatches.map((b) => b.batch);
   const expected = overall?.model_expected_within_12_months;
-  const checks = activeModel?.checks ?? [];
   const factors = activeModel?.factors ?? [];
   const tfj = overall?.time_to_first_job;
 
@@ -476,7 +471,7 @@ export function AdminAnalyticsPredictions() {
 
           <p className="text-gray-500 text-xs mb-4 leading-relaxed">
             {trendView === 'employment'
-              ? 'Each green dot is the share of a batch that is employed, among the graduates who answered and are working or looking for work. The orange marks are the coming batches, which have not answered yet: they show a likely range if those batches do about as well as recent ones, and each year further ahead is wider.'
+              ? 'Each green dot is the share of a batch that is employed, among the graduates who answered and are working or looking for work. The orange dots are the coming batches, which have not answered yet: they show what to expect if those batches do about as well as recent ones.'
               : 'Each dot is the share of a batch that found a first job within 12 months of graduating.'}{' '}
             <span className="text-gray-600">
               Every percentage is out of the graduates who answered that year — the n under each
@@ -520,15 +515,13 @@ export function AdminAnalyticsPredictions() {
                   <Line
                     type="linear"
                     dataKey="next"
-                    name="Likely range for coming batches"
+                    name="Expected for coming batches"
                     stroke="#f59e0b"
                     strokeWidth={0}
                     dot={{ r: 5, fill: '#f59e0b' }}
                     connectNulls={false}
                     isAnimationActive={false}
-                  >
-                    <ErrorBar dataKey="nextError" width={8} strokeWidth={2} stroke="#f59e0b" direction="y" />
-                  </Line>
+                  />
                 )}
               </ComposedChart>
             </ResponsiveContainer>
@@ -595,7 +588,7 @@ export function AdminAnalyticsPredictions() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['Answer at graduation', 'Odds ratio', 'Likely range', 'What it means'].map((h) => (
+                  {['Answer at graduation', 'Odds ratio', 'What it means'].map((h) => (
                     <th key={h} className="text-left text-gray-400 text-xs pb-2 pr-4" style={{ fontWeight: 600 }}>
                       {h}
                     </th>
@@ -609,9 +602,6 @@ export function AdminAnalyticsPredictions() {
                       {f.label}
                     </td>
                     <td className="py-2.5 pr-4 text-gray-700 text-xs">{f.odds_ratio.toFixed(2)}</td>
-                    <td className="py-2.5 pr-4 text-gray-500 text-xs whitespace-nowrap">
-                      {f.ci_low.toFixed(2)}–{f.ci_high.toFixed(2)}
-                    </td>
                     <td className="py-2.5 pr-4 text-xs">
                       <span
                         className={!f.clear ? 'text-gray-400' : f.odds_ratio >= 1 ? 'text-emerald-600' : 'text-red-500'}
@@ -628,31 +618,6 @@ export function AdminAnalyticsPredictions() {
           </div>
         )}
 
-        {checks.length > 0 && (
-          <details className="mt-4 rounded-xl border border-gray-100 p-3">
-            <summary className="cursor-pointer text-xs text-gray-600" style={{ fontWeight: 600 }}>
-              Acceptance checks: {checks.filter((c) => c.passed).length} of {checks.length} passed
-            </summary>
-            <ul className="mt-3 space-y-2">
-              {checks.map((c) => (
-                <li key={c.key} className="flex gap-2 text-xs">
-                  {c.passed ? (
-                    <Check className="size-4 text-emerald-600 shrink-0" />
-                  ) : (
-                    <X className="size-4 text-red-500 shrink-0" />
-                  )}
-                  <div>
-                    <p className="text-gray-800" style={{ fontWeight: 600 }}>
-                      {c.label}
-                    </p>
-                    <p className="text-gray-600">{c.value}</p>
-                    <p className="text-gray-400">Rule: {c.rule}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
       </div>
 
       {/* ── Skills by Batch ─────────────────────────────────────────────────── */}

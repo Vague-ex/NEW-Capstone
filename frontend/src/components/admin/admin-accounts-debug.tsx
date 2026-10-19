@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
-  AlertCircle, Building2, Database, Eye, FlaskConical, Pencil, RefreshCw, Search, Shield, ShieldCheck, Trash2, X,
+  AlertCircle, Building2, Check, Database, Eye, FlaskConical, Pencil, RefreshCw, Search, Shield, ShieldCheck, Trash2, X,
 } from 'lucide-react';
 import { PortalLayout } from '../shared/portal-layout';
 import {
@@ -27,6 +27,7 @@ import {
   debugDeleteAuditEvent,
   debugSeedEvaluations,
   debugUpdateAuditEvent,
+  fetchAnalyticsPredictions,
   fetchAuditFeed,
   type AuditEvent,
   demoAccountsRequest,
@@ -84,6 +85,10 @@ function Toggle({ checked, disabled, onChange, label }: {
 export function AdminAccountsDebug() {
   const [settings, setSettings] = useState<DebugAnalyticsSettings | null>(null);
   const [rows, setRows] = useState<DebugAccountRow[]>([]);
+  // The model's acceptance checks live here rather than on Analytics &
+  // Reports: the panel reads that page, and a pass/fail list of model gates
+  // was more confusing there than useful.
+  const [modelChecks, setModelChecks] = useState<{ key: string; label: string; passed: boolean; value: string; rule: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -100,6 +105,12 @@ export function AdminAccountsDebug() {
       const [nextSettings, accounts] = await Promise.all([fetchDebugAnalyticsSettings(), fetchDebugAccounts()]);
       setSettings(nextSettings);
       setRows(accounts.alumni);
+      try {
+        const predictions = await fetchAnalyticsPredictions();
+        setModelChecks(predictions.model?.status === 'active' ? (predictions.model.checks ?? []) : []);
+      } catch {
+        setModelChecks([]);  // a missing model is not an error on a debug page
+      }
     } catch (err) {
       setError(errorText(err, 'Could not load accounts.'));
     } finally {
@@ -229,6 +240,27 @@ export function AdminAccountsDebug() {
                   ? <span style={{ fontWeight: 600 }}>{activeModel.version}{activeModel.auc != null ? ` (AUC ${activeModel.auc.toFixed(2)})` : ''}</span>
                   : <span style={{ fontWeight: 600 }}>none has passed the acceptance gate</span>}
               </p>
+              {modelChecks.length > 0 && (
+                <details className="rounded-lg border border-gray-200 bg-white p-2.5">
+                  <summary className="cursor-pointer text-xs text-gray-600" style={{ fontWeight: 600 }}>
+                    Acceptance checks: {modelChecks.filter(c => c.passed).length} of {modelChecks.length} passed
+                  </summary>
+                  <ul className="mt-2.5 space-y-2">
+                    {modelChecks.map(c => (
+                      <li key={c.key} className="flex gap-2 text-xs">
+                        {c.passed
+                          ? <Check className="size-4 text-emerald-600 shrink-0" />
+                          : <X className="size-4 text-red-500 shrink-0" />}
+                        <div>
+                          <p className="text-gray-800" style={{ fontWeight: 600 }}>{c.label}</p>
+                          <p className="text-gray-600">{c.value}</p>
+                          <p className="text-gray-400">Rule: {c.rule}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
               {source === 'simulated' && settings && (
                 <p className="text-gray-500">
                   Seed: <code className="text-[11px]">{settings.commands.seed}</code><br />
