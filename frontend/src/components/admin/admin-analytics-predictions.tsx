@@ -114,6 +114,10 @@ type TrendRow = {
   // only appeared on hover -- so a batch of 20 answers looked exactly as solid
   // as one of 80, and the line between them read as a real swing.
   n: number | null;
+  // Exact headcounts behind the percentage, shown on hover. A percentage alone
+  // hides how it was reached: 50% of 4 and 50% of 86 look identical on the
+  // line, and "employed" never said how many were not.
+  counts: { yesLabel: string; yes: number; noLabel: string; no: number } | null;
 };
 
 /** Year with the number of respondents under it, so a thin batch is visible
@@ -138,6 +142,22 @@ function TrendTooltip({ active, payload }: { active?: boolean; payload?: { paylo
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs max-w-[240px]">
       <p className="text-gray-900" style={{ fontWeight: 700 }}>{row.year}</p>
+      {row.counts && (
+        <dl className="mt-1 mb-1.5 space-y-0.5 text-gray-700">
+          <div className="flex justify-between gap-4">
+            <dt>{row.counts.yesLabel}</dt>
+            <dd style={{ fontWeight: 700 }}>{row.counts.yes}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt>{row.counts.noLabel}</dt>
+            <dd style={{ fontWeight: 700 }}>{row.counts.no}</dd>
+          </div>
+          <div className="flex justify-between gap-4 border-t border-gray-200 pt-0.5 text-gray-500">
+            <dt>Respondents</dt>
+            <dd>{row.counts.yes + row.counts.no}</dd>
+          </div>
+        </dl>
+      )}
       <p className="text-gray-600 mt-0.5 leading-relaxed">{row.detail}</p>
     </div>
   );
@@ -200,17 +220,28 @@ export function AdminAnalyticsPredictions() {
       const low = point(r.ci_low);
       const high = point(r.ci_high);
       const shown = value != null && low != null && high != null;
+      // r.k is the employed count (or those who found work within 12 months);
+      // r.n is the respondents it came out of, so n - k is the rest. k is null
+      // while a batch is suppressed for being too small to show.
+      const counts = shown && r.k != null
+        ? trendView === 'employment'
+          ? { yesLabel: 'Employed', yes: r.k, noLabel: 'Not employed', no: r.n - r.k }
+          : { yesLabel: 'Within 12 months', yes: r.k, noLabel: 'Longer or not yet', no: r.n - r.k }
+        : null;
       return {
         year: String(b.batch),
         observed: shown ? value : null,
         next: null,
         n: r.n,
+        counts,
         // "graduates" was the wrong word and did the damage: the denominator
         // has always been the graduates who answered, not the whole batch, but
         // calling them "graduates" invited everyone to read 50% as 50% of the
         // batch. Say respondents, and say the batch size it came from.
         detail: shown
-          ? `${pct(r.rate, 0)} ${label} — ${r.k} of ${r.n} who answered.`
+          // The headcounts are in the table above this line now, so the
+          // sentence only has to give the percentage and the caveat.
+          ? `${pct(r.rate, 0)} ${label}.`
           + ` This is a share of respondents, not of the whole batch.`
           : r.n === 0
             ? 'No one from this batch has answered yet.'
@@ -224,6 +255,7 @@ export function AdminAnalyticsPredictions() {
           observed: null,
           next: point(range.centre) ?? 0,
           n: null,
+          counts: null,  // Nothing measured yet, so there are no headcounts.
           detail: `If this batch does about as well as recent batches, expect about `
             + `${pct(range.centre, 0)} employed.${i > 0 ? ' Further ahead, so less certain.' : ''}`
             + ` This is an expectation, not a measurement.`,

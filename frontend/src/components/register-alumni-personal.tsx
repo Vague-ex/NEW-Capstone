@@ -345,6 +345,13 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
 
 //  Reusable Components
 
+// Same red asterisk the employment form uses, so a mandatory field looks
+// mandatory in both halves of registration. These labels used to carry a plain
+// "*" that inherited the label's grey and read as decoration.
+function Required() {
+  return <span className="text-red-500"> *</span>;
+}
+
 function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
   return (
     <div className="mb-4 sm:mb-6">
@@ -909,7 +916,7 @@ export default function RegisterAlumniPersonal({
         return false;
       }
       if (!form.birthDate) {
-        setStepError('Date of birth is required.');
+        setStepError('Birth month and year is required.');
         return false;
       }
       // The month picker's max is not enforced when the date is typed.
@@ -1414,7 +1421,7 @@ export default function RegisterAlumniPersonal({
               <div className="gt-stagger space-y-4">
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                    Email Address *
+                    Email Address<Required />
                   </label>
                   <div className="relative">
                     <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
@@ -1461,7 +1468,7 @@ export default function RegisterAlumniPersonal({
                 <div className="grid grid-cols-2 items-end gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                      Password *
+                      Password<Required />
                     </label>
                     <div className="relative">
                       <input
@@ -1486,7 +1493,7 @@ export default function RegisterAlumniPersonal({
                   </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                      Confirm Password *
+                      Confirm Password<Required />
                     </label>
                     <input
                       type="password"
@@ -1525,7 +1532,7 @@ export default function RegisterAlumniPersonal({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Family Name *
+                      Family Name<Required />
                     </label>
                     <input
                       type="text"
@@ -1537,7 +1544,7 @@ export default function RegisterAlumniPersonal({
                   </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      First Name *
+                      First Name<Required />
                     </label>
                     <input
                       type="text"
@@ -1583,7 +1590,7 @@ export default function RegisterAlumniPersonal({
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                    Gender *
+                    Gender<Required />
                   </label>
                   <div className="flex gap-2">
                     {['Male', 'Female'].map((g) => (
@@ -1595,7 +1602,7 @@ export default function RegisterAlumniPersonal({
                 <div className="grid grid-cols-2 items-end gap-3">
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                      Birth Date * <span className="text-gray-400 font-normal">(month &amp; year)</span>
+                      Birth Month and Year<Required />
                     </label>
                     <input
                       type="month"
@@ -1621,7 +1628,7 @@ export default function RegisterAlumniPersonal({
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Mobile Number *
+                    Mobile Number<Required />
                   </label>
                   <div className="flex gap-2">
                     <select
@@ -1768,7 +1775,7 @@ export default function RegisterAlumniPersonal({
                     {/* Cascading PH location: Region → Province → City → Barangay */}
                     <div>
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        Region *
+                        Region<Required />
                       </label>
                       <select
                         value={form.region}
@@ -1783,7 +1790,7 @@ export default function RegisterAlumniPersonal({
                     <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                          Province *
+                          Province<Required />
                         </label>
                         <select
                           value={form.province}
@@ -1797,7 +1804,7 @@ export default function RegisterAlumniPersonal({
                       </div>
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                          City / Municipality *
+                          City / Municipality<Required />
                         </label>
                         <select
                           value={form.city}
@@ -1843,7 +1850,7 @@ export default function RegisterAlumniPersonal({
                   <>
                     <div>
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        Country *
+                        Country<Required />
                       </label>
                       <input
                         type="text"
@@ -1856,7 +1863,7 @@ export default function RegisterAlumniPersonal({
                     <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                          State / Region *
+                          State / Region<Required />
                         </label>
                         <input
                           type="text"
@@ -1882,7 +1889,7 @@ export default function RegisterAlumniPersonal({
                     <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                          City *
+                          City<Required />
                         </label>
                         <input
                           type="text"
@@ -1940,7 +1947,7 @@ export default function RegisterAlumniPersonal({
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                    Date of Graduation (BSIS) *{' '}
+                    Date of Graduation (BSIS)<Required />{' '}
                     <span className="text-gray-400 font-normal">(month &amp; year)</span>
                   </label>
                   <input
@@ -1975,7 +1982,7 @@ export default function RegisterAlumniPersonal({
 
                 <div>
                   <label className="block text-gray-700 text-xs mb-2" style={{ fontWeight: 600 }}>
-                    Are you currently pursuing or have you completed further studies? *
+                    Are you currently pursuing or have you completed further studies?<Required />
                   </label>
                   <select
                     value={form.furtherStudies}
@@ -1996,7 +2003,7 @@ export default function RegisterAlumniPersonal({
 
                     <div>
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        Program / Degree *
+                        Program / Degree<Required />
                       </label>
                       <input
                         type="text"
@@ -2022,7 +2029,7 @@ export default function RegisterAlumniPersonal({
 
                     <div>
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                        School / University *
+                        School / University<Required />
                       </label>
                       <input
                         type="text"
@@ -2036,7 +2043,7 @@ export default function RegisterAlumniPersonal({
                     <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                          Year Started *
+                          Year Started<Required />
                         </label>
                         <input
                           type="number"
@@ -2051,7 +2058,7 @@ export default function RegisterAlumniPersonal({
                       {form.furtherStudies === 'completed' && (
                         <div>
                           <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
-                            Year Completed *
+                            Year Completed<Required />
                           </label>
                           <input
                             type="number"

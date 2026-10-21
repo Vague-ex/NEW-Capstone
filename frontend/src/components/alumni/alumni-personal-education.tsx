@@ -263,7 +263,7 @@ export function AlumniPersonalEducation() {
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Date <span className="text-gray-400 font-normal">(month &amp; year)</span></label>
+                                    <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Month and Year</label>
                                     <input type="month" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
                                 </div>
                                 <div>
