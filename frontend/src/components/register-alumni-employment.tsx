@@ -25,12 +25,14 @@ import {
   citiesApi,
   locationApi,
   countriesApi,
+  countryDivisionsApi,
   FALLBACK_BSIS_CORE_SKILLS,
   type SkillItem,
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
   type CountryItem,
+  type CountryDivisionItem,
 } from '../hooks/useReferenceData';
 
 // Types
@@ -535,6 +537,11 @@ export default function RegisterAlumniEmployment({
   // workplace was stored as "UAE" at registration and "United Arab Emirates"
   // after an edit.
   const [workCountries, setWorkCountries] = useState<CountryItem[]>([]);
+  // Divisions of the chosen foreign country, and how tightly the map frames
+  // the workplace pin. A country/division pin is a centre, not the workplace,
+  // so workPinExact stays false until the graduate drags it or uses GPS.
+  const [workDivisions, setWorkDivisions] = useState<CountryDivisionItem[]>([]);
+  const [workPinZoom, setWorkPinZoom] = useState(13);
   const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
 
   // Countries, once the workplace is known to be outside the Philippines.
@@ -547,6 +554,17 @@ export default function RegisterAlumniEmployment({
       .catch(() => { if (active) setWorkCountries([]); });
     return () => { active = false; };
   }, [isPhilippinesWork, workCountries.length]);
+
+  // Divisions of the chosen foreign country.
+  useEffect(() => {
+    if (isPhilippinesWork || !form.country_code) { setWorkDivisions([]); return; }
+    let active = true;
+    void countryDivisionsApi
+      .list(form.country_code)
+      .then(({ divisions }) => { if (active) setWorkDivisions(divisions); })
+      .catch(() => { if (active) setWorkDivisions([]); });
+    return () => { active = false; };
+  }, [isPhilippinesWork, form.country_code]);
 
   // When the user picks a region by name, load that region's provinces.
   useEffect(() => {
@@ -625,7 +643,7 @@ export default function RegisterAlumniEmployment({
       const found = await locationApi.lookup(lat, lng);
       if (found.abroad) {
         if (isPhilippinesWork) {
-          setWorkNote({ tone: 'warn', text: 'That point is outside the Philippines. If you work abroad, go back and choose Abroad under Work Location.' });
+          setWorkNote({ tone: 'warn', text: 'That point is outside the Philippines. If you work abroad, choose Abroad under Work Location above.' });
           return;
         }
         exactPinCityRef.current = found.locality || null;
@@ -642,7 +660,7 @@ export default function RegisterAlumniEmployment({
         return;
       }
       if (!isPhilippinesWork) {
-        setWorkNote({ tone: 'warn', text: 'That point is in the Philippines. If you work here, go back and choose Philippines under Work Location.' });
+        setWorkNote({ tone: 'warn', text: 'That point is in the Philippines. If you work here, choose Philippines under Work Location above.' });
         return;
       }
       if (!found.region && !found.city) {
@@ -811,7 +829,16 @@ export default function RegisterAlumniEmployment({
         break;
       }
       case 5: // Work Address
-        if (!form.city_municipality || (isPhilippinesWork && !form.region) || (!isPhilippinesWork && !form.country_code)) {
+        if (form.location_type === null) {
+          return fail('Please answer the questions marked with a red asterisk.');
+        }
+        if (
+          !form.city_municipality
+          || (isPhilippinesWork && !form.region)
+          || (!isPhilippinesWork && !form.country_code)
+          // Only required where the country actually has divisions to pick.
+          || (!isPhilippinesWork && workDivisions.length > 0 && !form.province_work)
+        ) {
           return fail('Please answer the questions marked with a red asterisk.');
         }
         {
@@ -914,6 +941,14 @@ export default function RegisterAlumniEmployment({
       }
       if (isEmployedNow && isPhilippinesWork) {
         kept.country = 'Philippines';
+        kept.country_code = 'PH';
+      } else if (isEmployedNow) {
+        // WorkAddress.region is what the admin geomap reads to tell an abroad
+        // workplace from a Philippine one (RegionChoices.ABROAD). The PH
+        // branch fills it from the PSGC dropdown; the abroad branch has no
+        // such dropdown, so without this it was saved blank and the graduate
+        // was plotted as if they worked in the Philippines.
+        kept.region = 'Abroad';
       }
       const encoded: EmploymentFormData = {
         ...kept,
@@ -1353,8 +1388,21 @@ export default function RegisterAlumniEmployment({
             </div>
           </div>
 
+          <NavButtons onBack={prevStep} onNext={nextStep} />
+        </div>
+      )}
+
+      {/* Step 5: Work Address */}
+      {isCurrentState(5) && (
+        <div className="gt-stagger space-y-6">
+          <SectionHeader icon={MapPin} title="Work Address" subtitle="Help us map employment locations" />
+
+          {/* Asked here rather than with the job details on the previous step:
+              it is the question every field below cascades from -- it decides
+              whether this step shows the PSGC dropdowns or the country picker
+              -- so it belongs at the top of the address it governs. */}
           <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-3">Work Location</label>
+            <label className="block text-sm font-semibold text-gray-900 mb-3">Work Location<Required /></label>
             <div className="flex gap-3">
               <RadioOption
                 label="Philippines"
@@ -1363,10 +1411,10 @@ export default function RegisterAlumniEmployment({
                 onSelect={(v) => setForm({
                   ...form,
                   location_type: v,
-                  // Locking country to Philippines here makes the Work Address
+                  // Locking country to Philippines here makes the rest of this
                   // step render the PSGC cascading dropdowns. Without this,
                   // switching from Abroad would leave `country` on the last
-                  // foreign value and step 5 would still show free-text inputs.
+                  // foreign value and the fields below would stay free-text.
                   country: 'Philippines',
                   country_code: 'PH',
                 })}
@@ -1378,9 +1426,9 @@ export default function RegisterAlumniEmployment({
                 onSelect={(v) => setForm({
                   ...form,
                   location_type: v,
-                  // Clear the PH default so the Work Address step's country
-                  // picker prompts the graduate to choose their actual country
-                  // instead of silently keeping "Philippines" selected.
+                  // Clear the PH default so the country picker below prompts
+                  // the graduate to choose their actual country instead of
+                  // silently keeping "Philippines" selected.
                   country: form.country === 'Philippines' ? '' : form.country,
                   country_code: form.country_code === 'PH' ? '' : form.country_code,
                   region: '',
@@ -1389,15 +1437,6 @@ export default function RegisterAlumniEmployment({
               />
             </div>
           </div>
-
-          <NavButtons onBack={prevStep} onNext={nextStep} />
-        </div>
-      )}
-
-      {/* Step 5: Work Address */}
-      {isCurrentState(5) && (
-        <div className="gt-stagger space-y-6">
-          <SectionHeader icon={MapPin} title="Work Address" subtitle="Help us map employment locations" />
 
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 sm:p-4 space-y-3">
             <div>
@@ -1533,6 +1572,91 @@ export default function RegisterAlumniEmployment({
             </>
           ) : (
             <>
+              {/* Country comes FIRST abroad: State/Region and the map both
+                  cascade from it, so asking for it last read backwards and
+                  left the field below greyed out as "Choose a country first".
+                  The Philippine branch keeps its fixed country beside the ZIP,
+                  where it is an answer already given rather than a question. */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Country<Required /></label>
+                <select
+                  value={form.country_code}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    const picked = workCountries.find(c => c.code === code);
+                    // Changing country invalidates the division below it and
+                    // moves the map onto the new country, so an abroad
+                    // workplace gets a pin to drag instead of a blank map.
+                    setForm({
+                      ...form,
+                      country_code: code,
+                      country: picked?.name ?? '',
+                      province_work: '',
+                      latitude: picked?.latitude ?? null,
+                      longitude: picked?.longitude ?? null,
+                    });
+                    setWorkPinZoom(picked?.map_zoom ?? 4);
+                    setWorkPinExact(false);
+                  }}
+                  className={fieldCls(missing(!form.country_code))}
+                >
+                  <option value="">
+                    {workCountries.length ? 'Select country' : 'Loading countries...'}
+                  </option>
+                  {workCountries.map(c => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* State / Region of the chosen country. Stored in the same
+                  `province` column a Philippine address uses -- for an abroad
+                  workplace that column used to be filled with a placeholder
+                  dash. Picking one also moves the map onto it, which is the
+                  only way an abroad workplace gets a pin without GPS. */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">
+                  State / Region
+                  {workDivisions.length > 0 && <Required />}
+                </label>
+                {workDivisions.length > 0 ? (
+                  <select
+                    value={form.province_work}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      const picked = workDivisions.find(d => d.name === name);
+                      setForm({
+                        ...form,
+                        province_work: name,
+                        ...(picked?.latitude != null
+                          ? { latitude: picked.latitude, longitude: picked.longitude }
+                          : {}),
+                      });
+                      if (picked?.latitude != null) {
+                        setWorkPinZoom(9);
+                        setWorkPinExact(false);
+                      }
+                    }}
+                    className={fieldCls(missing(!form.province_work))}
+                  >
+                    <option value="">Select state / region</option>
+                    {workDivisions.map(d => (
+                      <option key={d.name} value={d.name}>{d.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  // A few small countries have no divisions in placedb.
+                  <input
+                    type="text"
+                    value={form.province_work}
+                    onChange={(e) => setForm({ ...form, province_work: e.target.value })}
+                    placeholder={form.country_code ? 'State or region (optional)' : 'Choose a country first'}
+                    disabled={!form.country_code}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 disabled:bg-gray-100"
+                  />
+                )}
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-gray-900 mb-2">City / Municipality<Required /></label>
                 <input
@@ -1550,29 +1674,43 @@ export default function RegisterAlumniEmployment({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">
-                ZIP Code<Required />
+                {isPhilippinesWork ? 'ZIP Code' : 'Postal Code'}
+                {isPhilippinesWork
+                  ? <Required />
+                  : <span className="text-gray-400 font-normal"> (optional)</span>}
               </label>
+              {/* Philippine ZIPs are 4 digits -- all 1,629 codes in the city
+                  reference table are, without exception -- so that rule is
+                  enforced. Foreign postal codes are free-form and optional:
+                  Singapore is 6 digits, Canada and the UK are alphanumeric,
+                  Japan carries a hyphen, and Hong Kong, the UAE, Qatar and
+                  Ireland have no postal code at all. Requiring one of those
+                  graduates to invent a number is worse data than a blank. */}
               <input
                 type="text"
-                inputMode="numeric"
-                maxLength={isPhilippinesWork ? 4 : 5}
+                inputMode={isPhilippinesWork ? 'numeric' : 'text'}
+                placeholder={isPhilippinesWork ? 'e.g. 6115' : 'e.g. 018956, M5V 3L9'}
+                maxLength={isPhilippinesWork ? 4 : 12}
                 value={form.zip_code}
                 onChange={(e) => {
-                  const max = isPhilippinesWork ? 4 : 5;
-                  const digits = e.target.value.replace(/\D/g, '').slice(0, max);
-                  setForm({ ...form, zip_code: digits });
+                  const next = isPhilippinesWork
+                    ? e.target.value.replace(/\D/g, '').slice(0, 4)
+                    : e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 12);
+                  setForm({ ...form, zip_code: next });
                 }}
-                className={fieldCls(missing(!form.zip_code))}
+                className={fieldCls(isPhilippinesWork && missing(!form.zip_code))}
               />
-              {form.zip_code && form.zip_code.length !== (isPhilippinesWork ? 4 : 5) && (
-                <p className="text-red-500 text-xs mt-1">ZIP must be exactly {isPhilippinesWork ? 4 : 5} digits</p>
+              {isPhilippinesWork && form.zip_code && form.zip_code.length !== 4 && (
+                <p className="text-red-500 text-xs mt-1">ZIP must be exactly 4 digits</p>
               )}
             </div>
 
-            <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">Country<Required /></label>
-              {isPhilippinesWork ? (
-                // Work Location "Philippines" was picked, so the country is fixed.
+            {/* Abroad asks for the country at the top of this step instead,
+                because State/Region and the map cascade from it. Here it is
+                only the fixed "Philippines" confirmation. */}
+            {isPhilippinesWork && (
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 mb-2">Country<Required /></label>
                 <select
                   value="Philippines"
                   disabled
@@ -1580,25 +1718,8 @@ export default function RegisterAlumniEmployment({
                 >
                   <option value="Philippines">Philippines</option>
                 </select>
-              ) : (
-              <select
-                value={form.country_code}
-                onChange={(e) => {
-                  const code = e.target.value;
-                  const picked = workCountries.find(c => c.code === code);
-                  setForm({ ...form, country_code: code, country: picked?.name ?? '' });
-                }}
-                className={fieldCls(missing(!form.country_code))}
-              >
-                <option value="">
-                  {workCountries.length ? 'Select country' : 'Loading countries...'}
-                </option>
-                {workCountries.map(c => (
-                  <option key={c.code} value={c.code}>{c.name}</option>
-                ))}
-              </select>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {form.latitude != null && form.longitude != null && (
@@ -1607,7 +1728,7 @@ export default function RegisterAlumniEmployment({
               <HomeLocationMap
                 lat={form.latitude}
                 lng={form.longitude}
-                zoom={workPinExact ? 17 : 13}
+                zoom={workPinExact ? 17 : workPinZoom}
                 label="Map of your workplace. Drag the pin or tap the map to move it."
                 title="Workplace location"
                 onMove={moveWorkPin}
@@ -1616,7 +1737,7 @@ export default function RegisterAlumniEmployment({
                 <span>
                   {workPinExact
                     ? 'Drag the pin or tap the map if it is off.'
-                    : `Pinned at ${form.city_municipality || 'your city'}. Drag the pin or tap the map to mark your workplace.`}
+                    : `Pinned at ${form.city_municipality || form.province_work || form.country || 'your city'}, which is not your workplace. Drag the pin or tap the map to mark it.`}
                 </span>
                 <button type="button" onClick={removeWorkPin} className="underline hover:text-gray-700">
                   Remove pin

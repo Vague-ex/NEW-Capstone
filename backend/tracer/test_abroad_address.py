@@ -191,6 +191,23 @@ class WorkAddressCountryCodeTests(TestCase):
         })
         self.assertEqual(extracted["country_code"], "")
 
+    def test_an_abroad_workplace_keeps_its_state_and_region(self):
+        """The foreign division goes in `province`, which used to be a dash."""
+        from users.api import _extract_work_address_data
+
+        extracted = _extract_work_address_data({
+            "city_municipality": "Dubai",
+            "region": "Abroad",
+            "province_work": "Emirate of Dubai",
+            "country": "United Arab Emirates",
+            "country_code": "AE",
+            "latitude": 25.264444,
+            "longitude": 55.311667,
+        })
+        self.assertEqual(extracted["province"], "Emirate of Dubai")
+        self.assertEqual(extracted["region"], "Abroad")
+        self.assertEqual(extracted["latitude"], 25.264444)
+
     def test_an_over_long_code_is_truncated_not_rejected(self):
         from users.api import _extract_work_address_data
 
