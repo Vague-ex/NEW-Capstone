@@ -9,8 +9,10 @@ import {
   provincesApi,
   citiesApi,
   locationApi,
+  countriesApi,
   type ProvinceItem,
   type CityMunicipalityItem,
+  type CountryItem,
 } from '../../hooks/useReferenceData';
 import {
   Briefcase, CheckCircle2, Clock, Save, Building2,
@@ -167,6 +169,9 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     province_address: String(sdIn.province_address ?? ''),
     zip_code: String(sdIn.zip_code ?? ''),
     country_address: String(sdIn.country_address ?? 'Philippines'),
+    // ISO 3166-1 alpha-2 of country_address. Blank on a row saved before the
+    // country became a closed list; the picker then prompts for it again.
+    country_code_address: String(sdIn.country_code_address ?? (sdIn.country_address ? '' : 'PH')),
 
     // Section 9: Skills
     technical_skills: Array.isArray(sdIn.technical_skills) ? (sdIn.technical_skills as string[]) : [],
@@ -226,6 +231,22 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   // reference DB so admin reference-data CRUD changes propagate live.
   const [provincesForRegion, setProvincesForRegion] = useState<ProvinceItem[]>([]);
   const [citiesForLevel, setCitiesForLevel] = useState<CityMunicipalityItem[]>([]);
+  // Countries for a foreign workplace. This page used to carry its own
+  // hardcoded list that disagreed with registration's -- "United Arab
+  // Emirates" here, "UAE" there -- so re-saving a profile silently rewrote the
+  // stored country. Both now read the same table.
+  const [countries, setCountries] = useState<CountryItem[]>([]);
+
+  useEffect(() => {
+    if (form.currentJobLocation !== 'Abroad / Remote Foreign Employer') return;
+    if (countries.length > 0) return;
+    let active = true;
+    void countriesApi
+      .list()
+      .then(({ countries: list }) => { if (active) setCountries(list); })
+      .catch(() => { if (active) setCountries([]); });
+    return () => { active = false; };
+  }, [form.currentJobLocation, countries.length]);
 
   useEffect(() => {
     if (!form.currentJobRegionId) {
@@ -571,6 +592,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
           ...f,
           currentJobLocation: 'Abroad / Remote Foreign Employer',
           country_address: found.country || '',
+          country_code_address: (found.country_code || '').toUpperCase(),
           city_municipality: found.locality || '',
           province_address: found.state || '',
           currentJobRegionId: '',
@@ -591,6 +613,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
         ...f,
         currentJobLocation: 'Local (Philippines)',
         country_address: 'Philippines',
+        country_code_address: 'PH',
         currentJobRegionId: found.region?.id ?? f.currentJobRegionId,
         currentJobProvinceId: found.province?.id ?? '',
         currentJobCityId: found.city?.id ?? '',
@@ -1165,10 +1188,12 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                         // Keep country_address in sync with the radio.
                         if (v === 'Local (Philippines)') {
                           setF('country_address', 'Philippines');
+                          setF('country_code_address', 'PH');
                         } else if (form.country_address === 'Philippines') {
                           // Switching to Abroad - clear the locked PH value so
                           // the user is forced to pick a foreign country.
                           setF('country_address', '');
+                          setF('country_code_address', '');
                         }
                       }}
                     />
@@ -1472,32 +1497,21 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                         </select>
                       ) : (
                         <select
-                          value={form.country_address === 'Philippines' ? '' : form.country_address}
-                          onChange={e => setF('country_address', e.target.value)}
+                          value={form.country_code_address}
+                          onChange={e => {
+                            const code = e.target.value;
+                            const picked = countries.find(c => c.code === code);
+                            setF('country_code_address', code);
+                            setF('country_address', picked?.name ?? '');
+                          }}
                           className={inputCls}
                         >
-                          <option value="" disabled>Select country</option>
-                          <optgroup label="ASEAN">
-                            <option>Indonesia</option><option>Malaysia</option><option>Singapore</option>
-                            <option>Thailand</option><option>Vietnam</option><option>Myanmar</option>
-                            <option>Cambodia</option><option>Laos</option><option>Brunei</option><option>Timor-Leste</option>
-                          </optgroup>
-                          <optgroup label="East Asia">
-                            <option>Japan</option><option>South Korea</option><option>China</option>
-                            <option>Hong Kong</option><option>Taiwan</option>
-                          </optgroup>
-                          <optgroup label="Middle East">
-                            <option>Saudi Arabia</option><option>United Arab Emirates</option><option>Qatar</option>
-                            <option>Kuwait</option><option>Bahrain</option><option>Oman</option>
-                          </optgroup>
-                          <optgroup label="Oceania">
-                            <option>Australia</option><option>New Zealand</option>
-                          </optgroup>
-                          <optgroup label="Americas &amp; Europe">
-                            <option>United States</option><option>Canada</option><option>United Kingdom</option>
-                            <option>Germany</option><option>Italy</option><option>Spain</option>
-                          </optgroup>
-                          <optgroup label="Other"><option>Other</option></optgroup>
+                          <option value="">
+                            {countries.length ? 'Select country' : 'Loading countries...'}
+                          </option>
+                          {countries.map(c => (
+                            <option key={c.code} value={c.code}>{c.name}</option>
+                          ))}
                         </select>
                       )}
                       <p className="text-gray-400 text-xs mt-1">

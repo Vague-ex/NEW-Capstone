@@ -41,10 +41,14 @@ import {
   citiesApi,
   barangaysApi,
   locationApi,
+  countriesApi,
+  countryDivisionsApi,
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
   type BarangayItem,
+  type CountryItem,
+  type CountryDivisionItem,
 } from '../hooks/useReferenceData';
 
 //  Types
@@ -69,6 +73,11 @@ export interface PersonalFormData {
   facebook: string;
   homeIsAbroad: boolean;
   homeCountry: string;
+  /** ISO 3166-1 alpha-2 of homeCountry, and ISO 3166-2 of the division picked
+   *  in `region` when abroad. The names are kept for display; the codes are
+   *  what the admin geomap and any grouping should match on. */
+  homeCountryCode: string;
+  homeRegionCode: string;
   region: string;
   province: string;
   city: string;
@@ -322,6 +331,8 @@ const INITIAL_PERSONAL_FORM: PersonalFormData = {
   facebook: '',
   homeIsAbroad: false,
   homeCountry: 'Philippines',
+  homeCountryCode: 'PH',
+  homeRegionCode: '',
   region: '',
   province: '',
   city: '',
@@ -688,6 +699,9 @@ export default function RegisterAlumniPersonal({
   }, [referenceData]);
   const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
   const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
+  // Abroad address: the world's countries, and the divisions of the one picked.
+  const [apiCountries, setApiCountries] = useState<CountryItem[]>([]);
+  const [apiDivisions, setApiDivisions] = useState<CountryDivisionItem[]>([]);
 
 
   // Real-time masterlist check (fires in Step 2 when name fields have values)
@@ -730,6 +744,41 @@ export default function RegisterAlumniPersonal({
   }, [form.firstName, form.familyName, form.graduationYear]);
 
   // PH path: load provinces when region changes; load cities when province (or
+  // The country list is only needed once the graduate says they live abroad,
+  // so it is fetched then rather than on every registration.
+  useEffect(() => {
+    if (!form.homeIsAbroad || apiCountries.length > 0) return;
+    let active = true;
+    void countriesApi
+      .list()
+      .then(({ countries }) => { if (active) setApiCountries(countries); })
+      .catch(() => { if (active) setApiCountries([]); });
+    return () => { active = false; };
+  }, [form.homeIsAbroad, apiCountries.length]);
+
+  // Divisions of the chosen country. Also reconciles a division name that came
+  // from the GPS lookup (OpenStreetMap's spelling) against the canonical list:
+  // anything that does not match is cleared so the graduate picks it by hand,
+  // rather than being stored as a name nothing else can be grouped with.
+  useEffect(() => {
+    if (!form.homeIsAbroad || !form.homeCountryCode) { setApiDivisions([]); return; }
+    let active = true;
+    void countryDivisionsApi
+      .list(form.homeCountryCode)
+      .then(({ divisions }) => {
+        if (!active) return;
+        setApiDivisions(divisions);
+        setForm(f => {
+          if (!f.region) return f;
+          const hit = divisions.find(d => d.name.toLowerCase() === f.region.trim().toLowerCase());
+          if (hit) return { ...f, region: hit.name, homeRegionCode: hit.iso_3166_2 };
+          return { ...f, region: '', homeRegionCode: '' };
+        });
+      })
+      .catch(() => { if (active) setApiDivisions([]); });
+    return () => { active = false; };
+  }, [form.homeIsAbroad, form.homeCountryCode]);
+
   // region with no provinces, e.g. NCR) changes. Mirrors register-alumni-employment.tsx.
   useEffect(() => {
     if (form.homeIsAbroad || !form.region) { setApiProvinces([]); return; }
@@ -786,20 +835,39 @@ export default function RegisterAlumniPersonal({
   // geomap. Every field stays editable, and typing the address still works.
   const [locating, setLocating] = useState(false);
   const [locateNote, setLocateNote] = useState<{ tone: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+  // How tightly the map frames the pin, and whether the pin is still the
+  // country/region centre rather than the graduate's actual home. Picking a
+  // country drops a rough pin to drag; GPS or a drag makes it exact.
+  const [homePinZoom, setHomePinZoom] = useState(17);
+  const [pinIsRough, setPinIsRough] = useState(false);
 
   const applyAddressFromPoint = async (lat: number, lng: number) => {
     try {
       const found = await locationApi.lookup(lat, lng);
       if (found.abroad) {
-        setForm(f => ({
-          ...f,
-          homeIsAbroad: true,
-          homeCountry: found.country || f.homeCountry,
-          region: found.state || '',
-          province: '',
-          city: found.locality || '',
-          barangay: '',
-        }));
+        // Store the ISO code, not OpenStreetMap's country spelling: the name
+        // is re-derived from our own list below, and `region` is reconciled
+        // against that country's divisions once they load.
+        const foundCode = (found.country_code || '').toUpperCase();
+        setForm(f => {
+          // Dragging the pin inside the country the graduate already chose
+          // must not throw away their State/Region: OpenStreetMap spells it
+          // "Dubai" where the picker lists "Emirate of Dubai", and the
+          // reconciler below would then clear it as unmatched. Only a pin that
+          // lands in a DIFFERENT country invalidates the division.
+          const sameCountry = !!foundCode && foundCode === f.homeCountryCode;
+          return {
+            ...f,
+            homeIsAbroad: true,
+            homeCountryCode: foundCode || f.homeCountryCode,
+            homeCountry: found.country || f.homeCountry,
+            region: sameCountry ? f.region : (found.state || ''),
+            homeRegionCode: sameCountry ? f.homeRegionCode : '',
+            province: '',
+            city: found.locality || '',
+            barangay: '',
+          };
+        });
         setLocateNote({ tone: 'ok', text: `Pinned in ${found.country || 'your country'}. Please check the details below.` });
         return;
       }
@@ -813,6 +881,8 @@ export default function RegisterAlumniPersonal({
         ...f,
         homeIsAbroad: false,
         homeCountry: 'Philippines',
+        homeCountryCode: 'PH',
+        homeRegionCode: '',
         region: found.region?.name ?? f.region,
         province: found.province?.name ?? '',
         city: found.city?.name ?? '',
@@ -840,6 +910,8 @@ export default function RegisterAlumniPersonal({
         return;
       }
       setForm(f => ({ ...f, homeLat: fix.lat, homeLng: fix.lng, homeAccuracyM: fix.acc }));
+      setHomePinZoom(17);
+      setPinIsRough(false);
       await applyAddressFromPoint(fix.lat, fix.lng);
     } finally {
       setLocating(false);
@@ -847,13 +919,16 @@ export default function RegisterAlumniPersonal({
   };
 
   const moveHomePin = async (lat: number, lng: number) => {
-    // A pin placed by hand has no GPS accuracy figure.
+    // A pin placed by hand has no GPS accuracy figure, but it IS deliberate:
+    // the graduate put it there, so it is no longer a rough country centre.
     setForm(f => ({ ...f, homeLat: lat, homeLng: lng, homeAccuracyM: null }));
+    setPinIsRough(false);
     await applyAddressFromPoint(lat, lng);
   };
 
   const removeHomePin = () => {
     setForm(f => ({ ...f, homeLat: null, homeLng: null, homeAccuracyM: null }));
+    setPinIsRough(false);
     setLocateNote(null);
   };
 
@@ -1701,7 +1776,7 @@ export default function RegisterAlumniPersonal({
                     <button
                       type="button"
                       onClick={() => {
-                        setForm(f => ({ ...f, homeIsAbroad: false, homeCountry: 'Philippines' }));
+                        setForm(f => ({ ...f, homeIsAbroad: false, homeCountry: 'Philippines', homeCountryCode: 'PH', homeRegionCode: '' }));
                       }}
                       className={`px-3 py-1.5 text-xs rounded-md transition ${!form.homeIsAbroad ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
                     >
@@ -1710,7 +1785,9 @@ export default function RegisterAlumniPersonal({
                     <button
                       type="button"
                       onClick={() => {
-                        setForm(f => ({ ...f, homeIsAbroad: true, region: '', province: '', city: '', barangay: '', homeCountry: f.homeCountry === 'Philippines' ? '' : f.homeCountry }));
+                        setForm(f => ({ ...f, homeIsAbroad: true, region: '', province: '', city: '', barangay: '', homeRegionCode: '',
+                          homeCountry: f.homeCountry === 'Philippines' ? '' : f.homeCountry,
+                          homeCountryCode: f.homeCountryCode === 'PH' ? '' : f.homeCountryCode }));
                       }}
                       className={`px-3 py-1.5 text-xs rounded-md transition ${form.homeIsAbroad ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
                     >
@@ -1749,10 +1826,17 @@ export default function RegisterAlumniPersonal({
                   )}
                   {form.homeLat != null && form.homeLng != null && (
                     <div className="gt-fade space-y-1.5">
-                      <HomeLocationMap lat={form.homeLat} lng={form.homeLng} onMove={(la, ln) => void moveHomePin(la, ln)} />
+                      <HomeLocationMap
+                        lat={form.homeLat}
+                        lng={form.homeLng}
+                        zoom={homePinZoom}
+                        onMove={(la, ln) => void moveHomePin(la, ln)}
+                      />
                       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-gray-500">
                         <span>
-                          Drag the pin or tap the map if it is off.
+                          {pinIsRough
+                            ? `This is the middle of ${form.region || form.homeCountry || 'the area you picked'}, not your home. Drag the pin or tap the map to place it.`
+                            : 'Drag the pin or tap the map if it is off.'}
                           {form.homeAccuracyM != null ? ` Accuracy about ${Math.round(form.homeAccuracyM)} m.` : ''}
                         </span>
                         <button type="button" onClick={removeHomePin} className="underline hover:text-gray-700">
@@ -1852,26 +1936,86 @@ export default function RegisterAlumniPersonal({
                       <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                         Country<Required />
                       </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. United Arab Emirates"
-                        value={form.homeCountry}
-                        onChange={(e) => setF('homeCountry', e.target.value)}
+                      <select
+                        value={form.homeCountryCode}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          const picked = apiCountries.find(c => c.code === code);
+                          // Changing country invalidates the division below it,
+                          // and moves the map to the new country so the
+                          // graduate has a pin to drag rather than a blank map.
+                          // accuracy is cleared: this is a placed pin, not GPS.
+                          setForm(f => ({
+                            ...f,
+                            homeCountryCode: code,
+                            homeCountry: picked?.name ?? '',
+                            region: '',
+                            homeRegionCode: '',
+                            homeLat: picked?.latitude ?? null,
+                            homeLng: picked?.longitude ?? null,
+                            homeAccuracyM: null,
+                          }));
+                          setHomePinZoom(picked?.map_zoom ?? 4);
+                          setPinIsRough(true);
+                        }}
                         className={inputCls}
-                      />
+                      >
+                        <option value="">
+                          {apiCountries.length ? 'Select country' : 'Loading countries...'}
+                        </option>
+                        {apiCountries.map(c => (
+                          <option key={c.code} value={c.code}>{c.name}</option>
+                        ))}
+                      </select>
                     </div>
                     <div className="grid grid-cols-2 items-end gap-3">
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>
                           State / Region<Required />
                         </label>
-                        <input
-                          type="text"
-                          placeholder="State or region"
-                          value={form.region}
-                          onChange={(e) => setF('region', e.target.value)}
-                          className={inputCls}
-                        />
+                        {/* A handful of small countries have no divisions in
+                            placedb; there the select would be empty, so the
+                            field falls back to free text rather than blocking
+                            a required answer. */}
+                        {apiDivisions.length > 0 ? (
+                          <select
+                            value={form.region}
+                            onChange={(e) => {
+                              const name = e.target.value;
+                              const picked = apiDivisions.find(d => d.name === name);
+                              // Tighten the map onto the chosen division. Its
+                              // own coordinates beat the country centre, so
+                              // the pin lands near where the graduate lives.
+                              setForm(f => ({
+                                ...f,
+                                region: name,
+                                homeRegionCode: picked?.iso_3166_2 ?? '',
+                                homeLat: picked?.latitude ?? f.homeLat,
+                                homeLng: picked?.longitude ?? f.homeLng,
+                                homeAccuracyM: null,
+                              }));
+                              if (picked?.latitude != null) {
+                                setHomePinZoom(9);
+                                setPinIsRough(true);
+                              }
+                            }}
+                            className={inputCls}
+                          >
+                            <option value="">Select state / region</option>
+                            {apiDivisions.map(d => (
+                              <option key={d.name} value={d.name}>{d.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            placeholder={form.homeCountryCode ? 'State or region' : 'Choose a country first'}
+                            value={form.region}
+                            disabled={!form.homeCountryCode}
+                            onChange={(e) => setF('region', e.target.value)}
+                            className={`${inputCls} disabled:bg-gray-100`}
+                          />
+                        )}
                       </div>
                       <div>
                         <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>

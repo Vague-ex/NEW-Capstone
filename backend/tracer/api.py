@@ -24,6 +24,8 @@ from .geo_lookup import GeoLookupError, resolve_location, reverse_geocode
 from .models import (
     Barangay,
     CityMunicipality,
+    Country,
+    CountryDivision,
     EmploymentRecord,
     Industry,
     JobTitle,
@@ -788,6 +790,66 @@ class ResolveUnlistedJobTitleView(APIView):
         return Response({"graduates": len(graduates), "profiles": profiles, "records": records})
 
 # ── Regions ────────────────────────────────────────────────────────────────────
+
+class CountryListView(APIView):
+    """Countries for the abroad address cascade. Read-only: these rows come
+    from the bundled placedb release via `manage.py sync_placedb`, not from
+    admins, so there is nothing to create or edit by hand."""
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        qs = Country.objects.filter(is_active=True).order_by("name")
+        return Response({"countries": [
+            {
+                "code": c.code,
+                "name": c.name,
+                # Where to move the map when this country is picked, so an
+                # abroad graduate gets a pin to drag instead of a blank field.
+                "latitude": c.latitude,
+                "longitude": c.longitude,
+                "map_zoom": c.map_zoom,
+            }
+            for c in qs
+        ]})
+
+
+class CountryDivisionListView(APIView):
+    """First-level divisions of one country, by ISO 3166-1 alpha-2 code.
+
+    `?country=` is required: 4,000 divisions with no filter is not a dropdown.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        code = (request.query_params.get("country") or "").strip().upper()
+        if len(code) != 2:
+            return Response(
+                {"detail": "country (ISO 3166-1 alpha-2) is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        qs = (
+            CountryDivision.objects
+            .filter(country__code=code, is_active=True)
+            .order_by("name")
+        )
+        return Response({"divisions": [
+            {
+                "name": d.name,
+                "iso_3166_2": d.iso_3166_2 or "",
+                # The graduate gets a geomap pin from the division even when no
+                # GPS point was captured; null where placedb has no centre.
+                "latitude": d.latitude,
+                "longitude": d.longitude,
+            }
+            for d in qs
+        ]})
+
 
 class RegionListView(APIView):
     parser_classes = [JSONParser]
@@ -1927,6 +1989,7 @@ class ComprehensiveSurveySubmissionView(APIView):
                 work_addr.region = work_addr_data.get('region')
                 work_addr.zip_code = work_addr_data.get('zip_code', '')
                 work_addr.country = work_addr_data.get('country', 'Philippines')
+                work_addr.country_code = (work_addr_data.get('country_code') or '').strip().upper()[:2]
                 work_addr.latitude = work_addr_data.get('latitude')
                 work_addr.longitude = work_addr_data.get('longitude')
                 work_addr.save()

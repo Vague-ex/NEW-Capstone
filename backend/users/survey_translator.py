@@ -554,6 +554,7 @@ def apply_survey_data_to_normalized_tables(
                     region=region_choice,
                     zip_code=(sd.get("zip_code") or "")[:20],
                     country=country[:100],
+                    country_code=(sd.get("country_code_address") or "").strip().upper()[:2],
                     latitude=wlat,
                     longitude=wlng,
                 ),

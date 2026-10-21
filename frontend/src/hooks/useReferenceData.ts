@@ -278,6 +278,44 @@ export const jobTitlesApi = {
     remove: (id: string) => apiRequest(`/api/reference/job-titles/${id}/`, 'DELETE'),
 };
 
+// Countries and their first-level divisions (state / region / emirate), for a
+// graduate whose home address is outside the Philippines. Read-only: the rows
+// are synced from placedb by `manage.py sync_placedb`, so there is no create or
+// update here. The PSGC tables below stay the source for Philippine addresses.
+export interface CountryItem {
+    /** ISO 3166-1 alpha-2, upper case. This is what gets stored. */
+    code: string;
+    name: string;
+    /** Where to move the map when this country is picked, and the zoom that
+     *  frames it (2 for Russia, 10 for Singapore). Null for the ~20 countries
+     *  placedb lists no divisions for. */
+    latitude: number | null;
+    longitude: number | null;
+    map_zoom: number | null;
+}
+
+export interface CountryDivisionItem {
+    name: string;
+    /** ISO 3166-2 ("AE-DU"), or "" where placedb has no code for it. */
+    iso_3166_2: string;
+    /** Division centre, so an abroad graduate can be mapped without GPS. */
+    latitude: number | null;
+    longitude: number | null;
+}
+
+export const countriesApi = {
+    list: () => apiRequest('/api/reference/countries/', 'GET') as Promise<{ countries: CountryItem[] }>,
+};
+
+export const countryDivisionsApi = {
+    /** Divisions of one country. `countryCode` is ISO 3166-1 alpha-2. */
+    list: (countryCode: string) =>
+        apiRequest(
+            `/api/reference/country-divisions/?country=${encodeURIComponent(countryCode)}`,
+            'GET',
+        ) as Promise<{ divisions: CountryDivisionItem[] }>,
+};
+
 // Regions
 export const regionsApi = {
     list: () => apiRequest('/api/reference/regions/', 'GET') as Promise<{ regions: RegionItem[] }>,

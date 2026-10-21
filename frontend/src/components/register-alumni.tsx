@@ -425,6 +425,10 @@ export function RegisterAlumni() {
       payload.append('barangay', personalData.barangay || '');
       payload.append('home_is_abroad', personalData.homeIsAbroad ? 'true' : 'false');
       payload.append('home_country', personalData.homeCountry || (personalData.homeIsAbroad ? '' : 'Philippines'));
+      // ISO 3166-1 alpha-2 / 3166-2. The names above are for display; these are
+      // what the geomap and any per-country grouping should match on.
+      payload.append('home_country_code', personalData.homeCountryCode || (personalData.homeIsAbroad ? '' : 'PH'));
+      payload.append('home_region_code', personalData.homeRegionCode || '');
       // Only when the graduate used "Use my current location". Plotted on the
       // admin geomap (see geomap_consent below).
       if (personalData.homeLat != null && personalData.homeLng != null) {

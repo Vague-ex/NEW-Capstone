@@ -243,6 +243,13 @@ class AlumniProfile(models.Model):
     home_region = models.CharField(max_length=120, blank=True)
     home_barangay = models.CharField(max_length=160, blank=True)
     home_country = models.CharField(max_length=120, blank=True)
+    # ISO 3166-1 alpha-2 for home_country, and ISO 3166-2 for home_region where
+    # the division has one. The names above stay, for display and for the rows
+    # typed before the abroad address became a Country -> Division cascade:
+    # those arrived as "UAE" or "U.A.E." and cannot be grouped on, while GPS
+    # wrote OpenStreetMap's own spelling. Match on the code, show the name.
+    home_country_code = models.CharField(max_length=2, blank=True)
+    home_region_code = models.CharField(max_length=10, blank=True)
     home_is_abroad = models.BooleanField(default=False)
     # Exact home location, set only when the graduate uses "Use my current
     # location" (optionally dragging the pin). Plotted on the admin geomap for

@@ -19,6 +19,8 @@ from .api import (
     ProvinceListView,
     ReferenceDataView,
     RegionDetailView,
+    CountryListView,
+    CountryDivisionListView,
     RegionListView,
     SkillCategoryDetailView,
     SkillCategoryListView,
@@ -59,6 +61,11 @@ urlpatterns = [
     path("reference/job-titles/unlisted/", UnlistedJobTitleView.as_view(), name="job-title-unlisted"),
     path("reference/job-titles/unlisted/resolve/", ResolveUnlistedJobTitleView.as_view(), name="job-title-unlisted-resolve"),
     path("reference/job-titles/<uuid:pk>/", JobTitleDetailView.as_view(), name="job-title-detail"),
+
+    # Countries and their first-level divisions, for an abroad address.
+    # Read-only: synced from placedb by `manage.py sync_placedb`.
+    path("reference/countries/", CountryListView.as_view(), name="country-list"),
+    path("reference/country-divisions/", CountryDivisionListView.as_view(), name="country-division-list"),
 
     # Regions
     path("reference/regions/", RegionListView.as_view(), name="region-list"),

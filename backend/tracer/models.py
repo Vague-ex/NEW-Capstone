@@ -240,6 +240,73 @@ class Barangay(models.Model):
 		return self.name
 
 
+class Country(models.Model):
+	"""Reference table of countries, for graduates living or working abroad.
+
+	The PSGC tables above only cover the Philippines, so an abroad address used
+	to be five free-text boxes: the same country arrived as "UAE", "U.A.E." and
+	"United Arab Emirates", and the GPS lookup wrote OpenStreetMap's own
+	spelling on top. `code` is the ISO 3166-1 alpha-2 that settles it.
+
+	Populated from placedb (CC0) by `manage.py sync_placedb`.
+	"""
+
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	code = models.CharField(max_length=2, unique=True, help_text="ISO 3166-1 alpha-2, upper case.")
+	name = models.CharField(max_length=120, unique=True)
+	# Where to put the map on screen when this country is picked. Derived from
+	# the spread of the country's own divisions by `sync_placedb`, because
+	# placedb publishes coordinates per division but not per country. Null for
+	# the handful of countries it lists no divisions for.
+	latitude = models.FloatField(null=True, blank=True)
+	longitude = models.FloatField(null=True, blank=True)
+	map_zoom = models.PositiveSmallIntegerField(
+		null=True,
+		blank=True,
+		help_text="Leaflet zoom that frames the whole country (2 = Russia, 10 = Singapore).",
+	)
+	is_active = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "tracer_countries"
+		ordering = ["name"]
+
+	def __str__(self):
+		return self.name
+
+
+class CountryDivision(models.Model):
+	"""First-level division of a country: state, region, province or emirate.
+
+	One level only, on purpose. It is the deepest level that is reliably a
+	closed list worldwide, and its coordinates give an abroad graduate a geomap
+	pin even when no GPS point was captured. City stays free text.
+	"""
+
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name="divisions")
+	name = models.CharField(max_length=160)
+	# ISO 3166-2 ("AE-DU"). Blank where placedb has no code for the division,
+	# so it cannot be the unique key -- (country, name) is.
+	iso_3166_2 = models.CharField(max_length=10, blank=True, db_index=True)
+	latitude = models.FloatField(null=True, blank=True)
+	longitude = models.FloatField(null=True, blank=True)
+	is_active = models.BooleanField(default=True)
+
+	class Meta:
+		db_table = "tracer_country_divisions"
+		ordering = ["name"]
+		constraints = [
+			models.UniqueConstraint(fields=["country", "name"], name="uniq_division_country_name"),
+		]
+		indexes = [
+			models.Index(fields=["country", "name"]),
+		]
+
+	def __str__(self):
+		return f"{self.name}, {self.country.code}"
+
+
 class EmploymentRecord(models.Model):
 	"""
 	DS4: Employment & Skills DB
@@ -865,6 +932,16 @@ class WorkAddress(models.Model):
 		max_length=100,
 		default="Philippines",
 		help_text="Country name"
+	)
+	# ISO 3166-1 alpha-2 for `country`. The name above is kept for display and
+	# for rows written before the country became a closed list: registration
+	# and the alumni edit page used to offer two different hardcoded lists, so
+	# the same place was stored as "UAE" by one and "United Arab Emirates" by
+	# the other, and neither could be grouped on. Match on the code.
+	country_code = models.CharField(
+		max_length=2,
+		blank=True,
+		help_text="ISO 3166-1 alpha-2 (Country.code); blank on legacy rows.",
 	)
 
 	# Geographic coordinates for mapping

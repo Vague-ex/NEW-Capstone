@@ -2068,6 +2068,10 @@ def _extract_alumni_profile_data(survey_data: dict, personal_data: dict) -> dict
         "home_region": (personal_data.get("region") or "").strip()[:120],
         "home_barangay": (personal_data.get("barangay") or "").strip()[:160],
         "home_country": (personal_data.get("home_country") or "").strip()[:120],
+        # ISO 3166-1 alpha-2 / 3166-2, from the abroad address cascade. Upper
+        # cased here so "ae" and "AE" cannot both end up stored.
+        "home_country_code": (personal_data.get("home_country_code") or "").strip().upper()[:2],
+        "home_region_code": (personal_data.get("home_region_code") or "").strip().upper()[:10],
         "home_is_abroad": _as_bool(personal_data.get("home_is_abroad")),
         # Only present when the graduate used "Use my current location".
         "home_latitude": _coordinate(personal_data.get("home_latitude"), 90),
@@ -2176,6 +2180,9 @@ def _extract_work_address_data(survey_data: dict) -> dict:
         "region": survey_data.get("region"),
         "zip_code": survey_data.get("zip_code", "").strip(),
         "country": survey_data.get("country", "Philippines"),
+        # ISO 3166-1 alpha-2 from the country picker, upper cased so "ae" and
+        # "AE" cannot both be stored.
+        "country_code": (survey_data.get("country_code") or "").strip().upper()[:2],
         "latitude": survey_data.get("latitude"),
         "longitude": survey_data.get("longitude"),
     }

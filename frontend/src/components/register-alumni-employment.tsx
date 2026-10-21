@@ -24,11 +24,13 @@ import {
   provincesApi,
   citiesApi,
   locationApi,
+  countriesApi,
   FALLBACK_BSIS_CORE_SKILLS,
   type SkillItem,
   type RegionItem,
   type ProvinceItem,
   type CityMunicipalityItem,
+  type CountryItem,
 } from '../hooks/useReferenceData';
 
 // Types
@@ -81,6 +83,9 @@ export interface EmploymentFormData {
   region: string;
   zip_code: string;
   country: string;
+  /** ISO 3166-1 alpha-2 of `country`. The name is for display; this is
+   *  what the geomap and any per-country grouping match on. */
+  country_code: string;
   latitude: number | null;
   longitude: number | null;
 
@@ -217,6 +222,7 @@ export const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   region: '',
   zip_code: '',
   country: 'Philippines',
+  country_code: 'PH',
   latitude: null,
   longitude: null,
   technical_skills: [],
@@ -519,10 +525,28 @@ export default function RegisterAlumniEmployment({
     ? true
     : form.location_type === false
       ? false
-      : (!form.country || form.country === 'Philippines');
+      : (!form.country_code || form.country_code === 'PH');
   const apiRegions: RegionItem[] = referenceData?.regions ?? [];
   const [apiProvinces, setApiProvinces] = useState<ProvinceItem[]>([]);
+  // The world's countries, for a workplace outside the Philippines. Fetched
+  // only once the graduate says the work is abroad. This replaced a hardcoded
+  // list of about thirty countries ending in "Other": the alumni edit page
+  // carried a second, differently-spelled copy of that list, so the same
+  // workplace was stored as "UAE" at registration and "United Arab Emirates"
+  // after an edit.
+  const [workCountries, setWorkCountries] = useState<CountryItem[]>([]);
   const [apiCities, setApiCities] = useState<CityMunicipalityItem[]>([]);
+
+  // Countries, once the workplace is known to be outside the Philippines.
+  useEffect(() => {
+    if (isPhilippinesWork || workCountries.length > 0) return;
+    let active = true;
+    void countriesApi
+      .list()
+      .then(({ countries }) => { if (active) setWorkCountries(countries); })
+      .catch(() => { if (active) setWorkCountries([]); });
+    return () => { active = false; };
+  }, [isPhilippinesWork, workCountries.length]);
 
   // When the user picks a region by name, load that region's provinces.
   useEffect(() => {
@@ -605,7 +629,15 @@ export default function RegisterAlumniEmployment({
           return;
         }
         exactPinCityRef.current = found.locality || null;
-        setForm((f) => ({ ...f, city_municipality: found.locality || f.city_municipality }));
+        // The lookup already knows the country; take its ISO code so the
+        // graduate is not left to pick it again (and pick it differently).
+        const foundCode = (found.country_code || '').toUpperCase();
+        setForm((f) => ({
+          ...f,
+          city_municipality: found.locality || f.city_municipality,
+          country_code: foundCode || f.country_code,
+          country: found.country || f.country,
+        }));
         setWorkNote({ tone: 'ok', text: `Pinned in ${found.country || 'another country'}. Please check your city and country below.` });
         return;
       }
@@ -779,7 +811,7 @@ export default function RegisterAlumniEmployment({
         break;
       }
       case 5: // Work Address
-        if (!form.city_municipality || (isPhilippinesWork && !form.region) || (!isPhilippinesWork && !form.country)) {
+        if (!form.city_municipality || (isPhilippinesWork && !form.region) || (!isPhilippinesWork && !form.country_code)) {
           return fail('Please answer the questions marked with a red asterisk.');
         }
         {
@@ -1336,6 +1368,7 @@ export default function RegisterAlumniEmployment({
                   // switching from Abroad would leave `country` on the last
                   // foreign value and step 5 would still show free-text inputs.
                   country: 'Philippines',
+                  country_code: 'PH',
                 })}
               />
               <RadioOption
@@ -1349,6 +1382,7 @@ export default function RegisterAlumniEmployment({
                   // picker prompts the graduate to choose their actual country
                   // instead of silently keeping "Philippines" selected.
                   country: form.country === 'Philippines' ? '' : form.country,
+                  country_code: form.country_code === 'PH' ? '' : form.country_code,
                   region: '',
                   province_work: '',
                 })}
@@ -1548,47 +1582,20 @@ export default function RegisterAlumniEmployment({
                 </select>
               ) : (
               <select
-                value={form.country === 'Philippines' ? '' : form.country}
-                onChange={(e) => setForm({ ...form, country: e.target.value })}
-                className={fieldCls(missing(!form.country))}
+                value={form.country_code}
+                onChange={(e) => {
+                  const code = e.target.value;
+                  const picked = workCountries.find(c => c.code === code);
+                  setForm({ ...form, country_code: code, country: picked?.name ?? '' });
+                }}
+                className={fieldCls(missing(!form.country_code))}
               >
-                <option value="">Select country</option>
-                <optgroup label="ASEAN">
-                  <option value="Indonesia">Indonesia</option>
-                  <option value="Malaysia">Malaysia</option>
-                  <option value="Singapore">Singapore</option>
-                  <option value="Thailand">Thailand</option>
-                  <option value="Vietnam">Vietnam</option>
-                  <option value="Myanmar">Myanmar</option>
-                  <option value="Cambodia">Cambodia</option>
-                  <option value="Laos">Laos</option>
-                  <option value="Brunei">Brunei</option>
-                </optgroup>
-                <optgroup label="East Asia">
-                  <option value="Japan">Japan</option>
-                  <option value="South Korea">South Korea</option>
-                  <option value="China">China</option>
-                  <option value="Hong Kong">Hong Kong</option>
-                  <option value="Taiwan">Taiwan</option>
-                </optgroup>
-                <optgroup label="South Asia & Middle East">
-                  <option value="India">India</option>
-                  <option value="UAE">UAE</option>
-                  <option value="Saudi Arabia">Saudi Arabia</option>
-                  <option value="Qatar">Qatar</option>
-                  <option value="Kuwait">Kuwait</option>
-                  <option value="Bahrain">Bahrain</option>
-                </optgroup>
-                <optgroup label="Oceania">
-                  <option value="Australia">Australia</option>
-                  <option value="New Zealand">New Zealand</option>
-                </optgroup>
-                <optgroup label="Americas & Europe">
-                  <option value="United States">United States</option>
-                  <option value="Canada">Canada</option>
-                  <option value="United Kingdom">United Kingdom</option>
-                </optgroup>
-                <option value="Other">Other</option>
+                <option value="">
+                  {workCountries.length ? 'Select country' : 'Loading countries...'}
+                </option>
+                {workCountries.map(c => (
+                  <option key={c.code} value={c.code}>{c.name}</option>
+                ))}
               </select>
               )}
             </div>
