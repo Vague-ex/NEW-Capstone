@@ -103,6 +103,28 @@ export function formatFilters(filters: ReportPayload['filters']): string {
   return parts.join('  ·  ');
 }
 
+/**
+ * The dateline under the title, in the wording the panel asked for:
+ * "As of Batch 2020 to 2025". It states WHAT the report covers; when it was
+ * run is the footer's job, at the bottom of every page.
+ */
+export function formatAsOf(filters: ReportPayload['filters']): string {
+  return `As of Batch ${filters.batch_start} to ${filters.batch_end}`;
+}
+
+/**
+ * A section that explains the report rather than reporting anything.
+ *
+ * These print on a page of their own, so an admin running off a one-page
+ * report can leave the notes in the printer tray.
+ */
+export function isNoteSection(section: { title: string; columns: unknown[] }): boolean {
+  return (
+    section.columns.length === 1
+    && String(section.columns[0] ?? '').trim().toLowerCase() === 'note'
+  );
+}
+
 function safeFilename(title: string, ext: string): string {
   const stamp = new Date().toISOString().slice(0, 10);
   const slug = title.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -139,8 +161,9 @@ export function exportCsv(payload: ReportPayload): void {
   const lines: string[] = [];
   lines.push(csvRow([payload.title]));
   lines.push(csvRow([SUBTITLE]));
-  lines.push(csvRow([`Generated ${formatTimestamp(payload.generated_at)}`]));
+  lines.push(csvRow([formatAsOf(payload.filters)]));
   lines.push(csvRow([formatFilters(payload.filters)]));
+  lines.push(csvRow([`Date generated ${formatTimestamp(payload.generated_at)}`]));
   lines.push('');
 
   for (const section of payload.sections) {
@@ -167,9 +190,10 @@ export async function exportXlsx(payload: ReportPayload): Promise<void> {
   const summary = [
     [payload.title],
     [SUBTITLE],
-    [`Generated`, formatTimestamp(payload.generated_at)],
+    [formatAsOf(payload.filters)],
     ['Batch start', payload.filters.batch_start],
     ['Batch end', payload.filters.batch_end],
+    ['Date generated', formatTimestamp(payload.generated_at)],
   ];
   const summaryWs = XLSX.utils.aoa_to_sheet(summary);
   XLSX.utils.book_append_sheet(wb, summaryWs, 'Filters');
@@ -233,26 +257,35 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
 
   let cursorY = CONTENT_TOP;
 
+  // Heading block centred under the letterhead, the way an institutional
+  // report sets it (and the way the panel's sample is laid out). Only the
+  // heading is centred: the tables and section titles stay left.
+  const centreX = pageWidth / 2;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
   doc.setTextColor(...CHMSU_GREEN);
-  doc.text(payload.title, margin, cursorY);
+  doc.text(payload.title, centreX, cursorY, { align: 'center' });
   cursorY += 22;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(80, 80, 80);
-  doc.text(SUBTITLE, margin, cursorY);
+  doc.text(SUBTITLE, centreX, cursorY, { align: 'center' });
   cursorY += 16;
 
   doc.setFontSize(9);
   doc.setTextColor(120, 120, 120);
-  doc.text(`Generated: ${formatTimestamp(payload.generated_at)}`, margin, cursorY);
+  doc.text(formatAsOf(payload.filters), centreX, cursorY, { align: 'center' });
   cursorY += 12;
-  doc.text(`Filters: ${formatFilters(payload.filters)}`, margin, cursorY);
+  doc.text(formatFilters(payload.filters), centreX, cursorY, { align: 'center' });
   cursorY += 18;
 
   for (const section of payload.sections) {
+    // Notes get a page to themselves so a one-page report prints as one page.
+    if (isNoteSection(section)) {
+      doc.addPage();
+      cursorY = CONTENT_TOP;
+    }
     if (cursorY > pageHeight - 100) {
       doc.addPage();
       cursorY = CONTENT_TOP;
@@ -330,7 +363,10 @@ export async function buildPdf(payload: ReportPayload, logo: HTMLImageElement | 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(150);
-    doc.text(`Page ${page} of ${totalPages}  ·  ${SUBTITLE}`, margin, doc.internal.pageSize.getHeight() - 18);
+    const footerY = doc.internal.pageSize.getHeight() - 18;
+    // Generated date at the foot of the paper, not in the heading block.
+    doc.text(`Date generated: ${formatTimestamp(payload.generated_at)}`, margin, footerY);
+    doc.text(`Page ${page} of ${totalPages}  ·  ${SUBTITLE}`, pageWidth - margin, footerY, { align: 'right' });
   }
 
   return doc;

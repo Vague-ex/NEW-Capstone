@@ -505,6 +505,10 @@ def apply_survey_data_to_normalized_tables(
         employment_updates["current_job_title"] = str(sd["currentJobPosition"])[:150]
     if sd.get("currentJobCompany"):
         employment_updates["current_job_company"] = str(sd["currentJobCompany"])[:200]
+    if sd.get("currentJobEmployerEmail"):
+        employment_updates["current_job_employer_email"] = (
+            str(sd["currentJobEmployerEmail"]).strip().lower()[:254]
+        )
 
     related_current = _related_to_bsis(sd.get("currentJobRelated"))
     if related_current is not None:

@@ -9,6 +9,7 @@ import {
   fetchEmployerDecisions,
   fetchRetrackingHistory,
   fetchVerifiedAlumni,
+  sendEmployerVerification,
   sendRetrackingReminder,
   type EmployerDecisionDetail,
   type RetrackingEventKind,
@@ -23,6 +24,9 @@ import {
   History, UserPlus, Mail, ShieldCheck, ShieldX, ArrowRight,
 } from 'lucide-react';
 import { ImageLightbox, type LightboxImage } from '../shared/image-lightbox';
+import {
+  EmployerVerificationPanel, awaitsEmployerVerification, employerEmailOf, employerVerificationState,
+} from './employer-verification-panel';
 import { employmentStatusLabel } from './employment-status-label';
 
 type ModalTab = 'profile' | 'employment' | 'skills' | 'history';
@@ -237,6 +241,9 @@ function EmployerDecisionPanel({ decision, loading, error }: {
         <p><span className="text-gray-500">Employer:</span> {decision.verifiedEmployerName || 'Not recorded'}</p>
         <p><span className="text-gray-500">Job title:</span> {decision.verifiedJobTitle || 'Not recorded'}</p>
         <p><span className="text-gray-500">Decision:</span> {decision.decision === 'confirm' ? 'Confirmed' : 'Denied'}</p>
+        {decision.denyReasonLabel && (
+          <p><span className="text-gray-500">Reason:</span> {decision.denyReasonLabel}</p>
+        )}
       </div>
 
       {decision.comment && (
@@ -629,11 +636,12 @@ function RetrackingHistoryTab({ alumniId, version }: { alumniId: string; version
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
 
-function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab = 'profile' }: {
+function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, onEmployerRequestSent, initialTab = 'profile' }: {
   a: AlumniRecord;
   onClose: () => void;
   bsisCore: string[];
   onReminderSent: (alumniId: string, sentAt: string) => void;
+  onEmployerRequestSent: () => void;
   initialTab?: ModalTab;
 }) {
   const [tab, setTab] = useState<ModalTab>(initialTab);
@@ -967,6 +975,9 @@ function GraduateDetailModal({ a, onClose, bsisCore, onReminderSent, initialTab 
                       : a.jobAlignment === 'not-related' ? 'No - Not related' : '-'
                   } />
                 </div>
+                <div className="mt-3">
+                  <EmployerVerificationPanel alumni={a} onSent={onEmployerRequestSent} />
+                </div>
               </div>
 
               <div>
@@ -1087,6 +1098,13 @@ export function AdminVerified() {
   const [filterYear, setFilterYear] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterRetrace, setFilterRetrace] = useState(searchParams.get('retracing') === 'needs' ? 'needs' : 'all');
+  // 'awaiting' = nobody has confirmed this graduate's job yet (no request sent,
+  // or one sent and unanswered). That is the set the bulk Send button mails.
+  const [filterEmployer, setFilterEmployer] = useState(
+    searchParams.get('employer') === 'awaiting' ? 'awaiting' : 'all',
+  );
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState('');
   const [modalAlumni, setModalAlumni] = useState<AlumniRecord | null>(null);
   // The dashboard's Audit card links here with ?id=<uuid>. Matching by name was
   // wrong: the audit snapshot is "first last" while this list shows the full name
@@ -1147,6 +1165,7 @@ export function AdminVerified() {
     || filterYear !== 'all'
     || filterStatus !== 'all'
     || filterRetrace !== 'all'
+    || filterEmployer !== 'all'
     || sortField !== DEFAULT_SORT_FIELD
     || sortDir !== 'desc';
 
@@ -1238,12 +1257,21 @@ export function AdminVerified() {
     const matchStatus = filterStatus === 'all' || a.employmentStatus === filterStatus;
     const matchRetrace = filterRetrace === 'all'
       || (filterRetrace === 'needs' ? needsRetracing(a) : !needsRetracing(a));
-    return matchQ && matchYear && matchStatus && matchRetrace;
+    const matchEmployer = filterEmployer === 'all'
+      || (filterEmployer === 'awaiting'
+        ? awaitsEmployerVerification(a)
+        : employerVerificationState(a) === filterEmployer);
+    return matchQ && matchYear && matchStatus && matchRetrace && matchEmployer;
   }).sort((a, b) => {
     const va = String((a as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     const vb = String((b as Record<string, unknown>)[sortField] ?? '').toLowerCase();
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-  }), [backendVerified, search, filterYear, filterStatus, filterRetrace, sortField, sortDir]);
+  }), [backendVerified, search, filterYear, filterStatus, filterRetrace, filterEmployer, sortField, sortDir]);
+
+  const employerSendTargets = useMemo(
+    () => verifiedAlumni.filter((a) => awaitsEmployerVerification(a) && employerEmailOf(a)).length,
+    [verifiedAlumni],
+  );
 
   const handleSort = (f: string) => {
     if (sortField === f) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -1263,7 +1291,7 @@ export function AdminVerified() {
   );
 
   // Snap back to page 1 whenever the filtered set changes shape.
-  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, filterRetrace, sortField, sortDir]);
+  useEffect(() => { setPage(1); }, [search, filterYear, filterStatus, filterRetrace, filterEmployer, sortField, sortDir]);
 
   const SortIcon = ({ f }: { f: string }) => (
     <span className="inline-flex flex-col ml-1 opacity-60">
@@ -1283,6 +1311,37 @@ export function AdminVerified() {
       : backendVerified.filter(needsRetracing).length),
     [backendVerified, serverPaged, totals],
   );
+
+  // A sent request changes the badge on the row behind the window, so the list
+  // is reloaded rather than patched: the backend decides the new state.
+  const handleEmployerRequestSent = () => {
+    void loadVerified(needsFullSet ? { full: true } : { pageNo: page });
+  };
+
+  /** Mail every graduate in the current filtered view who is still waiting on
+   *  an employer and has an address on file. */
+  const sendEmployerRequestsToFiltered = async () => {
+    const targets = verifiedAlumni.filter((a) => awaitsEmployerVerification(a) && employerEmailOf(a));
+    if (targets.length === 0) {
+      setBulkResult('No graduate in this view has an employer email to send to.');
+      return;
+    }
+    setBulkSending(true);
+    setBulkResult('');
+    try {
+      const res = await sendEmployerVerification(targets.map((a) => String(a.id)));
+      const failed = res.requested - res.sent;
+      setBulkResult(
+        `Sent ${res.sent} of ${res.requested} verification request${res.requested === 1 ? '' : 's'}`
+        + (failed > 0 ? ` · ${failed} could not be sent.` : '.'),
+      );
+      handleEmployerRequestSent();
+    } catch (err) {
+      setBulkResult(err instanceof Error ? err.message : 'The requests could not be sent.');
+    } finally {
+      setBulkSending(false);
+    }
+  };
 
   const handleReminderSent = (alumniId: string, sentAt: string) => {
     const patch = (x: AlumniRecord) => (String(x.id) === alumniId ? { ...x, lastRetrackingReminderAt: sentAt } : x);
@@ -1377,10 +1436,42 @@ export function AdminVerified() {
             <option value="needs">Needs Retracing</option>
             <option value="current">Up to Date</option>
           </select>
+          <select value={filterEmployer} onChange={e => { setFilterEmployer(e.target.value); setBulkResult(''); }}
+            className="flex-1 min-w-0 sm:flex-none rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#166534]">
+            <option value="all">Any Employer Check</option>
+            <option value="awaiting">Not Employer-Verified</option>
+            <option value="sent">Request Sent</option>
+            <option value="verified">Employer Confirmed</option>
+            <option value="denied">Employer Denied</option>
+          </select>
           {/* Simulated (seeded) graduates are included by the server only when
               "Show simulated accounts" is on at /admin/debug/a. */}
           <span className="text-gray-400 text-xs ml-auto">{matchCount} records</span>
         </div>
+
+        {/* Bulk send: the panel asked for one button that covers everyone still
+            waiting on an employer. It follows the filters above, so the admin
+            can narrow to one batch first and see exactly who it will reach. */}
+        {filterEmployer === 'awaiting' && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 sm:p-4">
+            <Mail className="size-4 text-amber-600 shrink-0" />
+            <p className="flex-1 min-w-[12rem] text-amber-800 text-xs">
+              {employerSendTargets} of {verifiedAlumni.length} graduate{verifiedAlumni.length === 1 ? '' : 's'} in
+              this view have an employer email on file and no confirmation yet.
+            </p>
+            <button
+              type="button"
+              onClick={() => void sendEmployerRequestsToFiltered()}
+              disabled={bulkSending || employerSendTargets === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-2 text-xs text-white transition hover:bg-amber-700 disabled:opacity-50"
+              style={{ fontWeight: 600 }}
+            >
+              {bulkSending ? <RefreshCw className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+              Send to all {employerSendTargets}
+            </button>
+            {bulkResult && <p className="w-full text-amber-900 text-xs">{bulkResult}</p>}
+          </div>
+        )}
 
         {/* Table */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1559,7 +1650,8 @@ export function AdminVerified() {
       {/* Detail Modal */}
       {modalAlumni && (
         <GraduateDetailModal key={`${modalAlumni.id}-${modalTab}`} a={modalAlumni} onClose={() => setModalAlumni(null)} bsisCore={bsisCore}
-          onReminderSent={handleReminderSent} initialTab={modalTab} />
+          onReminderSent={handleReminderSent} onEmployerRequestSent={handleEmployerRequestSent}
+          initialTab={modalTab} />
       )}
     </PortalLayout>
   );

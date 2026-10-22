@@ -74,6 +74,9 @@ export interface EmploymentFormData {
   nature_of_business: string;
   current_job_title: string;
   current_job_company: string;
+  /** Company / HR / supervisor address. The ADMIN sends the employer
+   *  verification link here, so it is required of anyone with a current job. */
+  current_job_employer_email: string;
   current_job_related_to_bsis: boolean | null;
   location_type: boolean | null;
 
@@ -98,6 +101,8 @@ export interface EmploymentFormData {
 }
 
 // Constants
+const EMPLOYER_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const EMPLOYMENT_STEP_CONFIG = [
   { n: 1 as EmploymentStep, label: 'Academic Profile' },
   { n: 2 as EmploymentStep, label: 'Employment Status' },
@@ -215,6 +220,7 @@ export const INITIAL_EMPLOYMENT_FORM: EmploymentFormData = {
   nature_of_business: '',
   current_job_title: '',
   current_job_company: '',
+  current_job_employer_email: '',
   current_job_related_to_bsis: null,
   location_type: null,
   street_address: '',
@@ -818,8 +824,13 @@ export default function RegisterAlumniEmployment({
         if (
           !form.current_job_company.trim() || !form.current_job_sector
           || !form.current_job_status || !form.nature_of_business
+          || !form.current_job_employer_email.trim()
         ) {
           return fail('Please answer the questions marked with a red asterisk.');
+        }
+        if (!EMPLOYER_EMAIL_RE.test(form.current_job_employer_email.trim())) {
+          setStepError('Enter a valid company, HR or supervisor email address.');
+          return false;
         }
         const titleProblem = jobTitleProblem(form.current_job_title, refJobTitles);
         if (titleProblem) {
@@ -930,7 +941,7 @@ export default function RegisterAlumniEmployment({
       if (!isEmployedNow) {
         Object.assign(kept, {
           current_job_sector: '', current_job_status: '', nature_of_business: '',
-          current_job_title: '', current_job_company: '',
+          current_job_title: '', current_job_company: '', current_job_employer_email: '',
           current_job_related_to_bsis: null, location_type: null,
           street_address: '', barangay: '', city_municipality: '', province_work: '', region: '',
           zip_code: '', latitude: null, longitude: null,
@@ -1377,6 +1388,23 @@ export default function RegisterAlumniEmployment({
               onChange={(e) => setForm({ ...form, current_job_company: e.target.value })}
               placeholder="e.g., Tech Company Inc."
               className={fieldCls(missing(!form.current_job_company.trim()))}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-900 mb-2">Company / HR / Supervisor Email<Required /></label>
+            <p className="text-[11px] text-gray-500 leading-snug mb-2">
+              The University sends the employment-verification request to this address. Use your HR,
+              supervisor or company address — not your own.
+            </p>
+            <input
+              type="email"
+              inputMode="email"
+              autoComplete="off"
+              value={form.current_job_employer_email}
+              onChange={(e) => setForm({ ...form, current_job_employer_email: e.target.value })}
+              placeholder="e.g., hr@techcompany.com"
+              className={fieldCls(missing(!form.current_job_employer_email.trim()))}
             />
           </div>
 

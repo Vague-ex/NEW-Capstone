@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { RejectReasonModal, GRADUATE_REJECT_REASONS } from './reject-reason-modal';
 import { employmentStatusLabel } from './employment-status-label';
+import { EmployerVerificationPanel } from './employer-verification-panel';
 
 type ModalTab = 'biometric' | 'employment' | 'skills';
 
@@ -923,6 +924,9 @@ export function AdminUnverified() {
                                 : a.jobAlignment === 'related' ? 'Yes - Related to BSIS'
                                   : a.jobAlignment === 'not-related' ? 'No - Not related' : '-'
                           } />
+                        </div>
+                        <div className="mt-3">
+                          <EmployerVerificationPanel alumni={a} />
                         </div>
                       </div>
 

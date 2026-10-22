@@ -12,6 +12,12 @@ export interface AlumniRecord {
     employmentStatus?: EmploymentStatus;
     jobTitle?: string;
     company?: string;
+    /** Company / HR / supervisor address the admin sends the verification link to. */
+    employerEmail?: string;
+    /** Employer check of the CURRENT job — not the account's own approval state.
+     *  none = nobody asked yet, sent = a link is out, verified / denied = answered. */
+    employerVerificationStatus?: 'none' | 'sent' | 'verified' | 'denied' | string;
+    employerVerificationSentAt?: string | null;
     industry?: string;
     jobAlignment?: "related" | "not-related";
     workLocation?: string;

@@ -461,11 +461,14 @@ export async function submitVerificationDecision(
     payload: {
         decision: 'confirm' | 'deny';
         comment?: string;
+        /** Required on a deny: one of the listed reasons, never free text. */
+        deny_reason?: string;
         verified_employer_name?: string;
         verified_job_title_id?: string;
-        // Who is answering. Required — the token proves which graduate is being
-        // verified, but not who is vouching for them.
-        verifier_name: string;
+        // Who is answering. The token proves which graduate is being verified,
+        // but not who is vouching for them. Name and position are required on a
+        // confirm and optional on a deny; the address is always required.
+        verifier_name?: string;
         verifier_email: string;
         verifier_position?: string;
     } & Partial<EmployerEvaluationPayload>,
@@ -620,6 +623,76 @@ export async function fetchAuditFeed(limit = 12, kind: AuditKind = 'all'): Promi
     };
 }
 
+/** Graduates who have worked for more than one employer since graduating. */
+export interface JobMobilityData {
+    graduates: number;
+    multiJobGraduates: number;
+    perBatch: { year: number; graduates: number; multiJob: number }[];
+    individuals: {
+        id: string;
+        name: string;
+        graduationYear: number | null;
+        jobs: number;
+        currentCompany: string;
+        employers: string[];
+    }[];
+}
+
+export async function fetchJobMobility(): Promise<JobMobilityData> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/analytics/job-mobility/`, {
+        headers: withAdminAuthHeaders(),
+    });
+    await throwIfNotOk(response);
+    const data = await response.json();
+    return {
+        graduates: data?.graduates ?? 0,
+        multiJobGraduates: data?.multiJobGraduates ?? 0,
+        perBatch: Array.isArray(data?.perBatch) ? data.perBatch : [],
+        individuals: Array.isArray(data?.individuals) ? data.individuals : [],
+    };
+}
+
+/** One row per graduate the admin asked us to mail. */
+export interface EmployerVerificationSendResult {
+    alumniId: string;
+    sent: boolean;
+    email?: string;
+    detail?: string | null;
+}
+
+/**
+ * Admin-sent employer verification. One id for the button on a card, many for
+ * "send to all unverified"; `employerEmail` overrides the stored address and
+ * is only accepted for a single graduate.
+ */
+/** The server's own per-call ceiling; a whole batch can exceed it. */
+const EMPLOYER_SEND_CHUNK = 200;
+
+export async function sendEmployerVerification(
+    alumniIds: string[],
+    employerEmail?: string,
+): Promise<{ sent: number; requested: number; results: EmployerVerificationSendResult[] }> {
+    const total = { sent: 0, requested: 0, results: [] as EmployerVerificationSendResult[] };
+    // Sequential, not parallel: these send real mail, and a failure halfway
+    // should stop rather than race the rest out of the door.
+    for (let i = 0; i < alumniIds.length; i += EMPLOYER_SEND_CHUNK) {
+        const response = await fetch(`${API_BASE_URL}/api/admin/employer-verification/send/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...withAdminAuthHeaders() },
+            body: JSON.stringify({
+                alumni_ids: alumniIds.slice(i, i + EMPLOYER_SEND_CHUNK),
+                ...(employerEmail ? { employer_email: employerEmail } : {}),
+            }),
+        });
+        await throwIfNotOk(response);
+        const page = await response.json();
+        total.sent += page.sent ?? 0;
+        total.requested += page.requested ?? 0;
+        total.results.push(...(page.results ?? []));
+    }
+    return total;
+}
+
 // region DEBUG-ONLY:CurrenChanDebug
 /** Debug (/admin/debug/a): reshape an audit event so the dashboard card can be
  *  demonstrated. Writes to the same table the real feed reads. */
@@ -740,6 +813,9 @@ export interface EmployerDecisionDetail {
     decision: 'confirm' | 'deny' | string;
     decidedAt: string;
     comment: string;
+    /** Set on a deny: the reason the verifier picked, plus its wording. */
+    denyReason: string;
+    denyReasonLabel: string;
     verifierName: string;
     verifierEmail: string;
     verifierPosition: string;
@@ -851,8 +927,10 @@ export interface MasterlistData {
     entries: MasterlistEntry[];
 }
 
-export async function fetchMasterlist(): Promise<MasterlistData> {
-    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/`, {
+/** `summary` drops the per-graduate rows: the dashboard only needs the totals
+ *  it measures the system against, and the full list is ~500 rows per load. */
+export async function fetchMasterlist(summary = false): Promise<MasterlistData> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/masterlist/${summary ? '?summary=1' : ''}`, {
         headers: withAdminAuthHeaders(),
     });
     await throwIfNotOk(response);

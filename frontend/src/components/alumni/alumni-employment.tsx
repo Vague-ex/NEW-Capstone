@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { fetchAlumniAccountStatus, updateAlumniEmployment } from '../../app/api-client';
-import { EmployerInviteModal } from './employer-invite-modal';
 import { MapFrame, type ExpandableMap } from '../home-location-map';
 import {
   useReferenceData,
@@ -156,6 +155,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     currentJobTitleId: String(sdIn.currentJobTitleId ?? alumniIn.jobTitleId ?? ''),
     currentJobPosition: String(sdIn.currentJobPosition ?? sdIn.current_job_title ?? alumniIn.jobTitle ?? ''),
     currentJobCompany: String(sdIn.currentJobCompany ?? sdIn.current_job_company ?? alumniIn.company ?? ''),
+    currentJobEmployerEmail: String(sdIn.currentJobEmployerEmail ?? sdIn.current_job_employer_email ?? ''),
     currentJobRelated: String(sdIn.currentJobRelated ?? ''),
     currentJobLocation: String(sdIn.currentJobLocation ?? ((alumniIn.workLocation as string | undefined)?.toLowerCase().includes('abroad') ? 'Abroad / Remote Foreign Employer' : 'Local (Philippines)')),
 
@@ -221,12 +221,6 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
   // no "last update" to date, so the copy falls back to the generic wording.
   const lastRetracedOn = typeof alumni.lastRetracedAt === 'string' ? longDate(alumni.lastRetracedAt) : '';
   const retracedAgo = typeof alumni.daysSinceRetrace === 'number' ? elapsedLabel(alumni.daysSinceRetrace) : '';
-  // Share-link modal: shown AFTER a successful save when the company
-  // changed (including first-time becoming employed). Replaces the older
-  // inline amber banner and the small emerald sub-panel that used to live
-  // permanently on the page.
-  const [shareLinkModalOpen, setShareLinkModalOpen] = useState(false);
-
   // Region → Province → CityMunicipality cascade. Lazy-loaded from the
   // reference DB so admin reference-data CRUD changes propagate live.
   const [provincesForRegion, setProvincesForRegion] = useState<ProvinceItem[]>([]);
@@ -661,13 +655,6 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     setReevalConfirmOpen(false);
     setIsSaving(true);
     setSaveError('');
-    // Captured BEFORE the success block overwrites initialWorkRef so we
-    // know whether to surface the share-link modal afterwards.
-    const companyChangedAtSave = (
-      initialWorkRef.current.company.trim().toLowerCase()
-      !== form.currentJobCompany.trim().toLowerCase()
-    );
-
     // ZIP code is required for an employed graduate: it is autofilled from the
     // chosen city, so a blank one means the city carries no stored code and the
     // graduate has to supply it. PH must be exactly 4 digits; foreign are free.
@@ -772,23 +759,13 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
         company: form.currentJobCompany,
         title: form.currentJobPosition,
       };
-      // Surface the share-link modal AFTER a successful save when the
-      // company changed (covers both moving employers and first-time
-      // becoming employed). Same-employer-title-only changes do not
-      // trigger it because the existing employer already has the link.
-      // Surface the tokenized invite link when the evaluator is a DIFFERENT
-      // person (modal answered "no"), or — for a first-time/company change with
-      // no prior verification — when the company changed. Same-evaluator reuse
-      // shows nothing (the existing employer already has access).
-      const shouldInvite =
-        evaluatorSame === false
-        || (evaluatorSame === null && companyChangedAtSave && isCurrentlyEmployed && !!form.currentJobCompany.trim());
-      if (shouldInvite) {
-        setShareLinkModalOpen(true);
-      }
+      // No share-link sheet here any more: the panel moved employer
+      // verification to the admin, who sends the link to the address above.
+      // `evaluatorSame` still decides whether the PREVIOUS evaluator is told
+      // the graduate moved on, which is a different message.
       setEvaluatorSame(null);
 
-      if (retrackingMode && alumniId && !shouldInvite) {
+      if (retrackingMode && alumniId) {
         try {
           const refreshed = await fetchAlumniAccountStatus(alumniId);
           if (refreshed && typeof refreshed === 'object') {
@@ -830,6 +807,10 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
     }
     if (isCurrentlyEmployed && !form.currentJobCompany.trim()) {
       setSaveError('Please enter the company / organization name of your current job.');
+      return;
+    }
+    if (isCurrentlyEmployed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.currentJobEmployerEmail.trim())) {
+      setSaveError('Please enter a valid company, HR or supervisor email so the University can verify your job.');
       return;
     }
     const oldCompany = initialWorkRef.current.company.trim().toLowerCase();
@@ -1147,26 +1128,29 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                     value={form.currentJobCompany} onChange={e => setF('currentJobCompany', e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white" />
                 </div>
-                {/* Persistent way to re-open the share-link sheet. The
-                    post-save modal only fires when the company changed on
-                    that save, so without this the graduate has no way to
-                    fetch the verification link again if they closed it
-                    or landed on the page fresh. */}
-                <button
-                  type="button"
-                  onClick={() => { setShareLinkModalOpen(true); }}
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#166534] hover:text-[#14532d] underline underline-offset-2"
-                  style={{ fontWeight: 600 }}
-                >
-                  <Building2 className="size-3.5" /> Share verification link with your employer
-                </button>
+              </div>
+
+              {/* Verification is the University's to run, not the graduate's:
+                  this is the address the admin sends the request to. */}
+              <div>
+                <FieldLabel required>4. Company / HR / Supervisor Email</FieldLabel>
+                <div className="relative">
+                  <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+                  <input type="email" inputMode="email" placeholder="e.g. hr@company.com" required
+                    value={form.currentJobEmployerEmail} onChange={e => setF('currentJobEmployerEmail', e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-3 text-sm placeholder-gray-400 outline-none transition focus:border-[#166534] focus:ring-2 focus:ring-[#166534]/15 focus:bg-white" />
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  The University sends the employment-verification request here. Use your HR, supervisor or
+                  company address — not your own.
+                </p>
               </div>
 
               </div>{/* end left column */}
               <div className="space-y-5">
 
               <div>
-                <FieldLabel>4. Is your CURRENT job related to your BSIS degree?</FieldLabel>
+                <FieldLabel>5. Is your CURRENT job related to your BSIS degree?</FieldLabel>
                 <div className="space-y-1.5">
                   {['Yes, directly related (IT/IS role)', 'Somewhat related (uses some IT skills)', 'Not related (different field)', 'Not applicable'].map(opt => (
                     <RadioOption key={opt} label={opt} value={opt} current={form.currentJobRelated} onSelect={v => setF('currentJobRelated', v)} />
@@ -1175,7 +1159,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               </div>
 
               <div>
-                <FieldLabel>5. Location Type</FieldLabel>
+                <FieldLabel>6. Location Type</FieldLabel>
                 <div className="space-y-1.5">
                   {['Local (Philippines)', 'Abroad / Remote Foreign Employer'].map(opt => (
                     <RadioOption
@@ -1202,7 +1186,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               </div>
 
               <div>
-                <FieldLabel required>6. Employment Status of CURRENT/MOST RECENT JOB</FieldLabel>
+                <FieldLabel required>7. Employment Status of CURRENT/MOST RECENT JOB</FieldLabel>
                 <select
                   value={form.currentJobStatus}
                   required
@@ -1217,7 +1201,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
               </div>
 
               <div>
-                <FieldLabel required>7. Nature of Business</FieldLabel>
+                <FieldLabel required>8. Nature of Business</FieldLabel>
                 <select
                   value={form.natureOfBusiness}
                   required
@@ -1729,17 +1713,6 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
         </div>
       )}
 
-      {/* Share-link modal: fires after a successful save when the company
-          changed (including first-time employed). */}
-      <EmployerInviteModal
-        open={shareLinkModalOpen}
-        onClose={() => {
-          setShareLinkModalOpen(false);
-          // A retracking save that changed company ends here, not on the dashboard.
-          if (retrackingMode && saved) navigate('/alumni/dashboard');
-        }}
-        alumniId={alumniId}
-      />
     </PortalLayout>
   );
 }

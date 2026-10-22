@@ -773,6 +773,67 @@ class CspReportTests(TestCase):
 		self.assertEqual(len(logs.output), CspReportView.RATE_LIMIT)
 
 
+class JobMobilityAnalyticsTests(TestCase):
+	"""Graduates with more than one employer, by batch and by individual.
+
+	A job change makes a second EmploymentRecord and retires the first, so the
+	count is read off those rows; a promotion at the same company also makes a
+	row, which must NOT read as a second job.
+	"""
+
+	def setUp(self):
+		self.client = APIClient()
+		admin_user = User.objects.create_user(
+			email="mobility-admin@example.com", password="AdminPass123!",
+			role=User.Role.ADMIN, is_staff=True,
+		)
+		self.headers = {
+			"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin_user.id)}"
+		}
+
+	def _graduate(self, email: str, batch: int, employers: list[str], titles: list[str] | None = None):
+		user = User.objects.create_user(email=email, password="TestPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=account, first_name=email.split("@")[0], last_name="Dela Cruz",
+			graduation_year=batch, has_graduated=True,
+		)
+		titles = titles or ["Developer"] * len(employers)
+		for index, (company, title) in enumerate(zip(employers, titles)):
+			EmploymentRecord.objects.create(
+				alumni=account,
+				employer_name_input=company,
+				job_title_input=title,
+				employment_status=EmploymentRecord.EmploymentStatus.EMPLOYED,
+				is_current=index == len(employers) - 1,
+			)
+		return account
+
+	def test_counts_distinct_employers_not_rows(self):
+		self._graduate("mover@example.com", 2021, ["First Corp", "Second Corp"])
+		# Promoted in place: two rows, one employer, so not a job change.
+		self._graduate("promoted@example.com", 2021, ["Same Corp", "Same Corp"],
+					   ["Junior Developer", "Senior Developer"])
+		self._graduate("steady@example.com", 2022, ["Only Corp"])
+
+		response = self.client.get("/api/admin/analytics/job-mobility/", **self.headers)
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(response.data["graduates"], 3)
+		self.assertEqual(response.data["multiJobGraduates"], 1)
+
+		per_batch = {row["year"]: row for row in response.data["perBatch"]}
+		self.assertEqual(per_batch[2021]["graduates"], 2)
+		self.assertEqual(per_batch[2021]["multiJob"], 1)
+		self.assertEqual(per_batch[2022]["multiJob"], 0)
+
+		individual = response.data["individuals"][0]
+		self.assertEqual(individual["jobs"], 2)
+		self.assertEqual(individual["currentCompany"], "Second Corp")
+
+	def test_requires_an_admin(self):
+		self.assertEqual(self.client.get("/api/admin/analytics/job-mobility/").status_code, 401)
+
+
 class VerificationTokenFlowTests(TestCase):
 	def setUp(self):
 		self.client = APIClient()
@@ -899,6 +960,102 @@ class VerificationTokenFlowTests(TestCase):
 		self.assertIsNone(decision.employer_account_id)
 		self.assertEqual(decision.verifier_email, "maria@acme.com")
 		self.assertEqual(decision.token.alumni_id, self.alumni_account.id)
+
+	def test_a_deny_needs_a_reason_but_not_the_verifier_s_name(self):
+		"""The panel's rule: saying no asks only for the reason and an address.
+
+		Name, organisation and position are optional there -- someone replying
+		"they left in March" should not have to fill a form to say it -- but the
+		reason is a closed list, because "no" alone cannot tell a graduate who
+		was let go apart from one who never worked there.
+		"""
+		token_id = self._invite().data["token"]["id"]
+
+		no_reason = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{"decision": "deny", "verifier_email": "hr@acme.test"},
+			format="json",
+		)
+		self.assertEqual(no_reason.status_code, 400)
+		self.assertEqual(VerificationDecision.objects.count(), 0)
+
+		answered = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{
+				"decision": "deny",
+				"deny_reason": "terminated",
+				"verifier_email": "hr@acme.test",
+			},
+			format="json",
+		)
+		self.assertEqual(answered.status_code, 200, answered.data)
+
+		decision = VerificationDecision.objects.get()
+		self.assertEqual(decision.deny_reason, "terminated")
+		self.assertEqual(decision.verifier_name, "")
+		self.employment_record.refresh_from_db()
+		self.assertEqual(
+			self.employment_record.verification_status,
+			EmploymentRecord.VerificationStatus.DENIED,
+		)
+
+	def test_a_confirm_still_needs_the_verifier_s_details(self):
+		token_id = self._invite().data["token"]["id"]
+		response = self.client.post(
+			f"/api/verification/tokens/{token_id}/decision/",
+			{"decision": "confirm", "verifier_email": "hr@acme.test"},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 400)
+
+	def test_admin_sends_the_employer_link_to_the_address_on_file(self):
+		"""Verification is the admin's to run: the graduate gives the company
+		address at registration and the admin mails the link from the list."""
+		EmploymentProfile.objects.create(
+			alumni=self.alumni_account,
+			employment_status="employed_full_time",
+			current_job_company="Sample Employer",
+			current_job_employer_email="hr@sample-employer.test",
+		)
+		admin_user = User.objects.create_user(
+			email="verif-admin@example.com",
+			password="AdminPass123!",
+			role=User.Role.ADMIN,
+			is_staff=True,
+		)
+		headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin_user.id)}"}
+
+		response = self.client.post(
+			"/api/admin/employer-verification/send/",
+			{"alumni_ids": [str(self.alumni_account.id)]},
+			format="json",
+			**headers,
+		)
+		self.assertEqual(response.status_code, 200, response.data)
+		self.assertEqual(response.data["sent"], 1)
+
+		token = VerificationToken.objects.get(employment_record=self.employment_record)
+		self.assertEqual(token.invited_email, "hr@sample-employer.test")
+
+	def test_admin_send_refuses_a_graduate_with_no_employer_email(self):
+		admin_user = User.objects.create_user(
+			email="verif-admin2@example.com",
+			password="AdminPass123!",
+			role=User.Role.ADMIN,
+			is_staff=True,
+		)
+		headers = {"HTTP_AUTHORIZATION": f"Bearer {generate_admin_access_token(admin_user.id)}"}
+
+		response = self.client.post(
+			"/api/admin/employer-verification/send/",
+			{"alumni_ids": [str(self.alumni_account.id)]},
+			format="json",
+			**headers,
+		)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["sent"], 0)
+		self.assertFalse(response.data["results"][0]["sent"])
+		self.assertEqual(VerificationToken.objects.count(), 0)
 
 	def test_graduate_cannot_verify_themselves(self):
 		issue_response = self._invite()
@@ -1033,7 +1190,7 @@ class VerificationTokenFlowTests(TestCase):
 
 		answered = self.client.post(
 			f"/api/verification/tokens/{first_id}/decision/",
-			{"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com", "verifier_position": "HR Officer"},
+			{"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.test", "verifier_position": "HR Officer"},
 			format="json",
 		)
 		self.assertEqual(answered.status_code, 200)
@@ -1088,7 +1245,7 @@ class VerificationTokenFlowTests(TestCase):
 			**self._alumni_auth(),
 		).data["token"]["id"]
 
-		payload = {"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.com", "verifier_position": "HR Officer"}
+		payload = {"decision": "confirm", "verifier_name": "HR", "verifier_email": "hr@acme.test", "verifier_position": "HR Officer"}
 		self.assertEqual(
 			self.client.post(f"/api/verification/tokens/{token_id}/decision/", payload, format="json").status_code,
 			200,

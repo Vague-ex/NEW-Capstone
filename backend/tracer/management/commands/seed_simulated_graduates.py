@@ -43,6 +43,7 @@ DEMO_BATCH_SIZES = {2020: 82, 2021: 70, 2022: 68, 2023: 102, 2024: 104, 2025: 10
 
 import math
 import random
+import re
 import unicodedata
 import warnings
 from datetime import timedelta
@@ -617,6 +618,13 @@ class Command(BaseCommand):
                     current_job_sector=current["sector"] if current else None,
                     current_job_title=(current["title"] or None) if current else None,
                     current_job_company=current["company"] if current else None,
+                    # A reserved .test domain: the admin's verification flow is
+                    # demonstrable on simulated graduates, and email_send skips
+                    # these addresses rather than mailing anyone.
+                    current_job_employer_email=(
+                        f"hr@{re.sub(r'[^a-z0-9]+', '', (current['company'] or 'employer').lower())[:24] or 'employer'}.test"
+                        if current and current["company"] else None
+                    ),
                     current_job_related_to_bsis=current["related"] if current else None,
                     # Only an employed graduate answers these two.
                     current_job_status=current["job_status"] if current else None,

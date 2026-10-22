@@ -8,8 +8,8 @@ import {
 } from 'recharts';
 import { fetchReport, ReportFilters, type ReportPayload, type ReportSection } from '../../app/api-client';
 import {
-  exportCsv, exportPdf, exportXlsx, formatFilters, formatTimestamp, isLandscapeReport,
-  LETTERHEAD, PDF_PAGE, SUBTITLE,
+  exportCsv, exportPdf, exportXlsx, formatAsOf, formatFilters, formatTimestamp,
+  isLandscapeReport, isNoteSection, LETTERHEAD, PDF_PAGE, SUBTITLE,
 } from '../../lib/report-export';
 
 type ExportFormat = 'pdf' | 'xlsx' | 'csv';
@@ -484,6 +484,17 @@ function ReportLetterhead({ pageWidth }: { pageWidth: number }) {
   );
 }
 
+/** Date generated at the foot of every sheet, as the printed report has it. */
+function ReportFooter({ payload, gutter }: { payload: ReportPayload; gutter: string }) {
+  return (
+    <div className="flex flex-wrap justify-between gap-2 border-t border-gray-100 pb-6 pt-2 text-[10px] text-gray-400"
+      style={{ paddingLeft: gutter, paddingRight: gutter }}>
+      <span>Date generated: {formatTimestamp(payload.generated_at)}</span>
+      <span>{SUBTITLE}</span>
+    </div>
+  );
+}
+
 function PreviewModal({
   report,
   payload,
@@ -499,6 +510,8 @@ function PreviewModal({
 }) {
   // The same rule the PDF uses, so the preview turns the page with it.
   const landscape = isLandscapeReport(payload.sections);
+  const bodySections = payload.sections.filter((s) => !isNoteSection(s));
+  const noteSections = payload.sections.filter(isNoteSection);
   const pageWidthPt = landscape ? PDF_PAGE.height : PDF_PAGE.width;
   const gutter = `${((PDF_PAGE.margin * 100) / pageWidthPt).toFixed(2)}cqw`;
   return (
@@ -525,17 +538,18 @@ function PreviewModal({
             className="mx-auto w-full bg-white shadow-md"
             style={{ containerType: 'inline-size', maxWidth: landscape ? PAGE_PX.landscape : PAGE_PX.portrait }}>
             <ReportLetterhead pageWidth={pageWidthPt} />
-            <div className="pt-6 pb-10 space-y-6" style={{ paddingLeft: gutter, paddingRight: gutter }}>
-              <header>
+            <div className="pt-6 pb-4 space-y-6" style={{ paddingLeft: gutter, paddingRight: gutter }}>
+              {/* Centred heading block, matching the printed PDF. */}
+              <header className="text-center">
                 <h2 className="text-[#047940] text-xl sm:text-2xl" style={{ fontWeight: 700 }}>{payload.title}</h2>
                 <p className="text-sm text-gray-600 mt-1">{SUBTITLE}</p>
-                <p className="text-xs text-gray-400 mt-2">Generated: {formatTimestamp(payload.generated_at)}</p>
-                <p className="text-xs text-gray-400">Filters: {formatFilters(payload.filters)}</p>
+                <p className="text-xs text-gray-400 mt-2">{formatAsOf(payload.filters)}</p>
+                <p className="text-xs text-gray-400">{formatFilters(payload.filters)}</p>
               </header>
               {payload.sections.length === 0 && (
                 <p className="text-sm text-gray-500">This report returned no sections for the current filters.</p>
               )}
-              {payload.sections.map((section, idx) => (
+              {bodySections.map((section, idx) => (
                 <section key={idx}>
                   {/* Section headings in text colour, not the institutional green:
                       a report reserves colour for the letterhead. */}
@@ -588,7 +602,31 @@ function PreviewModal({
                 </section>
               ))}
             </div>
+            <ReportFooter payload={payload} gutter={gutter} />
           </article>
+
+          {/* The notes print on their own page, so a one-page report can be
+              run off without them. The preview shows that as a second sheet. */}
+          {noteSections.length > 0 && (
+            <article
+              className="mx-auto mt-6 w-full bg-white shadow-md"
+              style={{ containerType: 'inline-size', maxWidth: landscape ? PAGE_PX.landscape : PAGE_PX.portrait }}>
+              <ReportLetterhead pageWidth={pageWidthPt} />
+              <div className="pt-6 pb-4 space-y-6" style={{ paddingLeft: gutter, paddingRight: gutter }}>
+                {noteSections.map((section, idx) => (
+                  <section key={`note-${idx}`}>
+                    <h3 className="text-sm text-gray-900 mb-2" style={{ fontWeight: 700 }}>{section.title}</h3>
+                    {section.rows.map((row, rIdx) => (
+                      <p key={rIdx} className="text-xs text-gray-700 leading-relaxed whitespace-pre-line mb-2">
+                        {row.map((cell) => (cell == null ? '' : String(cell))).join(' ')}
+                      </p>
+                    ))}
+                  </section>
+                ))}
+              </div>
+              <ReportFooter payload={payload} gutter={gutter} />
+            </article>
+          )}
         </div>
 
         {/* Footer: generate buttons */}

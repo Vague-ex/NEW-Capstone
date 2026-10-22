@@ -493,6 +493,26 @@ class SurveyDataValidator:
                     'blocking': True,
                 })
 
+        # The admin sends the employer-verification link here, so a typo is a
+        # verification that silently never happens. Format only: graduates who
+        # registered before this field existed must still be able to save an
+        # edit, and the registration form is what makes it mandatory.
+        employer_email = (data.get('current_job_employer_email') or '').strip()
+        if employer_email:
+            from django.core.exceptions import ValidationError as _DjangoValidationError
+            from django.core.validators import validate_email as _validate_email
+            try:
+                _validate_email(employer_email)
+            except _DjangoValidationError:
+                self.errors.append({
+                    'section': 'current_job_details',
+                    'field': 'current_job_employer_email',
+                    'error': 'Employer email is not a valid email address',
+                    'blocking': True,
+                })
+            else:
+                self.field_completeness['current_job_employer_email'] = True
+
         if data.get('current_job_sector') is not None:
             if data['current_job_sector'] not in FieldValidationRules.JOB_SECTOR_VALID:
                 self.errors.append({
@@ -827,7 +847,7 @@ def flat_to_sections(survey: Dict, personal: Optional[Dict] = None) -> Dict:
         ('current_job_details', (
             'current_job_sector', 'current_job_status', 'nature_of_business',
             'location_type', 'current_job_related_to_bsis',
-            'current_job_title', 'current_job_company',
+            'current_job_title', 'current_job_company', 'current_job_employer_email',
         )),
         ('work_address', (
             'city_municipality', 'province', 'region', 'latitude', 'longitude',

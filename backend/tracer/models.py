@@ -482,6 +482,14 @@ class VerificationDecision(models.Model):
 		CONFIRM = "confirm", "Confirm"
 		DENY = "deny", "Deny"
 
+	class DenyReason(models.TextChoices):
+		NEVER_EMPLOYED = "never_employed", "Never worked at this organisation"
+		RESIGNED = "resigned", "No longer employed here - resigned"
+		TERMINATED = "terminated", "No longer employed here - terminated or contract ended"
+		DIFFERENT_ROLE = "different_role", "Works here, but not in the role stated"
+		CANNOT_CONFIRM = "cannot_confirm", "Cannot confirm - no record or not my department"
+		OTHER = "other", "Other"
+
 	class Rating(models.TextChoices):
 		EXCELLENT = "excellent", "Excellent"
 		VERY_GOOD = "very_good", "Very Good"
@@ -537,6 +545,11 @@ class VerificationDecision(models.Model):
 	)
 	decision = models.CharField(max_length=20, choices=Decision.choices)
 	comment = models.TextField(blank=True)
+	#: Why a deny was given. Mandatory on the public verify page and picked from
+	#: a list, because "no" on its own cannot tell a graduate who was let go
+	#: apart from one who never worked there -- and the two mean opposite
+	#: things for the employment record.
+	deny_reason = models.CharField(max_length=30, choices=DenyReason.choices, blank=True)
 	is_held = models.BooleanField(default=False)
 	held_activated_at = models.DateTimeField(null=True, blank=True)
 	decided_at = models.DateTimeField(auto_now_add=True)
@@ -798,6 +811,16 @@ class EmploymentProfile(models.Model):
 		null=True,
 		blank=True,
 		help_text="Company name of current/most recent employment"
+	)
+	#: Where the ADMIN sends the employer-verification link. Collected at
+	#: registration and required of anyone with a current job: the verification
+	#: flow is the admin's to run, so the address cannot be something they have
+	#: to chase the graduate for.
+	current_job_employer_email = models.EmailField(
+		max_length=254,
+		null=True,
+		blank=True,
+		help_text="Company / HR / supervisor email used to verify this employment"
 	)
 	current_job_related_to_bsis = models.BooleanField(
 		null=True,

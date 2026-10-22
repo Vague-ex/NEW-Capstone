@@ -8,7 +8,6 @@ import {
   Hash, ShieldCheck, Lock, UserCircle, Building2,
 } from 'lucide-react';
 import { fetchAlumniAccountStatus } from '../../app/api-client';
-import { EmployerInviteModal } from './employer-invite-modal';
 
 export function AlumniDashboard() {
   const navigate = useNavigate();
@@ -62,34 +61,10 @@ export function AlumniDashboard() {
     if (requiresRetracking) navigate('/alumni/employment?retracking=1', { replace: true });
   }, [requiresRetracking, navigate]);
 
-  // First login with a job: the backend sets needsEmployerInvite while the
-  // current employment record has a company but no verification link has
-  // ever been created for it. Opening the modal mints that link, so the flag
-  // clears server-side and the prompt does not come back on the next login.
-  // Graduates without a job never get the flag.
-  const [inviteDismissed, setInviteDismissed] = useState(false);
-  // Latched once shown: minting the link clears needsEmployerInvite on the
-  // server, so the background status sync would otherwise flip the flag and
-  // close the modal a moment after it opened. Only the graduate closes it.
-  const [inviteLatched, setInviteLatched] = useState(false);
-  const inviteEligible = Boolean(
-    alumni?.needsEmployerInvite
-    && alumni?.verificationStatus === 'verified'
-    && !alumni?.requiresRetracking,
-  );
-  useEffect(() => {
-    if (inviteEligible && !inviteDismissed) setInviteLatched(true);
-  }, [inviteEligible, inviteDismissed]);
-  const showEmployerInvite = (inviteEligible || inviteLatched) && !inviteDismissed;
-  const closeEmployerInvite = () => {
-    setInviteDismissed(true);
-    setInviteLatched(false);
-    setAlumni((current: Record<string, unknown>) => {
-      const next = { ...current, needsEmployerInvite: false };
-      sessionStorage.setItem('alumni_user', JSON.stringify(next));
-      return next;
-    });
-  };
+  // No employer-invite prompt here any more: the panel moved employer
+  // verification to the admin, who sends the link to the company address the
+  // graduate gave with their current job. The status strip below still tells
+  // the graduate where that check stands.
 
   // After every hook: returning earlier changed the hook count between renders.
   if (requiresRetracking) return null;
@@ -127,7 +102,7 @@ export function AlumniDashboard() {
       tone: 'bg-amber-50 border-amber-200 text-amber-800',
     },
     verified: { title: 'Employment confirmed by your employer', detail: 'Your current job has been verified.', tone: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-    denied: { title: 'Your employer could not confirm this job', detail: 'Check your employment details, then send a new link.', tone: 'bg-red-50 border-red-200 text-red-800' },
+    denied: { title: 'Your employer could not confirm this job', detail: 'Check your employment details and keep them up to date — the University will follow up with your employer.', tone: 'bg-red-50 border-red-200 text-red-800' },
   }[employerCheck.status];
 
   const daysSinceUpdate = Math.floor(
@@ -394,15 +369,6 @@ export function AlumniDashboard() {
 
       </div>
 
-      <EmployerInviteModal
-        open={showEmployerInvite}
-        onClose={closeEmployerInvite}
-        alumniId={alumniId}
-        subtitle={alumni.company
-          ? `You're working at ${alumni.company}. Send this link to your employer so they can confirm it.`
-          : 'Send this link to your employer so they can confirm your job.'}
-        footnote="Need another link later? Use “Share verification link with your employer” on the Update Employment page."
-      />
     </PortalLayout>
   );
 }

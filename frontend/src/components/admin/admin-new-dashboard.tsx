@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { StatCard } from '../shared/stat-card';
 import type { AlumniRecord } from '../../data/app-data';
-import { fetchPendingAlumni, fetchVerifiedAlumni, fetchReport, fetchAuditFeed } from '../../app/api-client';
-import type { AuditEvent, AuditKind, AuditTotals } from '../../app/api-client';
+import {
+  fetchPendingAlumni, fetchVerifiedAlumni, fetchReport, fetchAuditFeed,
+  fetchMasterlist, fetchJobMobility,
+} from '../../app/api-client';
+import type { AuditEvent, AuditKind, AuditTotals, JobMobilityData } from '../../app/api-client';
 import {
   Users, Briefcase, TrendingUp, Map as MapIcon,
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
-  ClipboardCheck, Upload, RefreshCw, ShieldCheck,
+  ClipboardCheck, Upload, RefreshCw, ShieldCheck, GraduationCap, Repeat,
 } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend, Line, ComposedChart } from 'recharts';
 import type { ReportPayload } from '../../app/api-client';
 
 /** Earliest batch the tracer covers; the report is filtered from here to now. */
@@ -343,6 +346,14 @@ export function AdminNewDashboard() {
   // Needs Retracing link opens.
   const [listedAlumni, setListedAlumni] = useState<AlumniRecord[]>([]);
   const [alignment, setAlignment] = useState<AlignmentSummary | null>(null);
+  // Graduates on the CHMSU masterlist — the denominator the panel asked the
+  // charts to be read against (BSIS 2020-2025 = 489), not the number who have
+  // registered. Totals only: the per-name rows are ~500 and nothing here reads them.
+  const [masterTotals, setMasterTotals] = useState<{ total: number; perBatch: { year: number; count: number }[] } | null>(null);
+  const [mobility, setMobility] = useState<JobMobilityData | null>(null);
+  // Batch range for the time-to-hire chart, inclusive. 'all' is every batch.
+  const [hireFrom, setHireFrom] = useState<number | 'all'>('all');
+  const [hireTo, setHireTo] = useState<number | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState('');
@@ -357,7 +368,10 @@ export function AdminNewDashboard() {
         setRefreshing(true);
       }
 
-      const [pendingResult, verifiedResult, alignmentResult, listedResult, auditResult] = await Promise.allSettled([
+      const [
+        pendingResult, verifiedResult, alignmentResult, listedResult, auditResult,
+        masterResult, mobilityResult,
+      ] = await Promise.allSettled([
           fetchPendingAlumni(),
           fetchVerifiedAlumni('analytics'),
           // Curriculum alignment comes from the batch-summary report rather
@@ -373,6 +387,9 @@ export function AdminNewDashboard() {
           // blank the rest of the dashboard, and it refreshes on the same tick.
           // The endpoint's own ceiling; the modal pages through it 15 at a time.
           fetchAuditFeed(50),
+          // Totals only; the entries list stays on the batch-upload page.
+          fetchMasterlist(true),
+          fetchJobMobility(),
         ]);
 
       const errorMessages: string[] = [];
@@ -387,6 +404,13 @@ export function AdminNewDashboard() {
       }
 
       if (listedResult.status === 'fulfilled') setListedAlumni(listedResult.value as AlumniRecord[]);
+
+      // Both are card-level: a missing masterlist or mobility count must not
+      // blank the dashboard, it just leaves those cards saying so.
+      if (masterResult.status === 'fulfilled') {
+        setMasterTotals({ total: masterResult.value.total, perBatch: masterResult.value.perBatch });
+      }
+      if (mobilityResult.status === 'fulfilled') setMobility(mobilityResult.value);
 
       // Its own error flag rather than the shared banner: an unavailable audit
       // feed is a card-level problem, not a reason to alarm about the dashboard.
@@ -443,13 +467,22 @@ export function AdminNewDashboard() {
   // Verified graduates whose employment record is over two years old.
   const retraceCount = listedAlumni.filter(a => a.requiresRetracking === true).length;
 
+  const masterByYear = useMemo(() => {
+    const map = new globalThis.Map<number, number>();
+    (masterTotals?.perBatch ?? []).forEach((b) => map.set(Number(b.year), Number(b.count)));
+    return map;
+  }, [masterTotals]);
+
   const batchYears = useMemo(() => {
     const years = Array.from(
-      new Set(
-        registeredAlumni
+      new Set([
+        ...registeredAlumni
           .map((a) => Number(a.graduationYear))
           .filter((year) => Number.isFinite(year) && year > 0),
-      ),
+        // A batch where nobody has registered yet still belongs on the chart:
+        // the point of showing total graduates is that the gap is visible.
+        ...masterByYear.keys(),
+      ]),
     ).sort((a, b) => a - b);
 
     if (years.length > 0) {
@@ -458,7 +491,7 @@ export function AdminNewDashboard() {
 
     const currentYear = new Date().getFullYear();
     return [currentYear - 5, currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
-  }, [registeredAlumni]);
+  }, [registeredAlumni, masterByYear]);
 
   const batchData = useMemo(() => (
     batchYears.map((year) => {
@@ -469,9 +502,13 @@ export function AdminNewDashboard() {
         total: verifiedBatch.length,
         employed: employedBatch,
         notEmployed: verifiedBatch.length - employedBatch,
+        // Graduates on the masterlist for this batch. The stacked bars only
+        // ever covered graduates who registered AND were verified, which read
+        // as the whole batch; this line is the batch.
+        graduates: masterByYear.get(year) ?? 0,
       };
     })
-  ), [batchYears, verifiedAlumni]);
+  ), [batchYears, verifiedAlumni, masterByYear]);
 
   const yearlyEmploymentRates = useMemo(() => (
     batchData.map((batch) => ({
@@ -482,10 +519,13 @@ export function AdminNewDashboard() {
 
   const timeToHireData = useMemo(() => {
     const byYear = new globalThis.Map<number, { totalMonths: number; entries: number }>();
+    const from = hireFrom === 'all' ? -Infinity : hireFrom;
+    const to = hireTo === 'all' ? Infinity : hireTo;
 
     verifiedAlumni.forEach((alumni) => {
       const year = Number(alumni.graduationYear);
       if (!Number.isFinite(year) || year <= 0) return;
+      if (year < from || year > to) return;
 
       const surveyData = ((alumni as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
       let months = mapTimeToHireMonths(surveyData.timeToHire);
@@ -511,7 +551,7 @@ export function AdminNewDashboard() {
         year: String(year),
         avgMonths: Number((aggregate.totalMonths / aggregate.entries).toFixed(1)),
       }));
-  }, [verifiedAlumni]);
+  }, [verifiedAlumni, hireFrom, hireTo]);
 
   const recentAlumni = useMemo(() => (
     [...registeredAlumni]
@@ -650,7 +690,14 @@ export function AdminNewDashboard() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 gt-stagger">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 gt-stagger">
+          {/* The CHMSU masterlist count, not a count of accounts: every rate on
+              this page is a share of it, so it belongs first. */}
+          <StatCard label="Total Graduates" value={masterTotals?.total ?? '—'}
+            sub={masterTotals
+              ? `BSIS masterlist · ${totalRegistered} registered (${masterTotals.total > 0 ? Math.round((totalRegistered / masterTotals.total) * 100) : 0}%)`
+              : 'Masterlist unavailable'}
+            icon={GraduationCap} iconBg="bg-indigo-50" iconColor="text-indigo-600" />
           <StatCard label="Total Registered" value={totalRegistered} sub={`${pendingAlumni.length} pending · ${verifiedCount} verified`}
             icon={Users} iconBg="bg-[#166534]/10" iconColor="text-[#166534]" />
           <StatCard label="Employment Rate" value={`${empRate}%`}
@@ -756,7 +803,31 @@ export function AdminNewDashboard() {
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <Clock className="size-4 text-[#166534]" /> Avg. Time-to-Hire (months)
             </h3>
-            <p className="text-gray-400 text-xs mb-4">Computed from CHED employment answers of verified graduates</p>
+            <p className="text-gray-400 text-xs mb-3">Computed from CHED employment answers of verified graduates</p>
+            {/* Batch range, inclusive. Asked for by the panel: without it the
+                chart always spans every batch the system holds. */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="text-gray-500 text-xs">Batches</span>
+              <select value={String(hireFrom)}
+                onChange={(e) => setHireFrom(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-[#166534]">
+                <option value="all">Earliest</option>
+                {batchYears.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <span className="text-gray-400 text-xs">to</span>
+              <select value={String(hireTo)}
+                onChange={(e) => setHireTo(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-[#166534]">
+                <option value="all">Latest</option>
+                {batchYears.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {(hireFrom !== 'all' || hireTo !== 'all') && (
+                <button type="button" onClick={() => { setHireFrom('all'); setHireTo('all'); }}
+                  className="text-[#166534] text-xs hover:underline" style={{ fontWeight: 600 }}>
+                  Clear
+                </button>
+              )}
+            </div>
             {timeToHireData.length > 0 ? (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={timeToHireData}>
@@ -791,7 +862,9 @@ export function AdminNewDashboard() {
           <div className="lg:col-span-2 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 lg:flex lg:flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Batch Employment Breakdown</h3>
-              <span className="text-gray-400 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">Verified only</span>
+              <span className="text-gray-400 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">
+                Bars: verified · Line: all graduates
+              </span>
             </div>
             {/* Phones: fixed 160px (cards stack). Desktop: the row is as tall as
                 Quick Access, so the chart fills the card instead of leaving the
@@ -799,7 +872,7 @@ export function AdminNewDashboard() {
             <div className="relative h-[160px] lg:h-auto lg:flex-1 lg:min-h-[260px]">
               <div className="absolute inset-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={batchData}>
+                  <ComposedChart data={batchData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
@@ -807,7 +880,12 @@ export function AdminNewDashboard() {
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
                     <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                  </BarChart>
+                    {/* The batch itself, from the masterlist. The gap between
+                        this line and the bars is the batch that has not been
+                        traced yet, which the bars alone never showed. */}
+                    <Line key="line-graduates" type="monotone" dataKey="graduates" name="Total graduates"
+                      stroke="#4f46e5" strokeWidth={2} dot={{ fill: '#4f46e5', r: 3 }} isAnimationActive={false} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -835,6 +913,83 @@ export function AdminNewDashboard() {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Job mobility: graduates who have worked for more than one employer
+            since graduating. A second employer makes a second EmploymentRecord,
+            so this is counted, not estimated. */}
+        <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
+                <Repeat className="size-4 text-[#166534]" /> Graduates with Multiple Jobs
+              </h3>
+              <p className="text-gray-400 text-xs mt-0.5">
+                Counted by distinct employers on record, so a promotion at the same company is not a second job.
+              </p>
+            </div>
+            {mobility && (
+              <div className="text-right">
+                <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1 }}>
+                  {mobility.multiJobGraduates}
+                </p>
+                <p className="text-gray-400 text-xs mt-1">
+                  of {mobility.graduates} graduate{mobility.graduates === 1 ? '' : 's'}
+                  {mobility.graduates > 0 ? ` · ${Math.round((mobility.multiJobGraduates / mobility.graduates) * 100)}%` : ''}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {!mobility ? (
+            <p className="text-gray-400 text-sm py-6 text-center">Job-mobility figures could not be loaded.</p>
+          ) : mobility.multiJobGraduates === 0 ? (
+            <p className="text-gray-400 text-sm py-6 text-center">
+              No graduate has a second employer on record yet.
+            </p>
+          ) : (
+            <div className="grid lg:grid-cols-2 gap-5">
+              <div className="min-w-0">
+                <p className="text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>By batch</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={mobility.perBatch.map((b) => ({
+                    year: String(b.year), multiJob: b.multiJob, oneJob: Math.max(0, b.graduates - b.multiJob),
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="multiJob" stackId="jobs" name="2+ employers" fill="#166534" />
+                    <Bar dataKey="oneJob" stackId="jobs" name="1 or none" fill="#d1d5db" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="min-w-0">
+                <p className="text-gray-600 text-xs mb-2" style={{ fontWeight: 600 }}>
+                  By individual · most employers first
+                </p>
+                <ul className="divide-y divide-gray-50 max-h-[200px] overflow-y-auto pr-1">
+                  {mobility.individuals.map((person) => (
+                    <li key={person.id} className="flex items-start gap-3 py-2">
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-[11px]"
+                        style={{ fontWeight: 700 }}>
+                        {person.jobs}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-gray-800 text-xs truncate" style={{ fontWeight: 600 }}>{person.name}</p>
+                        <p className="text-gray-400 text-[11px] truncate">
+                          Batch {person.graduationYear ?? 'N/A'}
+                          {person.currentCompany ? ` · now at ${person.currentCompany}` : ''}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Very wide screens: recent updates and top skills side by side. */}

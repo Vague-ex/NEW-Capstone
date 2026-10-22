@@ -701,7 +701,10 @@ def _alumni_dashboard_queryset(qs):
     from N+1 queries (one per related table per alumni) to a constant 4
     additional queries regardless of result-set size.
     """
-    from tracer.models import AlumniSkill, CompetencyProfile, EmploymentProfile, WorkAddress
+    from tracer.models import (
+        AlumniSkill, CompetencyProfile, EmploymentProfile, EmploymentRecord,
+        VerificationToken, WorkAddress,
+    )
     from .models import FaceScan
 
     # The face descriptors are ~95% of biometric_template (40-80 KB per
@@ -729,6 +732,20 @@ def _alumni_dashboard_queryset(qs):
             "competency_profiles",
             queryset=CompetencyProfile.objects.order_by("-assessment_date"),
             to_attr="_prefetched_comp",
+        ),
+        # Employer-verification state of the current job. One extra query for
+        # the whole page instead of one per graduate, which is what the
+        # "not yet employer-verified" filter on the verified list runs over.
+        Prefetch(
+            "employment_records",
+            queryset=EmploymentRecord.objects.filter(is_current=True).prefetch_related(
+                Prefetch(
+                    "verification_tokens",
+                    queryset=VerificationToken.objects.order_by("-created_at"),
+                    to_attr="_prefetched_tokens",
+                ),
+            ),
+            to_attr="_prefetched_current_record",
         ),
         # Front face scan for the primary-photo fallback in _admin_alumni_payload.
         # Without this, accounts whose photo URL isn't on the JSON blob (e.g. the
@@ -858,6 +875,8 @@ def _normalized_view_from_tables(account: AlumniAccount) -> dict:
             view["natureOfBusiness"] = emp.nature_of_business
         if emp.current_job_company:
             view["currentJobCompany"] = emp.current_job_company
+        if emp.current_job_employer_email:
+            view["currentJobEmployerEmail"] = emp.current_job_employer_email
         if emp.current_job_sector:
             view["currentJobSector"] = _SECTOR_LABELS.get(emp.current_job_sector, emp.current_job_sector)
         if emp.current_job_related_to_bsis is True:
@@ -1150,6 +1169,39 @@ def _admin_retracking_fields(account: AlumniAccount) -> dict:
     fields["lastRetrackingReminderAt"] = reminded.isoformat() if reminded else None
     return fields
 
+def _employer_verification_fields(account: AlumniAccount) -> dict:
+    """Where the employer check of the CURRENT job stands, for the admin lists.
+
+    Separate from `verificationStatus`, which is the account's own approval
+    state. Reads the prefetched current EmploymentRecord so the verified list
+    can filter on it without a query per graduate.
+    """
+    from tracer.models import EmploymentRecord
+
+    record = _first_prefetched(account, "_prefetched_current_record")
+    if record is None:
+        cached = getattr(account, "_prefetched_current_record", None)
+        if cached is None:  # not prefetched (single-graduate callers)
+            record = EmploymentRecord.objects.filter(alumni=account, is_current=True).first()
+    if record is None:
+        return {"employerVerificationStatus": "none", "employerVerificationSentAt": None}
+    if record.verification_status != EmploymentRecord.VerificationStatus.PENDING:
+        return {
+            "employerVerificationStatus": record.verification_status,
+            "employerVerificationSentAt": None,
+        }
+    tokens = getattr(record, "_prefetched_tokens", None)
+    if tokens is None:
+        tokens = list(record.verification_tokens.order_by("-created_at"))
+    token = tokens[0] if tokens else None
+    return {
+        # "none" = nobody has ever been asked; "sent" = a link is out and
+        # unanswered. The filter the panel asked for is both of these.
+        "employerVerificationStatus": "sent" if token else "none",
+        "employerVerificationSentAt": token.created_at.isoformat() if token else None,
+    }
+
+
 def _positive_int(value):
     """Query-parameter integer, or None when absent / junk / not positive."""
     try:
@@ -1249,6 +1301,7 @@ def _session_payload_from_alumni(account: AlumniAccount) -> dict:
         "employmentStatus": employment_status,
         "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
         "company": survey_data.get("currentJobCompany") or "",
+        "employerEmail": survey_data.get("currentJobEmployerEmail") or "",
         "industry": survey_data.get("currentJobSector") or survey_data.get("firstJobSector") or "",
         "workLocation": survey_data.get("currentJobLocation") or "",
         "unemploymentReason": survey_data.get("unemploymentReason") or "",
@@ -1532,6 +1585,11 @@ def _admin_alumni_payload(account: AlumniAccount) -> dict:
         "hasGraduated": bool(getattr(_profile_or_none(account), "has_graduated", True)),
         "jobTitle": survey_data.get("currentJobPosition") or survey_data.get("firstJobTitle") or "",
         "company": survey_data.get("currentJobCompany") or "",
+        # Shown on both the pending-verification card and the verified card:
+        # the admin sends the employer link from there, so the address has to
+        # be on the card and not only inside the survey blob.
+        "employerEmail": survey_data.get("currentJobEmployerEmail") or "",
+        **_employer_verification_fields(account),
         "industry": survey_data.get("currentJobSector") or survey_data.get("firstJobSector") or "",
         "jobAlignment": job_alignment,
         "workLocation": survey_data.get("currentJobLocation") or "",
@@ -2154,6 +2212,12 @@ def _extract_employment_profile_data(survey_data: dict) -> dict:
         "current_job_status": survey_data.get("current_job_status"),
         "nature_of_business": survey_data.get("nature_of_business"),
         "current_job_company": survey_data.get("current_job_company"),
+        # Where the admin will send the employer-verification link.
+        "current_job_employer_email": (
+            survey_data.get("current_job_employer_email")
+            or survey_data.get("currentJobEmployerEmail")
+            or ""
+        ).strip().lower()[:254] or None,
         "current_job_related_to_bsis": survey_data.get("current_job_related_to_bsis"),
         "location_type": survey_data.get("location_type"),
 
@@ -3611,6 +3675,8 @@ def _serialize_employer_decision(decision) -> dict:
         "decision": decision.decision,
         "decidedAt": decision.decided_at.isoformat(),
         "comment": decision.comment or "",
+        "denyReason": decision.deny_reason or "",
+        "denyReasonLabel": dict(VerificationDecision.DenyReason.choices).get(decision.deny_reason, ""),
         "verifierName": decision.verifier_name or "",
         "verifierEmail": decision.verifier_email or "",
         "verifierPosition": decision.verifier_position or "",
@@ -4310,11 +4376,17 @@ class MasterlistListView(APIView):
             for r in qs
         ]
         per_batch = Counter(e["graduationYear"] for e in entries if e["graduationYear"] is not None)
-        return Response({
+        payload = {
             "total": len(entries),
             "perBatch": [{"year": y, "count": c} for y, c in sorted(per_batch.items())],
             "entries": entries,
-        })
+        }
+        # ?summary=1 drops the 489 name rows. The dashboard only needs the
+        # totals, to show how many graduates the system is measuring against,
+        # and shipping the whole list to draw one bar is pure egress.
+        if _as_bool(request.query_params.get("summary")):
+            payload.pop("entries")
+        return Response(payload)
 
 # The study covers BSIS batches from 2020. Earlier years are out of scope,
 # so the master list refuses them rather than quietly carrying a batch the

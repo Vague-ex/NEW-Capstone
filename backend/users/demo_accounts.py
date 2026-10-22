@@ -15,6 +15,7 @@ rest of the DEBUG-ONLY:CurrenChanDebug regions.
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 from django.db import transaction
@@ -24,6 +25,11 @@ from tracer import employability
 from tracer.models import EmploymentProfile, EmploymentRecord, VerificationDecision, VerificationToken
 
 from .models import AccountStatus, AlumniAccount, AlumniProfile, RetrackingEvent, User
+
+
+def _slug(name: str) -> str:
+    """Company name as a mail-domain label, for the reserved .test addresses."""
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())[:24] or "employer"
 
 # A grey silhouette: the demo accounts show a photo instead of the "face
 # capture missing" alert, without borrowing a real person's face.
@@ -141,6 +147,9 @@ def _graduate(key, first, middle, last, gender, batch, *, registered_days, title
         time_to_hire_months=3 if company else None,
         first_job_title=title, first_job_company=company,
         current_job_title=title, current_job_company=company,
+        # Reserved .test domain: email_send skips it, so the admin's send
+        # button is demonstrable without mailing anyone.
+        current_job_employer_email=(f"hr@{_slug(company)}.test" if company else None),
         current_job_sector=EmploymentProfile.SectorChoices.PRIVATE if company else None,
         current_job_related_to_bsis=True if company else None,
         survey_completion_status="completed",

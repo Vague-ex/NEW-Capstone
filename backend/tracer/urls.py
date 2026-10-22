@@ -2,6 +2,8 @@ from django.urls import path
 
 from .api import (
     AdminAnalyticsPredictionsView,
+    AdminEmployerVerificationSendView,
+    AdminJobMobilityView,
     BarangayDetailView,
     BarangayListView,
     CityMunicipalityDetailView,
@@ -107,6 +109,14 @@ urlpatterns = [
 
     # Admin analytics endpoints (Phase 3)
     path("admin/analytics/employability-predictions/", AdminAnalyticsPredictionsView.as_view(), name="admin-predictions"),
+    path("admin/analytics/job-mobility/", AdminJobMobilityView.as_view(), name="admin-job-mobility"),
+
+    # Admin-sent employer verification links (one graduate or many).
+    path(
+        "admin/employer-verification/send/",
+        AdminEmployerVerificationSendView.as_view(),
+        name="admin-employer-verification-send",
+    ),
 
     # Admin report-data endpoints (powering admin-reports.tsx)
     path("admin/reports/batch-summary/", BatchSummaryReportView.as_view(), name="admin-report-batch-summary"),

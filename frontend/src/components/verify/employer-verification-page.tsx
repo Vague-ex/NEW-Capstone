@@ -101,6 +101,21 @@ function Section({ id, step, title, subtitle, children }: {
 }
 
 /**
+ * Why a verifier said no. Mandatory on the deny path and a closed list,
+ * because "no" on its own cannot tell a graduate who left or was let go apart
+ * from one who never worked there — and only the first two leave an
+ * employment history worth keeping.
+ */
+const DENY_REASONS = [
+  { value: 'resigned', label: 'No longer employed here — resigned' },
+  { value: 'terminated', label: 'No longer employed here — terminated or contract ended' },
+  { value: 'never_employed', label: 'Never worked at this organisation' },
+  { value: 'different_role', label: 'Works here, but not in the role stated' },
+  { value: 'cannot_confirm', label: 'Cannot confirm — no record, or not my department' },
+  { value: 'other', label: 'Other (please explain below)' },
+] as const;
+
+/**
  * Employment status, with the Confidential Feedback Form's own three-way
  * answer beside it. The employer is asked once, here, and the form reuses it;
  * keeping both columns in one table is what stops the two drifting apart.
@@ -126,6 +141,7 @@ export function EmployerVerificationPage() {
   const [employmentStatus, setEmploymentStatus] = useState('');
   const [startDate, setStartDate] = useState('');
   const [comment, setComment] = useState('');
+  const [denyReason, setDenyReason] = useState('');
 
   const [verifierName, setVerifierName] = useState('');
   const [verifierEmail, setVerifierEmail] = useState('');
@@ -178,11 +194,14 @@ export function EmployerVerificationPage() {
     if (worksHere === null) return items;
     if (worksHere && !employerName.trim()) items.push({ sectionId: 'section-job', text: 'organisation name' });
     if (worksHere && !employmentStatus) items.push({ sectionId: 'section-job', text: 'employment status' });
-    if (!verifierName.trim()) items.push({ sectionId: 'section-you', text: 'your name' });
+    // Saying no asks for the reason and an address, nothing else: the name,
+    // organisation and position are optional there, like the comment.
+    if (!worksHere && !denyReason) items.push({ sectionId: 'section-no', text: 'a reason' });
+    if (worksHere && !verifierName.trim()) items.push({ sectionId: 'section-you', text: 'your name' });
     if (!EMAIL_RE.test(verifierEmail.trim())) items.push({ sectionId: 'section-you', text: 'a valid work email' });
-    if (!verifierPosition.trim()) items.push({ sectionId: 'section-you', text: 'your position' });
+    if (worksHere && !verifierPosition.trim()) items.push({ sectionId: 'section-you', text: 'your position' });
     return items;
-  }, [worksHere, employerName, employmentStatus, verifierName, verifierEmail, verifierPosition]);
+  }, [worksHere, employerName, employmentStatus, denyReason, verifierName, verifierEmail, verifierPosition]);
 
   const submit = useCallback(async () => {
     if (worksHere === null) return;
@@ -206,6 +225,7 @@ export function EmployerVerificationPage() {
       const res = await submitVerificationDecision(tokenId, {
         decision,
         comment: comment.trim(),
+        ...(decision === 'deny' ? { deny_reason: denyReason } : {}),
         verified_employer_name: employerName.trim(),
         verified_job_title_id: jobTitleId || undefined,
         verifier_name: verifierName.trim(),
@@ -224,7 +244,7 @@ export function EmployerVerificationPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [tokenId, worksHere, missing, comment, employerName, jobTitleId, detail,
+  }, [tokenId, worksHere, missing, comment, denyReason, employerName, jobTitleId, detail,
       verifierName, verifierEmail, verifierPosition, evaluation]);
 
   const graduateName = detail?.alumni?.name ?? 'BSIS Graduate';
@@ -253,7 +273,9 @@ export function EmployerVerificationPage() {
       verifierName, verifierPosition, verifierEmail]);
 
   const selfName = isSamePerson(verifierName, graduateName);
-  const stepYou = worksHere ? 3 : 2;
+  // Step 2 is "Job details" on yes and "Why not?" on no, so step 3 is "Your
+  // details" either way.
+  const stepYou = 3;
   const showBar = stage === 'form' && worksHere !== null;
   const needs = (text: string) => triedSubmit && missing.some((m) => m.text === text);
 
@@ -394,10 +416,39 @@ export function EmployerVerificationPage() {
               </Section>
             )}
 
-            {worksHere !== null && (
-              <Section id="section-you" step={stepYou} title="Your details" subtitle="So the University knows who confirmed this record.">
+            {worksHere === false && (
+              <Section
+                id="section-no"
+                step={2}
+                title="Why not?"
+                subtitle="The University records this with the graduate's history. Only the reason is required."
+              >
                 <div className="space-y-4">
-                  <Field label="Your name" required htmlFor="v-name"
+                  <Field label="Reason" required htmlFor="v-deny-reason"
+                    hint="Someone who left and someone who never worked here mean different things for the record.">
+                    <select id="v-deny-reason" value={denyReason}
+                      onChange={(e) => setDenyReason(e.target.value)}
+                      className={`${inputCls} ${needs('a reason') ? 'border-red-400 ring-2 ring-red-100' : ''}`}>
+                      <option value="">Select a reason</option>
+                      {DENY_REASONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Organisation name" htmlFor="v-no-org"
+                    hint="Only if you want the record to name where you are answering from.">
+                    <input id="v-no-org" value={employerName} onChange={(e) => setEmployerName(e.target.value)}
+                      autoComplete="organization" className={inputCls} placeholder="e.g. Accenture Philippines" />
+                  </Field>
+                </div>
+              </Section>
+            )}
+
+            {worksHere !== null && (
+              <Section id="section-you" step={stepYou} title="Your details"
+                subtitle={worksHere
+                  ? 'So the University knows who confirmed this record.'
+                  : 'Only your email is needed. The rest is optional.'}>
+                <div className="space-y-4">
+                  <Field label="Your name" required={worksHere === true} htmlFor="v-name"
                     hint={selfName ? `That is the graduate's own name — ${firstName} cannot confirm this. Enter your own.` : undefined}
                     hintTone={selfName ? 'error' : undefined}>
                     <input id="v-name" value={verifierName} onChange={(e) => setVerifierName(e.target.value)}
@@ -411,7 +462,7 @@ export function EmployerVerificationPage() {
                       className={`${inputCls} ${needs('a valid work email') ? 'border-red-400 ring-2 ring-red-100' : ''}`}
                       placeholder="you@company.com" />
                   </Field>
-                  <Field label="Your position" required htmlFor="v-position">
+                  <Field label="Your position" required={worksHere === true} htmlFor="v-position">
                     <input id="v-position" value={verifierPosition} onChange={(e) => setVerifierPosition(e.target.value)}
                       autoComplete="organization-title"
                       className={`${inputCls} ${needs('your position') ? 'border-red-400 ring-2 ring-red-100' : ''}`}

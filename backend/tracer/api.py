@@ -26,6 +26,7 @@ from .models import (
     CityMunicipality,
     Country,
     CountryDivision,
+    EmploymentProfile,
     EmploymentRecord,
     Industry,
     JobTitle,
@@ -176,6 +177,7 @@ def _serialize_verification_decision(decision: VerificationDecision) -> dict:
         "id": str(decision.id),
         "decision": decision.decision,
         "comment": decision.comment,
+        "denyReason": decision.deny_reason,
         "verifiedEmployerName": decision.verified_employer_name,
         "verifiedJobTitleId": str(decision.verified_job_title_id) if decision.verified_job_title_id else None,
         "verifiedJobTitleName": decision.verified_job_title.name if decision.verified_job_title else None,
@@ -1241,6 +1243,271 @@ class AlumniVerificationInviteView(APIView):
         )
 
 
+class AdminJobMobilityView(APIView):
+    """GET /api/admin/analytics/job-mobility/
+
+    How many graduates have held more than one job since graduating, by batch
+    and by individual. A second EmploymentRecord is created whenever a
+    graduate changes company or title, and the old one is kept with
+    is_current=False, so the count of records per graduate IS their job count
+    -- no new table and no new bookkeeping.
+    """
+
+    permission_classes = []  # Admin only - checked below
+
+    #: The individual list is a side panel, not a report.
+    TOP_INDIVIDUALS = 25
+
+    def get(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+        from collections import defaultdict
+
+        from users.models import AccountStatus, AlumniAccount
+
+        from . import employability
+
+        source = employability.analytics_source()
+        accounts = employability.exclude_not_yet_graduated(
+            employability.filter_source(
+                AlumniAccount.objects.filter(account_status=AccountStatus.ACTIVE), source,
+            )
+        )
+        try:
+            accounts = list(
+                accounts.select_related("user", "profile", "master_record")
+                .only(
+                    "id", "user__email", "profile__first_name", "profile__middle_name",
+                    "profile__last_name", "profile__graduation_year",
+                    "master_record__full_name", "master_record__batch_year",
+                )
+            )
+            by_alumni: dict = defaultdict(list)
+            for alumni_id, company, title, is_current in (
+                EmploymentRecord.objects
+                .filter(alumni_id__in=[a.id for a in accounts])
+                .order_by("created_at")
+                .values_list("alumni_id", "employer_name_input", "job_title_input", "is_current")
+            ):
+                by_alumni[alumni_id].append((company, title, is_current))
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        per_batch: dict[int, dict] = {}
+        individuals = []
+        for account in accounts:
+            jobs = by_alumni.get(account.id, [])
+            # Distinct employers, not rows: a title change at the same company
+            # makes a new record, which is a role change, not a second job.
+            companies = {(c or "").strip().lower() for c, _t, _cur in jobs if (c or "").strip()}
+            year = _batch_year_of(account)
+            if year is not None:
+                bucket = per_batch.setdefault(year, {"year": year, "graduates": 0, "multiJob": 0})
+                bucket["graduates"] += 1
+                if len(companies) > 1:
+                    bucket["multiJob"] += 1
+            if len(companies) > 1:
+                current = next((c for c, _t, cur in reversed(jobs) if cur and c), "")
+                individuals.append({
+                    "id": str(account.id),
+                    "name": _account_display_name(account),
+                    "graduationYear": year,
+                    "jobs": len(companies),
+                    "currentCompany": current,
+                    "employers": [c for c, _t, _cur in jobs if c],
+                })
+
+        individuals.sort(key=lambda row: (-row["jobs"], row["name"]))
+        return Response({
+            "graduates": len(accounts),
+            "multiJobGraduates": sum(1 for row in individuals),
+            "perBatch": [per_batch[year] for year in sorted(per_batch)],
+            "individuals": individuals[: self.TOP_INDIVIDUALS],
+            "dataSource": source,
+        })
+
+
+def _batch_year_of(account) -> int | None:
+    profile = getattr(account, "profile", None)
+    if profile and profile.graduation_year:
+        return int(profile.graduation_year)
+    if account.master_record_id and account.master_record:
+        return int(account.master_record.batch_year)
+    return None
+
+
+def _account_display_name(account) -> str:
+    profile = getattr(account, "profile", None)
+    if profile:
+        name = " ".join(
+            part.strip()
+            for part in [profile.first_name, profile.middle_name, profile.last_name]
+            if part and part.strip()
+        )
+        if name:
+            return name
+    if account.master_record_id and account.master_record:
+        return account.master_record.full_name
+    return account.user.email
+
+
+class AdminEmployerVerificationSendView(APIView):
+    """Admin-initiated employer verification.
+
+    The panel moved this flow out of the graduate's hands: the admin mints the
+    one-time link and sends it to the company address the graduate gave at
+    registration. One view serves both buttons on the Verified Graduates page
+    -- "Send" on a single card passes one id, "Send to all unverified" passes
+    many -- because the only difference is the length of the list.
+    """
+
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    #: One click must not be able to mail an unbounded number of employers.
+    MAX_PER_CALL = 200
+
+    def post(self, request):
+        _admin_user, _auth_error = require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        raw_ids = request.data.get("alumni_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return Response(
+                {"detail": "alumni_ids must be a non-empty list of graduate ids."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(raw_ids) > self.MAX_PER_CALL:
+            return Response(
+                {"detail": f"Send to at most {self.MAX_PER_CALL} graduates at a time."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # An address typed by the admin applies only when they are sending to
+        # one graduate; in bulk each record uses its own stored address.
+        override_email = str(request.data.get("employer_email") or "").strip().lower()
+        if override_email:
+            if len(raw_ids) != 1:
+                return Response(
+                    {"detail": "employer_email can only be given when sending to one graduate."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                validate_email(override_email)
+            except DjangoValidationError:
+                return Response(
+                    {"detail": "employer_email must be a valid email address."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # A malformed id would make the queryset below raise rather than answer,
+        # so bad ones are reported per row like any other unsendable graduate.
+        import uuid as _uuid
+
+        valid_ids = []
+        for raw_id in raw_ids:
+            try:
+                valid_ids.append(_uuid.UUID(str(raw_id)))
+            except (TypeError, ValueError):
+                continue
+
+        try:
+            records = {
+                str(record.alumni_id): record
+                for record in EmploymentRecord.objects
+                .select_related("alumni__user", "alumni__profile")
+                .filter(alumni_id__in=valid_ids, is_current=True)
+            }
+            profiles = dict(
+                EmploymentProfile.objects
+                .filter(alumni_id__in=valid_ids)
+                # Oldest first, so the dict ends up holding each graduate's
+                # most recent profile row.
+                .order_by("alumni_id", "updated_at")
+                .values_list("alumni_id", "current_job_employer_email")
+            )
+        except (OperationalError, DatabaseError):
+            return _database_unavailable_response()
+
+        # Outstanding links per record, in one query: a double-clicked bulk
+        # send must not mint a second token for every graduate on the page.
+        from django.db.models import Count
+
+        live_link_counts = {
+            row["employment_record"]: row["n"]
+            for row in VerificationToken.objects
+            .filter(
+                employment_record__in=list(records.values()),
+                status=VerificationToken.Status.PENDING,
+                expires_at__gt=timezone.now(),
+            )
+            .values("employment_record")
+            .annotate(n=Count("token_id"))
+        }
+
+        origin = _frontend_origin(request)
+        ttl_days = _VERIFICATION_TOKEN_DEFAULT_TTL_DAYS
+        results = []
+        sent = 0
+        for raw_id in raw_ids:
+            alumni_id = str(raw_id)
+            record = records.get(alumni_id)
+            if record is None:
+                results.append({"alumniId": alumni_id, "sent": False,
+                                "detail": "No current employment record to verify."})
+                continue
+            if record.verification_status != EmploymentRecord.VerificationStatus.PENDING:
+                results.append({"alumniId": alumni_id, "sent": False,
+                                "detail": f"Already {record.verification_status} by an employer."})
+                continue
+
+            email = override_email or (profiles.get(record.alumni_id) or "").strip().lower()
+            if not email:
+                results.append({"alumniId": alumni_id, "sent": False,
+                                "detail": "No employer email on file for this graduate."})
+                continue
+            graduate_email = (getattr(record.alumni.user, "email", "") or "").strip().lower()
+            if email == graduate_email:
+                results.append({"alumniId": alumni_id, "sent": False,
+                                "detail": "The employer address is the graduate's own address."})
+                continue
+
+            live_links = live_link_counts.get(record.id, 0)
+            if live_links >= _VERIFICATION_MAX_LIVE_LINKS:
+                results.append({"alumniId": alumni_id, "sent": False,
+                                "detail": f"{live_links} verification links are already live for this job."})
+                continue
+
+            try:
+                token = VerificationToken.objects.create(
+                    alumni=record.alumni,
+                    employment_record=record,
+                    expires_at=timezone.now() + timedelta(days=ttl_days),
+                    invited_email=email,
+                )
+            except (OperationalError, DatabaseError):
+                return _database_unavailable_response()
+
+            # A failed send still leaves a usable link, so the token is kept and
+            # the row says so rather than being reported as a success.
+            ok = _send_verification_invite_email(token, record, ttl_days, origin=origin)
+            sent += 1 if ok else 0
+            results.append({
+                "alumniId": alumni_id,
+                "sent": ok,
+                "email": email,
+                "detail": None if ok else "The link was created but the email could not be sent.",
+            })
+
+        return Response(
+            {"sent": sent, "requested": len(raw_ids), "results": results},
+            status=status.HTTP_200_OK,
+        )
+
+
 def _frontend_origin(request) -> str:
     """Where to point the employer's link: the site the graduate is using.
 
@@ -1379,18 +1646,27 @@ class VerificationTokenDecisionView(APIView):
         verifier_name = str(request.data.get("verifier_name") or "").strip()
         verifier_email = str(request.data.get("verifier_email") or "").strip().lower()
         verifier_position = str(request.data.get("verifier_position") or "").strip()
-        if not verifier_name or not verifier_email or not verifier_position:
+        is_deny = str(request.data.get("decision") or "").strip().lower() == (
+            VerificationDecision.Decision.DENY
+        )
+        # A deny asks for as little as possible: someone saying "this person
+        # does not work here" has no reason to hand over their own details, and
+        # requiring them is how a deny goes unanswered instead. What a deny
+        # DOES have to carry is why -- "left the company" and "never worked
+        # here" mean opposite things for the record.
+        if not is_deny and (not verifier_name or not verifier_email or not verifier_position):
             return Response(
                 {"detail": "verifier_name, verifier_email and verifier_position are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        try:
-            validate_email(verifier_email)
-        except DjangoValidationError:
-            return Response(
-                {"detail": "verifier_email must be a valid email address."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if verifier_email:
+            try:
+                validate_email(verifier_email)
+            except DjangoValidationError:
+                return Response(
+                    {"detail": "verifier_email must be a valid email address."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         # Strict: this page is public and every answer feeds the reports, so no
         # field may carry a link (an image URL pasted into the strengths box, say).
         from tracer.text_quality import first_link_field
@@ -1399,6 +1675,24 @@ class VerificationTokenDecisionView(APIView):
                 {"detail": f"Links are not allowed. Remove the link from {field.replace('_', ' ')}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Deny-specific rules, after the content check: a pasted link should be
+        # reported as a link whatever else the answer is missing.
+        deny_reason = ""
+        if is_deny:
+            deny_reason = str(request.data.get("deny_reason") or "").strip().lower()
+            if deny_reason not in set(VerificationDecision.DenyReason.values):
+                return Response(
+                    {"detail": "deny_reason is required and must be one of the listed reasons."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # The address stays required even here: it is the only field that
+            # ties a deny to someone, and a deny retires a verified record.
+            if not verifier_email:
+                return Response(
+                    {"detail": "verifier_email is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         raw_decision = str(request.data.get("decision") or "").strip().lower()
         valid_decisions = {
@@ -1504,7 +1798,7 @@ class VerificationTokenDecisionView(APIView):
         # admin should eyeball, which is the honest defence against
         # self-verification once accounts are gone.
         flags: list[str] = []
-        if token.invited_email and verifier_email != token.invited_email.strip().lower():
+        if verifier_email and token.invited_email and verifier_email != token.invited_email.strip().lower():
             flags.append("answered from a different address than the invite")
         if token.created_ip and verifier_ip and token.created_ip == verifier_ip:
             flags.append("link created and answered from the same device")
@@ -1527,6 +1821,7 @@ class VerificationTokenDecisionView(APIView):
                     verified_employer_name=verified_employer_name,
                     verified_job_title=verified_job_title,
                     decision=raw_decision,
+                    deny_reason=deny_reason,
                     comment=comment,
                     is_held=is_held_decision,
                     **(eval_kwargs or {}),
