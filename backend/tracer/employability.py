@@ -686,15 +686,16 @@ def model_summary(active, source: str = SOURCE_REAL) -> dict:
 
 
 def analytics_payload(
-    frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int | None = None,
+    frame, masterlist: dict[int, int], active=None, horizon: int | None = None,
     source: str = SOURCE_REAL, batch_start: int | None = None, batch_end: int | None = None,
 ) -> dict:
-    """`batch_start` / `batch_end` narrow the OVERALL figures to a run of
-    batches (either end may be open); `batch` is the single-batch form of the
-    same thing. The per-batch list and the trend always cover every batch.
+    """`batch_start` / `batch_end` narrow ONLY `time_to_first_job_range`, the
+    breakdown behind the Time to First Job chart; either end may be open.
+
+    The summary (`overall`) always covers every batch, and so do `per_batch`
+    and the trend built from it: a filter on one chart must not quietly change
+    what the headline numbers mean.
     """
-    if batch is not None and batch_start is None and batch_end is None:
-        batch_start = batch_end = batch
     future_graduation = (
         int(frame["future_graduation"].fillna(False).astype(bool).sum()) if "future_graduation" in frame.columns else 0
     )
@@ -706,19 +707,23 @@ def analytics_payload(
         entry["batch"] = value
         per_batch.append(entry)
 
+    overall = group_indicators(frame, sum(masterlist.values()) or None, active)
+
+    # Recomputed server-side rather than summed from per_batch in the browser:
+    # a batch with fewer than MIN_GROUP answers comes back with null counts, so
+    # adding the bands up client-side would drop those graduates in silence.
     if batch_start is None and batch_end is None:
-        overall = group_indicators(frame, sum(masterlist.values()) or None, active)
+        tfj_range = overall["time_to_first_job"]
     else:
         low = batch_start if batch_start is not None else min(batches, default=0)
         high = batch_end if batch_end is not None else max(batches, default=0)
         in_range = frame[(frame["batch"] >= low) & (frame["batch"] <= high)]
-        graduates = sum(count for year, count in masterlist.items() if low <= year <= high)
-        overall = group_indicators(in_range, graduates or None, active)
+        tfj_range = time_to_first_job(in_range["time_to_hire_months"].tolist())
 
     return {
-        "batch": batch,
         "batch_start": batch_start,
         "batch_end": batch_end,
+        "time_to_first_job_range": tfj_range,
         "overall": overall,
         "per_batch": per_batch,
         "outlook": employment_outlook(per_batch, horizon),

@@ -2443,8 +2443,8 @@ class AdminAnalyticsPredictionsView(APIView):
                 batch = int(batch_param)
             except ValueError:
                 return Response({"error": "batch must be integer"}, status=status.HTTP_400_BAD_REQUEST)
-        # A run of batches, either end open. `batch` is still accepted as the
-        # single-batch form of the same filter.
+        # A run of batches, either end open; it narrows the Time to First Job
+        # chart only. `batch` is still accepted as the single-batch form.
         batch_start = batch_end = None
         for name, value in (("batch_start", request.query_params.get("batch_start")),
                             ("batch_end", request.query_params.get("batch_end"))):
@@ -2460,6 +2460,8 @@ class AdminAnalyticsPredictionsView(APIView):
                 batch_end = parsed
         if batch_start is not None and batch_end is not None and batch_start > batch_end:
             batch_start, batch_end = batch_end, batch_start
+        if batch is not None and batch_start is None and batch_end is None:
+            batch_start = batch_end = batch
         # No horizon: the outlook runs through next calendar year (see employment_outlook).
         horizon = None
         if request.query_params.get("horizon"):
@@ -2490,7 +2492,6 @@ class AdminAnalyticsPredictionsView(APIView):
             frame,
             employability.masterlist_counts(source),
             employability.load_active_model(source),
-            batch=batch,
             batch_start=batch_start,
             batch_end=batch_end,
             horizon=horizon,

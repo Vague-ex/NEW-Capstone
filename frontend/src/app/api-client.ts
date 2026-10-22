@@ -1163,11 +1163,12 @@ export interface SkillsByBatch {
 }
 
 export interface AnalyticsPredictionsResponse {
-    batch: number | null;
-    /** The batch range `overall` was narrowed to; null at either end means open. */
+    /** The batch range the Time to First Job chart was narrowed to; null at either end means open. */
     batch_start: number | null;
     batch_end: number | null;
-    /** Summary for the selected batches, or for all of them. */
+    /** Time to first job over that range alone. Everything else covers all batches. */
+    time_to_first_job_range: TimeToFirstJob;
+    /** Summary over every batch, whatever the chart above is filtered to. */
     overall: EmployabilityIndicators;
     /** Every batch on the masterlist or with respondents, oldest first. */
     per_batch: BatchIndicators[];
@@ -1184,17 +1185,16 @@ export interface AnalyticsPredictionsResponse {
 }
 
 /**
- * `batchStart` / `batchEnd` narrow the summary cards and the time-to-first-job
- * chart to a run of batches; either end may be left open, and setting both to
- * the same year is the per-batch case. The trend always covers every batch.
+ * `batchStart` / `batchEnd` narrow `time_to_first_job_range` — the Time to
+ * First Job chart — and nothing else; either end may be left open, and setting
+ * both to the same year is the per-batch case. The summary cards and the batch
+ * trend always cover every batch.
  */
 export async function fetchAnalyticsPredictions(
-    batch?: number,
-    horizon?: number,
     range?: { batchStart?: number; batchEnd?: number },
+    horizon?: number,
 ): Promise<AnalyticsPredictionsResponse> {
     const params = new URLSearchParams();
-    if (batch != null) params.set('batch', String(batch));
     if (range?.batchStart != null) params.set('batch_start', String(range.batchStart));
     if (range?.batchEnd != null) params.set('batch_end', String(range.batchEnd));
     if (horizon != null) params.set('horizon', String(horizon));

@@ -1866,39 +1866,38 @@ class EmployabilityDataGuardTests(SimpleTestCase):
 		self.assertNotIn(2027, [b["batch"] for b in payload["per_batch"]])
 		self.assertEqual(payload["overall"]["respondents"], 37)
 
-	def test_batch_range_narrows_the_summary_but_not_the_trend(self):
-		"""The panel asked the time-to-first-job chart for a per-batch AND a
-		range filter. Both are the same control: the summary is cut to the run
-		of batches, while per_batch still carries every one for the trend.
+	def test_batch_range_narrows_only_the_time_to_first_job_chart(self):
+		"""The range filter lives on the Time to First Job chart alone.
+
+		The summary cards, the per-batch list and the trend built from it all
+		stay over every batch however the chart is filtered -- a control on one
+		chart must not quietly change what the headline numbers mean.
 		"""
 		from tracer.employability import analytics_payload
 
 		frame = _graduate_rows(60, strength=1.0)
 		frame["batch"] = [2020 + (i % 5) for i in range(len(frame))]
+		frame["time_to_hire_months"] = 3.0
 		masterlist = {2020: 10, 2021: 20, 2022: 30, 2023: 40, 2024: 50}
+
+		def bands_total(payload):
+			return sum(b["count"] or 0 for b in payload["time_to_first_job_range"]["bands"])
 
 		everything = analytics_payload(frame, masterlist)
 		self.assertEqual(everything["overall"]["respondents"], 60)
 		self.assertEqual(everything["overall"]["graduates"], 150)
+		self.assertEqual(bands_total(everything), 60)
 
 		ranged = analytics_payload(frame, masterlist, batch_start=2021, batch_end=2022)
-		self.assertEqual(ranged["overall"]["respondents"], 24)
-		self.assertEqual(ranged["overall"]["graduates"], 50)  # 20 + 30
-		# The trend is untouched: every batch is still listed.
+		self.assertEqual(bands_total(ranged), 24)
+		# Untouched by the filter: the summary and the trend cover every batch.
+		self.assertEqual(ranged["overall"]["respondents"], 60)
+		self.assertEqual(ranged["overall"]["graduates"], 150)
 		self.assertEqual([b["batch"] for b in ranged["per_batch"]], [2020, 2021, 2022, 2023, 2024])
 
-		# One batch: both ends on the same year, and the older `batch=` form.
-		single = analytics_payload(frame, masterlist, batch_start=2023, batch_end=2023)
-		self.assertEqual(single["overall"]["respondents"], 12)
-		self.assertEqual(single["overall"]["graduates"], 40)
-		self.assertEqual(
-			analytics_payload(frame, masterlist, batch=2023)["overall"]["respondents"], 12,
-		)
-
-		# An open end runs to the edge of the data.
-		self.assertEqual(
-			analytics_payload(frame, masterlist, batch_start=2023)["overall"]["respondents"], 24,
-		)
+		# One batch is both ends on the same year; an open end runs to the edge.
+		self.assertEqual(bands_total(analytics_payload(frame, masterlist, batch_start=2023, batch_end=2023)), 12)
+		self.assertEqual(bands_total(analytics_payload(frame, masterlist, batch_start=2023)), 24)
 
 	def test_expected_range_is_not_dragged_by_a_tiny_batch(self):
 		"""A batch where five graduates answered and all are employed must not

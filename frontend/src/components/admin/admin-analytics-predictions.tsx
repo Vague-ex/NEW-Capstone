@@ -179,8 +179,9 @@ export function AdminAnalyticsPredictions() {
   const [data, setData] = useState<AnalyticsPredictionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // A run of batches, either end open. Both ends on the same year is the
-  // per-batch case the panel asked for; leaving both open is every batch.
+  // A run of batches for the Time to First Job chart ONLY, either end open.
+  // Both ends on the same year is the per-batch case the panel asked for.
+  // The summary cards deliberately ignore it: they are always every batch.
   const [batchFrom, setBatchFrom] = useState<number | 'all'>('all');
   const [batchTo, setBatchTo] = useState<number | 'all'>('all');
   const [trendView, setTrendView] = useState<TrendView>('employment');
@@ -192,7 +193,7 @@ export function AdminAnalyticsPredictions() {
     setLoading(true);
     setError(null);
     // No horizon: the backend projects through next calendar year.
-    fetchAnalyticsPredictions(undefined, undefined, {
+    fetchAnalyticsPredictions({
       batchStart: batchFrom === 'all' ? undefined : batchFrom,
       batchEnd: batchTo === 'all' ? undefined : batchTo,
     })
@@ -285,9 +286,12 @@ export function AdminAnalyticsPredictions() {
     return rows;
   }, [answeredBatches, nextRanges, trendView]);
 
+  // The chart's own figures, recomputed server-side for the chosen batches, so
+  // the summary above it stays over every batch.
+  const tfj = data?.time_to_first_job_range;
   const timeBands = useMemo(
-    () => (overall?.time_to_first_job.bands ?? []).map((b) => ({ band: b.label, graduates: b.count })),
-    [overall],
+    () => (tfj?.bands ?? []).map((b) => ({ band: b.label, graduates: b.count })),
+    [tfj],
   );
 
   const bsisSeries = useMemo(
@@ -305,16 +309,12 @@ export function AdminAnalyticsPredictions() {
   );
 
   const batches = answeredBatches.map((b) => b.batch);
-  /** Is this batch inside the summary range? Everything is, when both ends are open. */
-  const inRange = (batch: number) =>
-    (batchFrom === 'all' || batch >= batchFrom) && (batchTo === 'all' || batch <= batchTo);
   const batchRangeLabel =
     batchFrom === 'all' && batchTo === 'all' ? 'All batches'
       : batchFrom !== 'all' && batchFrom === batchTo ? `Batch ${batchFrom}`
         : `Batches ${batchFrom === 'all' ? 'earliest' : batchFrom} to ${batchTo === 'all' ? 'latest' : batchTo}`;
   const expected = overall?.model_expected_within_12_months;
   const factors = activeModel?.factors ?? [];
-  const tfj = overall?.time_to_first_job;
 
   const cards = [
     {
@@ -377,41 +377,12 @@ export function AdminAnalyticsPredictions() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-            <span style={{ fontWeight: 600 }}>Summary for batches:</span>
-            <select
-              value={String(batchFrom)}
-              onChange={(e) => setBatchFrom(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
-              aria-label="Earliest batch"
-            >
-              <option value="all">Earliest</option>
-              {batches.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <span className="text-gray-400 text-xs">to</span>
-            <select
-              value={String(batchTo)}
-              onChange={(e) => setBatchTo(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
-              aria-label="Latest batch"
-            >
-              <option value="all">Latest</option>
-              {batches.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            {(batchFrom !== 'all' || batchTo !== 'all') && (
-              <button
-                type="button"
-                onClick={() => { setBatchFrom('all'); setBatchTo('all'); }}
-                className="text-[#166534] text-xs hover:underline"
-                style={{ fontWeight: 600 }}
-              >
-                Clear
-              </button>
-            )}
+            <span style={{ fontWeight: 600 }}>Summary: all batches</span>
             {loading && <span className="text-gray-400 text-xs">Loading...</span>}
           </div>
           <p className="text-[11px] text-gray-400">
-            Changes the summary cards and the time-to-first-job chart — pick one batch by setting both ends to
-            the same year. The batch trend always shows every batch.
+            Every figure on this page covers all batches. Only the Time to First Job chart can be
+            narrowed, using the batch picker on that card.
           </p>
         </div>
         {activeModel ? (
@@ -612,10 +583,44 @@ export function AdminAnalyticsPredictions() {
               {batchRangeLabel}
             </span>
           </h3>
-          <p className="text-gray-500 text-xs mb-4">
+          <p className="text-gray-500 text-xs mb-3">
             How long graduates who have had a job took to get their first one{tfj ? ` (${tfj.n} graduates)` : ''}.
             These are their answers, not a prediction.
           </p>
+          {/* This chart's own filter. Nothing else on the page follows it, so
+              the summary cards above always mean "all batches". */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="text-gray-500 text-xs">Batches</span>
+            <select
+              value={String(batchFrom)}
+              onChange={(e) => setBatchFrom(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-[#166534]"
+              aria-label="Earliest batch"
+            >
+              <option value="all">Earliest</option>
+              {batches.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span className="text-gray-400 text-xs">to</span>
+            <select
+              value={String(batchTo)}
+              onChange={(e) => setBatchTo(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-[#166534]"
+              aria-label="Latest batch"
+            >
+              <option value="all">Latest</option>
+              {batches.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {(batchFrom !== 'all' || batchTo !== 'all') && (
+              <button
+                type="button"
+                onClick={() => { setBatchFrom('all'); setBatchTo('all'); }}
+                className="text-[#166534] text-xs hover:underline"
+                style={{ fontWeight: 600 }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
           {/* flex-1 so the chart fills the card, which stretches to match the
               taller trend card beside it; min-h keeps it readable when stacked. */}
           {!tfj || tfj.n === 0 ? (
@@ -740,12 +745,11 @@ export function AdminAnalyticsPredictions() {
                     Skill
                   </th>
                   {skillsByBatch.batches.map((c) => {
-                    const picked = inRange(c.batch);
                     return (
                       <th
                         key={c.batch}
-                        className={`pb-1 px-1 whitespace-nowrap rounded-t-md ${picked ? 'text-[#166534] bg-[#166534]/10' : 'text-gray-500'}`}
-                        style={{ fontWeight: picked ? 700 : 600 }}
+                        className="pb-1 px-1 whitespace-nowrap rounded-t-md text-gray-500"
+                        style={{ fontWeight: 600 }}
                       >
                         {c.batch}
                         <span className="block text-[10px] text-gray-400" style={{ fontWeight: 400 }}>
@@ -763,13 +767,12 @@ export function AdminAnalyticsPredictions() {
                       {row.skill}
                     </td>
                     {row.cells.map((cell) => {
-                      const picked = inRange(cell.batch);
                       if (cell.share == null) {
                         return (
                           <td
                             key={cell.batch}
                             title={`Fewer than ${skillsByBatch.min_group} graduates in this batch listed skills`}
-                            className={`text-center py-2 rounded-md text-gray-300 bg-gray-50 ${picked ? 'ring-2 ring-[#166534]' : ''}`}
+                            className="text-center py-2 rounded-md text-gray-300 bg-gray-50"
                           >
                             —
                           </td>
@@ -780,7 +783,7 @@ export function AdminAnalyticsPredictions() {
                         <td
                           key={cell.batch}
                           title={`${cell.count} of ${skillsByBatch.batches.find((b) => b.batch === cell.batch)?.respondents ?? 0} graduates in ${cell.batch} listed ${row.skill}`}
-                          className={`text-center py-2 rounded-md ${picked ? 'ring-2 ring-[#166534]' : ''}`}
+                          className="text-center py-2 rounded-md"
                           style={{
                             backgroundColor: `rgba(22, 101, 52, ${(0.06 + cell.share * 0.85).toFixed(2)})`,
                             color: strong ? '#ffffff' : '#14532d',
@@ -798,12 +801,11 @@ export function AdminAnalyticsPredictions() {
                     Employment rate
                   </td>
                   {skillsByBatch.batches.map((c) => {
-                    const picked = inRange(c.batch);
                     const rate = rateByBatch.get(c.batch);
                     return (
                       <td
                         key={c.batch}
-                        className={`text-center pt-3 border-t border-gray-100 whitespace-nowrap ${picked ? 'text-[#166534]' : 'text-gray-700'}`}
+                        className="text-center pt-3 border-t border-gray-100 whitespace-nowrap text-gray-700"
                         style={{ fontWeight: 700 }}
                       >
                         {rateValue(rate)}
@@ -815,7 +817,7 @@ export function AdminAnalyticsPredictions() {
             </table>
             <p className="text-[11px] text-gray-400 mt-3">
               Hover a cell for counts. A batch where fewer than {skillsByBatch.min_group} graduates listed skills is shown
-              as &quot;—&quot;.{(batchFrom !== 'all' || batchTo !== 'all') && ` ${batchRangeLabel} outlined.`} For whether a skill goes
+              as &quot;—&quot;. For whether a skill goes
               with being employed, see the with vs without comparison in the next table.
             </p>
           </div>
