@@ -2443,6 +2443,23 @@ class AdminAnalyticsPredictionsView(APIView):
                 batch = int(batch_param)
             except ValueError:
                 return Response({"error": "batch must be integer"}, status=status.HTTP_400_BAD_REQUEST)
+        # A run of batches, either end open. `batch` is still accepted as the
+        # single-batch form of the same filter.
+        batch_start = batch_end = None
+        for name, value in (("batch_start", request.query_params.get("batch_start")),
+                            ("batch_end", request.query_params.get("batch_end"))):
+            if not value:
+                continue
+            try:
+                parsed = int(value)
+            except ValueError:
+                return Response({"error": f"{name} must be integer"}, status=status.HTTP_400_BAD_REQUEST)
+            if name == "batch_start":
+                batch_start = parsed
+            else:
+                batch_end = parsed
+        if batch_start is not None and batch_end is not None and batch_start > batch_end:
+            batch_start, batch_end = batch_end, batch_start
         # No horizon: the outlook runs through next calendar year (see employment_outlook).
         horizon = None
         if request.query_params.get("horizon"):
@@ -2474,6 +2491,8 @@ class AdminAnalyticsPredictionsView(APIView):
             employability.masterlist_counts(source),
             employability.load_active_model(source),
             batch=batch,
+            batch_start=batch_start,
+            batch_end=batch_end,
             horizon=horizon,
             source=source,
         )

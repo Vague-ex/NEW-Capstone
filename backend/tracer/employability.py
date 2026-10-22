@@ -687,8 +687,14 @@ def model_summary(active, source: str = SOURCE_REAL) -> dict:
 
 def analytics_payload(
     frame, masterlist: dict[int, int], active=None, batch: int | None = None, horizon: int | None = None,
-    source: str = SOURCE_REAL,
+    source: str = SOURCE_REAL, batch_start: int | None = None, batch_end: int | None = None,
 ) -> dict:
+    """`batch_start` / `batch_end` narrow the OVERALL figures to a run of
+    batches (either end may be open); `batch` is the single-batch form of the
+    same thing. The per-batch list and the trend always cover every batch.
+    """
+    if batch is not None and batch_start is None and batch_end is None:
+        batch_start = batch_end = batch
     future_graduation = (
         int(frame["future_graduation"].fillna(False).astype(bool).sum()) if "future_graduation" in frame.columns else 0
     )
@@ -700,13 +706,19 @@ def analytics_payload(
         entry["batch"] = value
         per_batch.append(entry)
 
-    if batch is None:
+    if batch_start is None and batch_end is None:
         overall = group_indicators(frame, sum(masterlist.values()) or None, active)
     else:
-        overall = group_indicators(frame[frame["batch"] == batch], masterlist.get(batch), active)
+        low = batch_start if batch_start is not None else min(batches, default=0)
+        high = batch_end if batch_end is not None else max(batches, default=0)
+        in_range = frame[(frame["batch"] >= low) & (frame["batch"] <= high)]
+        graduates = sum(count for year, count in masterlist.items() if low <= year <= high)
+        overall = group_indicators(in_range, graduates or None, active)
 
     return {
         "batch": batch,
+        "batch_start": batch_start,
+        "batch_end": batch_end,
         "overall": overall,
         "per_batch": per_batch,
         "outlook": employment_outlook(per_batch, horizon),

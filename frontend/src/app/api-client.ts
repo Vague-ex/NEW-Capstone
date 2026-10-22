@@ -1164,7 +1164,10 @@ export interface SkillsByBatch {
 
 export interface AnalyticsPredictionsResponse {
     batch: number | null;
-    /** Summary for the selected batch, or for all batches. */
+    /** The batch range `overall` was narrowed to; null at either end means open. */
+    batch_start: number | null;
+    batch_end: number | null;
+    /** Summary for the selected batches, or for all of them. */
     overall: EmployabilityIndicators;
     /** Every batch on the masterlist or with respondents, oldest first. */
     per_batch: BatchIndicators[];
@@ -1180,12 +1183,20 @@ export interface AnalyticsPredictionsResponse {
     timestamp: string;
 }
 
+/**
+ * `batchStart` / `batchEnd` narrow the summary cards and the time-to-first-job
+ * chart to a run of batches; either end may be left open, and setting both to
+ * the same year is the per-batch case. The trend always covers every batch.
+ */
 export async function fetchAnalyticsPredictions(
     batch?: number,
     horizon?: number,
+    range?: { batchStart?: number; batchEnd?: number },
 ): Promise<AnalyticsPredictionsResponse> {
     const params = new URLSearchParams();
     if (batch != null) params.set('batch', String(batch));
+    if (range?.batchStart != null) params.set('batch_start', String(range.batchStart));
+    if (range?.batchEnd != null) params.set('batch_end', String(range.batchEnd));
     if (horizon != null) params.set('horizon', String(horizon));
     const qs = params.toString() ? `?${params.toString()}` : '';
     const response = await fetch(

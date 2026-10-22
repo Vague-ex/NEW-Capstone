@@ -118,6 +118,10 @@ type TrendRow = {
   // hides how it was reached: 50% of 4 and 50% of 86 look identical on the
   // line, and "employed" never said how many were not.
   counts: { yesLabel: string; yes: number; noLabel: string; no: number } | null;
+  // The whole batch, from the masterlist, so a hover says what share of the
+  // batch the respondents are. Null for a future batch and for a batch the
+  // masterlist does not list yet.
+  graduates: number | null;
 };
 
 /** Year with the number of respondents under it, so a thin batch is visible
@@ -153,9 +157,17 @@ function TrendTooltip({ active, payload }: { active?: boolean; payload?: { paylo
             <dd style={{ fontWeight: 700 }}>{row.counts.no}</dd>
           </div>
           <div className="flex justify-between gap-4 border-t border-gray-200 pt-0.5 text-gray-500">
-            <dt>Respondents</dt>
+            <dt>Total respondents</dt>
             <dd>{row.counts.yes + row.counts.no}</dd>
           </div>
+          {/* The batch itself, under the respondents, so the hover shows how
+              much of it answered rather than only the percentage. */}
+          {row.graduates != null && (
+            <div className="flex justify-between gap-4 text-gray-500">
+              <dt>Total graduates</dt>
+              <dd>{row.graduates}</dd>
+            </div>
+          )}
         </dl>
       )}
       <p className="text-gray-600 mt-0.5 leading-relaxed">{row.detail}</p>
@@ -167,7 +179,10 @@ export function AdminAnalyticsPredictions() {
   const [data, setData] = useState<AnalyticsPredictionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedBatch, setSelectedBatch] = useState<number | 'all'>('all');
+  // A run of batches, either end open. Both ends on the same year is the
+  // per-batch case the panel asked for; leaving both open is every batch.
+  const [batchFrom, setBatchFrom] = useState<number | 'all'>('all');
+  const [batchTo, setBatchTo] = useState<number | 'all'>('all');
   const [trendView, setTrendView] = useState<TrendView>('employment');
   const [skillKind, setSkillKind] = useState<'technical' | 'soft'>('technical');
   const [rawNumbersOpen, setRawNumbersOpen] = useState(false);
@@ -177,7 +192,10 @@ export function AdminAnalyticsPredictions() {
     setLoading(true);
     setError(null);
     // No horizon: the backend projects through next calendar year.
-    fetchAnalyticsPredictions(selectedBatch === 'all' ? undefined : selectedBatch)
+    fetchAnalyticsPredictions(undefined, undefined, {
+      batchStart: batchFrom === 'all' ? undefined : batchFrom,
+      batchEnd: batchTo === 'all' ? undefined : batchTo,
+    })
       .then((res) => {
         if (!cancelled) setData(res);
       })
@@ -190,7 +208,7 @@ export function AdminAnalyticsPredictions() {
     return () => {
       cancelled = true;
     };
-  }, [selectedBatch]);
+  }, [batchFrom, batchTo]);
 
   const perBatch: BatchIndicators[] = data?.per_batch ?? [];
   // Batches nobody from has answered (e.g. an old masterlist year) only add empty columns.
@@ -234,6 +252,7 @@ export function AdminAnalyticsPredictions() {
         next: null,
         n: r.n,
         counts,
+        graduates: b.graduates,
         // "graduates" was the wrong word and did the damage: the denominator
         // has always been the graduates who answered, not the whole batch, but
         // calling them "graduates" invited everyone to read 50% as 50% of the
@@ -256,6 +275,7 @@ export function AdminAnalyticsPredictions() {
           next: point(range.centre) ?? 0,
           n: null,
           counts: null,  // Nothing measured yet, so there are no headcounts.
+          graduates: null,
           detail: `If this batch does about as well as recent batches, expect about `
             + `${pct(range.centre, 0)} employed.${i > 0 ? ' Further ahead, so less certain.' : ''}`
             + ` This is an expectation, not a measurement.`,
@@ -285,6 +305,13 @@ export function AdminAnalyticsPredictions() {
   );
 
   const batches = answeredBatches.map((b) => b.batch);
+  /** Is this batch inside the summary range? Everything is, when both ends are open. */
+  const inRange = (batch: number) =>
+    (batchFrom === 'all' || batch >= batchFrom) && (batchTo === 'all' || batch <= batchTo);
+  const batchRangeLabel =
+    batchFrom === 'all' && batchTo === 'all' ? 'All batches'
+      : batchFrom !== 'all' && batchFrom === batchTo ? `Batch ${batchFrom}`
+        : `Batches ${batchFrom === 'all' ? 'earliest' : batchFrom} to ${batchTo === 'all' ? 'latest' : batchTo}`;
   const expected = overall?.model_expected_within_12_months;
   const factors = activeModel?.factors ?? [];
   const tfj = overall?.time_to_first_job;
@@ -349,24 +376,42 @@ export function AdminAnalyticsPredictions() {
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <span style={{ fontWeight: 600 }}>Summary for batch:</span>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+            <span style={{ fontWeight: 600 }}>Summary for batches:</span>
             <select
-              value={selectedBatch}
-              onChange={(e) => setSelectedBatch(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              value={String(batchFrom)}
+              onChange={(e) => setBatchFrom(e.target.value === 'all' ? 'all' : Number(e.target.value))}
               className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
+              aria-label="Earliest batch"
             >
-              <option value="all">All batches</option>
-              {batches.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
+              <option value="all">Earliest</option>
+              {batches.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
+            <span className="text-gray-400 text-xs">to</span>
+            <select
+              value={String(batchTo)}
+              onChange={(e) => setBatchTo(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
+              aria-label="Latest batch"
+            >
+              <option value="all">Latest</option>
+              {batches.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {(batchFrom !== 'all' || batchTo !== 'all') && (
+              <button
+                type="button"
+                onClick={() => { setBatchFrom('all'); setBatchTo('all'); }}
+                className="text-[#166534] text-xs hover:underline"
+                style={{ fontWeight: 600 }}
+              >
+                Clear
+              </button>
+            )}
             {loading && <span className="text-gray-400 text-xs">Loading...</span>}
           </div>
           <p className="text-[11px] text-gray-400">
-            Changes the summary cards and the time-to-first-job chart. The batch trend always shows every batch.
+            Changes the summary cards and the time-to-first-job chart — pick one batch by setting both ends to
+            the same year. The batch trend always shows every batch.
           </p>
         </div>
         {activeModel ? (
@@ -486,7 +531,7 @@ export function AdminAnalyticsPredictions() {
                     }`}
                     style={{ fontWeight: trendView === v ? 600 : 400 }}
                   >
-                    {v === 'employment' ? 'Employment' : 'Within 12 months'}
+                    {v === 'employment' ? 'Employment Rate' : 'Within 12 months'}
                   </button>
                 ))}
               </div>
@@ -564,7 +609,7 @@ export function AdminAnalyticsPredictions() {
           <h3 className="text-gray-800 flex items-center gap-2 mb-1" style={{ fontWeight: 700 }}>
             <Clock className="size-4 text-[#166534]" /> Time to First Job ·{' '}
             <span className="text-gray-500 text-xs" style={{ fontWeight: 500 }}>
-              {selectedBatch === 'all' ? 'All batches' : `Batch ${selectedBatch}`}
+              {batchRangeLabel}
             </span>
           </h3>
           <p className="text-gray-500 text-xs mb-4">
@@ -695,7 +740,7 @@ export function AdminAnalyticsPredictions() {
                     Skill
                   </th>
                   {skillsByBatch.batches.map((c) => {
-                    const picked = selectedBatch === c.batch;
+                    const picked = inRange(c.batch);
                     return (
                       <th
                         key={c.batch}
@@ -718,7 +763,7 @@ export function AdminAnalyticsPredictions() {
                       {row.skill}
                     </td>
                     {row.cells.map((cell) => {
-                      const picked = selectedBatch === cell.batch;
+                      const picked = inRange(cell.batch);
                       if (cell.share == null) {
                         return (
                           <td
@@ -753,7 +798,7 @@ export function AdminAnalyticsPredictions() {
                     Employment rate
                   </td>
                   {skillsByBatch.batches.map((c) => {
-                    const picked = selectedBatch === c.batch;
+                    const picked = inRange(c.batch);
                     const rate = rateByBatch.get(c.batch);
                     return (
                       <td
@@ -770,7 +815,7 @@ export function AdminAnalyticsPredictions() {
             </table>
             <p className="text-[11px] text-gray-400 mt-3">
               Hover a cell for counts. A batch where fewer than {skillsByBatch.min_group} graduates listed skills is shown
-              as &quot;—&quot;.{selectedBatch !== 'all' && ` Batch ${selectedBatch} is outlined.`} For whether a skill goes
+              as &quot;—&quot;.{(batchFrom !== 'all' || batchTo !== 'all') && ` ${batchRangeLabel} outlined.`} For whether a skill goes
               with being employed, see the with vs without comparison in the next table.
             </p>
           </div>
