@@ -12,6 +12,8 @@ import {
   provincesApi,
   citiesApi,
   barangaysApi,
+  countriesApi,
+  countryDivisionsApi,
   skillCategoriesApi,
   skillsApi,
   useReferenceData,
@@ -21,6 +23,8 @@ import {
   type ProvinceItem,
   type CityMunicipalityItem,
   type BarangayItem,
+  type CountryItem,
+  type CountryDivisionItem,
   type SkillCategoryItem,
   type SkillItem,
 } from '../../hooks/useReferenceData';
@@ -1726,7 +1730,7 @@ function UnlistedTitlesPanel({
   );
 }
 
-type LocationsSubTab = 'regions' | 'provinces' | 'cities' | 'barangays';
+type LocationsSubTab = 'regions' | 'provinces' | 'cities' | 'barangays' | 'countries';
 
 function LocationsView({
   regions,
@@ -1752,6 +1756,7 @@ function LocationsView({
             { id: 'provinces', label: 'Provinces' },
             { id: 'cities', label: 'Cities / Municipalities' },
             { id: 'barangays', label: 'Barangays' },
+            { id: 'countries', label: 'Abroad (Countries)' },
           ] as const
         ).map(({ id, label }) => {
           const active = sub === id;
@@ -1785,6 +1790,151 @@ function LocationsView({
       {sub === 'provinces' && <ProvincesView regions={regions} search={search} />}
       {sub === 'cities' && <CitiesView regions={regions} search={search} />}
       {sub === 'barangays' && <BarangaysView regions={regions} search={search} />}
+      {sub === 'countries' && <CountriesView search={search} />}
+    </div>
+  );
+}
+
+
+/** A country or division row. Read-only on purpose: `manage.py sync_placedb`
+ *  rewrites these tables from the bundled placedb release, so anything typed
+ *  here would be overwritten by the next sync. */
+function ReferenceRow({ name, badge, hasPoint }: { name: string; badge: string; hasPoint: boolean }) {
+  return (
+    <div className="flex items-center gap-2 px-2 lg:px-3 py-2 rounded-xl hover:bg-gray-50 transition">
+      <div className="flex-1 min-w-0">
+        <span className="block text-sm text-gray-700 break-words">{name}</span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-1">
+          <span
+            className="inline-block max-w-full truncate text-[11px] px-2 py-0.5 rounded-full bg-[#166534]/10 text-[#166534] font-mono"
+            style={{ fontWeight: 600 }}
+          >
+            {badge || 'no ISO code'}
+          </span>
+          {/* Without a centre there is nothing to pin on the geomap, which is
+              the one thing an admin can act on here (re-run the sync). */}
+          {!hasPoint && (
+            <span className="inline-block text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700" style={{ fontWeight: 600 }}>
+              no map point
+            </span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+
+function CountriesView({ search }: { search: string }) {
+  const compact = useCompactLayout();
+  const [countries, setCountries] = useState<CountryItem[]>([]);
+  const [code, setCode] = useState('');
+  const [divisions, setDivisions] = useState<CountryDivisionItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState(MOBILE_PAGE_SIZE);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    void countriesApi
+      .list()
+      .then(({ countries }) => { if (active) setCountries(countries); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Failed to load countries.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  // No country picked lists the countries themselves; picking one drills into
+  // its first-level divisions, the deepest level placedb publishes.
+  useEffect(() => {
+    setLimit(MOBILE_PAGE_SIZE);
+    if (!code) {
+      setDivisions([]);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void countryDivisionsApi
+      .list(code)
+      .then(({ divisions }) => { if (active) setDivisions(divisions); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Failed to load divisions.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [code]);
+
+  const q = search.trim().toLowerCase();
+  const visible = code
+    ? divisions.filter((d) => !q || d.name.toLowerCase().includes(q) || d.iso_3166_2.toLowerCase().includes(q))
+    : countries.filter((c) => !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q));
+  const shown = compact ? visible.slice(0, limit) : visible;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <MapPin className="size-4 text-[#166534]" />
+        <h3 className="text-gray-900" style={{ fontWeight: 700 }}>
+          {code ? 'States / Regions' : 'Countries'}
+        </h3>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500" style={{ fontWeight: 600 }}>
+          {visible.length}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 xl:max-w-5xl">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1.5" style={{ fontWeight: 600 }}>Country</label>
+          <select
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
+          >
+            <option value="">- All countries -</option>
+            {countries.map((c) => (
+              <option key={c.code} value={c.code}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-500 mb-3">
+        Where a graduate works or lives abroad. This list is maintained by the
+        <span className="font-mono"> sync_placedb </span>
+        command from a published dataset, not by hand, so it is read-only here —
+        Philippine addresses are on the other tabs.
+      </p>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700 mb-3">{error}</div>
+      )}
+
+      <div className={`${LIST_GRID} lg:max-h-[480px] lg:overflow-y-auto`}>
+        {loading ? (
+          <p className="col-span-full text-gray-400 text-sm text-center py-4">Loading…</p>
+        ) : visible.length === 0 ? (
+          <EmptyState
+            message={
+              q
+                ? `No ${code ? 'states or regions' : 'countries'} match that search.`
+                : code
+                  ? 'This country has no states or regions in the dataset. Its graduates pick the country alone.'
+                  : 'No countries loaded. Run manage.py sync_placedb.'
+            }
+          />
+        ) : code ? (
+          (shown as CountryDivisionItem[]).map((d) => (
+            <ReferenceRow key={d.iso_3166_2 || d.name} name={d.name} badge={d.iso_3166_2} hasPoint={d.latitude !== null} />
+          ))
+        ) : (
+          (shown as CountryItem[]).map((c) => (
+            <ReferenceRow key={c.code} name={c.name} badge={c.code} hasPoint={c.latitude !== null} />
+          ))
+        )}
+        {compact && visible.length > limit && (
+          <ShowMore shown={limit} total={visible.length} onMore={() => setLimit((n) => n + MOBILE_PAGE_SIZE)} />
+        )}
+      </div>
     </div>
   );
 }
