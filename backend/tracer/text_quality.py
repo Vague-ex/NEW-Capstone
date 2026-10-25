@@ -123,12 +123,22 @@ def first_link_field(data, skip=frozenset()) -> str | None:
 
 
 _PH_MOBILE = re.compile(r"^(09|\+639|639)\d{9}$")
+# E.164: a country code plus subscriber number, 15 digits at most.
+_INTL_MOBILE = re.compile(r"^\+\d{7,15}$")
 
 
-def ph_mobile_problem(value: str | None) -> str | None:
+def mobile_problem(value: str | None) -> str | None:
+    """Philippine numbers keep the strict 09XXXXXXXXX rule.
+
+    The registration form has a country-code picker, so a graduate working
+    abroad can hold a foreign number -- one that carries its own "+" country
+    code is judged as E.164 instead, not forced into the PH shape.
+    """
     text = re.sub(r"[\s\-()]", "", value or "")
     if not text:
         return None
+    if text.startswith("+") and not text.startswith("+63"):
+        return None if _INTL_MOBILE.match(text) else "is not a valid international number (+country code, 7-15 digits)"
     return None if _PH_MOBILE.match(text) else "is not a PH mobile number (09XXXXXXXXX)"
 
 

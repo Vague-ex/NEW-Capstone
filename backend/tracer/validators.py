@@ -298,14 +298,15 @@ class SurveyDataValidator:
                         'warning': f'Age {age} outside typical range {FieldValidationRules.AGE_RANGE}'
                     })
 
-        # Validate mobile format: a real PH mobile number, not just "long enough".
-        from tracer.text_quality import ph_mobile_problem
-        mobile_problem = ph_mobile_problem(data.get('mobile'))
-        if mobile_problem:
+        # Validate mobile format: a real number, not just "long enough". PH numbers
+        # are held to 09XXXXXXXXX; a foreign country code is judged as E.164.
+        from tracer.text_quality import mobile_problem
+        problem = mobile_problem(data.get('mobile'))
+        if problem:
             self.errors.append({
                 'section': 'personal_information',
                 'field': 'mobile',
-                'error': f'Mobile number {mobile_problem}',
+                'error': f'Mobile number {problem}',
                 'blocking': True,
             })
 

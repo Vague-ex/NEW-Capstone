@@ -589,6 +589,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
           country_code_address: (found.country_code || '').toUpperCase(),
           city_municipality: found.locality || '',
           province_address: found.state || '',
+          zip_code: (found.postcode || '').toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 12) || f.zip_code,
           currentJobRegionId: '',
           currentJobProvinceId: '',
           currentJobCityId: '',
@@ -663,21 +664,20 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
       setIsSaving(false);
       return;
     }
-    if (isCurrentlyEmployed && !form.zip_code) {
-      setSaveError(form.currentJobLocation === 'Local (Philippines)'
-        ? 'ZIP code is required.'
-        : 'Postal code is required.');
-      setIsSaving(false);
-      return;
-    }
-    if (
-      isCurrentlyEmployed
-      && form.currentJobLocation === 'Local (Philippines)'
-      && !/^\d{4}$/.test(form.zip_code)
-    ) {
-      setSaveError('Philippine ZIP code must be exactly 4 digits.');
-      setIsSaving(false);
-      return;
+    // Only the Philippine ZIP is required and fixed-length. Foreign postal codes
+    // are optional and free-form: Canada and the UK are alphanumeric, Japan
+    // carries a hyphen, and several countries have none at all.
+    if (isCurrentlyEmployed && form.currentJobLocation === 'Local (Philippines)') {
+      if (!form.zip_code) {
+        setSaveError('ZIP code is required.');
+        setIsSaving(false);
+        return;
+      }
+      if (!/^\d{4}$/.test(form.zip_code)) {
+        setSaveError('Philippine ZIP code must be exactly 4 digits.');
+        setIsSaving(false);
+        return;
+      }
     }
 
     const normalizedStatus = normalizeEmploymentStatus(form.employment_status);
@@ -1451,7 +1451,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
 
                   <div className="grid grid-cols-2 items-end gap-3">
                     <div>
-                      <FieldLabel required>{isLocal ? 'ZIP Code' : 'Postal Code'}</FieldLabel>
+                      <FieldLabel required={isLocal}>{isLocal ? 'ZIP Code' : 'Postal Code (optional)'}</FieldLabel>
                       <input
                         type="text"
                         inputMode={isLocal ? 'numeric' : 'text'}
@@ -1460,7 +1460,7 @@ export function AlumniEmployment({ retrackingMode: retrackingProp = false }: { r
                         onChange={e => {
                           const next = isLocal
                             ? e.target.value.replace(/\D/g, '').slice(0, 4)
-                            : e.target.value.slice(0, 10);
+                            : e.target.value.toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 12);
                           setF('zip_code', next);
                         }}
                         className={inputCls}

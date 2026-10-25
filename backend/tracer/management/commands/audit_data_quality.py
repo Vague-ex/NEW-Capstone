@@ -29,7 +29,7 @@ from tracer.models import (
 from tracer.text_quality import (
     job_text_problem,
     person_name_problem,
-    ph_mobile_problem,
+    mobile_problem,
     profanity_problem,
     year_month_problem,
 )
@@ -109,7 +109,7 @@ class Command(BaseCommand):
             else:
                 middle_lengths["full name"] += 1
 
-            if (problem := ph_mobile_problem(p.mobile)):
+            if (problem := mobile_problem(p.mobile)):
                 self.flag("ERROR", "Profiles: bad mobile number", p.pk, "mobile", p.mobile, problem)
             if (problem := year_month_problem(p.birth_date, min_age=18, max_age=70)):
                 self.flag("WARN", "Profiles: implausible birth month", p.pk, "birth_date", p.birth_date, problem)

@@ -661,6 +661,7 @@ export default function RegisterAlumniEmployment({
           city_municipality: found.locality || f.city_municipality,
           country_code: foundCode || f.country_code,
           country: found.country || f.country,
+          zip_code: (found.postcode || '').toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 12) || f.zip_code,
         }));
         setWorkNote({ tone: 'ok', text: `Pinned in ${found.country || 'another country'}. Please check your city and country below.` });
         return;
@@ -852,13 +853,14 @@ export default function RegisterAlumniEmployment({
         ) {
           return fail('Please answer the questions marked with a red asterisk.');
         }
-        {
-          const expectedZipLen = isPhilippinesWork ? 4 : 5;
+        // Only the Philippine ZIP is required and fixed-length. Foreign postal
+        // codes are optional and free-form -- see the field's note below.
+        if (isPhilippinesWork) {
           if (!form.zip_code) {
             return fail('Please answer the questions marked with a red asterisk.');
           }
-          if (form.zip_code.length !== expectedZipLen) {
-            setStepError(`ZIP code must be exactly ${expectedZipLen} digits`);
+          if (!/^\d{4}$/.test(form.zip_code)) {
+            setStepError('ZIP code must be exactly 4 digits');
             return false;
           }
         }

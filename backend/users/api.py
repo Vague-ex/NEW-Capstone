@@ -3249,7 +3249,7 @@ class AlumniEmploymentUpdateView(APIView):
         # Same clean-data rules as registration. This endpoint writes straight to
         # the normalized tables (Employment and Personal & Education pages), so
         # it refuses bad values itself instead of trusting the browser.
-        from tracer.text_quality import job_text_problem, person_name_problem, ph_mobile_problem
+        from tracer.text_quality import job_text_problem, person_name_problem, mobile_problem
 
         field_rules = (
             ("firstJobTitle", "First job title", job_text_problem),
@@ -3261,7 +3261,7 @@ class AlumniEmploymentUpdateView(APIView):
             ("middle_name", "Middle name", person_name_problem),
             ("familyName", "Family name", person_name_problem),
             ("last_name", "Family name", person_name_problem),
-            ("mobile", "Mobile number", ph_mobile_problem),
+            ("mobile", "Mobile number", mobile_problem),
         )
         field_errors = {}
         for key, label, rule in field_rules:

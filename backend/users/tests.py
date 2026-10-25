@@ -1506,6 +1506,83 @@ class RegistrationCleanDataGateTests(TestCase):
 		self.assertEqual(AlumniAccount.objects.count(), 0)
 
 
+class AbroadRegistrationTests(TestCase):
+	"""QA, 2026-10: a graduate working abroad.
+
+	Their mobile carries a foreign country code (the form has a picker for it)
+	and their postal code is neither four digits nor digits at all -- Canada's
+	is alphanumeric, Japan's carries a hyphen, and several countries have none.
+	Both used to be refused by rules written for Philippine data only.
+	"""
+
+	EMAIL = "abroad-test@example.com"
+
+	def setUp(self):
+		self.client = APIClient()
+
+	def _payload(self, *, mobile="+15558675309", zip_code="M5V 3L9"):
+		return {
+			"email": self.EMAIL,
+			"password": "StrongPass123!",
+			"confirm_password": "StrongPass123!",
+			"first_name": "Ana",
+			"family_name": "Reyes",
+			"gender": "Female",
+			"birth_date": "2000-05",
+			"mobile": mobile,
+			"city": "Talisay",
+			"province": "Negros Occidental",
+			"graduation_date": "2022-06",
+			"survey_data": json.dumps({
+				"employment_status": "employed_full_time",
+				"academic_honors": 1,
+				"time_to_hire_months": 3,
+				"first_job_sector": "private",
+				"location_type": False,  # False = abroad
+				"city_municipality": "Toronto",
+				"province_work": "Ontario",
+				"region": "Abroad",
+				"country": "Canada",
+				"country_code": "CA",
+				"zip_code": zip_code,
+			}),
+			"face_front": SimpleUploadedFile("face.jpg", b"image-bytes", content_type="image/jpeg"),
+		}
+
+	def _register(self, payload):
+		with patch(
+			"users.api.upload_image_bytes",
+			side_effect=lambda **kw: f"https://storage.test/{kw['object_path']}",
+		):
+			return self.client.post("/api/auth/alumni/register/", payload, format="multipart")
+
+	def test_foreign_mobile_and_postal_code_register(self):
+		response = self._register(self._payload())
+
+		self.assertEqual(response.status_code, 201, getattr(response, "data", response))
+		account = AlumniAccount.objects.get(user__email=self.EMAIL)
+		self.assertEqual(account.profile.mobile, "+15558675309")
+		# Stored as given: a postal code is a label, not a number.
+		from tracer.models import WorkAddress
+		self.assertEqual(WorkAddress.objects.get(alumni=account).zip_code, "M5V 3L9")
+
+	def test_a_blank_foreign_postal_code_is_accepted(self):
+		# Hong Kong, the UAE and Ireland have no postal code to give.
+		response = self._register(self._payload(zip_code=""))
+
+		self.assertEqual(response.status_code, 201, getattr(response, "data", response))
+		account = AlumniAccount.objects.get(user__email=self.EMAIL)
+		from tracer.models import WorkAddress
+		self.assertEqual(WorkAddress.objects.get(alumni=account).zip_code, "")
+
+	def test_a_broken_philippine_mobile_is_still_refused(self):
+		response = self._register(self._payload(mobile="+6312345"))
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("mobile", response.data["field_errors"])
+		self.assertFalse(User.objects.filter(email=self.EMAIL).exists())
+
+
 
 class RegistrationFeedbackFixTests(TestCase):
 	"""Tester feedback, 2026-09: employer invite on first login, graduates who

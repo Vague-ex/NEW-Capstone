@@ -5,7 +5,7 @@ from tracer.text_quality import (
     link_problem,
     job_text_problem,
     person_name_problem,
-    ph_mobile_problem,
+    mobile_problem,
     profanity_problem,
     year_month_problem,
 )
@@ -45,9 +45,15 @@ class OtherFieldTests(SimpleTestCase):
         self.assertIsNone(job_text_problem("Security Guard"))
 
     def test_ph_mobile(self):
-        self.assertIsNone(ph_mobile_problem("0917 123 4567"))
-        self.assertIsNone(ph_mobile_problem("+639171234567"))
-        self.assertIsNotNone(ph_mobile_problem("12345"))
+        self.assertIsNone(mobile_problem("0917 123 4567"))
+        self.assertIsNone(mobile_problem("+639171234567"))
+        self.assertIsNotNone(mobile_problem("12345"))
+        # A country-code picker means a graduate abroad can hold a foreign
+        # number; only +63 is held to the PH shape.
+        self.assertIsNone(mobile_problem("+1 555 867 5309"))
+        self.assertIsNone(mobile_problem("+81 90-1234-5678"))
+        self.assertIsNotNone(mobile_problem("+1 55"))
+        self.assertIsNotNone(mobile_problem("+631234"))
 
     def test_year_month(self):
         self.assertIsNone(year_month_problem("2001-06", min_age=18, max_age=70))
