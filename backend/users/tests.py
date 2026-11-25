@@ -2706,3 +2706,43 @@ class TranslatorMapsProduceStorableValuesTests(SimpleTestCase):
 			block = block[:block.index("];")]
 			keys = set(re.findall(r"value: '([a-z_]+)'", block))
 			self.assertEqual(keys, self._declared(field), const)
+
+
+class DuplicateNameRegistrationTests(TestCase):
+	"""One graduate, one account: the same person must not register twice under
+	two email addresses."""
+
+	def _account(self, email, first, middle, last, status=AccountStatus.ACTIVE):
+		user = User.objects.create_user(email=email, password="GradPass123!", role=User.Role.ALUMNI)
+		account = AlumniAccount.objects.create(user=user, account_status=status)
+		AlumniProfile.objects.create(
+			alumni=account, first_name=first, middle_name=middle, last_name=last,
+			graduation_year=2024, graduation_date="2024-06",
+		)
+		return account
+
+	def test_same_full_name_is_a_duplicate_however_it_is_typed(self):
+		self._account("jpingcale.chmsu@example.com", "John Cholo", "Tijing", "Pingcale")
+		self.assertTrue(api._name_already_registered("  john   cholo ", "tijing", "PINGCALE."))
+
+	def test_a_different_middle_name_is_a_different_graduate(self):
+		self._account("one@example.com", "Juan", "Santos", "Dela Cruz")
+		self.assertFalse(api._name_already_registered("Juan", "Reyes", "Dela Cruz"))
+
+	def test_a_rejected_account_does_not_lock_the_name(self):
+		self._account("rej@example.com", "Ana", "Lim", "Cruz", status=AccountStatus.REJECTED)
+		self.assertFalse(api._name_already_registered("Ana", "Lim", "Cruz"))
+
+	def test_a_seeded_graduate_does_not_lock_the_name(self):
+		# A demo row, matched by the email half of is_sample_account.
+		from tracer.employability import DEMO_EMAIL_PREFIX, SAMPLE_EMAIL_DOMAIN
+
+		self._account(f"{DEMO_EMAIL_PREFIX}mateo@{SAMPLE_EMAIL_DOMAIN}", "Mateo", "Lim", "Reyes")
+		self.assertFalse(api._name_already_registered("Mateo", "Lim", "Reyes"))
+
+	def test_a_simulated_graduate_does_not_lock_the_name(self):
+		# The other half: a seeded row carries is_sample in its biometric template.
+		account = self._account("sim@example.com", "Rosa", "Diaz", "Alvarez")
+		account.biometric_template = {"is_sample": True}
+		account.save(update_fields=["biometric_template"])
+		self.assertFalse(api._name_already_registered("Rosa", "Diaz", "Alvarez"))

@@ -31,7 +31,7 @@ from .auth import (
     require_admin as _require_admin,
     require_alumni as _require_alumni,
 )
-from .names import derive_last_name, names_match
+from .names import derive_last_name, names_match, normalize_name
 from .retracking import (
     RETRACKING_THRESHOLD_DAYS, employment_snapshot, graduate_first_name, last_retraced_at as _last_retraced_at,
     log_retracking_event, mark_retraced, needs_retracking, retracking_status, send_retracking_email,
@@ -293,6 +293,44 @@ def _find_master_record(
         if names_match(record.full_name, record.last_name, family_name, first_name):
             return record
     return None
+
+
+def _name_already_registered(first_name: str, middle_name: str, family_name: str) -> bool:
+    """Whether a graduate with this exact full name already has an account.
+
+    One graduate, one account. The email check alone does not get there: the
+    same person signing up twice under two addresses passes it. Compared on the
+    normalized first + middle + last, so case, accents and stray punctuation
+    cannot slip a duplicate through, and the middle name is part of the key so
+    two different graduates who share a first and last name are still allowed.
+
+    Scanned in Python for the same reason _find_master_record is: the stored
+    names carry whatever spelling the graduate typed, not a normalized one, and
+    there are only a few hundred rows.
+
+    Rejected accounts are ignored -- a rejected graduate must be able to
+    register again -- and so are the seeded and demo rows, whose fictional
+    names must never lock a real graduate out. Seeded rows are spotted with
+    is_sample_account rather than sample_q: the Q half uses a jsonb containment
+    lookup, which the SQLite the tests run on cannot execute at all.
+    """
+    from tracer.employability import is_sample_account
+
+    wanted = normalize_name(_build_profile_name(first_name, middle_name, family_name))
+    if not wanted:
+        return False
+    profiles = (
+        AlumniProfile.objects
+        .exclude(alumni__account_status=AccountStatus.REJECTED)
+        .select_related("alumni", "alumni__user")
+    )
+    return any(
+        not is_sample_account(profile.alumni)
+        and normalize_name(_build_profile_name(
+            profile.first_name, profile.middle_name, profile.last_name
+        )) == wanted
+        for profile in profiles
+    )
 
 
 def _refresh_master_match(account: AlumniAccount, *, relink: bool = False) -> bool:
@@ -2404,6 +2442,17 @@ class AlumniRegisterView(APIView):
                     status=status.HTTP_409_CONFLICT,
                 )
             rejected_user = existing_user
+
+        # Same person, second email address. Blocked here, before the Supabase
+        # uploads, so a duplicate leaves no orphaned image behind. field_errors
+        # + step send the graduate back to the personal form with everything
+        # they entered (and their face capture) still held.
+        if _name_already_registered(first_name, middle_name, family_name):
+            message = "This name is already registered. Sign in instead, or contact the BSIS office if this is not you."
+            return Response(
+                {"detail": message, "field_errors": {"full_name": message}, "step": "personal"},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # Registration stores ONE frontal photo. The blink and head-turn stages
         # prove liveness but deliberately save no image: face-api's recogniser
