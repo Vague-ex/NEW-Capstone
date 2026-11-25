@@ -13,7 +13,7 @@ import {
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
   ClipboardCheck, Upload, RefreshCw, ShieldCheck, GraduationCap, Repeat,
 } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend, Line, ComposedChart } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import type { ReportPayload } from '../../app/api-client';
 
 /** Earliest batch the tracer covers; the report is filtered from here to now. */
@@ -467,21 +467,12 @@ export function AdminNewDashboard() {
   // Verified graduates whose employment record is over two years old.
   const retraceCount = listedAlumni.filter(a => a.requiresRetracking === true).length;
 
-  const masterByYear = useMemo(() => {
-    const map = new globalThis.Map<number, number>();
-    (masterTotals?.perBatch ?? []).forEach((b) => map.set(Number(b.year), Number(b.count)));
-    return map;
-  }, [masterTotals]);
-
   const batchYears = useMemo(() => {
     const years = Array.from(
       new Set([
         ...registeredAlumni
           .map((a) => Number(a.graduationYear))
           .filter((year) => Number.isFinite(year) && year > 0),
-        // A batch where nobody has registered yet still belongs on the chart:
-        // the point of showing total graduates is that the gap is visible.
-        ...masterByYear.keys(),
       ]),
     ).sort((a, b) => a - b);
 
@@ -491,7 +482,7 @@ export function AdminNewDashboard() {
 
     const currentYear = new Date().getFullYear();
     return [currentYear - 5, currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
-  }, [registeredAlumni, masterByYear]);
+  }, [registeredAlumni]);
 
   const batchData = useMemo(() => (
     batchYears.map((year) => {
@@ -502,13 +493,9 @@ export function AdminNewDashboard() {
         total: verifiedBatch.length,
         employed: employedBatch,
         notEmployed: verifiedBatch.length - employedBatch,
-        // Graduates on the masterlist for this batch. The stacked bars only
-        // ever covered graduates who registered AND were verified, which read
-        // as the whole batch; this line is the batch.
-        graduates: masterByYear.get(year) ?? 0,
       };
     })
-  ), [batchYears, verifiedAlumni, masterByYear]);
+  ), [batchYears, verifiedAlumni]);
 
   const yearlyEmploymentRates = useMemo(() => (
     batchData.map((batch) => ({
@@ -863,7 +850,7 @@ export function AdminNewDashboard() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Batch Employment Breakdown</h3>
               <span className="text-gray-400 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">
-                Bars: verified · Line: all graduates
+                Verified graduates only
               </span>
             </div>
             {/* Phones: fixed 160px (cards stack). Desktop: the row is as tall as
@@ -872,7 +859,7 @@ export function AdminNewDashboard() {
             <div className="relative h-[160px] lg:h-auto lg:flex-1 lg:min-h-[260px]">
               <div className="absolute inset-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={batchData}>
+                  <BarChart data={batchData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
@@ -880,12 +867,7 @@ export function AdminNewDashboard() {
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
                     <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                    {/* The batch itself, from the masterlist. The gap between
-                        this line and the bars is the batch that has not been
-                        traced yet, which the bars alone never showed. */}
-                    <Line key="line-graduates" type="monotone" dataKey="graduates" name="Total graduates"
-                      stroke="#4f46e5" strokeWidth={2} dot={{ fill: '#4f46e5', r: 3 }} isAnimationActive={false} />
-                  </ComposedChart>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
