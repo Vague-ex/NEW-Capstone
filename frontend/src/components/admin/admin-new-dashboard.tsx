@@ -331,6 +331,14 @@ function AuditModal({ initialEvents, totals, onClose, onOpen }: {
   );
 }
 
+// Recharts paints tooltip and legend labels in the SERIES colour. That is fine
+// for the dark green at 7.1:1, but the muted "1 or none" bar is grey, and grey
+// text on the tooltip's white card came out at 1.47:1 -- there, but unreadable.
+// The swatch still carries the colour; only the words are forced to a readable
+// one. Dark red series text (3.76:1) is below AA too, so this covers it as well.
+const CHART_LABEL = { color: '#374151' };
+const chartLegendLabel = (value: string) => <span style={CHART_LABEL}>{value}</span>;
+
 export function AdminNewDashboard() {
   const navigate = useNavigate();
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -775,7 +783,7 @@ export function AdminNewDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
-                  <Tooltip formatter={(v: any) => [`${v}%`, 'Employment Rate']} />
+                  <Tooltip itemStyle={CHART_LABEL} formatter={(v: any) => [`${v}%`, 'Employment Rate']} />
                   <Area type="monotone" dataKey="rate" stroke="#166534" fill="url(#adminEmpGrad)" strokeWidth={2.5} dot={{ fill: '#166534', r: 4 }} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -821,7 +829,7 @@ export function AdminNewDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} unit="mo" />
-                  <Tooltip formatter={(v: any) => [`${v} months`]} />
+                  <Tooltip itemStyle={CHART_LABEL} formatter={(v: any) => [`${v} months`]} />
                   <Bar dataKey="avgMonths" radius={[4, 4, 0, 0]} name="Avg Months">
                     {timeToHireData.map((entry) => (
                       <Cell
@@ -863,8 +871,8 @@ export function AdminNewDashboard() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Tooltip itemStyle={CHART_LABEL} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} formatter={chartLegendLabel} />
                     <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
                     <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
                   </BarChart>
@@ -940,10 +948,10 @@ export function AdminNewDashboard() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Tooltip itemStyle={CHART_LABEL} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} formatter={chartLegendLabel} />
                     <Bar dataKey="multiJob" stackId="jobs" name="2+ employers" fill="#166534" />
-                    <Bar dataKey="oneJob" stackId="jobs" name="1 or none" fill="#d1d5db" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="oneJob" stackId="jobs" name="1 or none" fill="#9ca3af" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
