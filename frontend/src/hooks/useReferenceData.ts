@@ -117,6 +117,18 @@ export function thisMonth(): string {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Latest birth month a graduate may enter, as "YYYY-MM": 18 years ago.
+ *
+ * "Not in the future" was the only rule, which still accepted this year --
+ * a 2026 birth month stored a graduate aged 0. Mirrors AGE_RANGE[0] in
+ * tracer/validators.py, which refuses the same thing at intake.
+ */
+export function latestBirthMonth(): string {
+    const now = new Date();
+    return `${now.getFullYear() - 18}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** Latest graduation month a graduate may enter, as "YYYY-MM". */
 export function latestGraduationMonth(latestYear?: number): string {
     const now = new Date();

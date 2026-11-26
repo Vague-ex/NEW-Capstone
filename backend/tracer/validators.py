@@ -27,6 +27,13 @@ def birth_date_problem(value) -> Optional[str]:
     Nobody is born in the future. The age-range check elsewhere is only a warning,
     so without this a future birth month was stored and then read back as a
     negative age.
+
+    The future rule alone still let this year through: in November 2026 a birth
+    month of 2026-01 was accepted and the graduate stored as aged 0. Nobody
+    finishes a degree before AGE_RANGE's lower bound, so that is the floor --
+    refused outright rather than warned about, because it can only be a typing
+    mistake. The UPPER bound stays a warning: an older graduate is unusual, not
+    impossible, and refusing one would be wrong.
     """
     match = re.match(r'^(\d{4})-(\d{2})', str(value or '').strip())
     if not match:
@@ -37,6 +44,9 @@ def birth_date_problem(value) -> Optional[str]:
         return 'Date of birth cannot be in the future.'
     if year < _EARLIEST_BIRTH_YEAR:
         return f'Date of birth cannot be earlier than {_EARLIEST_BIRTH_YEAR}.'
+    minimum_age = FieldValidationRules.AGE_RANGE[0]
+    if (year, month) > (now.year - minimum_age, now.month):
+        return f'Date of birth must be at least {minimum_age} years ago.'
     return None
 
 

@@ -2677,10 +2677,35 @@ class BirthDateNotInFutureTests(SimpleTestCase):
 		future = (timezone.now() + timedelta(days=400)).strftime("%Y-%m")
 		self.assertIn("future", birth_date_problem(future) or "")
 
-	def test_this_month_is_allowed(self):
+	def test_this_month_is_refused_as_a_birth_month(self):
+		# "Not in the future" let the CURRENT year through, so a 2026 birth
+		# month was stored and the graduate read back as aged 0.
 		from .validators import birth_date_problem
 
-		self.assertIsNone(birth_date_problem(timezone.now().strftime("%Y-%m")))
+		self.assertIn("18 years", birth_date_problem(timezone.now().strftime("%Y-%m")) or "")
+
+	def test_a_graduate_younger_than_the_minimum_age_is_refused(self):
+		from .validators import birth_date_problem
+		from .validators import FieldValidationRules
+
+		minimum = FieldValidationRules.AGE_RANGE[0]
+		now = timezone.now()
+		too_young = now.replace(year=now.year - minimum + 1).strftime("%Y-%m")
+		self.assertIn("18 years", birth_date_problem(too_young) or "")
+
+	def test_exactly_the_minimum_age_is_allowed(self):
+		from .validators import birth_date_problem
+		from .validators import FieldValidationRules
+
+		now = timezone.now()
+		just_old_enough = now.replace(year=now.year - FieldValidationRules.AGE_RANGE[0]).strftime("%Y-%m")
+		self.assertIsNone(birth_date_problem(just_old_enough))
+
+	def test_an_older_graduate_is_never_refused(self):
+		# AGE_RANGE's upper bound stays a warning: unusual, not impossible.
+		from .validators import birth_date_problem
+
+		self.assertIsNone(birth_date_problem("1945-03"))
 
 	def test_a_past_birth_month_is_allowed(self):
 		from .validators import birth_date_problem

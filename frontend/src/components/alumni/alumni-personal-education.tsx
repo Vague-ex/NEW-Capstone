@@ -6,6 +6,7 @@ import { HomeAddressFields, type HomeAddress } from './home-address-fields';
 import {
     User, BookOpen, Phone, Save, CheckCircle2, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
+import { latestBirthMonth } from '../../hooks/useReferenceData';
 
 function RadioOption({ label, value, current, onSelect }: {
     label: string; value: string; current: string; onSelect: (v: string) => void;
@@ -264,7 +265,7 @@ export function AlumniPersonalEducation() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Birth Month and Year</label>
-                                    <input type="month" value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
+                                    <input type="month" max={latestBirthMonth()} value={form.birthDate} onChange={(e) => setF('birthDate', e.target.value)} className={inputCls} />
                                 </div>
                                 <div>
                                     <label className="block text-gray-700 text-xs mb-1.5" style={{ fontWeight: 600 }}>Civil Status</label>

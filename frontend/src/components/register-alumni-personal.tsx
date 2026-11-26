@@ -36,6 +36,7 @@ import { FloatingAlert } from './shared/floating-alert';
 import {
   useReferenceData,
   latestGraduationMonth,
+  latestBirthMonth,
   thisMonth,
   provincesApi,
   citiesApi,
@@ -995,8 +996,12 @@ export default function RegisterAlumniPersonal({
         return false;
       }
       // The month picker's max is not enforced when the date is typed.
-      if (form.birthDate > thisMonth()) {
-        setStepError('Date of birth cannot be in the future.');
+      if (form.birthDate > latestBirthMonth()) {
+        setStepError(
+          form.birthDate > thisMonth()
+            ? 'Date of birth cannot be in the future.'
+            : 'Date of birth must be at least 18 years ago.',
+        );
         return false;
       }
       if (!form.mobile.trim()) {
@@ -1681,7 +1686,7 @@ export default function RegisterAlumniPersonal({
                     </label>
                     <input
                       type="month"
-                      max={thisMonth()}
+                      max={latestBirthMonth()}
                       value={form.birthDate}
                       onChange={(e) => setF('birthDate', e.target.value)}
                       className={inputCls}
