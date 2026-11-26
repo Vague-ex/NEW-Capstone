@@ -21,6 +21,7 @@ from __future__ import annotations
 import gzip
 import json
 import math
+import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -184,21 +185,50 @@ def _country_view(points: list[tuple[float, float]]) -> tuple[float, float, int]
     """Centre and zoom that frame a country, from its divisions' coordinates.
 
     placedb gives coordinates per division but none per country, so the country
-    view is derived from the box its divisions sit in. The centre is the box's
-    middle rather than the mean, so one distant overseas territory shifts the
-    view less than it would drag an average.
+    view is derived from where its divisions sit. Two things make the obvious
+    reading of that -- the middle of the bounding box -- land in open water:
+
+      * Longitude wraps. New Zealand runs from 166 deg to the Chatham Islands
+        at -176, and a box midpoint put the country at 0.76 deg: the South
+        Atlantic, 10,000 km away. Kiribati, straddling the date line outright,
+        came out in the Gulf of Guinea. So the widest EMPTY arc is found first
+        and the longitudes east of it are unwrapped past 180, which is the
+        same thing as cutting the circle where the country is not.
+
+      * Overseas territory drags the box. The Caribbean municipalities stretch
+        the Netherlands across 75 deg of longitude, and the midpoint of that
+        is mid-Atlantic, 3,500 km from any Dutch division. So the centre is
+        the MEDIAN rather than the midpoint: a handful of distant islands move
+        it by one division's worth instead of half the distance to them.
+
+    The zoom still comes from the full occupied span, so a country with distant
+    territory is framed wide enough to show all of it -- just centred on where
+    its divisions actually are.
     """
     if not points:
         return None
-    lats = [lat for lat, _ in points]
-    lons = [lon for _, lon in points]
-    centre_lat = (min(lats) + max(lats)) / 2
-    centre_lon = (min(lons) + max(lons)) / 2
+    lats = sorted(lat for lat, _ in points)
+    lons = sorted(lon for _, lon in points)
+
+    # The arc from the last longitude round to the first is the one the country
+    # does not occupy. If some interior gap is wider, that one is the empty
+    # side, so rotate the readings past it.
+    widest_gap, cut = max(
+        ((lons[i + 1] - lons[i], i + 1) for i in range(len(lons) - 1)),
+        default=(0.0, 0),
+    )
+    if widest_gap > (lons[0] + 360) - lons[-1]:
+        lons = lons[cut:] + [lon + 360 for lon in lons[:cut]]
+
+    centre_lat = statistics.median(lats)
+    centre_lon = statistics.median(lons)
+    if centre_lon > 180:
+        centre_lon -= 360
 
     # Leaflet shows roughly 360/2**zoom degrees of longitude across the map, so
     # the zoom that fits a span is log2(360/span). Latitude is weighted by 2
     # because the viewport is wider than it is tall.
-    span = max((max(lats) - min(lats)) * 2, max(lons) - min(lons), 0.05)
+    span = max((lats[-1] - lats[0]) * 2, lons[-1] - lons[0], 0.05)
     zoom = int(math.floor(math.log2(360 / span)))
     return centre_lat, centre_lon, max(2, min(zoom, 10))
 

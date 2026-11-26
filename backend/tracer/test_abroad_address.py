@@ -127,6 +127,46 @@ class CountryMapViewTests(TestCase):
             Country.objects.get(code="XN").map_zoom,
         )
 
+    def test_a_country_across_the_date_line_is_not_put_on_the_far_side(self):
+        # New Zealand's shape: the mainland around 174 deg east, the Chatham
+        # Islands just past -180. Averaging the two ends of that put the
+        # country at 0.76 deg -- the South Atlantic, 10,000 km from any of it.
+        nz = {
+            "countries": [{"code": "NZ", "name": "New Zealand"}],
+            "divisions": [
+                {"country": "NZ", "name": "Auckland", "iso_3166_2": "", "lat": -36.85, "lon": 174.76},
+                {"country": "NZ", "name": "Wellington", "iso_3166_2": "", "lat": -41.29, "lon": 174.78},
+                {"country": "NZ", "name": "Otago", "iso_3166_2": "", "lat": -45.87, "lon": 170.50},
+                {"country": "NZ", "name": "Chatham Islands", "iso_3166_2": "", "lat": -43.95, "lon": -176.55},
+            ],
+        }
+        sync_placedb(nz, apply=True)
+        country = Country.objects.get(code="NZ")
+        self.assertGreater(country.longitude, 160)
+        self.assertLess(country.latitude, -30)
+
+    def test_distant_territory_does_not_drag_the_centre_off_the_country(self):
+        # The Netherlands: twelve European provinces and three Caribbean
+        # municipalities. The midpoint of that box is mid-Atlantic.
+        nl = {
+            "countries": [{"code": "NL", "name": "Netherlands"}],
+            "divisions": [
+                {"country": "NL", "name": f"Province {i}", "iso_3166_2": "",
+                 "lat": 52.0 + i * 0.1, "lon": 5.0 + i * 0.1}
+                for i in range(12)
+            ] + [
+                {"country": "NL", "name": "Bonaire", "iso_3166_2": "", "lat": 12.20, "lon": -68.26},
+                {"country": "NL", "name": "Saba", "iso_3166_2": "", "lat": 17.63, "lon": -63.23},
+                {"country": "NL", "name": "Sint Eustatius", "iso_3166_2": "", "lat": 17.49, "lon": -62.97},
+            ],
+        }
+        sync_placedb(nl, apply=True)
+        country = Country.objects.get(code="NL")
+        self.assertGreater(country.longitude, 0)
+        self.assertGreater(country.latitude, 50)
+        # Still framed widely enough to show the Caribbean half.
+        self.assertEqual(country.map_zoom, 2)
+
     def test_zoom_stays_within_leaflet_range(self):
         sync_placedb(SAMPLE, apply=True)
         for country in Country.objects.exclude(map_zoom=None):
