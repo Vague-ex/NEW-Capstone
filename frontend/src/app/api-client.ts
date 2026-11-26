@@ -386,10 +386,19 @@ export async function fetchAlumniAccountStatus(alumniId: string): Promise<unknow
     return data?.alumni ?? data;
 }
 
-/** One frame of a re-enrolment sweep: the image, its browser-side vector, the pose. */
+/**
+ * One frame of a re-enrolment sweep: the image, the pose, and the browser-side
+ * vector where there is one.
+ *
+ * `descriptor` is null whenever face-api could not read the frame. That is not
+ * a failed capture: under a server-side engine (insightface, compreface) the
+ * descriptor is ignored entirely and the IMAGE is what gets embedded, by a
+ * detector that holds faces to far steeper yaw than face-api's. Dropping such
+ * a frame would throw away exactly the angles the sweep exists to collect.
+ */
 export interface AlumniFaceCapture {
     blob: Blob;
-    descriptor: number[];
+    descriptor: number[] | null;
     yaw: number;
 }
 
@@ -400,6 +409,12 @@ export interface AlumniFaceCapture {
  * it: a face cannot authorise replacing itself. Several poses are sent because
  * one frontal vector gives a later login at a slightly different angle nothing
  * close to match against.
+ *
+ * Frames AND descriptors both go up, and the active engine takes what it needs:
+ * face-api uses the descriptors and ignores the images, while insightface and
+ * compreface embed the images and ignore the descriptors. The browser is never
+ * told which engine is live, so sending both is what keeps this working across
+ * a switch.
  */
 export async function updateAlumniFace(
     captures: AlumniFaceCapture[],
@@ -409,13 +424,17 @@ export async function updateAlumniFace(
     const descriptors: number[][] = [];
     captures.forEach((capture, index) => {
         body.append('face_images', capture.blob, `face_${index}.jpg`);
-        descriptors.push(capture.descriptor);
+        if (capture.descriptor) descriptors.push(capture.descriptor);
     });
-    // The frontal frame leads: the server keeps it as the single descriptor
-    // alongside the sweep it averages.
-    const frontal = captures.reduce((best, c) => (Math.abs(c.yaw) < Math.abs(best.yaw) ? c : best));
-    body.append('face_descriptor_samples', JSON.stringify(descriptors));
-    body.append('face_descriptor', JSON.stringify(frontal.descriptor));
+    if (descriptors.length) {
+        // The frontal frame leads: the server keeps it as the single descriptor
+        // alongside the sweep it averages.
+        const frontal = captures
+            .filter(c => c.descriptor)
+            .reduce((best, c) => (Math.abs(c.yaw) < Math.abs(best.yaw) ? c : best));
+        body.append('face_descriptor_samples', JSON.stringify(descriptors));
+        body.append('face_descriptor', JSON.stringify(frontal.descriptor));
+    }
     body.append('sample_meta', JSON.stringify(captures.map(c => ({ yaw: c.yaw }))));
     if (gps) {
         body.append('gps_lat', String(gps.gpsLat));

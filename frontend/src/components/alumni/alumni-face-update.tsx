@@ -15,6 +15,11 @@
  *  2. The enrolment sweep, as on the face debug page: one frame per target
  *     angle, so a later login at a slightly different angle has several
  *     references to match against rather than one frontal vector.
+ *
+ * face-api runs here for the landmarks either way -- liveness and yaw are
+ * browser work whatever embeds the face. Which engine actually builds the
+ * template is the server's business: both the frames and the browser-side
+ * descriptors are uploaded, and the active engine uses whichever it needs.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -236,17 +241,20 @@ export function AlumniFaceUpdateModal({
             );
             if (slot >= 0) {
               const dataUrl = captureFrame(video);
+              // Landmarks already proved there is a face in this frame. The
+              // descriptor is a bonus for face-api; a server-side engine embeds
+              // the image itself with a detector that reads steeper angles than
+              // face-api's, so a null here must not discard the frame -- the
+              // outer slots are exactly where face-api gives up first.
               const descriptor = await extractFaceDescriptorFromDataUrl(dataUrl);
               if (stopped) return;
-              if (descriptor) {
-                slotsRef.current[slot] = { blob: await dataUrlToBlob(dataUrl), descriptor, yaw };
-                setSlots([...slotsRef.current]);
-                if (slotsRef.current.every(s => s !== null)) {
-                  stop();
-                  clearTimeout(timeout);
-                  void submit();
-                  return;
-                }
+              slotsRef.current[slot] = { blob: await dataUrlToBlob(dataUrl), descriptor, yaw };
+              setSlots([...slotsRef.current]);
+              if (slotsRef.current.every(s => s !== null)) {
+                stop();
+                clearTimeout(timeout);
+                void submit();
+                return;
               }
             }
           }
