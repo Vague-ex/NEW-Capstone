@@ -26,6 +26,7 @@ import {
   ApiClientError,
   debugDeleteAuditEvent,
   debugSeedEvaluations,
+  debugSeedJobHistory,
   debugUpdateAuditEvent,
   fetchAnalyticsPredictions,
   fetchAuditFeed,
@@ -200,6 +201,8 @@ export function AdminAccountsDebug() {
         <AuditEventsPanel onNotice={setNotice} onError={setError} />
 
         <EmployerEvaluationsPanel onNotice={setNotice} onError={setError} />
+
+        <JobHistoryPanel onNotice={setNotice} onError={setError} />
 
         {/* ── Data source ─────────────────────────────────────────────────── */}
         <div className="grid gap-5 lg:grid-cols-2">
@@ -890,7 +893,69 @@ function EmployerEvaluationsPanel({ onNotice, onError }: {
       </div>
       <p className="text-gray-400 text-[11px]">
         Re-running replaces the seeded rows rather than adding to them. Switch the analytics
-        source to Simulated graduates to see them in the report.
+        source to Simulated graduates to see them in the report. Each evaluation also confirms
+        the graduate&apos;s job title, which is what the dashboard&apos;s Employer-verified
+        alignment figure is computed from.
+      </p>
+    </section>
+  );
+}
+
+/** A previous employer for the simulated cohort. A job change is recorded as a
+ *  second EmploymentRecord with the old one kept at is_current=false, so the
+ *  seeded graduates -- one record each -- read as nobody ever moving. Real
+ *  graduates are out of scope for the same reason as the evaluations above. */
+function JobHistoryPanel({ onNotice, onError }: {
+  onNotice: (m: string) => void;
+  onError: (m: string) => void;
+}) {
+  const [share, setShare] = useState(35);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (pct: number) => {
+    setBusy(true);
+    try {
+      const res = await debugSeedJobHistory(pct / 100);
+      onNotice(res.message);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not seed job history.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-white p-4 sm:p-6 shadow-sm space-y-4">
+      <div>
+        <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Job history (simulated only)</h3>
+        <p className="text-gray-500 text-xs mt-1">
+          Fills the dashboard&apos;s Job Mobility card, which counts graduates who have worked for
+          more than one employer. Previous employers are taken from what the rest of the simulated
+          cohort currently works for, so no invented companies enter the data.
+        </p>
+      </div>
+      <label className="block text-xs text-gray-600">
+        Share of employed simulated graduates with a previous job: <strong>{share}%</strong>
+        <input
+          type="range" min={0} max={100} step={5} value={share}
+          onChange={(e) => setShare(Number(e.target.value))}
+          className="mt-2 w-full"
+        />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy} onClick={() => void run(share)}
+          className="rounded-xl bg-[#166534] px-4 py-2 text-sm text-white disabled:opacity-60"
+          style={{ fontWeight: 600 }}>
+          {busy ? 'Working...' : 'Seed job history'}
+        </button>
+        <button type="button" disabled={busy} onClick={() => void run(0)}
+          className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700 disabled:opacity-60">
+          Clear previous jobs
+        </button>
+      </div>
+      <p className="text-gray-400 text-[11px]">
+        Only the current job is kept when re-running, so repeated runs cannot stack five jobs
+        onto one graduate. Clearing removes the seeded previous jobs and leaves the current one.
       </p>
     </section>
   );

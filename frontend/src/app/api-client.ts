@@ -723,6 +723,22 @@ export async function debugSeedEvaluations(share: number): Promise<{
     return response.json();
 }
 
+/** Debug (/admin/debug/a): give the simulated graduates a previous employer so
+ *  the Job Mobility card has movement to describe. The seeded cohort has one
+ *  employment record each, which reads as nobody ever changing jobs. Real
+ *  graduates are never touched. share=0 clears the seeded previous jobs. */
+export async function debugSeedJobHistory(share: number): Promise<{
+    message: string; created: number; cleared: number; eligible?: number;
+}> {
+    const response = await fetch(`${API_BASE_URL}/api/admin/debug/seed-job-history/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...withAdminAuthHeaders() },
+        body: JSON.stringify({ share }),
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 export async function debugDeleteAuditEvent(eventId: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/api/admin/debug/audit-events/${eventId}/`, {
         method: 'DELETE',

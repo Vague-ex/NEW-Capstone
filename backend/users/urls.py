@@ -36,6 +36,7 @@ from .api import (
     DebugAnalyticsSettingsView,
     DebugAuditEventView,
     DebugSeedEmployerEvaluationsView,
+    DebugSeedJobHistoryView,
     DebugDemoAccountsView,
     DebugDemoOpenView,
     DebugSimulatedAccountsDeleteView,
@@ -148,6 +149,10 @@ urlpatterns = [
     # Common Themes tables have text to summarise.
     path("admin/debug/seed-evaluations/", DebugSeedEmployerEvaluationsView.as_view(),
          name="debug-seed-evaluations"),
+    # A previous job for the simulated cohort, so the Job Mobility card has
+    # movement to describe.
+    path("admin/debug/seed-job-history/", DebugSeedJobHistoryView.as_view(),
+         name="debug-seed-job-history"),
     path(
         "admin/debug/simulated-accounts/delete/",
         DebugSimulatedAccountsDeleteView.as_view(),

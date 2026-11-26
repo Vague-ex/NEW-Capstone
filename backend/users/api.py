@@ -4181,6 +4181,12 @@ class DebugSeedEmployerEvaluationsView(APIView):
                 VerificationDecision.objects.create(
                     token=token,
                     decision=VerificationDecision.Decision.CONFIRM,
+                    # The title the employer confirms. Without it the decision
+                    # feeds Common Themes but NOT the curriculum alignment card,
+                    # whose Employer-verified figure comes from a confirmed
+                    # title's is_bsis_aligned and nothing else -- so seeding
+                    # evaluations used to leave that panel empty.
+                    verified_job_title=record.job_title,
                     verifier_name=f"HR Officer, {record.employer_name_input[:60]}",
                     verifier_position="HR Officer",
                     employee_status=rng.choice(["regular", "probationary_casual_jo"]),
@@ -4213,6 +4219,108 @@ class DebugSeedEmployerEvaluationsView(APIView):
                 "created": created,
                 "cleared": removed,
                 "eligible": len(sample_accounts),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DebugSeedJobHistoryView(APIView):
+    """Debug (/admin/debug/a): give the SIMULATED graduates a previous job, so
+    the dashboard's Job Mobility card has movement to describe.
+
+    A second EmploymentRecord is how this system records a job change: the old
+    row is kept with is_current=False and the count of DISTINCT employers per
+    graduate is their job count. The seeded cohort was created with exactly one
+    record each, so the card read zero however the data was filtered.
+
+    Only sample accounts are touched, the same rule the evaluation seeder
+    follows: a fabricated employment history against a real graduate would be a
+    false record about a named person. Previous employers are drawn from the
+    other simulated graduates' current employers, so no invented company names
+    enter the data.
+
+    Temporary debug surface, like the other /admin/debug/ routes.
+    """
+    parser_classes = [JSONParser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        _admin_user, _auth_error = _require_admin(request)
+        if _auth_error:
+            return _auth_error
+
+        import random as _random
+
+        from tracer import employability
+        from tracer.models import EmploymentRecord
+
+        raw_share = request.data.get("share")
+        try:
+            share = float(raw_share) if raw_share is not None else 0.35
+        except (TypeError, ValueError):
+            return Response({"detail": "share must be a number between 0 and 1."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        share = max(0.0, min(share, 1.0))
+
+        sample_ids = list(
+            AlumniAccount.objects
+            .filter(employability.sample_q())
+            .exclude(employability.demo_q())
+            .values_list("id", flat=True)
+        )
+        current = list(
+            EmploymentRecord.objects
+            .filter(alumni_id__in=sample_ids, is_current=True)
+            .select_related("job_title")
+        )
+
+        with transaction.atomic():
+            # Replace rather than accumulate: only the current row is kept, so
+            # repeated runs cannot stack five jobs onto one graduate.
+            removed = EmploymentRecord.objects.filter(
+                alumni_id__in=sample_ids, is_current=False,
+            ).delete()[0]
+
+            if share == 0 or not current:
+                return Response(
+                    {"message": f"Cleared {removed} seeded previous job(s).",
+                     "created": 0, "cleared": removed, "eligible": len(current)},
+                    status=status.HTTP_200_OK,
+                )
+
+            rng = _random.Random(20260918)
+            # The pool of real-looking employers: what the rest of the cohort
+            # currently works for.
+            pool = [(r.employer_name_input, r.job_title_input, r.job_title, r.region_id)
+                    for r in current if r.employer_name_input.strip()]
+            previous = []
+            for record in current:
+                if rng.random() >= share:
+                    continue
+                choices = [p for p in pool
+                           if p[0].strip().casefold() != record.employer_name_input.strip().casefold()]
+                if not choices:
+                    continue
+                employer, title_input, title, region_id = rng.choice(choices)
+                previous.append(EmploymentRecord(
+                    alumni_id=record.alumni_id,
+                    employer_name_input=employer,
+                    job_title_input=title_input,
+                    job_title=title,
+                    employment_status=record.employment_status,
+                    work_location=record.work_location,
+                    region_id=region_id,
+                    is_current=False,
+                ))
+            EmploymentRecord.objects.bulk_create(previous)
+
+        return Response(
+            {
+                "message": f"Gave {len(previous)} simulated graduate(s) a previous job.",
+                "created": len(previous),
+                "cleared": removed,
+                "eligible": len(current),
             },
             status=status.HTTP_200_OK,
         )

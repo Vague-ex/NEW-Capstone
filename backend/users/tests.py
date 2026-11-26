@@ -2746,3 +2746,79 @@ class DuplicateNameRegistrationTests(TestCase):
 		account.biometric_template = {"is_sample": True}
 		account.save(update_fields=["biometric_template"])
 		self.assertFalse(api._name_already_registered("Rosa", "Diaz", "Alvarez"))
+
+
+@skipUnless(connection.vendor == "postgresql",
+            "the simulated-cohort filter uses a jsonb containment lookup")
+class DebugSeedJobHistoryTests(TestCase):
+	"""The Job Mobility card counts graduates with more than one DISTINCT
+	employer, and the seeded cohort is created with exactly one record each."""
+
+	def setUp(self):
+		from tracer.employability import SAMPLE_EMAIL_DOMAIN
+		from tracer.models import EmploymentRecord
+
+		self.accounts = []
+		for i in range(4):
+			user = User.objects.create_user(
+				email=f"sim{i}@{SAMPLE_EMAIL_DOMAIN}", password="GradPass123!", role=User.Role.ALUMNI)
+			account = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+			AlumniProfile.objects.create(
+				alumni=account, first_name=f"Sim{i}", last_name="Graduate",
+				graduation_year=2022, graduation_date="2022-06",
+			)
+			EmploymentRecord.objects.create(
+				alumni=account, employer_name_input=f"Employer {i}",
+				job_title_input="Developer", employment_status="employed_full_time",
+				is_current=True,
+			)
+			self.accounts.append(account)
+
+		self.client = APIClient()
+		self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {generate_admin_access_token(uuid4())}")
+
+	def _post(self, share):
+		return self.client.post("/api/admin/debug/seed-job-history/", {"share": share}, format="json")
+
+	def test_a_previous_job_is_a_different_employer(self):
+		from tracer.models import EmploymentRecord
+
+		response = self._post(1.0)
+		self.assertEqual(response.status_code, 200)
+		for account in self.accounts:
+			rows = EmploymentRecord.objects.filter(alumni=account)
+			employers = {r.employer_name_input for r in rows}
+			self.assertEqual(len(employers), rows.count(), "a seeded previous job repeated the current employer")
+			self.assertEqual(rows.filter(is_current=True).count(), 1)
+
+	def test_re_running_replaces_rather_than_stacks(self):
+		from tracer.models import EmploymentRecord
+
+		self._post(1.0)
+		after_first = EmploymentRecord.objects.filter(is_current=False).count()
+		self._post(1.0)
+		self.assertEqual(EmploymentRecord.objects.filter(is_current=False).count(), after_first)
+
+	def test_clearing_leaves_the_current_job_alone(self):
+		from tracer.models import EmploymentRecord
+
+		self._post(1.0)
+		self._post(0)
+		self.assertEqual(EmploymentRecord.objects.filter(is_current=False).count(), 0)
+		self.assertEqual(EmploymentRecord.objects.filter(is_current=True).count(), len(self.accounts))
+
+	def test_a_real_graduate_never_gets_a_fabricated_job(self):
+		from tracer.models import EmploymentRecord
+
+		user = User.objects.create_user(email="real@example.com", password="GradPass123!", role=User.Role.ALUMNI)
+		real = AlumniAccount.objects.create(user=user, account_status=AccountStatus.ACTIVE)
+		AlumniProfile.objects.create(
+			alumni=real, first_name="Real", last_name="Graduate",
+			graduation_year=2022, graduation_date="2022-06",
+		)
+		EmploymentRecord.objects.create(
+			alumni=real, employer_name_input="Real Employer", job_title_input="Developer",
+			employment_status="employed_full_time", is_current=True,
+		)
+		self._post(1.0)
+		self.assertEqual(EmploymentRecord.objects.filter(alumni=real).count(), 1)
