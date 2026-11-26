@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { PortalLayout } from '../shared/portal-layout';
 import { updateAlumniEmployment } from '../../app/api-client';
 import { isValidFacebookUrl } from '../register-alumni-personal';
+import { AlumniFaceUpdateModal } from './alumni-face-update';
 import {
   Mail, Phone, Globe, Save, CheckCircle2,
   Camera, AlertTriangle, UserCircle, Hash, Calendar, ShieldCheck, BookOpen, MapPin,
@@ -33,6 +34,7 @@ export function AlumniProfile() {
   // Consent to appear on the admin geomap, separate from joining the study
   // (RA 10173). Changing it only moves the graduate on or off the map.
   const [geomapConsent, setGeomapConsent] = useState(alumni.geomapConsent === true);
+  const [showFaceUpdate, setShowFaceUpdate] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -138,7 +140,7 @@ export function AlumniProfile() {
           </div>
           <p className="mt-4 text-white/40 text-xs flex items-center gap-1.5">
             <Camera className="size-3.5" />
-            Profile photo is captured via camera only. Contact admin to update biometric.
+            Profile photo is captured via camera only.
           </p>
         </div>
 
@@ -277,17 +279,32 @@ export function AlumniProfile() {
           </div>
         </form>
 
-        {/* Profile photo note */}
+        {/* Face scan. Re-capturing is the graduate's own to do: a face cannot
+            authorise replacing itself, so being signed in -- which took the
+            password -- is the credential behind it. */}
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
           <Camera className="size-5 text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>Profile photo is camera-capture only</p>
+          <div className="min-w-0">
+            <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>Face scan is camera-capture only</p>
             <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
-              Per CHMSU data policy, profile photos and biometrics are captured via live camera during registration only.
-              File uploads are not supported. To update your biometric, contact the BSIS Admin.
+              Per CHMSU data policy, profile photos and biometrics are captured via live camera. File uploads
+              are not supported. If your face has changed since you registered — new glasses, a few years on —
+              re-capture it here so sign-in keeps recognising you.
             </p>
+            <button type="button" onClick={() => setShowFaceUpdate(true)}
+              className="mt-3 inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-xs px-3 py-2 rounded-xl"
+              style={{ fontWeight: 600 }}>
+              <Camera className="size-4" /> Update face scan
+            </button>
           </div>
         </div>
+
+        {showFaceUpdate && (
+          <AlumniFaceUpdateModal
+            onClose={() => setShowFaceUpdate(false)}
+            onSaved={(updated) => sessionStorage.setItem('alumni_user', JSON.stringify(updated))}
+          />
+        )}
         </div>
       </div>
     </PortalLayout>

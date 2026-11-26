@@ -386,6 +386,53 @@ export async function fetchAlumniAccountStatus(alumniId: string): Promise<unknow
     return data?.alumni ?? data;
 }
 
+/** One frame of a re-enrolment sweep: the image, its browser-side vector, the pose. */
+export interface AlumniFaceCapture {
+    blob: Blob;
+    descriptor: number[];
+    yaw: number;
+}
+
+/**
+ * Replace the signed-in graduate's face template.
+ *
+ * The bearer token is the credential here, which is to say the password behind
+ * it: a face cannot authorise replacing itself. Several poses are sent because
+ * one frontal vector gives a later login at a slightly different angle nothing
+ * close to match against.
+ */
+export async function updateAlumniFace(
+    captures: AlumniFaceCapture[],
+    gps?: { gpsLat: number; gpsLng: number; gpsAccuracyM: number },
+): Promise<{ samples: number; framesSupplied: number; alumni: Record<string, unknown> }> {
+    const body = new FormData();
+    const descriptors: number[][] = [];
+    captures.forEach((capture, index) => {
+        body.append('face_images', capture.blob, `face_${index}.jpg`);
+        descriptors.push(capture.descriptor);
+    });
+    // The frontal frame leads: the server keeps it as the single descriptor
+    // alongside the sweep it averages.
+    const frontal = captures.reduce((best, c) => (Math.abs(c.yaw) < Math.abs(best.yaw) ? c : best));
+    body.append('face_descriptor_samples', JSON.stringify(descriptors));
+    body.append('face_descriptor', JSON.stringify(frontal.descriptor));
+    body.append('sample_meta', JSON.stringify(captures.map(c => ({ yaw: c.yaw }))));
+    if (gps) {
+        body.append('gps_lat', String(gps.gpsLat));
+        body.append('gps_lng', String(gps.gpsLng));
+        body.append('gps_accuracy_m', String(gps.gpsAccuracyM));
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/auth/alumni/face/enrol/`, {
+        method: 'POST',
+        // No Content-Type: the browser sets the multipart boundary itself.
+        headers: withAlumniAuthHeaders(),
+        body,
+    });
+    await throwIfNotOk(response);
+    return response.json();
+}
+
 export async function updateAlumniEmployment(
     alumniId: string,
     payload: {
