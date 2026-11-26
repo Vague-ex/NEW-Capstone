@@ -167,7 +167,7 @@ function AuditRow({ e, detailed = false, onOpen }: {
             </>
           ) : sentence}
         </p>
-        <p className="text-gray-400 text-xs mt-0.5 break-words">
+        <p className="text-gray-500 text-xs mt-0.5 break-words">
           {auditWhen(e.occurredAt)}
           {detailed && (
             <>
@@ -272,7 +272,7 @@ function AuditModal({ initialEvents, totals, onClose, onOpen }: {
               {events.length} shown, newest first
             </p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="shrink-0 text-gray-400 hover:text-gray-600 text-sm px-2 py-1">
+          <button onClick={onClose} aria-label="Close" className="shrink-0 text-gray-500 hover:text-gray-700 text-sm px-2 py-1">
             Close
           </button>
         </div>
@@ -290,15 +290,15 @@ function AuditModal({ initialEvents, totals, onClose, onOpen }: {
               }`}
               style={{ fontWeight: kind === f.key ? 600 : 500 }}
             >
-              {f.label} <span className="text-gray-400">{totals[f.key]}</span>
+              {f.label} <span className="text-gray-500">{totals[f.key]}</span>
             </button>
           ))}
         </div>
         <div className="overflow-y-auto px-5 py-2">
           {loading ? (
-            <p className="text-gray-400 text-sm text-center py-6">Loading...</p>
+            <p className="text-gray-500 text-sm text-center py-6">Loading...</p>
           ) : shown.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-6">Nothing of this kind yet.</p>
+            <p className="text-gray-500 text-sm text-center py-6">Nothing of this kind yet.</p>
           ) : (
             <ul className="divide-y divide-gray-50">
               {shown.map((e) => <AuditRow key={e.id} e={e} detailed onOpen={onOpen} />)}
@@ -721,7 +721,7 @@ export function AdminNewDashboard() {
                 <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '2rem', lineHeight: 1 }}>
                   {alignment.overallRate}
                 </p>
-                <p className="text-gray-400 text-xs mt-1">overall aligned</p>
+                <p className="text-gray-500 text-xs mt-1">overall aligned</p>
               </div>
             </div>
 
@@ -762,7 +762,7 @@ export function AdminNewDashboard() {
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <TrendingUp className="size-4 text-[#166534]" /> Employment Rate by Batch
             </h3>
-            <p className="text-gray-400 text-xs mb-4">Verified graduates only · auto-refreshes every 15s</p>
+            <p className="text-gray-500 text-xs mb-4">Verified graduates only · auto-refreshes every 15s</p>
             {yearlyEmploymentRates.length > 0 ? (
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={yearlyEmploymentRates}>
@@ -780,7 +780,7 @@ export function AdminNewDashboard() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+              <div className="h-[200px] flex items-center justify-center text-gray-500 text-sm">
                 No verified graduate data yet.
               </div>
             )}
@@ -790,7 +790,7 @@ export function AdminNewDashboard() {
             <h3 className="text-gray-800 mb-1 flex items-center gap-2" style={{ fontWeight: 700 }}>
               <Clock className="size-4 text-[#166534]" /> Avg. Time-to-Hire (months)
             </h3>
-            <p className="text-gray-400 text-xs mb-3">Computed from CHED employment answers of verified graduates</p>
+            <p className="text-gray-500 text-xs mb-3">Computed from CHED employment answers of verified graduates</p>
             {/* Batch range, inclusive. Asked for by the panel: without it the
                 chart always spans every batch the system holds. */}
             <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -801,7 +801,7 @@ export function AdminNewDashboard() {
                 <option value="all">Earliest</option>
                 {batchYears.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
-              <span className="text-gray-400 text-xs">to</span>
+              <span className="text-gray-500 text-xs">to</span>
               <select value={String(hireTo)}
                 onChange={(e) => setHireTo(e.target.value === 'all' ? 'all' : Number(e.target.value))}
                 className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-[#166534]">
@@ -833,11 +833,11 @@ export function AdminNewDashboard() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+              <div className="h-[200px] flex items-center justify-center text-gray-500 text-sm">
                 No time-to-hire records yet.
               </div>
             )}
-            <p className="text-gray-400 text-[11px] mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-gray-500 text-[11px] mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: '#10b981' }} />≤3 mo · fast</span>
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: '#f59e0b' }} />3–4.5 mo · moderate</span>
               <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-full" style={{ background: '#ef4444' }} />&gt;4.5 mo · slow</span>
@@ -849,7 +849,7 @@ export function AdminNewDashboard() {
           <div className="lg:col-span-2 min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 lg:flex lg:flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Batch Employment Breakdown</h3>
-              <span className="text-gray-400 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">
+              <span className="text-gray-500 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">
                 Verified graduates only
               </span>
             </div>
@@ -884,7 +884,7 @@ export function AdminNewDashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-gray-800 text-xs truncate" style={{ fontWeight: 600 }}>{ql.label}</p>
-                    <p className="text-gray-400 text-xs truncate">{ql.sub}</p>
+                    <p className="text-gray-500 text-xs truncate">{ql.sub}</p>
                   </div>
                   {ql.badge != null && ql.badge > 0 && (
                     <span className="flex size-5 items-center justify-center rounded-full bg-red-500 text-white shrink-0" style={{ fontSize: '10px', fontWeight: 700 }}>
@@ -906,7 +906,7 @@ export function AdminNewDashboard() {
               <h3 className="text-gray-800 flex items-center gap-2" style={{ fontWeight: 700 }}>
                 <Repeat className="size-4 text-[#166534]" /> Graduates with Multiple Jobs
               </h3>
-              <p className="text-gray-400 text-xs mt-0.5">
+              <p className="text-gray-500 text-xs mt-0.5">
                 Counted by distinct employers on record, so a promotion at the same company is not a second job.
               </p>
             </div>
@@ -915,7 +915,7 @@ export function AdminNewDashboard() {
                 <p className="text-[#166534]" style={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1 }}>
                   {mobility.multiJobGraduates}
                 </p>
-                <p className="text-gray-400 text-xs mt-1">
+                <p className="text-gray-500 text-xs mt-1">
                   of {mobility.graduates} graduate{mobility.graduates === 1 ? '' : 's'}
                   {mobility.graduates > 0 ? ` · ${Math.round((mobility.multiJobGraduates / mobility.graduates) * 100)}%` : ''}
                 </p>
@@ -924,9 +924,9 @@ export function AdminNewDashboard() {
           </div>
 
           {!mobility ? (
-            <p className="text-gray-400 text-sm py-6 text-center">Job-mobility figures could not be loaded.</p>
+            <p className="text-gray-500 text-sm py-6 text-center">Job-mobility figures could not be loaded.</p>
           ) : mobility.multiJobGraduates === 0 ? (
-            <p className="text-gray-400 text-sm py-6 text-center">
+            <p className="text-gray-500 text-sm py-6 text-center">
               No graduate has a second employer on record yet.
             </p>
           ) : (
@@ -954,18 +954,21 @@ export function AdminNewDashboard() {
                 </p>
                 <ul className="divide-y divide-gray-50 max-h-[200px] overflow-y-auto pr-1">
                   {mobility.individuals.map((person) => (
-                    <li key={person.id} className="flex items-start gap-3 py-2">
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#166534]/10 text-[#166534] text-[11px]"
-                        style={{ fontWeight: 700 }}>
-                        {person.jobs}
-                      </span>
+                    <li key={person.id} className="flex items-start justify-between gap-3 py-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-gray-800 text-xs truncate" style={{ fontWeight: 600 }}>{person.name}</p>
-                        <p className="text-gray-400 text-[11px] truncate">
+                        <p className="text-gray-500 text-[11px] truncate">
                           Batch {person.graduationYear ?? 'N/A'}
                           {person.currentCompany ? ` · now at ${person.currentCompany}` : ''}
                         </p>
                       </div>
+                      {/* Spelled out rather than a bare number in a circle: on its
+                          own, "2" was read as a rank or a batch rather than the
+                          employer count the column is sorted by. */}
+                      <span className="shrink-0 rounded-full bg-[#166534]/10 text-[#166534] text-[11px] px-2 py-0.5 whitespace-nowrap"
+                        style={{ fontWeight: 700 }}>
+                        {person.jobs} employers
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1003,7 +1006,7 @@ export function AdminNewDashboard() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-gray-800 text-sm truncate" style={{ fontWeight: 500 }}>{name}</p>
-                      <p className="text-gray-400 text-xs truncate">Batch {a.graduationYear ?? 'N/A'}</p>
+                      <p className="text-gray-500 text-xs truncate">Batch {a.graduationYear ?? 'N/A'}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -1020,7 +1023,7 @@ export function AdminNewDashboard() {
               })}
             </div>
           ) : (
-            <div className="text-gray-400 text-sm text-center py-6">No recent updates yet.</div>
+            <div className="text-gray-500 text-sm text-center py-6">No recent updates yet.</div>
           )}
         </div>
 
@@ -1039,7 +1042,7 @@ export function AdminNewDashboard() {
               ))}
             </div>
           ) : (
-            <div className="text-gray-400 text-sm text-center py-6">No skills data from verified graduates yet.</div>
+            <div className="text-gray-500 text-sm text-center py-6">No skills data from verified graduates yet.</div>
           )}
 
         </div>
@@ -1057,7 +1060,7 @@ export function AdminNewDashboard() {
             </h3>
             {auditEvents.length > 0 && (
               <div className="flex items-center gap-3 shrink-0">
-                <span className="text-gray-400 text-xs">
+                <span className="text-gray-500 text-xs">
                   {auditEvents.length} {auditEvents.length === 1 ? 'entry' : 'entries'}
                 </span>
                 {auditEvents.length > AUDIT_PREVIEW && (
@@ -1073,7 +1076,7 @@ export function AdminNewDashboard() {
             )}
           </div>
           {auditError ? (
-            <div className="text-gray-400 text-sm text-center py-6">Audit activity is unavailable right now.</div>
+            <div className="text-gray-500 text-sm text-center py-6">Audit activity is unavailable right now.</div>
           ) : auditEvents.length > 0 ? (
             <ul className="divide-y divide-gray-50">
               {auditEvents.slice(0, AUDIT_PREVIEW).map((e) => (
@@ -1081,7 +1084,7 @@ export function AdminNewDashboard() {
               ))}
             </ul>
           ) : (
-            <div className="text-gray-400 text-sm text-center py-6">No audit activity yet.</div>
+            <div className="text-gray-500 text-sm text-center py-6">No audit activity yet.</div>
           )}
         </div>
       </div>
