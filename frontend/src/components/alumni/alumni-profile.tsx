@@ -276,18 +276,6 @@ export function AlumniProfile() {
             )}
           </div>
         </form>
-
-        {/* Profile photo note */}
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-          <Camera className="size-5 text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-amber-800 text-sm" style={{ fontWeight: 600 }}>Profile photo is camera-capture only</p>
-            <p className="text-amber-700 text-xs mt-0.5 leading-relaxed">
-              Per CHMSU data policy, profile photos and biometrics are captured via live camera during registration only.
-              File uploads are not supported. To update your biometric, contact the BSIS Admin.
-            </p>
-          </div>
-        </div>
         </div>
       </div>
     </PortalLayout>
