@@ -482,12 +482,24 @@ export function AdminNewDashboard() {
     return map;
   }, [masterTotals]);
 
+  // The newest batch these charts describe: last year.
+  //
+  // This is an ANALYTICS cutoff, not the registration one. A batch graduating
+  // this year has not had a year in which to find work, so an employment rate
+  // for it is not a low rate -- it is a rate measured too early, and plotted
+  // beside five finished batches it reads as a collapse. (/admin/debug/a's
+  // "Allow current-year graduates" is a different rule: whether this year's
+  // graduates may register at all. They may, and they still appear in the
+  // verified lists and counts -- they just do not get an outcome column here
+  // until their year is done.)
+  const latestBatchYear = new Date().getFullYear() - 1;
+
   const batchYears = useMemo(() => {
     const years = Array.from(
       new Set([
         ...registeredAlumni
           .map((a) => Number(a.graduationYear))
-          .filter((year) => Number.isFinite(year) && year > 0),
+          .filter((year) => Number.isFinite(year) && year > 0 && year <= latestBatchYear),
       ]),
     ).sort((a, b) => a - b);
 
@@ -495,9 +507,8 @@ export function AdminNewDashboard() {
       return years;
     }
 
-    const currentYear = new Date().getFullYear();
-    return [currentYear - 5, currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear];
-  }, [registeredAlumni]);
+    return [5, 4, 3, 2, 1, 0].map((back) => latestBatchYear - back);
+  }, [registeredAlumni, latestBatchYear]);
 
   const batchData = useMemo(() => (
     batchYears.map((year) => {
@@ -535,6 +546,10 @@ export function AdminNewDashboard() {
     verifiedAlumni.forEach((alumni) => {
       const year = Number(alumni.graduationYear);
       if (!Number.isFinite(year) || year <= 0) return;
+      // Same cutoff as the batch charts. Only this year's graduates who found
+      // work FAST have a time-to-hire yet, so their average is low for a
+      // reason that has nothing to do with the batch.
+      if (year > latestBatchYear) return;
       if (year < from || year > to) return;
 
       const surveyData = ((alumni as Record<string, unknown>).surveyData ?? {}) as Record<string, unknown>;
@@ -561,7 +576,7 @@ export function AdminNewDashboard() {
         year: String(year),
         avgMonths: Number((aggregate.totalMonths / aggregate.entries).toFixed(1)),
       }));
-  }, [verifiedAlumni, hireFrom, hireTo]);
+  }, [verifiedAlumni, hireFrom, hireTo, latestBatchYear]);
 
   const recentAlumni = useMemo(() => (
     [...registeredAlumni]
