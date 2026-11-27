@@ -13,7 +13,7 @@ import {
   BarChart2, Clock, CheckCircle2, AlertTriangle, ArrowRight,
   ClipboardCheck, Upload, RefreshCw, ShieldCheck, GraduationCap, Repeat,
 } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend, LabelList } from 'recharts';
 import type { ReportPayload } from '../../app/api-client';
 
 /** Earliest batch the tracer covers; the report is filtered from here to now. */
@@ -509,6 +509,8 @@ export function AdminNewDashboard() {
     batchData.map((batch) => ({
       year: batch.year,
       rate: batch.total > 0 ? Math.round((batch.employed / batch.total) * 100) : 0,
+      employed: batch.employed,
+      total: batch.total,
     }))
   ), [batchData]);
 
@@ -783,7 +785,13 @@ export function AdminNewDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
-                  <Tooltip itemStyle={CHART_LABEL} formatter={(v: any) => [`${v}%`, 'Employment Rate']} />
+                  <Tooltip
+                    itemStyle={CHART_LABEL}
+                    formatter={(value: any, _name: any, entry: any) => [
+                      `${value}% (${entry?.payload?.employed ?? 0} of ${entry?.payload?.total ?? 0} respondents)`,
+                      'Employment Rate',
+                    ]}
+                  />
                   <Area type="monotone" dataKey="rate" stroke="#166534" fill="url(#adminEmpGrad)" strokeWidth={2.5} dot={{ fill: '#166534', r: 4 }} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -858,7 +866,7 @@ export function AdminNewDashboard() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-gray-800" style={{ fontWeight: 700 }}>Batch Employment Breakdown</h3>
               <span className="text-gray-500 text-xs bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg">
-                Verified graduates only
+                Number above each bar: respondents in that batch
               </span>
             </div>
             {/* Phones: fixed 160px (cards stack). Desktop: the row is as tall as
@@ -874,7 +882,9 @@ export function AdminNewDashboard() {
                     <Tooltip itemStyle={CHART_LABEL} />
                     <Legend wrapperStyle={{ fontSize: 11 }} formatter={chartLegendLabel} />
                     <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
-                    <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                    <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]}>
+                      <LabelList dataKey="total" position="top" style={{ fontSize: 10, fill: '#4b5563', fontWeight: 600 }} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
