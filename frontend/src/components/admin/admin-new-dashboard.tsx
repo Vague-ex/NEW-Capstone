@@ -14,6 +14,7 @@ import {
   ClipboardCheck, Upload, RefreshCw, ShieldCheck, GraduationCap, Repeat,
 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend, LabelList } from 'recharts';
+import { BatchTrendTooltip } from './batch-trend-tooltip';
 import type { ReportPayload } from '../../app/api-client';
 
 /** Earliest batch the tracer covers; the report is filtered from here to now. */
@@ -475,6 +476,12 @@ export function AdminNewDashboard() {
   // Verified graduates whose employment record is over two years old.
   const retraceCount = listedAlumni.filter(a => a.requiresRetracking === true).length;
 
+  const masterByYear = useMemo(() => {
+    const map = new globalThis.Map<number, number>();
+    (masterTotals?.perBatch ?? []).forEach((b) => map.set(Number(b.year), Number(b.count)));
+    return map;
+  }, [masterTotals]);
+
   const batchYears = useMemo(() => {
     const years = Array.from(
       new Set([
@@ -501,16 +508,22 @@ export function AdminNewDashboard() {
         total: verifiedBatch.length,
         employed: employedBatch,
         notEmployed: verifiedBatch.length - employedBatch,
+        graduates: masterByYear.get(year) ?? null,
+        counts: {
+          yesLabel: 'Employed', yes: employedBatch,
+          noLabel: 'Not employed', no: verifiedBatch.length - employedBatch,
+        },
+        detail: verifiedBatch.length > 0
+          ? `${Math.round((employedBatch / verifiedBatch.length) * 100)}% employed. This is a share of respondents, not of the whole batch.`
+          : 'No graduate from this batch has answered yet.',
       };
     })
-  ), [batchYears, verifiedAlumni]);
+  ), [batchYears, verifiedAlumni, masterByYear]);
 
   const yearlyEmploymentRates = useMemo(() => (
     batchData.map((batch) => ({
-      year: batch.year,
+      ...batch,
       rate: batch.total > 0 ? Math.round((batch.employed / batch.total) * 100) : 0,
-      employed: batch.employed,
-      total: batch.total,
     }))
   ), [batchData]);
 
@@ -785,13 +798,7 @@ export function AdminNewDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
-                  <Tooltip
-                    itemStyle={CHART_LABEL}
-                    formatter={(value: any, _name: any, entry: any) => [
-                      `${value}% (${entry?.payload?.employed ?? 0} of ${entry?.payload?.total ?? 0} respondents)`,
-                      'Employment Rate',
-                    ]}
-                  />
+                  <Tooltip content={<BatchTrendTooltip />} />
                   <Area type="monotone" dataKey="rate" stroke="#166534" fill="url(#adminEmpGrad)" strokeWidth={2.5} dot={{ fill: '#166534', r: 4 }} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -879,7 +886,7 @@ export function AdminNewDashboard() {
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip itemStyle={CHART_LABEL} />
+                    <Tooltip content={<BatchTrendTooltip />} />
                     <Legend wrapperStyle={{ fontSize: 11 }} formatter={chartLegendLabel} />
                     <Bar key="bar-employed" dataKey="employed" stackId="emp" name="Employed" fill="#166534" radius={[0, 0, 0, 0]} />
                     <Bar key="bar-notemployed" dataKey="notEmployed" stackId="emp" name="Not employed" fill="#ef4444" radius={[3, 3, 0, 0]}>

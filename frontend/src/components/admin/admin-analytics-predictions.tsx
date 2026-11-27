@@ -16,6 +16,7 @@ import {
   SkillRow,
   SkillsByBatch,
 } from '../../app/api-client';
+import { BatchTrendTooltip } from './batch-trend-tooltip';
 
 function pct(v: number | null | undefined, digits = 1): string {
   // Null means no data or a hidden small group. Rendering it as 0% would
@@ -137,41 +138,6 @@ function TrendTick({ x, y, payload, rows }: {
         <text dy={25} textAnchor="middle" fontSize={10} fill="#9ca3af">n={row.n}</text>
       )}
     </g>
-  );
-}
-
-function TrendTooltip({ active, payload }: { active?: boolean; payload?: { payload: TrendRow }[] }) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0].payload;
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm px-3 py-2 text-xs max-w-[240px]">
-      <p className="text-gray-900" style={{ fontWeight: 700 }}>{row.year}</p>
-      {row.counts && (
-        <dl className="mt-1 mb-1.5 space-y-0.5 text-gray-700">
-          <div className="flex justify-between gap-4">
-            <dt>{row.counts.yesLabel}</dt>
-            <dd style={{ fontWeight: 700 }}>{row.counts.yes}</dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt>{row.counts.noLabel}</dt>
-            <dd style={{ fontWeight: 700 }}>{row.counts.no}</dd>
-          </div>
-          <div className="flex justify-between gap-4 border-t border-gray-200 pt-0.5 text-gray-500">
-            <dt>Total respondents</dt>
-            <dd>{row.counts.yes + row.counts.no}</dd>
-          </div>
-          {/* The batch itself, under the respondents, so the hover shows how
-              much of it answered rather than only the percentage. */}
-          {row.graduates != null && (
-            <div className="flex justify-between gap-4 text-gray-500">
-              <dt>Total graduates</dt>
-              <dd>{row.graduates}</dd>
-            </div>
-          )}
-        </dl>
-      )}
-      <p className="text-gray-600 mt-0.5 leading-relaxed">{row.detail}</p>
-    </div>
   );
 }
 
@@ -546,7 +512,7 @@ export function AdminAnalyticsPredictions() {
                   tick={<TrendTick rows={trendSeries} />}
                 />
                 <YAxis tick={{ fontSize: 11 }} unit="%" domain={[0, 100]} />
-                <Tooltip content={<TrendTooltip />} />
+                <Tooltip content={<BatchTrendTooltip />} />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
                 <Line
                   type="linear"
